@@ -142,7 +142,7 @@ impl Mux {
         ratio: Option<f32>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        self.move_tab_to_split_as(&Actor::Daemon, surface, pane, edge, ratio, transaction)
+        self.move_tab_to_split_as(&Actor::Daemon, surface, pane, edge, ratio, false, transaction)
     }
 
     pub(crate) fn move_tab_to_column(
@@ -161,6 +161,7 @@ impl Mux {
             after_column,
             width,
             dock,
+            false,
             transaction,
         )
     }
@@ -206,7 +207,7 @@ impl Mux {
         color: Option<String>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
-        self.update_screen_group_as(&Actor::Daemon, group, name, color, collapsed)
+        self.update_screen_group_as(&Actor::Daemon, group, name, color, collapsed, None)
     }
 
     pub(crate) fn add_screens_to_screen_group(
@@ -259,7 +260,7 @@ impl Mux {
         color: Option<String>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<TabGroupOutcome> {
-        self.update_tab_group_as(&Actor::Daemon, group, name, color, collapsed)
+        self.update_tab_group_as(&Actor::Daemon, group, name, color, collapsed, None)
     }
 
     pub(crate) fn add_tabs_to_tab_group(

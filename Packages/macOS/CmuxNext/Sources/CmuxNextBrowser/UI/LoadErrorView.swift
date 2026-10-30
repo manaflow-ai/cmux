@@ -9,14 +9,14 @@ final class LoadErrorView: NSView {
     var onRetry: (() -> Void)?
     var onBack: (() -> Void)?
     var onProceed: (() -> Void)?
-    private let titleLabel = NSTextField(labelWithString: Strings.loadFailedTitle)
-    private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: Strings.loadFailedTitle)
+    private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     // Targets are set in init (no IUOs).
     let retryButton = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(LoadErrorView.retry), target: nil)
     let backButton = ChromeTextButton(title: Strings.certificateBackToSafety, prominent: true, action: #selector(LoadErrorView.goBack), target: nil)
     let proceedButton = ChromeTextButton(title: "", prominent: false, action: #selector(LoadErrorView.proceed), target: nil)
     let detailsButton = ChromeTextButton(title: Strings.certificateShowDetails, prominent: false, action: nil, target: nil)
-    let detailsLabel = NSTextField(wrappingLabelWithString: "")
+    let detailsLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var showsDetails = false
     private(set) var isCertificateInterstitial = false
     private let density = DensityBinding()
@@ -88,6 +88,11 @@ final class LoadErrorView: NSView {
             detailsLabel.textColor = Palette.textSecondary
         }
     }
+
+    #if DEBUG
+    /// The title and message shown (`debug.browser.page_status`).
+    var debugText: String { "\(titleLabel.stringValue)\n\(messageLabel.stringValue)" }
+    #endif
 
     @objc private func retry() { onRetry?() }
     @objc private func goBack() { onBack?() }

@@ -25,8 +25,15 @@ struct RoomMembership: Equatable, Sendable {
         return followers.isEmpty ? [.defaultProfile] : followers
     }
 
+    /// `rooms(of:).contains(room)` without building the set (the control snapshot asks it per workspace).
     func contains(_ workspace: Workspace, in room: ProfileID) -> Bool {
-        rooms(of: workspace).contains(room)
+        if let pinned = pins[workspace] { return pinned == room }
+        var followed = false
+        for (follower, sessions) in follows where sessions.contains(workspace.session) {
+            if follower == room { return true }
+            followed = true
+        }
+        return !followed && room == .defaultProfile
     }
 
     /// Whether Delete Space on `room` closes `workspace`
@@ -40,18 +47,5 @@ struct RoomMembership: Equatable, Sendable {
     /// other pin.
     mutating func pin(_ workspace: Workspace, to room: ProfileID) {
         pins[workspace] = room
-    }
-
-    /// A room left the list: its pins go to `target`, or are removed (the
-    /// workspaces return to their followers); it stops following.
-    mutating func removeRoom(_ room: ProfileID, movingPinsTo target: ProfileID?) {
-        follows[room] = nil
-        for (workspace, pinned) in pins where pinned == room { pins[workspace] = target }
-    }
-
-    /// Membership for a daemon that has no personal state yet (before the
-    /// home session serves rules): `default` follows every session.
-    static func followingAll(_ sessions: [String]) -> RoomMembership {
-        RoomMembership(follows: [.defaultProfile: Set(sessions)])
     }
 }

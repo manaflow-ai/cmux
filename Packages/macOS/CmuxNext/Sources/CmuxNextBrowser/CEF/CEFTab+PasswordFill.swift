@@ -2,7 +2,6 @@ import Foundation
 import os
 
 extension CEFTab {
-    var passwordFills: Bool { passwordFill.fills(agentDriven: isAgentDriven) }
 
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {
         if passwordFill.setAllowedByProfile(allowed) { applyPasswordFill() }

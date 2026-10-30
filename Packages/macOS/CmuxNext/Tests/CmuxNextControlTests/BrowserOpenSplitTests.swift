@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// Runs `openBrowser` like the App: the new tab is a daemon command in the

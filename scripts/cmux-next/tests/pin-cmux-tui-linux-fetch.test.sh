@@ -46,6 +46,11 @@ for ((i = 0; i < \${#args[@]}; i++)); do
 done
 if [[ -z "\$url" ]]; then exec "$real_curl" "\$@"; fi
 path="$TMP/cdn/\${url#https://cdn.test/cmux-tui/}"; path="\${path%%\\?*}"
+# FLAKE_ONCE=<suffix>: the first download whose URL ends in it fails like a
+# timed-out TLS read (curl exit 35), as on the fleet (cx-4pdg).
+if [[ -n "\${FLAKE_ONCE:-}" && "\$path" == *"\$FLAKE_ONCE" && ! -e "$TMP/flaked" ]]; then
+  touch "$TMP/flaked"; echo "curl: (35) Recv failure: Operation timed out" >&2; exit 35
+fi
 [[ -f "\$path" ]] || exit 22
 if [[ -n "\$out" ]]; then cp "\$path" "\$out"; else cat "\$path"; fi
 SHIM
@@ -129,5 +134,14 @@ $out"
 bin=$(run Darwin arm64 path | tail -n 1)
 [[ "$bin" == "$TMP/src/cmux-tui/target/hosted/tree/$key/cmux-tui" ]] || fail "macOS path moved to $bin"
 [[ "$(cat "$bin")" == mac-daemon ]] || fail "macOS fetched $(cat "$bin")"
+
+# A transient network failure on the companion manifest is retried, not fatal (cx-4pdg).
+rm -rf "$TMP/src/cmux-tui/target" "$TMP/flaked"
+out=$(FLAKE_ONCE="$sha/manifest.json" CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS=0 run Darwin arm64 fetch) || fail "fetch failed on one transient manifest download:
+$out"
+[[ -e "$TMP/flaked" ]] || fail "the flake shim never fired; the test proves nothing:
+$out"
+grep -q 'curl exit 35' <<<"$out" || fail "the retry is not reported:
+$out"
 
 echo "pin-cmux-tui-linux-fetch.test.sh: ok"

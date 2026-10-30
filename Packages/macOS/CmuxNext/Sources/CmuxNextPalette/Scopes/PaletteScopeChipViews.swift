@@ -14,7 +14,7 @@ final class PaletteScopeChipsView: NSView {
     private var style: PaletteScopeChipStyle = .token
     private var chipViews: [PaletteScopeChipView] = []
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func update(chips: [PaletteScopeChip], style: PaletteScopeChipStyle) {
         let visible = Array(chips.suffix(2))
@@ -59,16 +59,20 @@ final class PaletteScopeChipView: NSView {
     private let chip: PaletteScopeChip
     private let style: PaletteScopeChipStyle
     private let isTop: Bool
+    private var ink: PaletteScopeChipInk
+    /// Fixed colors (the before/after snapshot); nil follows Increase Contrast.
+    private let fixedInk: PaletteScopeChipInk?
     private let icon = NSImageView()
     private let label: PaletteLabel
     private let rule = NSView()
 
-    init(chip: PaletteScopeChip, style: PaletteScopeChipStyle, isTop: Bool) {
+    init(chip: PaletteScopeChip, style: PaletteScopeChipStyle, isTop: Bool, ink fixedInk: PaletteScopeChipInk? = nil) {
+        self.fixedInk = fixedInk
         self.chip = chip
         self.style = style
         self.isTop = isTop
-        label = PaletteText.label(style == .header ? Typography.bodyEmphasized : Typography.caption,
-                                  tone: isTop ? .primary : .tertiary)
+        ink = fixedInk ?? PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+        label = PaletteText.label(style == .header ? Typography.bodyEmphasized : Typography.caption, tone: ink.text)
         super.init(frame: .zero)
         wantsLayer = true
         label.stringValue = chip.title
@@ -79,20 +83,20 @@ final class PaletteScopeChipView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(PaletteStrings.chipAccessibility(chip.title))
-        toolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
+        themedToolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
         setAccessibilityIdentifier("palette.scopeChip.\(chip.scope.rawValue)")
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// The icon's square: measured and laid out with the same value.
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space1 }
 
     var preferredHeight: CGFloat {
-        style == .token ? label.intrinsicContentSize.height + Metrics.space2 * 2 : max(label.intrinsicContentSize.height, Metrics.iconSize)
+        style == .token ? PaletteText.height(label) + Metrics.space2 * 2 : max(PaletteText.height(label), Metrics.iconSize)
     }
 
     var fittingWidth: CGFloat {
@@ -110,24 +114,39 @@ final class PaletteScopeChipView: NSView {
 
     override func layout() {
         super.layout()
+        let ink = fixedInk ?? PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+        if ink != self.ink {
+            self.ink = ink
+            label.tone = ink.text
+        }
         performWithTheme {
-            icon.contentTintColor = isTop ? Palette.textSecondary : Palette.textTertiary
+            icon.contentTintColor = ink.icon.color
             rule.layer?.backgroundColor = Palette.separator.cgColor
             if style == .token {
-                layer?.backgroundColor = (isTop ? Palette.selectionFill : Palette.selectionFill.withAlphaComponent(0.5)).cgColor
+                switch ink.fill {
+                case .none: layer?.backgroundColor = nil
+                case .selection: layer?.backgroundColor = Palette.selectionFill.cgColor
+                case .halfSelection:
+                    // Half the fill's own alpha (what PaletteScopeChipContrastTests measures).
+                    let fill = Palette.selectionFill
+                    layer?.backgroundColor = fill.withAlphaComponent(fill.alphaComponent * 0.5).cgColor
+                }
+                layer?.borderColor = Palette.separator.cgColor
+                layer?.borderWidth = ink.outlined ? Metrics.dividerThickness : 0
                 layer?.cornerRadius = bounds.height / 2
             } else {
                 layer?.backgroundColor = nil
+                layer?.borderWidth = 0
             }
         }
         let inset = style == .token ? Metrics.space3 : 0
         let iconSize = Self.iconBox
         icon.frame = NSRect(x: inset, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
-        let labelHeight = label.intrinsicContentSize.height
+        let labelHeight = PaletteText.height(label)
         let ruleSpace = rule.isHidden ? 0 : Metrics.space4 + Metrics.dividerThickness
         let labelX = icon.frame.maxX + Metrics.space2
-        label.frame = NSRect(x: labelX, y: (bounds.height - labelHeight) / 2, width: max(0, bounds.width - labelX - inset - ruleSpace),
-                             height: labelHeight)
+        label.frame = pixelAligned(NSRect(x: labelX, y: (bounds.height - labelHeight) / 2,
+                                          width: max(0, bounds.width - labelX - inset - ruleSpace), height: labelHeight))
         let ruleHeight = Metrics.iconSize
         rule.frame = NSRect(x: bounds.width - Metrics.dividerThickness, y: (bounds.height - ruleHeight) / 2,
                             width: Metrics.dividerThickness, height: ruleHeight)
@@ -157,7 +176,7 @@ final class PaletteKeywordHintView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func update(title: String?) {
         isHidden = title == nil
@@ -178,9 +197,10 @@ final class PaletteKeywordHintView: NSView {
 
     override func layout() {
         super.layout()
-        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: label.intrinsicContentSize.height)
+        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: PaletteText.height(label))
         let keySize = keys.intrinsicContentSize
-        label.frame = NSRect(x: 0, y: (bounds.height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height)
-        keys.frame = NSRect(x: labelSize.width + Metrics.space2, y: (bounds.height - keySize.height) / 2, width: keySize.width, height: keySize.height)
+        label.frame = pixelAligned(NSRect(x: 0, y: (bounds.height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height))
+        keys.frame = pixelAligned(NSRect(x: labelSize.width + Metrics.space2, y: (bounds.height - keySize.height) / 2,
+                                         width: keySize.width, height: keySize.height))
     }
 }

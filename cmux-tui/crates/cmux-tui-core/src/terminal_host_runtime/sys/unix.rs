@@ -23,6 +23,7 @@ mod lease;
 mod listener;
 mod process;
 mod pty_readiness;
+mod spawned_host;
 mod waker;
 pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
 pub(crate) use barrier_sync::{barrier_sync, barrier_sync_dir};
@@ -32,7 +33,18 @@ pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
 pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+pub(crate) use spawned_host::SpawnedHostProcess;
 pub(crate) use waker::AcceptWaker;
+
+/// The host process's bootstrap streams: its private stdin and stdout pipes.
+pub(crate) fn host_bootstrap_streams(
+    _args: &[String],
+) -> std_io::Result<(Box<dyn std_io::Read>, Box<dyn std_io::Write>)> {
+    Ok((Box::new(std_io::stdin().lock()), Box::new(std_io::stdout().lock())))
+}
+
+/// Unix hosts hand their PTY to a replacement host (`pty_custody.rs`).
+pub(crate) const SUPPORTS_PTY_CUSTODY: bool = true;
 
 /// The PTY master descriptor the reader polls.
 pub(crate) type PtyPollHandle = std::os::fd::RawFd;
@@ -68,9 +80,76 @@ pub(crate) fn endpoint_dir(owner: FileOwner) -> PathBuf {
     PathBuf::from("/tmp").join(format!("cmux-th-{owner}"))
 }
 
-/// The only endpoint a record of `owner`'s host may name.
+/// The legacy flat endpoint of `owner`'s host (hosts from before cx-t2sqm.13).
 pub(crate) fn canonical_endpoint(owner: FileOwner, terminal_id: &str) -> PathBuf {
     PathBuf::from("/tmp").join(format!("cmux-th-{owner}")).join(format!("{terminal_id}.sock"))
+}
+
+/// The per-install socket directory of the records in `record_root`
+/// (cx-t2sqm.13): `/tmp/cmux-th-<uid>/<install>/`, where `<install>` is the
+/// 16-hex token of the record directory's session (`terminal-hosts-<token>`,
+/// one per build: the app session names the bundle id and tag), else a
+/// token of the record directory's path. A build's cleanup of its own socket
+/// directory cannot touch another build's sockets.
+pub(crate) fn install_endpoint_dir(owner: FileOwner, record_root: &Path) -> PathBuf {
+    let token = record_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("terminal-hosts-"))
+        .filter(|token| token.len() == 16 && token.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            // Components, so `/x/root/` and `/x/root` name one directory.
+            let path: PathBuf = record_root.components().collect();
+            super::super::shared::codec::stable_token(&path.to_string_lossy())
+        });
+    endpoint_dir(owner).join(token)
+}
+
+/// Where a new host of `record_root` binds its socket.
+///
+/// Two phases, so a rollback never strands a live terminal: this build
+/// ACCEPTS records that name the per-install path but still BINDS new hosts
+/// in the flat directory, which every older build accepts. A later build
+/// switches the bind (cx-t2sqm.18) once builds without this acceptance are
+/// out of the rollback window. Debug builds bind per-install when
+/// `CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT=1` (behavior tests).
+pub(crate) fn host_endpoint(owner: FileOwner, record_root: &Path, terminal_id: &str) -> PathBuf {
+    if bind_per_install() {
+        install_endpoint_dir(owner, record_root).join(format!("{terminal_id}.sock"))
+    } else {
+        canonical_endpoint(owner, terminal_id)
+    }
+}
+
+/// The directory [`host_endpoint`] binds in.
+pub(crate) fn host_endpoint_dir(owner: FileOwner, record_root: &Path) -> PathBuf {
+    if bind_per_install() { install_endpoint_dir(owner, record_root) } else { endpoint_dir(owner) }
+}
+
+fn bind_per_install() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var_os("CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT").is_some_and(|value| value == "1")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
+/// The endpoints a record in `record_root` may name: its install's
+/// directory, or the legacy flat directory (a host an older build spawned
+/// keeps working after an update).
+pub(crate) fn canonical_endpoints(
+    owner: FileOwner,
+    record_root: &Path,
+    terminal_id: &str,
+) -> [PathBuf; 2] {
+    [
+        install_endpoint_dir(owner, record_root).join(format!("{terminal_id}.sock")),
+        canonical_endpoint(owner, terminal_id),
+    ]
 }
 
 pub(crate) fn is_endpoint_file(metadata: &fs::Metadata) -> bool {

@@ -65,7 +65,8 @@
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart), \"setting\" (change one setting in the global cmux.json: path plus exactly one of set, toggle: true, cycle, or unset: true), or \"settingPreset\" (apply a named entry from settingPresets). Setting actions only run when declared in the global ~/.config/cmux/cmux.json or a pack it references; with confirm: true they ask before saving. Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
+      "descriptionKey": "schemaDescriptions.actions",
+      "description": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration.",
       "type": "object",
       "additionalProperties": true
     },
@@ -179,6 +180,22 @@
         }
       }
     },
+    "windowHints": {
+      "x-cmux-scopes": ["global"],
+      "title": "windowHints",
+      "description": "Click by Hint (hint mode) settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it." }
+          }
+        }
+      }
+    },
     "cloud": {
       "x-cmux-scopes": ["global"],
       "title": "cloud",
@@ -204,7 +221,7 @@
     "remoteTmux": {
       "x-cmux-scopes": ["global"],
       "title": "remoteTmux",
-      "description": "Remote tmux mirroring settings.",
+      "description": "Remote tmux mirroring settings, and the brokers its transports can connect through.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -212,8 +229,75 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
+            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." },
+            "newWorkspaceOnHost": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "descriptionKey": "schemaDescriptions.remoteTmux.beta.newWorkspaceOnHost.enabled", "description": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host." }
+              }
+            },
+            "originColors": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Tint each remote workspace's sidebar row with a stable per-host color." }
+              }
+            },
+            "originHostTitles": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Show a remote workspace's host after its title when another workspace has the same title." }
+              }
+            }
           }
+        },
+        "multiplexer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "beta": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Share one connection per remote tmux host across all of its sessions." }
+              }
+            }
+          }
+        },
+        "brokers": {
+          "type": "object",
+          "description": "Wrapper commands that reach a host on cmux's behalf, each under the name you refer to it by. A broker is named here rather than passed to cmux at connect time, so only commands you have written down can be launched. Use one when a host is reachable through a corporate SSH broker or similar wrapper instead of directly.",
+          "additionalProperties": false,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "patternProperties": {
+            "^[A-Za-z0-9_.-]+$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "executable"
+              ],
+              "properties": {
+                "executable": {
+                  "type": "string",
+                  "description": "Absolute path to the wrapper. It must be absolute: cmux resolves it without a login shell's PATH, so a bare name fails in a way that looks like the host being unreachable.",
+                  "pattern": "^/"
+                },
+                "arguments": {
+                  "type": "array",
+                  "description": "Flags the wrapper needs before the destination, in order. Most wrappers parse their own flags up to the destination and forward everything after it, so order matters.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                }
+              }
+            }
+          },
+          "default": {}
         }
       }
     },
@@ -684,6 +768,12 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "goToWorkspaceOrder": {
+          "type": "string",
+          "enum": ["sidebar", "recent"],
+          "default": "sidebar",
+          "description": "Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces."
+        },
         "forkConversationDefaultDestination": {
           "type": "string",
           "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
@@ -814,6 +904,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
+        },
+        "alwaysConfirmWorkspaceClose": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask before every workspace close, even when nothing in it is running. Overrides warnBeforeClosingWorkspace for workspace closes."
         },
         "warnBeforeClosingWindow": {
           "type": "boolean",
@@ -958,8 +1053,8 @@
         },
         "showJumpToBottomButton": {
           "type": "boolean",
-          "default": true,
-          "description": "Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling."
+          "deprecated": true,
+          "description": "Removed. cmux no longer shows a Jump to Bottom button in terminal panes, and ignores this key. It stays in the schema so existing configs still validate."
         },
         "predictiveLocalEcho": {
           "type": "boolean",
@@ -1275,7 +1370,7 @@
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). Its stdout is what cmux inserts at the cursor."
+                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). CMUX_UPLOAD_REMOTE_PATH is an absolute /tmp/cmux-drop-<uuid>.<ext> path whose parent already exists; the extension is lowercased. The command owns file permissions and cleanup. Its stdout is what cmux inserts at the cursor."
               },
               "enabled": {
                 "type": "boolean",
@@ -1609,6 +1704,12 @@
           "default": true,
           "description": "Show the workspace working directory."
         },
+        "showCloudDeviceIcons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
+          "descriptionKey": "schemaDescriptions.sidebar.showCloudDeviceIcons"
+        },
         "showPullRequests": {
           "type": "boolean",
           "default": true,
@@ -1772,6 +1873,13 @@
           "default": true,
           "description": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. false shows colors exactly as chosen. Applies to the solidFill indicator; leftRail always lightens its rail."
         },
+        "unselectedFillOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Opacity of the workspace color on rows that are not selected, with the solidFill indicator. 1 shows the full color. Multi-selected rows use half of this value."
+        },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
@@ -1871,27 +1979,10 @@
             "off",
             "cmuxOnly",
             "automation",
-            "password",
-            "allowAll",
-            "openAccess",
-            "fullOpenAccess",
-            "notifications",
-            "full"
+            "notifications"
           ],
-          "default": "cmuxOnly",
-          "description": "Socket control mode. Legacy aliases are accepted and normalized."
-        },
-        "socketPassword": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "",
-          "description": "Password for password-mode socket access. Use null or an empty string to clear it."
+          "default": "automation",
+          "description": "Socket control mode. The automation default admits processes running as the same OS user; choose cmuxOnly to restrict calls to processes started inside this cmux. Legacy aliases are accepted and normalized."
         },
         "claudeCodeIntegration": {
           "type": "boolean",
@@ -2409,7 +2500,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, a two-item array for a chord, {\"any\": [...]} for several keys on one action, null, an empty string, none, clear, unbound, or disabled to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",
@@ -2423,6 +2514,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newLocalWorkspace",
               "newBrowserWorkspace",
               "newCloudWorkspace",
               "newCloudMachine",
@@ -2437,10 +2529,13 @@
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "jumpToLastPrompt",
               "toggleUnread",
               "markOldestUnreadAndJumpNext",
               "markAllNotificationsRead",
               "clearAllNotifications",
+              "focusSidebar",
+              "showWindowHints",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",
@@ -2507,6 +2602,7 @@
               "focusDown",
               "focusPreviousPane",
               "focusNextPane",
+              "focusPaneByNumber",
               "splitRight",
               "splitDown",
               "newPaneAutoLayout",
@@ -2587,6 +2683,15 @@
             ]
           },
           "properties": {
+            "selectSurfaceByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
+            "selectWorkspaceByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
+            "focusPaneByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
             "fileExplorerOpenSelection": {
               "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
@@ -2721,6 +2826,133 @@
             }
           ],
           "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/shortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so the chord rule does not apply."
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
+                      },
+                      {
+                        "$ref": "#/$defs/shortcutStroke"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Several shortcuts for one action, each a key or a chord. Example: {\"any\": [\"ctrl+tab\", \"cmd+]\"]}."
+        }
+      ]
+    },
+    "numberedFamilyShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/shortcutFirstStroke",
+          "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/shortcutFirstStroke"
+            },
+            {
+              "$ref": "#/$defs/shortcutStroke"
+            }
+          ],
+          "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/shortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so the chord rule does not apply."
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
+                      },
+                      {
+                        "$ref": "#/$defs/shortcutStroke"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "maxItems": 1
+            }
+          },
+          "description": "A numbered family takes one key, so this list holds at most one (an empty list unbinds). cmux NEXT keeps only the first key and reports the rest as invalid. Example: {\"any\": [\"cmd+opt+1\"]}."
+        }
+      ],
+      "description": "A numbered family's binding (cmd+1 means the whole cmd+1 through cmd+9 family). As shortcutBinding, except that {\"any\": [...]} holds at most one key."
+    },
+    "numberedFamilyShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/numberedFamilyShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
         }
       ]
     },
@@ -2744,6 +2976,37 @@
         {
           "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
           "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke."
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Several shortcuts for one action, each a single stroke. Bare first strokes are accepted for this action. Example: {\"any\": [\"return\", \"o\"]}."
         }
       ]
     },
@@ -2781,6 +3044,50 @@
             }
           ],
           "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so a bare key is accepted here as it is for this action's plain binding."
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
+                      },
+                      {
+                        "$ref": "#/$defs/shortcutStroke"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Several shortcuts for one action, each a single stroke or a chord. A bare single stroke is accepted for this action; a chord still needs Cmd or Ctrl in its first stroke. Example: {\"any\": [\"j\", \"ctrl+n\"]}."
         }
       ]
     },
@@ -2816,6 +3123,17 @@
         }
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
+    },
+    "shortcutChordFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStroke"
+        },
+        {
+          "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⌃)\\+"
+        }
+      ],
+      "description": "First stroke of a chord listed in {\"any\": [...]}. Must include Cmd or Ctrl: cmux NEXT drops a chord whose first stroke has neither, whether or not the action accepts a bare single stroke. The plain two-item chord form stays wider because classic also reads it, and classic ships bare-first chords such as [\"]\", \"f\"]."
     },
     "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [

@@ -20,6 +20,7 @@ export type ChangedFile = {
   binary?: boolean;
   /// The patch stopped short of the whole diff.
   patchTruncated?: boolean;
+  blobFingerprint?: string;
 };
 
 export type ChangeSet = {
@@ -55,10 +56,28 @@ export type ChangesLoad =
 /// Where the view reads a scope from: the session host, or the mock daemon in mock mode.
 /// `status` names the branch the Branch scope compares with its base.
 /// `turn` reads a turn's checkpoint pair (turnCheckpoint.ts), when the host keeps them.
+/// `commit` and `push` change the repository; `status` then also gives their HEAD and ahead
+/// count.
 export type ChangesSource = {
   diff: (scope: ChangeScope) => Promise<unknown>;
+  /// Stages files (or unstages them), named as `diff` names them; absent where the view can't.
+  stage?: (paths: string[], unstage: boolean) => Promise<unknown>;
+  /// Stages one hunk of a file (or unstages it): its lines, each ` `, `-` or `+` then the text.
+  /// `paths` is the file, then a rename's previous path, named as for `stage`.
+  stageHunk?: (paths: string[], hunk: string[], unstage: boolean) => Promise<unknown>;
+  /// Opens the pushed branch's pull request: `{url, number}`; absent where the view can't.
+  pullRequest?: () => Promise<unknown>;
+  /// The pull request's review threads, `{url, number, threads}` (changes/reviewThreads.ts).
+  reviewThreads?: () => Promise<unknown>;
   status?: () => Promise<unknown>;
+  /// One file of a scope with every unchanged line as context (changes/wholeFile.ts), named from the
+  /// repository's top; absent where the host can't read it.
+  wholeFile?: (scope: ChangeScope, path: string) => Promise<unknown>;
   turn?: (turn: { rowId: string }) => Promise<unknown>;
+  /// `git.commit` and `git.push` with the page's params and `idempotency_key`; each resolves to
+  /// the session host's MutationResult (changes/gitWrite.ts).
+  commit?: (params: Record<string, unknown>) => Promise<unknown>;
+  push?: (params: Record<string, unknown>) => Promise<unknown>;
 };
 
 /// The checked-out branch and the base the Branch scope compares it with, from `git.status`,
@@ -115,6 +134,7 @@ export function readChangeSet(value: unknown, scope: ChangeScope): ChangeSet | u
         additions: count(file.additions),
         deletions: count(file.deletions),
         patch: text(file.patch),
+        blobFingerprint: text(file.blob_fingerprint),
         binary: file.binary === true,
         patchTruncated: file.patch_truncated === true,
       },
@@ -186,5 +206,7 @@ export function changeSetFiles(changeSet: ChangeSet): TurnFile[] {
     deleted: file.status === "deleted",
     binary: file.binary,
     patchTruncated: file.patchTruncated,
+    patch: file.patch,
+    blobFingerprint: file.blobFingerprint,
   }));
 }

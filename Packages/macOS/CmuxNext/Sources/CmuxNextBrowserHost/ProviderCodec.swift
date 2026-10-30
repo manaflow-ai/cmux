@@ -121,15 +121,20 @@ public nonisolated struct ProviderCodec {
     }
 
     static func announceObject(_ tab: ProviderTabAnnounce) -> [String: Any] {
-        ["targetId": tab.targetID, "engine": tab.engine, "workspace": tab.workspace, "profile": tab.profile,
-         "url": tab.url, "title": tab.title, "visible": tab.visible]
+        var object: [String: Any] = ["targetId": tab.targetID, "engine": tab.engine, "workspace": tab.workspace, "profile": tab.profile,
+                                     "url": tab.url, "title": tab.title, "visible": tab.visible]
+        if tab.inputScale != 1 { object["inputScale"] = tab.inputScale }
+        if tab.touch { object["touch"] = true }
+        return object
     }
 
     static func announce(_ f: Fields) throws(ProviderCodecError) -> ProviderTabAnnounce {
         ProviderTabAnnounce(targetID: try f.string("targetId"), engine: try f.string("engine"),
                             workspace: try f.string("workspace"), profile: try f.string("profile"),
                             url: try f.string("url"), title: (try? f.string("title")) ?? "",
-                            visible: (try? f.bool("visible")) ?? false)
+                            visible: (try? f.bool("visible")) ?? false,
+                            inputScale: (f.object["inputScale"] as? NSNumber)?.doubleValue ?? 1,
+                            touch: (f.object["touch"] as? Bool) ?? false)
     }
 
     static func leaseObject(_ lease: ProviderLease) -> [String: Any] {
@@ -137,6 +142,7 @@ public nonisolated struct ProviderCodec {
                                 "label": lease.label, "since_ms": NSNumber(value: lease.sinceMs)]
         if let onBehalfOf = lease.onBehalfOf { o["on_behalf_of"] = onBehalfOf }
         if let state = lease.state { o["state"] = state }
+        if let terminal = lease.terminal { o["terminal"] = terminal }
         return o
     }
 
@@ -144,7 +150,7 @@ public nonisolated struct ProviderCodec {
         ProviderLease(session: try f.string("session"), actor: try f.string("actor"),
                       onBehalfOf: f.object["on_behalf_of"] as? String, origin: try f.string("origin"),
                       label: try f.string("label"), sinceMs: try f.uint("since_ms"),
-                      state: f.object["state"] as? String)
+                      state: f.object["state"] as? String, terminal: f.object["terminal"] as? String)
     }
 
     /// Typed field reads with serde's errors (a missing or mistyped field).

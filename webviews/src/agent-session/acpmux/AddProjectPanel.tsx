@@ -167,7 +167,7 @@ export function AddProjectPanel({
               >
                 ↑
               </button>
-              <span title={path}>
+              <span>
                 {directory && path.startsWith(`${directory.home}/`)
                   ? `~/${path.slice(directory.home.length + 1)}`
                   : directory && path === directory.home
@@ -280,7 +280,7 @@ export function AddProjectDialog({ open, ...props }: AddProjectPanelProps & { op
         if (!next) props.onClose();
       }}
       label={t("project.add")}
-      className="acpmux-add-project-dialog"
+      className="ui-glass ui-glass-floats acpmux-add-project-dialog"
     >
       <AddProjectPanel {...props} />
     </Dialog>

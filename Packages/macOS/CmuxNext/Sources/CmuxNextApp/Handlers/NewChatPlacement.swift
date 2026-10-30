@@ -1,36 +1,15 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
 import Observation
-
-/// Where a new agent chat opens (lawrence-call-1006 D): the agent chat is a
-/// docked column on the left (the dock column with the agent chat role),
-/// never a tab in the strip.
-enum NewChatPlacement: Equatable {
-    /// A tab in the pane it was opened from.
-    case here
-    /// A tab in the chat dock's pane.
-    case dock(LayoutPaneID)
-    /// A new left chat dock, made from the chat once it exists.
-    case newDock
-
-    /// `columns` are the pane's screen's; `isLoneChat` says the pane's column
-    /// is one pane holding one agent chat, the only scrolling column. A lone
-    /// chat docks when the first tool opens (``ChatColumnPlacement``), so a
-    /// second chat joins its pane.
-    static func resolve(from pane: LayoutPaneID, columns: [LayoutColumn], isLoneChat: Bool) -> NewChatPlacement {
-        guard columns.contains(where: { $0.root.contains(pane) }) else { return .here }
-        if let dock = columns.first(where: { $0.dock?.role == .agentChat }) { return .dock(dock.root.panes[0]) }
-        return isLoneChat ? .here : .newDock
-    }
-}
 
 extension NewChatPlacement {
     /// Where a new chat from `controller`'s pane opens; `.here` on a daemon
     /// without dock roles.
     @MainActor static func resolve(from controller: PaneController) -> NewChatPlacement {
         guard let content = controller.workspace,
-              content.daemon.supports(DaemonCapabilities.shared.dockColumnRole),
+              content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
         let pane = controller.layoutPaneID
         return resolve(from: pane, columns: ChatColumnPlacement.columns(of: screen, containing: pane),
@@ -44,6 +23,8 @@ extension NewChatPlacement {
         var target: PaneController
         var select: Bool
         var hidden = false
+        /// The chat opens in a new pane on this side of `target` (a new column beside Home's lone dock).
+        var split: SplitDirection?
         var then: (@MainActor (String) -> Void)?
     }
 
@@ -58,6 +39,12 @@ extension NewChatPlacement {
             guard let content = controller.workspace, let dock = content.panes[pane] else { break }
             opening.target = dock
             if select { PaneHandlers.focus(pane, in: content) }
+        case .besideDock:
+            // One daemon commit: the conversation tab in a split right of the pinned dock, which the
+            // daemon makes a column beside it (`conversation-tab-split-v1`). Without that the chat
+            // opens in the dock, which takes tabs while it is alone (`pinned-dock-alone-v1`).
+            guard controller.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) else { break }
+            opening.split = .right
         case .newDock:
             opening.hidden = true
             opening.select = false
@@ -74,11 +61,12 @@ extension NewChatPlacement {
     /// failed move shows it where it is.
     @MainActor static func dock(_ key: String, from controller: PaneController) {
         let services = controller.services
+        let machineID = controller.daemon.machineID
         services.registry.track(Task { @MainActor [weak controller] in
-            var found = services.locateTab(key)
+            var found = services.locateTab(key, onMachine: machineID)
             if found == nil {
-                for await located in Observations({ services.locateTab(key) != nil }) where located {
-                    found = services.locateTab(key)
+                for await located in ObservationStream({ services.locateTab(key, onMachine: machineID) != nil }) where located {
+                    found = services.locateTab(key, onMachine: machineID)
                     break
                 }
             }
@@ -96,16 +84,17 @@ extension NewChatPlacement {
 
     /// Focuses the pane that shows tab `key` once the layout has it outside
     /// `source`, the pane it moved from (the store may still list it there).
-    @MainActor private static func focusWhenShown(_ key: String, in content: WorkspaceContentController,
+    @MainActor static func focusWhenShown(_ key: String, in content: WorkspaceContentController,
                                                   leaving source: LayoutPaneID, services: AppServices) {
+        let machineID = content.daemon.machineID
         func pane() -> LayoutPaneID? {
-            guard let model = services.locateTab(key)?.1,
+            guard let model = services.locateTab(key, onMachine: machineID)?.1,
                   let id = services.paneController(for: model)?.layoutPaneID, id != source else { return nil }
             return id
         }
         services.registry.track(Task { @MainActor in
             if pane() == nil {
-                for await shown in Observations({ pane() != nil }) where shown { break }
+                for await shown in ObservationStream({ pane() != nil }) where shown { break }
             }
             if let pane = pane() { PaneHandlers.focus(pane, in: content) }
             return nil
@@ -117,15 +106,13 @@ extension PaneController {
     /// The tab ids `pendingDock` hides: a provisional id also hides the tab
     /// the store replaced it with, from the store's first snapshot on.
     var dockBound: Set<String> {
-        let aliases = services.agentTabs.aliases
-        return pendingDock.union(pendingDock.compactMap { aliases[$0] })
+        pendingDock.hidden(aliases: services.agentTabs.aliases)
     }
 
     /// Chat `key` reached its dock (or the move failed): the strip may list
     /// it again. Other chats still on their way stay hidden.
     func dockFinished(_ key: String) {
-        let aliases = services.agentTabs.aliases
-        pendingDock = pendingDock.filter { $0 != key && aliases[$0] != key }
+        pendingDock.finished(key, aliases: services.agentTabs.aliases)
         apply(snapshot())
     }
 }

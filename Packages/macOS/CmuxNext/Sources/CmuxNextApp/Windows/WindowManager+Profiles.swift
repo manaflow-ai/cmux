@@ -1,3 +1,5 @@
+import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -15,6 +17,13 @@ extension WindowManager {
     /// workspace created in it.
     func switchProfile(_ profile: ProfileID, in state: WindowState) {
         guard profile != state.profileID else { return }
+        // An incognito space lives in its incognito window (spaces-overhaul-DESIGN.md rule 2): switching another
+        // window to it shows that window instead, and an incognito space's window never shows a normal space.
+        if incognitoSpaces[state.id] != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
+        if let owner = incognitoSpaces.first(where: { $0.value == profile })?.key {
+            if ActionRunScope.viewChangeAllowed(), let controller = controller(for: owner) { bringToFront(controller) }
+            return
+        }
         let machines = services.machines
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
@@ -65,12 +74,6 @@ extension WindowManager {
             .map(\.id).filter { !shownElsewhere.contains($0) }
     }
 
-    /// The profile a workspace created for `windowID` is born in: that
-    /// window's, else the active window's, else `default`.
-    func profileForNewWorkspace(window windowID: String?) -> ProfileID {
-        windowID.flatMap { states[$0]?.profileID } ?? active?.state.profileID ?? .defaultProfile
-    }
-
     /// Selecting a workspace of another room (palette, CLI, a
     /// notification) shows that room in the window first.
     func enterProfile(of workspaceID: String, in state: WindowState) {
@@ -86,7 +89,7 @@ extension DaemonStore {
     func mirrored(profile id: ProfileID) async {
         guard profile(id) == nil else { return }
         let state = connectionState
-        for await done in Observations({ self.profile(id) != nil || self.connectionState != state }) where done {
+        for await done in ObservationStream({ self.profile(id) != nil || self.connectionState != state }) where done {
             return
         }
     }

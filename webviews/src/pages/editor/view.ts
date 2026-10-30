@@ -17,10 +17,13 @@ import { createHighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
-import type { DiffViewerAppearance } from "../../appearance";
+import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
-import { editorAction, isEditorAction, type EditorCommand } from "./keys";
+import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand, type RevealPosition } from "./keys";
+import { keybindingRules } from "./vscodeKeys";
+import { installNativeEditorMenu } from "./nativeEditorMenu";
 import type { CodeView, EditorDocument } from "./store";
+import type { FindRange, FindTarget } from "./editorFind";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
 import {
@@ -231,8 +234,39 @@ export interface ViewCallbacks {
   onStatus(status: ViewStatus): void;
   /** A link the user followed. */
   openLink(href: string): void;
-  label(key: "editor" | "readOnly", path: string): string;
+  label(key: "editor" | "readOnly" | "wordWrap", path: string): string;
+  /** Opt-Z (VS Code's Toggle Word Wrap): flips `editor.wordWrap` through the settings store. */
+  toggleWordWrap?(): void;
+  /**
+   * Opens the app's native command palette (`cmux.app.action.run {action: "commandPalette"}`).
+   * Monaco's own command palette (F1, the context menu's Command Palette) runs this instead: the
+   * editor never shows a palette of its own (Lawrence 2026-10-19).
+   */
+  openCommandPalette?(): void;
+  /**
+   * Monaco started or ended a key sequence (Cmd-K, then a second key): while one is pending the
+   * app's key dispatcher lets the next key reach the editor (`cmux.editor.keySequence`).
+   */
+  onKeySequence?(pending: boolean): void;
+  /**
+   * Find (Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E, and their page commands) runs the shared find pill
+   * (editorFind.ts) instead of Monaco's find widget. Returns false to leave the command to Monaco.
+   */
+  find?(command: FindCommand, text?: string): boolean;
+  /** The document's text changed (find searches again). */
+  onContentChange?(): void;
 }
+
+/** The page commands the shared find pill runs. */
+export type FindCommand = "find" | "findNext" | "findPrevious" | "useSelectionForFind" | "hideFind" | "replace";
+const FIND_COMMANDS: ReadonlySet<string> = new Set<FindCommand>([
+  "find",
+  "findNext",
+  "findPrevious",
+  "useSelectionForFind",
+  "hideFind",
+  "replace",
+]);
 
 export interface ViewStatus {
   line: number;
@@ -246,6 +280,16 @@ export interface ViewStatus {
   insertSpaces: boolean;
   large: boolean;
   highlighted: boolean;
+}
+
+/** Set once the Shiki themes are Monaco's (Monaco's themes are global): stand-ins never replace them. */
+let shikiThemesDefined = false;
+
+/** Light and dark themes with no token colors, defined before Monaco is created (`MonacoView`). */
+function defineStandInThemes(chrome: Record<string, string>): void {
+  if (shikiThemesDefined) return;
+  monaco.editor.defineTheme(LIGHT_THEME, { base: "vs", inherit: true, rules: [], colors: chrome });
+  monaco.editor.defineTheme(DARK_THEME, { base: "vs-dark", inherit: true, rules: [], colors: chrome });
 }
 
 /** Monaco plus Shiki for one page. */
@@ -280,9 +324,14 @@ export class MonacoView implements CodeView {
       },
       editorThemes({ bundledThemes: bundledThemes as never }, look.syntaxTheme, look.appearance),
     );
-    this.themesKey = JSON.stringify([look.syntaxTheme ?? null, look.appearance ?? null]);
+    this.themesKey = editorThemesKey(look);
     this.syntax.installLanguages(look.languages);
     this.defineChromeThemes();
+    // Monaco paints its first frame in the theme it is created with. An unknown name falls back to
+    // its light `vs` theme (white background), so both names exist before `create`: the Shiki
+    // themes load asynchronously, and until then a theme with the right base and the page's chrome
+    // colors stands in (user 2026-10-20, "for monaco editors there is flash of wrong theme").
+    defineStandInThemes(this.chrome);
     this.editor = monaco.editor.create(container, {
       ...this.editorOptions(),
       model: null,
@@ -296,22 +345,118 @@ export class MonacoView implements CodeView {
         },
       }),
       this.editor.onDidChangeCursorSelection(() => this.reportStatus()),
-      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS).
-      this.editor.onDidScrollChange(() => {
+      // A right-click opens the app's standard macOS menu, not Monaco's (nativeEditorMenu.ts).
+      installNativeEditorMenu(this.editor, container, {
+        [MONACO_QUICK_COMMAND]: () => this.callbacks.openCommandPalette?.(),
+      }),
+      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS). Monaco
+      // reports a new scroll size too (its first layout, a pane or window resize); that is not a scroll.
+      this.editor.onDidScrollChange((event) => {
         const node = this.editor.getDomNode();
-        if (node) markScrolling(node);
+        if (node && (event.scrollTopChanged || event.scrollLeftChanged)) markScrolling(node);
       }),
       {
         dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),
       },
     );
     this.scheme.addEventListener("change", this.onSchemeChange);
+    this.disposables.push(
+      // VS Code's Opt-Z. Monaco has no word wrap toggle of its own; the id is VS Code's, so an
+      // `editor.keybindings` rule can move it.
+      this.editor.addAction({
+        id: TOGGLE_WORD_WRAP,
+        label: this.callbacks.label("wordWrap", ""),
+        keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
+        run: () => this.callbacks.toggleWordWrap?.(),
+      }),
+    );
+    this.disposables.push(
+      // Monaco's quick command (F1, the context menu's Command Palette) is the app's native palette:
+      // no web view has a palette of its own. Keys and menus run commands through Monaco's command
+      // registry, where the latest registration of an id wins, so this replaces Monaco's widget.
+      monaco.editor.registerCommand(MONACO_QUICK_COMMAND, () => this.callbacks.openCommandPalette?.()),
+    );
+    this.disposables.push(
+      // The find chords Monaco binds itself open the shared find pill, never Monaco's widget (the
+      // app's dispatcher sends the same commands as page commands; these cover a key that reaches
+      // Monaco first). Registered after Monaco's find contribution, so they win.
+      ...(
+        [
+          ["find", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF],
+          ["findNext", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG],
+          ["findPrevious", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
+          ["useSelectionForFind", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE],
+          ["replace", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+        ] as const
+      ).map(([command, key]) =>
+        this.editor.addAction({
+          id: `cmux.find.${command}`,
+          label: command,
+          keybindings: [key],
+          run: () => void this.callbacks.find?.(command),
+        }),
+      ),
+      this.editor.onDidChangeModelContent(() => this.callbacks.onContentChange?.()),
+    );
+    this.applyKeybindings();
+    this.watchKeySequences(container);
+    // The Shiki themes replace the stand-ins as soon as the highlighter is up, also for plain text.
+    void this.applyTheme();
+  }
+
+  /** The `editor.keybindings` rules applied now (and their key), so a look change re-applies them once. */
+  private keybindingDisposable: monaco.IDisposable | null = null;
+  private keybindingsKey = "";
+
+  private applyKeybindings(): void {
+    const entries = this.look.settings.keybindings;
+    const key = JSON.stringify(entries);
+    if (key === this.keybindingsKey) return;
+    this.keybindingsKey = key;
+    this.keybindingDisposable?.dispose();
+    const rules = keybindingRules(entries, monaco as never);
+    this.keybindingDisposable = rules.length > 0 ? monaco.editor.addKeybindingRules(rules) : null;
+  }
+
+  /**
+   * Tells the host when Monaco waits for the second key of a sequence (Cmd-K Cmd-0): the app's
+   * dispatcher resolves every Command chord first, so without this it took the second key (Cmd-0
+   * reset the zoom, Cmd-J opened the app's leader) and the sequence never finished.
+   */
+  private watchKeySequences(container: HTMLElement): void {
+    let pending = false;
+    const check = () => {
+      const service = (this.editor as unknown as { _standaloneKeybindingService?: { inChordMode?: boolean } })
+        ._standaloneKeybindingService;
+      const now = service?.inChordMode === true;
+      if (now === pending) return;
+      pending = now;
+      this.callbacks.onKeySequence?.(now);
+    };
+    // After Monaco's own keydown handler (on the editor's node) has run.
+    const onKeyDown = () => setTimeout(check, 0);
+    // ui-allow: reads Monaco's chord state after its keydown; Monaco owns the keys.
+    container.addEventListener("keydown", onKeyDown);
+    const onBlur = () => setTimeout(check, 0);
+    container.addEventListener("focusout", onBlur);
+    this.disposables.push({
+      dispose: () => {
+        container.removeEventListener("keydown", onKeyDown);
+        container.removeEventListener("focusout", onBlur);
+      },
+    });
   }
 
   private onSchemeChange = () => this.applyTheme();
 
+  /**
+   * The page's scheme: the host's theme sets `color-scheme` on the root (WebTheme.swift), which the
+   * page's `light-dark()` colors follow, so Monaco follows it too; the system's otherwise.
+   */
   private themeName(): string {
-    return this.scheme.matches ? DARK_THEME : LIGHT_THEME;
+    const scheme = getComputedStyle(document.documentElement).colorScheme.trim();
+    const dark = scheme === "dark" ? true : scheme === "light" ? false : this.scheme.matches;
+    return dark ? DARK_THEME : LIGHT_THEME;
   }
 
   private large(): boolean {
@@ -360,11 +505,16 @@ export class MonacoView implements CodeView {
 
   /** Re-applies the theme: the scheme, the chrome colors or the Shiki themes changed. */
   private async applyTheme(): Promise<void> {
+    // The scheme switches in this frame, with the page's colors; the Shiki colors follow.
+    const shown = this.themeName();
+    for (const binding of this.bound.values()) binding.editor.setTheme(shown);
+    monaco.editor.setTheme(shown);
     const highlighter = await this.syntax.getHighlighter();
     this.defineChromeThemes();
     for (const id of [LIGHT_THEME, DARK_THEME]) {
       monaco.editor.defineTheme(id, this.patch(textmateThemeToMonacoTheme(highlighter.getTheme(id)) as never));
     }
+    shikiThemesDefined = true;
     const name = this.themeName();
     for (const binding of this.bound.values()) binding.editor.setTheme(name);
     monaco.editor.setTheme(name);
@@ -450,11 +600,12 @@ export class MonacoView implements CodeView {
 
   /** The look changed: options, theme, languages. */
   setLook(look: ViewLook): void {
-    const themesKey = JSON.stringify([look.syntaxTheme ?? null, look.appearance ?? null]);
+    const themesKey = editorThemesKey(look);
     const languagesChanged = JSON.stringify(look.languages ?? null) !== JSON.stringify(this.look.languages ?? null);
     this.look = look;
     if (languagesChanged) this.syntax.installLanguages(look.languages);
     this.editor.updateOptions(this.editorOptions());
+    this.applyKeybindings();
     if (themesKey !== this.themesKey) {
       this.themesKey = themesKey;
       void this.syntax
@@ -517,17 +668,112 @@ export class MonacoView implements CodeView {
     this.editor.updateOptions(this.editorOptions());
   }
 
+  /**
+   * VS Code's save options on an explicit save (as format on save): trailing spaces removed and a
+   * final newline added, as one undoable edit. Off by default; the file is otherwise never rewritten.
+   */
+  async prepareSave(options: { trimTrailingWhitespace: boolean; insertFinalNewline: boolean }): Promise<void> {
+    const model = this.model;
+    if (!model || this.documentInfo?.readOnly) return;
+    if (options.trimTrailingWhitespace) {
+      const action = this.editor.getAction("editor.action.trimTrailingWhitespace");
+      if (action?.isSupported()) await action.run();
+    }
+    if (options.insertFinalNewline) {
+      const last = model.getLineCount();
+      if (model.getLineContent(last) !== "") {
+        const column = model.getLineMaxColumn(last);
+        this.editor.executeEdits("cmux-save", [
+          { range: new monaco.Range(last, column, last, column), text: model.getEOL() },
+        ]);
+      }
+    }
+  }
+
   async format(): Promise<void> {
     const action = this.editor.getAction("editor.action.formatDocument");
     if (action?.isSupported()) await action.run();
+  }
+
+  /** The selection's text and lines (viewer comments, viewer-comments-DESIGN.md), null with nothing
+   * selected. A selection that ends at the start of a line does not count that line. */
+  selectionQuote(): { text: string; startLine: number; endLine: number } | null {
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model || selection.isEmpty()) return null;
+    const text = model.getValueInRange(selection);
+    if (!text.trim()) return null;
+    let endLine = selection.endLineNumber;
+    if (selection.endColumn === 1 && endLine > selection.startLineNumber) endLine--;
+    return { text, startLine: selection.startLineNumber, endLine };
   }
 
   focus(): void {
     this.editor.focus();
   }
 
+  /** The editor as the shared find pill searches it (editorFind.ts). */
+  findTarget(): FindTarget {
+    const decorations = this.editor.createDecorationsCollection();
+    return {
+      findMatches: (query, matchCase) =>
+        this.model?.findMatches(query, false, false, matchCase, null, false).map((match) => match.range) ?? [],
+      // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
+      // the next letter typed would skip to the match after it.
+      caret: () =>
+        this.editor.getSelection()?.getStartPosition() ?? this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
+      selectedText: () => {
+        const selection = this.editor.getSelection();
+        if (!selection || !this.model || selection.isEmpty()) return "";
+        if (selection.startLineNumber !== selection.endLineNumber) return "";
+        return this.model.getValueInRange(selection);
+      },
+      show: (matches: readonly FindRange[], active: number) => {
+        // Monaco's own find classes, so the theme's find colors paint them.
+        decorations.set(
+          matches.map((range, index) => ({
+            range,
+            options: {
+              className: index === active ? "currentFindMatch" : "findMatch",
+              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+              overviewRuler: { color: "rgba(246, 185, 77, 0.7)", position: monaco.editor.OverviewRulerLane.Center },
+            },
+          })),
+        );
+        const range = matches[active];
+        if (!range) return;
+        this.editor.setSelection(range);
+        this.editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth);
+      },
+      focus: () => this.editor.focus(),
+      readOnly: () => this.documentInfo?.readOnly ?? true,
+      replace: (ranges, text) => {
+        if (!this.model || this.documentInfo?.readOnly) return;
+        // One undo step, as Monaco's Replace All.
+        this.editor.pushUndoStop();
+        this.editor.executeEdits(
+          "cmux.find.replace",
+          ranges.map((range) => ({ range, text, forceMoveMarkers: true })),
+        );
+        this.editor.pushUndoStop();
+      },
+    };
+  }
+
+  /** Moves the cursor to `position` (clamped to the document) and centers its line, then focuses. */
+  reveal(position: RevealPosition): void {
+    const model = this.model;
+    if (!model) return;
+    const lineNumber = Math.min(Math.max(1, position.line), model.getLineCount());
+    const column = Math.min(Math.max(1, position.column), model.getLineMaxColumn(lineNumber));
+    this.editor.setPosition({ lineNumber, column });
+    this.editor.revealPositionInCenter({ lineNumber, column });
+    this.editor.focus();
+  }
+
   /** A page command from the app's key dispatcher. Returns false for an unknown command. */
   command(command: EditorCommand, text?: string): boolean {
+    if (FIND_COMMANDS.has(command) && this.callbacks.find?.(command as FindCommand, text)) return true;
     const id = editorAction(command, text);
     if (!id) return false;
     if (command === "editorAction" && !isEditorAction(id)) return false;
@@ -550,7 +796,17 @@ export class MonacoView implements CodeView {
     this.scheme.removeEventListener("change", this.onSchemeChange);
     for (const disposable of this.disposables) disposable.dispose();
     this.modelListener?.dispose();
+    this.keybindingDisposable?.dispose();
     this.model?.dispose();
     this.editor.dispose();
   }
+}
+
+/** VS Code's command id for Opt-Z; `keys.ts` lists it so an app binding can run it too. */
+const TOGGLE_WORD_WRAP = "editor.action.toggleWordWrap";
+
+/// What the editor's Shiki themes are built from: the syntax theme setting, the page's appearance
+/// and the host's terminal theme (literal colors in Monaco, so a palette change rebuilds them).
+function editorThemesKey(look: ViewLook): string {
+  return JSON.stringify([look.syntaxTheme ?? null, look.appearance ?? null, hostTerminalTheme()]);
 }

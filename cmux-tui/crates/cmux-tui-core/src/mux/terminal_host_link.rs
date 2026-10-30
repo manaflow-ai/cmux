@@ -2,6 +2,11 @@
 
 use super::*;
 
+// Holder terminals re-attach in the same startup pass (mux::holder_adoption).
+#[cfg(any(unix, windows))]
+#[path = "holder_adoption.rs"]
+mod holder_adoption;
+
 impl Mux {
     pub(super) fn transition_terminal_lifecycle(
         &self,
@@ -29,7 +34,7 @@ impl Mux {
         Ok(result)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn register_pending_terminal_host(
         self: &Arc<Self>,
         surface_id: SurfaceId,
@@ -254,6 +259,26 @@ impl Mux {
         surface.is_some_and(|surface| {
             self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
         })
+    }
+
+    /// Push the tabs of the terminal runtime `surface` after its host link
+    /// changed state (lost, given up, back). Clients read a tab's
+    /// `terminal_state` only from tree pushes, and without one a terminal
+    /// whose link failed still looked running: its last screen, keys
+    /// dropped, no label.
+    pub(crate) fn emit_terminal_host_link_changed(&self, surface: SurfaceId) {
+        let terminal = self.with_state(|state| {
+            state.terminal_catalog_by_runtime.get(&surface).cloned().or_else(|| {
+                match state.resource_indexes.content_ids.get(&surface) {
+                    Some(ContentPublicId::Terminal(terminal)) => Some(terminal.clone()),
+                    _ => None,
+                }
+            })
+        });
+        match terminal {
+            Some(terminal) => self.emit_terminal_tabs_changed(&terminal),
+            None => self.emit_tab_changed(surface),
+        }
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {

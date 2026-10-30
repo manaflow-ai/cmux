@@ -520,19 +520,28 @@ class JanitorSnapshot(unittest.TestCase):
 
 
 # The pull-request lane, wherever its event condition puts it: compile admission
-# also takes it for main's full-suite dispatch (#14158), where the inputs are empty.
-PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.MACOS_RUNNER_PR[^()]*)\)")
+# also takes it for main's full-suite dispatch (#14158), where the inputs are empty. Groups inside
+# the lane nest up to five deep: the rescue-actor test, contains(fromJSON(...), ...), sits inside the
+# attempt group, which may itself hold an `||` group.
+def _nested(depth: int) -> str:
+    group = r"\([^()]*\)"
+    for _ in range(depth - 1):
+        group = r"\((?:[^()]|" + group + r")*\)"
+    return group
+
+
+PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|" + _nested(5) + r")*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
-    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -543,7 +552,7 @@ def gui_lane(key: str) -> str:
 
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -555,9 +564,12 @@ def warm_lane(index: str = "") -> str:
     names its first label, the root label.
     """
     placed = "needs.admission-placement.outputs.runner"
+    # An overflow run's compile may take the free 12vcpu slot the picker names, on attempt 1 only.
+    borrowed = ("(github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && "
+                f"inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner){index} || inputs.pr_retry_runner)")
     return root_lane("' admission '").replace(
         "&& inputs.pr_retry_runner || inputs.pr_root_runner",
-        f"&& inputs.pr_retry_runner || needs.admission-placement.outputs.attempt == github.run_attempt && {placed} "
+        f"&& {borrowed} || needs.admission-placement.outputs.attempt == github.run_attempt && {placed} "
         f"&& fromJSON({placed}){index} || github.run_attempt == 1 && inputs.pr_admission_runner "
         f"&& fromJSON(inputs.pr_admission_runner){index} || inputs.pr_root_runner")
 
@@ -587,6 +599,26 @@ BOTH_TOKENS = "${{ steps.route-token.outputs.token || steps.route-token-repo.out
 
 class OwnedPools(unittest.TestCase):
     """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
+
+    def test_root_demand_is_scoped_to_each_pool_gui_capacity(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        aws_root = pool.root_label(aws)
+        snap = backlog(small=0, large=0, old=0)
+        for label in (aws, aws_root, MINI, ROOT_MINI):
+            snap["pools"][label] = {"queued": 0, "running": 0}
+        limits = pool.Settings(order=(aws, MINI))
+        choice = pool.decide(
+            snap,
+            limits,
+            now=NOW,
+            xcode_pins=OWNED_PINS,
+            owned_slots={aws: 5, aws_root: 2, MINI: 5, ROOT_MINI: 5},
+            jobs=3,
+            # The office pool has a GUI runner, but AWS does not. AWS must
+            # account for all three root jobs rather than borrowing that fact.
+            root_jobs={aws: 3, MINI: 2},
+        )
+        self.assertEqual(choice.runner, MINI)
 
     def test_idle_runners_are_the_live_owned_capacity(self):
         def runner(labels, status="online", busy=False):
@@ -791,7 +823,7 @@ class OwnedPools(unittest.TestCase):
                       head="someone/cmux", default="", pins={})
         self.assertFalse(fork.runner.startswith("glaeda-"))
         # The workflows ask who started a later re-run: only github-actions[bot]'s goes to Blacksmith.
-        self.assertIn("github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]'",
+        self.assertIn("github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
                       (WORKFLOWS / "remote-daemon.yml").read_text())
         # main() reads the attempt and the actor Actions sets on every step.
         fresh = snap
@@ -817,9 +849,35 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(pool.owned_pools(""), ())
         self.assertEqual(pool.owned_pools("/Applications/Xcode.app"), ())
 
+    def test_namespaced_pool_is_opt_in_through_the_explicit_order(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
+        self.assertEqual(pool.owned_pools(PR_XCODE, aws), (MINI, LIGHT, aws))
+        self.assertEqual(pool.owned_pools(PR_XCODE, f"{aws},glaeda-aws-light-xcode-26.3"),
+                         (MINI, LIGHT, aws))
+
+    def test_namespaced_pool_order_is_accepted_and_default_stays_office_only(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        self.assertEqual(pool.settings("", aws, "", "1", PR_XCODE).order,
+                         (aws,))
+        self.assertEqual(pool.settings("", "", "", "1", PR_XCODE).order,
+                         (MINI, LIGHT, pool.LARGE_RUNNER, pool.DEFAULT_RUNNER, pool.MACOS_15_RUNNER))
+
+    def test_explicit_aws_pool_can_be_selected_with_its_own_capacity(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][aws] = {"queued": 0, "running": 0}
+        choice = choose(snap, pins=OWNED_PINS, owned="1", order=f"{aws},{MINI}", jobs=1,
+                        owned_slots=json.dumps({aws: 5, pool.root_label(aws): 2}))
+        self.assertEqual(choice.runner, aws)
+
     def test_persistent_means_a_glaeda_pool_label(self):
         self.assertTrue(pool.persistent(MINI))
         self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
+        # The fast tier's reserved runner (CI_FAST_LANE_RUNNER) is owned too.
+        self.assertTrue(pool.persistent("glaeda-fast-std-xcode-26.6"))
+        # So is generated files' session runner (CI_SESSION_LANE_RUNNER).
+        self.assertTrue(pool.persistent("glaeda-session-light-xcode-26.6"))
         for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
             self.assertFalse(pool.persistent(label), label)
 
@@ -1766,6 +1824,22 @@ class RootRunners(unittest.TestCase):
         self.assertIn("10 gui runners, more than the 4 machines",
                       pool.slot_problems('{"std": 4, "gui-std": 10}', PR_XCODE)[0])
 
+    def test_the_session_label_is_an_owned_role_label_beside_the_gui_label(self):
+        # glaeda#1530: a mini's console gui runner and its extra session runners carry
+        # glaeda-session-<class>-xcode-<version>. Jobs that need a logged-in session but not the
+        # console gui token take it, so they run beside a console GUI job.
+        session = "glaeda-session-std-xcode-26.6"
+        self.assertTrue(pool.persistent(session))
+        self.assertEqual((pool.session_label(MINI), pool.pool_label(session)), (session, MINI))
+        self.assertEqual(pool.session_label("glaeda-light-xcode-26.6"), "glaeda-session-light-xcode-26.6")
+        for label in (session, "glaeda-gui-std-xcode-26.6", ROOT_MINI, SMALL, ""):
+            self.assertEqual(pool.session_label(label), "", label)
+        self.assertEqual((pool.root_label(session), pool.side_label(session), pool.gui_label(session)), ("", "", ""))
+        # The class form counts. A mini with guiRunners 2 carries it on two runners, so a count above
+        # the pool's machines is not a typo.
+        self.assertEqual(pool.slots('{"std": 4, "session-std": 8}', PR_XCODE)[session], 8)
+        self.assertEqual(pool.slot_problems('{"std": 4, "session-std": 8}', PR_XCODE), [])
+
     def test_no_root_count_keeps_the_pool_label(self):
         choice = owned_choice(fleet(busy=0), jobs=4, root_jobs=2)
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ""))
@@ -1992,6 +2066,17 @@ class WarmAffinity(unittest.TestCase):
         self.assertEqual(values["light_side_jobs"], " remote-daemon swift-package ")
         # A retry attempt keeps its own route.
         self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
+
+    def test_explicit_aws_order_uses_aws_light_side_runners(self):
+        aws_light = "glaeda-aws-light-xcode-26.6"
+        aws_side = pool.side_label(aws_light)
+        office_side = pool.side_label(LIGHT)
+        runners = [live_runner(1, LIGHT, office_side), live_runner(2, aws_light, aws_side)]
+        self.assertEqual(
+            pool.light_side_lanes(pool.RunJobs(False, (), ("claude-wrapper",)), runners,
+                                  {aws_light: 1, aws_side: 1}, PR_XCODE, aws_light),
+            (aws_side, ("claude-wrapper",)),
+        )
 
     def test_release_build_stays_with_the_picked_pool(self):
         # The universal Release compile never takes the light side runners ahead of the pick; the lanes
@@ -2256,6 +2341,23 @@ class LiveCapacity(unittest.TestCase):
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, LIGHT)]
         self.assertEqual(pool.live_online(runners, (MINI, ROOT_MINI, LIGHT)), {MINI: 2, ROOT_MINI: 1, LIGHT: 1})
 
+    def test_aws_namespace_does_not_count_as_office_pool_capacity(self):
+        aws = mini_runner("aws-m4pro-9", 0, MINI, ROOT_MINI,
+                          "glaeda-aws-std-xcode-26.6", "glaeda-aws-root-std-xcode-26.6")
+        office = mini_runner("cmux7s", 0, MINI, ROOT_MINI)
+        self.assertEqual(pool.live_online([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+        self.assertEqual(pool.live_owned_free([aws, office], (MINI, ROOT_MINI)),
+                         {MINI: 1, ROOT_MINI: 1})
+
+    def test_explicit_aws_order_exposes_only_its_namespace_labels(self):
+        aws = "glaeda-aws-std-xcode-26.6"
+        aws_root = "glaeda-aws-root-std-xcode-26.6"
+        runners = [mini_runner("aws-m4pro-9", 0, aws, aws_root)]
+        slots = pool.routing_slots("", PR_XCODE, runners, aws)
+        self.assertEqual((slots.get(aws), slots.get(aws_root), slots.get(pool.side_label(aws))), (1, 1, 0))
+        self.assertNotIn(MINI, slots)
+
     def test_routing_labels_come_from_the_online_runners_and_the_variable_only_without_them(self):
         gui = pool.gui_label(MINI)
         runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-a", 1, gui),
@@ -2349,10 +2451,11 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_runs_routing(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
         ids = [step.get("id") for step in changes["steps"]]
-        for step_id in ("detect", "standalone", "suite"):
+        for step_id in ("detect", "standalone", "suite", "next-route"):
             self.assertLess(ids.index(step_id), ids.index("macos-pool"), step_id)
         env = changes["steps"][ids.index("macos-pool")]["env"]
-        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.suite.outputs.full_suite }}")
+        # A feat-cmux-next pull request's routing (next-route) wins, as in the job's outputs.
+        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}")
         self.assertNotIn("RUN_CLI", env)
         self.assertNotIn("RUN_CLAUDE_WRAPPER", env)
         self.assertNotIn("OWNED_JOBS_PER_RUN", env)
@@ -2378,7 +2481,7 @@ class Wiring(unittest.TestCase):
         cli = self.workflow("ci-macos.yml")["jobs"]["cli-product-tests"]
         self.assertEqual(cli["runs-on"], "${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                          "['cli-product'] "
-                                         "|| (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
+                                         "|| (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                          "' cli-product ')) && inputs.pr_retry_runner "
                                          "|| inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         # The Claude wrapper lane went with the wrapper; ci.yml runs no Mac job of its own.
@@ -2466,9 +2569,10 @@ class Wiring(unittest.TestCase):
                       "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) "
                       "|| github.run_attempt == 1 && inputs.pr_admission_runner && "
                       "fromJSON(inputs.pr_admission_runner) ||", admission["runs-on"])
-        # Only admission reads it; its consumers follow its root label.
+        # Only admission reads it (warm pin and overflow borrow, in runs-on and
+        # CMUX_PRODUCT_RUNNER); its consumers follow its root label.
         text = (WORKFLOWS / "ci-macos.yml").read_text()
-        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 2)
+        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 4)
         self.assertEqual(text.count("fromJSON(needs.admission-placement.outputs.runner)"), 2)
 
     def test_admission_uploads_its_warm_keys(self):
@@ -2525,7 +2629,7 @@ class Wiring(unittest.TestCase):
         # attempts that read it, when owned_jobs names ' swift-package '.
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
@@ -2558,7 +2662,7 @@ class Wiring(unittest.TestCase):
         # macOS 26 variable, and its product-contract mirror says the same.
         job = self.workflow("ci-macos.yml")["jobs"]["release-build"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
                  "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
@@ -2593,8 +2697,10 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_package_lane_routing(self):
         env = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
                    if step.get("id") == "macos-pool")["env"]
-        self.assertEqual(env["RUN_SWIFT_PACKAGES"], "${{ steps.detect.outputs.swift_packages }}")
-        self.assertEqual(env["RUN_RELEASE_BUILD"], "${{ steps.detect.outputs.release_build }}")
+        self.assertEqual(env["RUN_SWIFT_PACKAGES"],
+                         "${{ steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages }}")
+        self.assertEqual(env["RUN_RELEASE_BUILD"],
+                         "${{ steps.next-route.outputs.release_build || steps.detect.outputs.release_build }}")
 
 
 IOS_SIM = "glaeda-ios-sim"
@@ -2603,7 +2709,9 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
 # test-ios.yml's per-job Xcode pin: only on an owned Mac, and never for a fork's pull request.
+# feat-cmux-next pushes run test-ios on the owned minis too (adaccb5c3755), so they read the pin.
 IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || "
+                 "github.event_name == 'push' || "
                  "github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}")
 
 
@@ -2670,7 +2778,7 @@ class MainFullSuite(unittest.TestCase):
 
     def test_a_split_run_queues_whole_on_the_owned_pool(self):
         # Every root runner busy and 22 jobs queued there: 6 queue places, the
-        # run needs 9. A pull request would put the rest on the retry runner;
+        # run needs 12. A pull request would put the rest on the retry runner;
         # main queues them on the minis instead, so they do not wait behind
         # every overflowed pull request on Blacksmith (run 36402943637).
         snap = self.snap(roots_busy=14)
@@ -3602,7 +3710,12 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(runner["permissions"], {"contents": "read", "actions": "read"})
         step = self.picker_step(runner)
         self.assertIn("--lane test-ios", step["run"])
-        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner }}")
+        # The cmux-next lane (feat-cmux-next pushes, same-repository pull requests into it)
+        # asks for the owned minis (user, 2026-10-20, adaccb5c3755); a fork pull request
+        # fails the same-repository clause and asks for nothing.
+        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner || ((github.event_name == 'push' || "
+                         "(github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == "
+                         "github.repository)) && 'owned' || '') }}")
         self.assertEqual(step["env"]["RUNNER_VARIABLE"], "${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}")
         self.assertEqual(step["env"]["IOS_OWNED"], "${{ vars.CI_IOS_OWNED }}")
         self.assertEqual(step["env"]["IOS_VERSION"], "${{ inputs.ios_version }}")
@@ -3661,7 +3774,7 @@ class IOSWiring(unittest.TestCase):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}")
+                                              "'blacksmith-6vcpu-macos-26' }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there

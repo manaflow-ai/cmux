@@ -7,12 +7,12 @@
 
 mod capture;
 mod compare;
-mod ledger;
+pub(super) mod ledger;
 mod reads;
 mod record;
 mod refs;
 mod scan;
-mod store;
+pub(super) mod store;
 
 use std::sync::Arc;
 
@@ -89,7 +89,7 @@ fn target(
     mint: bool,
 ) -> Result<Option<Target>, ResourceError> {
     let directory = super::target::directory(mux, request, operation)?;
-    let repository = Repository::open(&directory, operation)?;
+    let repository = super::open_repository(&directory, operation)?;
     let layout = Layout::locate(&repository, operation)?;
     let ids = if mint {
         store.identify(&layout.common_dir, &layout.git_dir).map(Some)
@@ -128,7 +128,7 @@ fn fingerprint(request: &ParsedResourceRequest, target: &Target) -> Value {
     ledger::fingerprint(operation, &selectors, &fields, &target.identity())
 }
 
-fn mutation_key(request: &ParsedResourceRequest) -> String {
+pub(super) fn mutation_key(request: &ParsedResourceRequest) -> String {
     // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
     request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key")
 }

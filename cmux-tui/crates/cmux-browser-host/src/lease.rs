@@ -58,6 +58,8 @@ pub struct LeaseCaller {
     pub origin: String,
     /// The agent's task label (badge text).
     pub label: String,
+    /// The caller's cmux terminal, for the app's presence colour (display only).
+    pub terminal: Option<String>,
     /// The caller named no session and the host substituted its default.
     pub implicit_session: bool,
     /// The target's engine: `headless`, `cef`, `webkit`, `desktop`, or empty.
@@ -80,6 +82,7 @@ impl LeaseCaller {
             on_behalf_of,
             origin: origin.into(),
             label: label.into(),
+            terminal: None,
             implicit_session: false,
             engine: engine.into(),
         }
@@ -287,6 +290,7 @@ fn new_record(caller: &LeaseCaller, now_ms: u64) -> LeaseRecord {
             on_behalf_of: caller.on_behalf_of.clone(),
             origin: caller.origin.clone(),
             label: caller.label.clone(),
+            terminal: caller.terminal.clone(),
             since_ms: now_ms,
             state: LeaseState::Driving,
         },

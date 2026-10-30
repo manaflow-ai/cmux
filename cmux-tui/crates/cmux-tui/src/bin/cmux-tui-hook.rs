@@ -70,7 +70,32 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
+    // Muse Code runs this command directly (no `||:` wrapper reads in every
+    // shell it may use), so a failure stays quiet there instead of showing on
+    // every hook; the agent never waits on cmux.
+    let quiet = arguments.first().is_some_and(|source| source == "muse");
     match parse_args(arguments).and_then(|args| run(args, exe_prefix)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) if quiet => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("cmux-tui-hook: {error:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Runs the helper for `source`'s `native_event` with a payload already read
+/// (classic cmux's hook commands, which pick the event from it).
+#[allow(dead_code)] // cmux-tui only; the standalone helper reads stdin
+pub(crate) fn run_with_payload(
+    source: String,
+    native_event: String,
+    payload: &[u8],
+    exe_prefix: &[&str],
+) -> ExitCode {
+    let result = parse_args([source, native_event])
+        .and_then(|args| run_reading(args, exe_prefix, || read_native_payload(payload)));
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
@@ -80,18 +105,37 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
 }
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
+    run_reading(args, exe_prefix, || read_native_payload(io::stdin().lock()))
+}
+
+fn run_reading(
+    args: Args,
+    exe_prefix: &[&str],
+    payload: impl FnOnce() -> anyhow::Result<Value>,
+) -> anyhow::Result<()> {
+    let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         drain_native_payload()?;
+        inbox::print_nothing(inbox);
         return Ok(());
     }
-    let (socket, terminal) = match session_route() {
+    if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
+        drain_native_payload()?;
+        inbox::print_nothing(inbox);
+        return Ok(());
+    }
+    let (socket, terminal) = match session_route(&args.source) {
         Some(route) => route,
         None => {
             drain_native_payload()?;
+            inbox::print_nothing(inbox);
             return Ok(());
         }
     };
-    let native = read_native_payload(io::stdin().lock())?;
+    let native = payload()?;
+    let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
+    // Read before the journal event redacts it; it travels beside the event, never inside it.
+    let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
     let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
@@ -100,26 +144,73 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     )?;
     cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
     let event = serde_json::to_value(ingress)?;
-    let (request_id, encoded) = encode_request(event)?;
+    let (request_id, encoded) = encode_request(event, live)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
-        Handoff::Sent => Ok(()),
+        Handoff::Sent => {}
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
         }
     }
+    // Messages for this terminal's agent ride on the hook's own output. A
+    // failed handoff means the daemon is not answering, so the helper fails
+    // without output and the installed command prints the empty object.
+    match inbox {
+        Some(inbox::Delivery::SessionBanner) => {
+            inbox::session_banner(terminal.as_deref(), &start_source);
+        }
+        Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
+        None => {}
+    }
+    Ok(())
 }
 
+/// Set to `launch` by a hook command that carries its own route (the Codex
+/// wrapper's per-launch hooks), as opposed to one inherited from a process
+/// environment.
+const HOOK_ROUTE_ENV: &str = "CMUX_TUI_HOOK_ROUTE";
+
+/// Codex 0.162 runs hooks in a shared app-server daemon that keeps the
+/// environment of whichever shell started it. An installed hook there would
+/// read that shell's `CMUX_TUI_*` (or `TMUX`) values and post every Codex
+/// session's events, from any terminal or none, to that one cmux terminal, so
+/// it posts nothing. The wrapper's hooks name their own terminal and still
+/// route.
+fn inherited_route_is_untrusted(
+    source: &str,
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    source == "codex"
+        && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
+        && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
+}
+
+/// Agent messages handed over as the hook's output.
+#[path = "cmux-tui-hook/inbox.rs"]
+mod inbox;
+
+/// cmux's line under Claude Code's startup banner: how the session compacts.
+#[path = "cmux-tui-hook/session_banner.rs"]
+mod session_banner;
+
 /// The session socket and terminal that receive this event: the terminal's
-/// own `CMUX_TUI_*` values, or, for an agent in a tmux session started
-/// outside cmux-tui (which has none), the cmux-tui terminal attached to the
-/// pane's tmux session.
-fn session_route() -> Option<(PathBuf, Option<String>)> {
+/// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment
+/// (Muse Code), the values of the agent process the hook runs under; or, for
+/// an agent in a tmux session started outside cmux-tui (which has none), the
+/// cmux-tui terminal attached to the pane's tmux session.
+pub(crate) fn session_route(source: &str) -> Option<(PathBuf, Option<String>)> {
     if let Some(socket) = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
         let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
         return Some((PathBuf::from(socket), terminal));
     }
+    #[cfg(unix)]
+    if ancestor_route::clears_environment(source) {
+        let route = ancestor_route::ancestor_terminal()?;
+        return Some((route.socket, route.terminal));
+    }
+    #[cfg(not(unix))]
+    let _ = source;
     let route = tmux_route::attached_terminal()?;
     Some((route.socket, Some(route.terminal)))
 }
@@ -134,134 +225,13 @@ fn session_route() -> Option<(PathBuf, Option<String>)> {
 /// session socket and terminal wins. Client environments are read from
 /// `/proc`, so this is Linux only.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-mod tmux_route {
-    use std::collections::HashMap;
-    use std::path::PathBuf;
-    #[cfg(target_os = "linux")]
-    use std::time::{Duration, Instant};
+#[path = "cmux-tui-hook/tmux_route.rs"]
+mod tmux_route;
 
-    /// Bound on both tmux queries together. It comes out of the provider's
-    /// hook budget, and codex kills SessionEnd hooks at 3s.
-    #[cfg(target_os = "linux")]
-    const TMUX_BUDGET: Duration = Duration::from_millis(500);
-
-    #[derive(Debug, PartialEq, Eq)]
-    pub(super) struct Route {
-        pub(super) socket: PathBuf,
-        pub(super) terminal: String,
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(super) fn attached_terminal() -> Option<Route> {
-        std::env::var_os("TMUX").filter(|value| !value.is_empty())?;
-        let deadline = Instant::now() + TMUX_BUDGET;
-        let pane = std::env::var("TMUX_PANE").ok().filter(|value| !value.is_empty());
-        let mut display = vec!["display-message", "-p"];
-        if let Some(pane) = pane.as_deref() {
-            display.extend(["-t", pane]);
-        }
-        display.push(PANE_FORMAT);
-        let pane_line = run_tmux(&display, deadline)?;
-        let clients = run_tmux(&["list-clients", "-F", CLIENT_FORMAT], deadline)?;
-        select(&pane_line, &clients, proc_environ)
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    pub(super) fn attached_terminal() -> Option<Route> {
-        None
-    }
-
-    pub(super) const PANE_FORMAT: &str = "#{session_id}\t#{session_group}\t#{window_id}";
-    pub(super) const CLIENT_FORMAT: &str =
-        "#{client_pid}\t#{client_activity}\t#{session_id}\t#{session_group}\t#{window_id}";
-
-    /// Picks the route from `display-message` output for the pane and
-    /// `list-clients` output, reading each candidate's environment.
-    pub(super) fn select(
-        pane_line: &str,
-        clients: &str,
-        environ: impl Fn(u32) -> Option<HashMap<String, String>>,
-    ) -> Option<Route> {
-        let pane_line = pane_line.strip_suffix('\n').unwrap_or(pane_line);
-        let pane: Vec<&str> = pane_line.split('\t').collect();
-        let [session, group, window] = pane[..] else { return None };
-        if session.is_empty() {
-            return None;
-        }
-        let mut candidates: Vec<(bool, i64, u32)> = clients
-            .lines()
-            .filter_map(|line| {
-                let fields: Vec<&str> = line.split('\t').collect();
-                let [pid, activity, client_session, client_group, client_window] = fields[..]
-                else {
-                    return None;
-                };
-                let same_session =
-                    client_session == session || (!group.is_empty() && client_group == group);
-                let pid = pid.parse::<u32>().ok().filter(|pid| *pid > 1)?;
-                same_session.then(|| {
-                    let shows_pane = !window.is_empty() && client_window == window;
-                    (shows_pane, activity.parse().unwrap_or(0), pid)
-                })
-            })
-            .collect();
-        candidates.sort_by(|left, right| right.0.cmp(&left.0).then(right.1.cmp(&left.1)));
-        candidates.into_iter().find_map(|(_, _, pid)| {
-            let environment = environ(pid)?;
-            let value = |key: &str| environment.get(key).filter(|value| !value.is_empty()).cloned();
-            Some(Route {
-                socket: value("CMUX_TUI_SOCKET")?.into(),
-                terminal: value("CMUX_TUI_TERMINAL_ID")?,
-            })
-        })
-    }
-
-    /// A same-user process environment; other users' are unreadable.
-    #[cfg(target_os = "linux")]
-    fn proc_environ(pid: u32) -> Option<HashMap<String, String>> {
-        let data = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-        Some(
-            data.split(|byte| *byte == 0)
-                .filter_map(|entry| {
-                    let entry = std::str::from_utf8(entry).ok()?;
-                    let (key, value) = entry.split_once('=')?;
-                    (!key.is_empty()).then(|| (key.to_owned(), value.to_owned()))
-                })
-                .collect(),
-        )
-    }
-
-    /// Runs tmux against the server named by `$TMUX`, killed at `deadline`.
-    #[cfg(target_os = "linux")]
-    fn run_tmux(args: &[&str], deadline: Instant) -> Option<String> {
-        use std::io::Read;
-        use std::process::{Command, Stdio};
-
-        let mut child = Command::new("tmux")
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) if status.success() => break,
-                Ok(None) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-            }
-        }
-        let mut output = String::new();
-        child.stdout.take()?.read_to_string(&mut output).ok()?;
-        Some(output)
-    }
-}
+/// The session route of an agent that runs hooks with a cleared environment.
+#[cfg(unix)]
+#[path = "cmux-tui-hook/ancestor_route.rs"]
+mod ancestor_route;
 
 /// Outcome of the provider-facing wait for the detached child.
 #[derive(Debug, PartialEq, Eq)]
@@ -445,14 +415,24 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
-fn encode_request(event: Value) -> anyhow::Result<(String, Vec<u8>)> {
+/// `live` holds a turn-start hook's prompt for the hover card and a finished turn's last
+/// message for its banner (`agent_hook_live_fields`): the daemon keeps them in memory only
+/// (`session.journal.append` `live_prompt`, `live_reply`), never in the journal.
+fn encode_request(
+    event: Value,
+    live: serde_json::Map<String, Value>,
+) -> anyhow::Result<(String, Vec<u8>)> {
     let (request_id, idempotency_key) = random_identifiers()?;
+    let mut params = json!({"machine":"current","session":"current","event":event});
+    if let Some(object) = params.as_object_mut() {
+        object.extend(live);
+    }
     let request = json!({
         "protocol":"cmux.protocol/2",
         "type":"request",
         "id":request_id,
         "operation":"session.journal.append",
-        "params":{"machine":"current","session":"current","event":event},
+        "params":params,
         "idempotency_key":idempotency_key,
     });
     let mut encoded = serde_json::to_vec(&request)?;
@@ -472,9 +452,42 @@ fn append_with_receipt(
     encoded: &[u8],
     on_sent: &dyn Fn(),
 ) -> anyhow::Result<()> {
+    // A daemon from before `live_prompt` refuses unknown parameters: the event goes once more
+    // without the prompt, so a version skew never loses a turn start (the prompt is optional).
+    let mut current = std::borrow::Cow::Borrowed(encoded);
     retry_until(SOCKET_TIMEOUT, |deadline| {
-        append_once(socket, encoded, request_id, deadline, on_sent)
+        match append_once(socket, &current, request_id, deadline, on_sent) {
+            Err(AppendAttemptError::Fatal(error))
+                if error.to_string().contains("unknown parameters") =>
+            {
+                match without_live_prompt(&current) {
+                    Some(stripped) => {
+                        current = std::borrow::Cow::Owned(stripped);
+                        Err(AppendAttemptError::Retryable(error))
+                    }
+                    None => Err(AppendAttemptError::Fatal(error)),
+                }
+            }
+            other => other,
+        }
     })
+}
+
+/// `encoded` (one request line) without its memory-only fields (`live_prompt`, `live_reply`,
+/// `live_question`); nil when it has none.
+fn without_live_prompt(encoded: &[u8]) -> Option<Vec<u8>> {
+    let mut request: Value = serde_json::from_slice(encoded).ok()?;
+    let params = request.get_mut("params")?.as_object_mut()?;
+    let removed = ["live_prompt", "live_reply", "live_question"]
+        .into_iter()
+        .filter(|field| params.remove(*field).is_some())
+        .count();
+    if removed == 0 {
+        return None;
+    }
+    let mut line = serde_json::to_vec(&request).ok()?;
+    line.push(b'\n');
+    Some(line)
 }
 
 #[derive(Debug)]
@@ -519,6 +532,12 @@ fn append_once(
     on_sent: &dyn Fn(),
 ) -> Result<(), AppendAttemptError> {
     let mut stream = connect_before(socket, deadline)?;
+    // Bound the receipt read now, while the peer is surely still connected:
+    // once a server has answered and closed, macOS refuses SO_RCVTIMEO with
+    // EINVAL although the answer is still readable.
+    stream
+        .set_read_timeout(Some(remaining_before(deadline)?))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
     write_before(&mut *stream, encoded, deadline)?;
     on_sent();
     let response = read_before(stream, deadline)?;
@@ -639,9 +658,10 @@ fn write_before(
         }
     }
     loop {
-        stream
-            .set_write_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // The request is fully written. A fast server may already have
+        // answered and closed, which makes macOS refuse the option; the
+        // timeout set for the writes still bounds the flush.
+        let _ = stream.set_write_timeout(Some(remaining_before(deadline)?));
         match stream.flush() {
             Ok(()) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -657,10 +677,10 @@ fn read_before(
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     loop {
-        reader
-            .get_ref()
-            .set_read_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // Shrink the bound toward the deadline. A refusal means the server
+        // already closed (macOS EINVAL), so the read cannot block; the
+        // timeout set before the request was written still applies.
+        let _ = reader.get_ref().set_read_timeout(Some(remaining_before(deadline)?));
         let available =
             reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         if available.is_empty() {
@@ -969,6 +989,25 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 mod tests {
     use super::*;
 
+    /// A server may answer and close before the hook child reads. macOS then
+    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
+    /// still readable; treating that as a failed attempt re-sent the event,
+    /// so the journal received it twice and out of order.
+    #[cfg(unix)]
+    #[test]
+    fn codex_hook_receipt_from_a_server_that_already_closed_is_still_read() {
+        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
+        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
+        drop(server);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        match read_before(Box::new(client), deadline) {
+            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
+            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
+                panic!("the written receipt was not read: {error:#}")
+            }
+        }
+    }
+
     fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
         let environment = |terminal: &str| {
             Some(
@@ -1010,6 +1049,18 @@ mod tests {
         assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
         assert_eq!(tmux_route::select("", clients, cmux_environ), None);
         assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
+    }
+
+    /// claude `SessionStart` carries cmux's startup line as `systemMessage`
+    /// (shown to the person, never added to the model's context); with no
+    /// line it is the empty object the installed command expects.
+    #[test]
+    fn claude_session_start_writes_the_startup_line_as_a_system_message() {
+        let delivery = inbox::Delivery::for_event("claude", "SessionStart")
+            .expect("claude SessionStart writes cmux's startup line");
+        assert_eq!(delivery.output(None), json!({}));
+        assert_eq!(delivery.output(Some("line")), json!({"systemMessage": "line"}));
+        assert_eq!(inbox::Delivery::for_event("codex", "SessionStart"), None);
     }
 
     #[test]

@@ -13,7 +13,6 @@ use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
 };
-use crate::state::agent_message_store::{self, AgentMessageFilter, NewAgentMessage};
 use crate::state::closed_history::ReopenRequest;
 use crate::state::closed_history_delete::DeleteRequest;
 use crate::state::store::StateCommit;
@@ -21,10 +20,14 @@ use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
     closed_history_query, palette_usage_store, personal_state_store, projects_store,
-    screen_state_store, sidebar_layout_store, tab_state_store, window_record_store,
+    screen_state_store, sidebar_doc_store, sidebar_layout_store, tab_state_store,
+    window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
+
+mod agent_message_router;
+mod checklist_router;
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     use ResourceOperation as Op;
@@ -32,9 +35,15 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
         operation,
         Op::WorkspaceUpdate
             | Op::WorkspaceAgentFolderSet
+            | Op::WorkspaceAgentStartGet
             | Op::TabPin
             | Op::TabUnpin
             | Op::TabUpdate
+            | Op::BrowserDevicesList
+            | Op::BrowserDevicesAddCustom
+            | Op::BrowserDevicesRemoveCustom
+            | Op::BrowserTabEmulate
+            | Op::BrowserTabEmulateClear
             | Op::TabGroupList
             | Op::TabGroupGet
             | Op::TabGroupCreate
@@ -44,6 +53,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::TabGroupMove
             | Op::TabGroupUngroup
             | Op::TabGroupClose
+            | Op::LayoutBulk
             | Op::WorkspaceGroupList
             | Op::WorkspaceGroupCreate
             | Op::WorkspaceGroupUpdate
@@ -80,12 +90,31 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordDelete
             | Op::SidebarLayoutGet
             | Op::SidebarLayoutUpdate
+            | Op::SidebarGet
+            | Op::SidebarMove
+            | Op::SidebarPin
+            | Op::SidebarUnpin
+            | Op::SidebarItemAdd
+            | Op::SidebarItemRemove
+            | Op::SidebarItemUpdate
+            | Op::SidebarItemRemoveRef
+            | Op::SidebarSectionAdd
+            | Op::SidebarSectionUpdate
+            | Op::SidebarSectionMove
+            | Op::SidebarSectionRemove
+            | Op::SidebarGroupCreate
+            | Op::SidebarGroupUpdate
+            | Op::SidebarGroupUngroup
+            | Op::SidebarAdopt
+            | Op::SidebarApply
+            | Op::SidebarReset
             | Op::ProjectList
             | Op::ProjectObserve
             | Op::ProjectAdd
             | Op::ProjectUpdate
             | Op::ProjectRemove
             | Op::ProjectSync
+            | Op::ProjectSourceUpdate
             | Op::PaletteUsageGet
             | Op::PaletteUsageRecord
             | Op::PaletteUsageImport
@@ -101,10 +130,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogAppend
             | Op::WorkspaceLogList
             | Op::WorkspaceLogClear
-            | Op::AgentMessageSend
-            | Op::AgentMessageList
-            | Op::AgentMessageMark
-    )
+    ) || agent_message_router::handles(operation)
+        || checklist_router::handles(operation)
 }
 
 /// Map a state failure to its typed protocol error. Registry validation
@@ -116,6 +143,29 @@ fn state_error(error: anyhow::Error) -> ResourceError {
         return ResourceError::validation_invalid(None, reason);
     }
     resource_operation_error(error)
+}
+
+/// The loading-indicator fields of `workspace_status.set`. A process owner
+/// is accepted only from a local caller (the user's own CLI or the verified
+/// app): an app's or a remote peer's process id names nothing it owns on
+/// this machine. Whether the process runs is checked inside the commit,
+/// after the replay check.
+fn status_set_meta(
+    request: &ParsedResourceRequest,
+) -> Result<crate::state::status_meta::StatusMeta, ResourceError> {
+    use crate::workspace_registry::Actor;
+    let meta =
+        crate::state::status_meta::StatusMeta::from_fields(&request.fields).map_err(state_error)?;
+    let local =
+        matches!(request.actor, Actor::User { .. } | Actor::Frontend { .. } | Actor::Daemon);
+    if meta.owner_pid.is_some() && !local {
+        return Err(ResourceError::operation_failed(
+            "workspace_status.set",
+            "owner.pid requires a trusted local connection",
+            json!({"required_authority": "trusted_local"}),
+        ));
+    }
+    Ok(meta)
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
@@ -141,6 +191,33 @@ fn string(fields: &Map<String, Value>, name: &str) -> Option<String> {
 /// `None` when absent, `Some(None)` for JSON null, `Some(Some(value))`.
 fn nullable_string(fields: &Map<String, Value>, name: &str) -> Option<Option<String>> {
     fields.get(name).map(|value| value.as_str().map(str::to_string))
+}
+
+/// `None` when absent; a present field must be a boolean.
+fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => {
+            Err(validation_error(&format!("{name} must be a boolean"), json!({"field": name})))
+        }
+    }
+}
+
+/// `None` when absent, `Some(None)` for null; a present value must be a string.
+fn nullable_reason(
+    fields: &Map<String, Value>,
+    name: &str,
+) -> Result<Option<Option<String>>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(value)) => Ok(Some(Some(value.clone()))),
+        Some(_) => Err(validation_error(
+            &format!("{name} must be a string or null"),
+            json!({"field": name}),
+        )),
+    }
 }
 
 fn index(fields: &Map<String, Value>, name: &str) -> Option<usize> {
@@ -214,12 +291,15 @@ pub(crate) fn dispatch(
     match operation {
         // A1: workspace identity, pins, tab state
         Op::WorkspaceUpdate => {
-            require_any(fields, &["title", "color", "icon"])?;
+            require_any(fields, &["title", "color", "icon", "description", "task_status"])?;
             let update = WorkspacePresentationUpdate {
                 group: None,
                 color: nullable_string(fields, "color"),
                 icon: nullable_string(fields, "icon"),
                 title: nullable_string(fields, "title"),
+                // workspace-description-v1 and workspace-status-v1.
+                description: nullable_string(fields, "description"),
+                task_status: nullable_string(fields, "task_status"),
                 ..WorkspacePresentationUpdate::default()
             };
             let commit = mux
@@ -244,6 +324,8 @@ pub(crate) fn dispatch(
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
+        // cx-9aps: the one answer for where a new agent chat starts.
+        Op::WorkspaceAgentStartGet => mux.agent_start(selectors, string(fields, "cwd").as_deref()),
         Op::TabPin | Op::TabUnpin => {
             let commit = mux
                 .state_pin_tab(strip_request(&request)?, selectors.clone(), operation == Op::TabPin)
@@ -251,14 +333,84 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner", "icon"])?;
+            require_any(
+                fields,
+                &["zoom", "back", "forward", "owner", "icon", "marked_unread", "attention"],
+            )?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
                 forward: fields.contains_key("forward").then(|| strings(fields, "forward")),
                 owner: string(fields, "owner"),
                 icon: nullable_string(fields, "icon"),
+                emulation: None,
+                marked_unread: optional_bool(fields, "marked_unread")?,
+                attention: nullable_reason(fields, "attention")?,
+                attention_page: None,
+                attention_request_id: match fields.get("attention_request_id") {
+                    None => None,
+                    Some(Value::String(id)) => Some(id.clone()),
+                    Some(_) => {
+                        return Err(validation_error(
+                            "attention_request_id must be a string",
+                            json!({"field": "attention_request_id"}),
+                        ));
+                    }
+                },
             };
+            let commit = mux
+                .state_update_tab(strip_request(&request)?, selectors.clone(), update)
+                .map_err(state_error)?;
+            patch_result(mux, commit)
+        }
+        // browser-devices-v1 (cx-ocbf3): the device list and per-tab emulation.
+        Op::BrowserDevicesList => {
+            ensure_session(mux, selectors)?;
+            read(mux, crate::state::browser_devices::list)
+        }
+        Op::BrowserDevicesAddCustom => {
+            ensure_session(mux, selectors)?;
+            let device = fields.get("device").cloned().unwrap_or(Value::Null);
+            let commit =
+                mux.state_browser_device_add(&mutation(&request)?, &device).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::BrowserDevicesRemoveCustom => {
+            ensure_session(mux, selectors)?;
+            let title = string(fields, "title").unwrap_or_default();
+            let commit = mux
+                .state_browser_device_remove(&mutation(&request)?, &title)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::BrowserTabEmulate | Op::BrowserTabEmulateClear => {
+            use crate::state::browser_devices::EmulationChange;
+            let fit = string(fields, "fit");
+            let change = if operation == Op::BrowserTabEmulateClear {
+                EmulationChange::Clear
+            } else if let Some(fit) = fit {
+                let other = ["device", "custom", "orientation"]
+                    .iter()
+                    .any(|key| fields.get(*key).is_some_and(|value| !value.is_null()));
+                if other {
+                    return Err(state_error(anyhow::anyhow!(
+                        "bad request: give fit alone, without device, custom or orientation"
+                    )));
+                }
+                // `fit: "off"` ends the fit (as browser.tab.emulate.clear).
+                if fit.trim().eq_ignore_ascii_case("off") {
+                    EmulationChange::Clear
+                } else {
+                    EmulationChange::Fit(fit)
+                }
+            } else {
+                EmulationChange::Set {
+                    device: string(fields, "device"),
+                    custom: fields.get("custom").filter(|value| !value.is_null()).cloned(),
+                    orientation: string(fields, "orientation"),
+                }
+            };
+            let update = TabStateUpdate { emulation: Some(change), ..Default::default() };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
                 .map_err(state_error)?;
@@ -294,7 +446,7 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             let group = string(fields, "tab_group").unwrap_or_default();
             let commit = mux
                 .tab_group_update(
@@ -303,6 +455,7 @@ pub(crate) fn dispatch(
                     string(fields, "name"),
                     string(fields, "color"),
                     fields.get("collapsed").and_then(Value::as_bool),
+                    nullable_string(fields, "icon"),
                 )
                 .map_err(state_error)?;
             patch_result(mux, commit)
@@ -348,6 +501,23 @@ pub(crate) fn dispatch(
             let (_, commit) =
                 mux.tab_group_close(strip_request(&request)?, &group).map_err(state_error)?;
             patch_result(mux, commit)
+        }
+        // One bulk preset: one commit, one closed group (cx-gzh.5).
+        Op::LayoutBulk => {
+            // The level's selectors may name the anchor; the session check
+            // takes only machine and session.
+            let session = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            ensure_session(mux, &session)?;
+            let bulk =
+                crate::state::layout_bulk::BulkRequest::from_fields(fields).map_err(state_error)?;
+            let commit = mux
+                .state_layout_bulk(&mutation(&request)?, selectors, &bulk)
+                .map_err(state_error)?;
+            state_result(mux, commit)
         }
         // A3: personal workspace groups, placements, rooms
         Op::WorkspaceGroupList => {
@@ -502,6 +672,8 @@ pub(crate) fn dispatch(
                         .filter_map(|member| member.as_u64().and_then(|m| usize::try_from(m).ok()))
                         .collect()
                 }),
+                tab: string(fields, "tab"),
+                fallback_pane: string(fields, "fallback_pane"),
             };
             let commit = mux
                 .state_reopen_closed(&mutation(&request)?, expected_revision(fields)?, &reopen)
@@ -510,33 +682,7 @@ pub(crate) fn dispatch(
         }
         Op::ClosedDelete => {
             ensure_session(mux, selectors)?;
-            let members = match fields.get("members").and_then(Value::as_array) {
-                Some(members) => Some(
-                    members
-                        .iter()
-                        .map(|member| {
-                            member.as_u64().and_then(|m| usize::try_from(m).ok()).ok_or_else(|| {
-                                ResourceError::validation_invalid(
-                                    Some("members"),
-                                    "members must be member indexes",
-                                )
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-                None => None,
-            };
-            let delete = DeleteRequest {
-                closed: string(fields, "closed"),
-                all: fields.get("all").and_then(Value::as_bool).unwrap_or(false),
-                members,
-                since_ms: match string(fields, "since_ms") {
-                    Some(since) => Some(since.parse::<i64>().map_err(|_| {
-                        ResourceError::validation_invalid(None, "since_ms must be a decimal")
-                    })?),
-                    None => None,
-                },
-            };
+            let delete = DeleteRequest::from_fields(fields)?;
             let commit = mux
                 .state_delete_closed(&mutation(&request)?, expected_revision(fields)?, &delete)
                 .map_err(state_error)?;
@@ -578,6 +724,34 @@ pub(crate) fn dispatch(
             let op = fields.get("op").cloned().unwrap_or_default();
             let commit =
                 mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // The sidebar document (sidebar-doc-v1)
+        Op::SidebarGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, sidebar_doc_store::snapshot)
+        }
+        Op::SidebarMove
+        | Op::SidebarPin
+        | Op::SidebarUnpin
+        | Op::SidebarItemAdd
+        | Op::SidebarItemRemove
+        | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
+        | Op::SidebarSectionAdd
+        | Op::SidebarSectionUpdate
+        | Op::SidebarSectionMove
+        | Op::SidebarSectionRemove
+        | Op::SidebarGroupCreate
+        | Op::SidebarGroupUpdate
+        | Op::SidebarGroupUngroup
+        | Op::SidebarAdopt
+        | Op::SidebarApply
+        | Op::SidebarReset => {
+            ensure_session(mux, selectors)?;
+            let commit = mux
+                .state_sidebar_apply(&mutation(&request)?, operation.wire_name(), fields)
+                .map_err(state_error)?;
             state_result(mux, commit)
         }
         // The project list (project-list-v1, plans/cmux-next/projects.md)
@@ -632,6 +806,16 @@ pub(crate) fn dispatch(
                     &strings(fields, "existing"),
                     &strings(fields, "gone"),
                 )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectSourceUpdate => {
+            ensure_session(mux, selectors)?;
+            let source = string(fields, "source").unwrap_or_default();
+            // The spec requires a boolean `enabled`; validation rejects anything else first.
+            let enabled = fields.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+            let commit = mux
+                .state_project_source_update(&mutation(&request)?, &source, enabled)
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
@@ -728,12 +912,17 @@ pub(crate) fn dispatch(
         | Op::WorkspaceProgressClear
         | Op::WorkspaceLogAppend
         | Op::WorkspaceLogClear => {
+            let meta = match operation {
+                Op::WorkspaceStatusSet => Some(status_set_meta(&request)?),
+                _ => None,
+            };
             let change = match operation {
                 Op::WorkspaceStatusSet => WorkspaceStatusChange::Set {
                     key: string(fields, "key").unwrap_or_default(),
                     text: string(fields, "text").unwrap_or_default(),
                     icon: string(fields, "icon"),
                     color: string(fields, "color"),
+                    meta: Box::new(meta.clone().unwrap_or_default()),
                 },
                 Op::WorkspaceStatusClear => {
                     WorkspaceStatusChange::Clear { key: string(fields, "key") }
@@ -759,54 +948,23 @@ pub(crate) fn dispatch(
                     change,
                 )
                 .map_err(state_error)?;
+            if let Some(meta) = meta {
+                crate::state::status_owners::watch_owners(
+                    mux,
+                    meta.owner_terminal.as_deref(),
+                    meta.owner_pid,
+                    meta.ttl_ms.is_some(),
+                );
+            }
             state_result(mux, commit)
         }
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
-        Op::AgentMessageList => {
-            let filter = AgentMessageFilter {
-                recipient: string(fields, "recipient"),
-                sender: string(fields, "sender"),
-                thread_id: string(fields, "thread_id"),
-                state: string(fields, "state"),
-                oldest_first: fields.get("oldest_first").and_then(Value::as_bool).unwrap_or(false),
-            };
-            let limit = index(fields, "limit").unwrap_or(50);
-            mux.agent_message_list(selectors, &filter, limit).map(Value::Array)
+        operation if agent_message_router::handles(operation) => {
+            agent_message_router::dispatch(mux, &request)
         }
-        Op::AgentMessageSend => {
-            let message = NewAgentMessage {
-                sender: string(fields, "sender")
-                    .unwrap_or_else(|| agent_message_store::CLI_SENDER.to_owned()),
-                sender_name: string(fields, "sender_name"),
-                recipients: strings(fields, "recipients"),
-                body: string(fields, "body").unwrap_or_default(),
-                thread_id: string(fields, "thread_id"),
-                in_reply_to: string(fields, "in_reply_to"),
-            };
-            let commit = mux
-                .agent_message_send(
-                    &mutation(&request)?,
-                    expected_revision(fields)?,
-                    selectors,
-                    message,
-                )
-                .map_err(state_error)?;
-            state_result(mux, commit)
-        }
-        Op::AgentMessageMark => {
-            let commit = mux
-                .agent_message_mark(
-                    &mutation(&request)?,
-                    expected_revision(fields)?,
-                    selectors,
-                    &strings(fields, "ids"),
-                    &string(fields, "recipient").unwrap_or_default(),
-                    &string(fields, "state").unwrap_or_default(),
-                    string(fields, "via").as_deref(),
-                    string(fields, "error").as_deref(),
-                )
-                .map_err(state_error)?;
-            state_result(mux, commit)
+        // workspace-checklist-v1
+        operation if checklist_router::handles(operation) => {
+            checklist_router::dispatch(mux, &request)
         }
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),
@@ -928,12 +1086,13 @@ fn screen_change(
             screens: strings(fields, "screens"),
         },
         Op::ScreenGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             ScreenChange::GroupUpdate {
                 group: string(fields, "screen_group").unwrap_or_default(),
                 name: string(fields, "name"),
                 color: string(fields, "color"),
                 collapsed: fields.get("collapsed").and_then(Value::as_bool),
+                icon: nullable_string(fields, "icon"),
             }
         }
         Op::ScreenGroupUngroup => {

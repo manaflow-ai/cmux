@@ -306,11 +306,7 @@ impl TerminalNotification {
 }
 
 fn shown_text(bytes: &[u8], limit: usize) -> String {
-    String::from_utf8_lossy(bytes)
-        .chars()
-        .filter(|character| !character.is_control())
-        .take(limit)
-        .collect()
+    crate::program_status::shown_text(&String::from_utf8_lossy(bytes), limit)
 }
 
 /// Kitty OSC 99 text accumulated across `d=0` chunks.
@@ -492,6 +488,8 @@ pub(crate) struct TerminalMetadata {
     /// OSC 7501 records, fed by the terminal parser's callback. Shared so a
     /// replaced mirror terminal (resize, reconnect) keeps feeding them.
     program_status: crate::program_status::SharedProgramStatus,
+    /// The running shell command (`terminal-activity-v1`).
+    pub(crate) activity: crate::terminal_activity::ShellActivity,
 }
 
 impl TerminalMetadata {
@@ -513,6 +511,7 @@ impl TerminalMetadata {
         let kitty = &mut self.kitty;
         let notifications = &mut self.notifications;
         let shell_marks = &mut self.shell_marks;
+        let activity = &mut self.activity;
         self.osc.observe(bytes, |body| {
             let Some(separator) = body.iter().position(|byte| *byte == b';') else {
                 return;
@@ -539,6 +538,10 @@ impl TerminalMetadata {
                 b"99" => observe_kitty_notification(kitty, data),
                 b"133" => {
                     if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
+                        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+                        if activity.observe(mark, now_ms) {
+                            progress.clear();
+                        }
                         if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
                             shell_marks.remove(0);
                         }
@@ -564,6 +567,17 @@ impl TerminalMetadata {
         program_status: crate::program_status::SharedProgramStatus,
     ) -> Self {
         Self { program_status, ..Self::default() }
+    }
+
+    /// Replaces the OSC 7501 records with a terminal host's.
+    pub(crate) fn restore_program_status(
+        &self,
+        snapshot: crate::program_status::ProgramStatusSnapshot,
+    ) {
+        self.program_status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .restore(snapshot);
     }
 
     /// The OSC 7501 records this metadata publishes.
@@ -626,6 +640,31 @@ impl TerminalMetadata {
             self.published_progress = current;
             current
         })
+    }
+
+    /// The running shell command's state and start time, if one runs.
+    pub(crate) fn command_activity(
+        &self,
+    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
+        self.activity.command()
+    }
+
+    /// Applies the terminal modes after an output chunk (`modes` reads
+    /// them) to the running command; reads them only while the command
+    /// still counts as non-interactive.
+    pub(crate) fn observe_modes(
+        &mut self,
+        modes: impl FnOnce() -> crate::terminal_activity::TerminalModes,
+    ) {
+        if self.activity.wants_interactive_check() {
+            self.activity.note_modes(modes());
+        }
+    }
+
+    /// Whether the command, prompt or last-output fact changed since the last
+    /// call (marks it taken).
+    pub(crate) fn take_busy_change(&mut self) -> bool {
+        self.activity.take_change()
     }
 
     /// Restore a progress value carried by an authenticated terminal-host
@@ -943,6 +982,22 @@ mod tests {
         let taken = notes(&mut metadata);
         assert_eq!(taken.len(), MAX_PENDING_NOTIFICATIONS);
         assert_eq!(taken.last().unwrap().0, format!("n{}", MAX_PENDING_NOTIFICATIONS + 4));
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_invisible_formatting_is_removed() {
+        let hidden = "\u{202e}\u{2066}\u{200b}\u{00ad}\u{feff}\u{1bca0}\u{e0020}";
+        let mut metadata = TerminalMetadata::default();
+
+        metadata.observe_output(format!("\x1b]9;Build{hidden} finished\x07").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Build finished".into(), String::new())]);
+
+        metadata
+            .observe_output(format!("\x1b]777;notify;Deploy{hidden};Done{hidden}\x07").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Deploy".into(), "Done".into())]);
+
+        metadata.observe_output(format!("\x1b]99;;Kitty{hidden}\x1b\\").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Kitty".into(), String::new())]);
     }
 
     #[test]

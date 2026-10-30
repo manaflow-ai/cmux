@@ -66,6 +66,9 @@ public final class MockLayoutSource {
             push()
             model.focus(pane)
             return
+        case .newColumnLeft:
+            // The demo's mock daemon opens columns on the right only.
+            return
         case let .split(pane, axis):
             let new = PaneID(makeID("p"))
             split(pane, axis: axis, newPane: new, newFirst: false)
@@ -176,55 +179,5 @@ public final class MockLayoutSource {
             case (nil, nil): return nil
             }
         }
-    }
-}
-
-/// Colored placeholder panes for the demo.
-public final class MockPaneContentProvider: LayoutPaneContentProvider {
-    public private(set) var presence: [PaneID: PanePresence] = [:]
-
-    public init() {}
-
-    public func makeContentView(for pane: PaneID) -> NSView {
-        MockPaneView(pane: pane)
-    }
-
-    public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {
-        self.presence[pane] = presence
-    }
-}
-
-private final class MockPaneView: NSView {
-    private let hue: CGFloat
-    private let label: NSTextField
-
-    init(pane: PaneID) {
-        var hash: UInt64 = 1469598103934665603
-        for byte in pane.rawValue.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
-        hue = CGFloat(hash % 360) / 360
-        label = NSTextField(labelWithString: String(localized: "layout.demo.paneTitle", defaultValue: "Pane \(pane.rawValue)", bundle: .module))
-        super.init(frame: .zero)
-        wantsLayer = true
-        label.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
-        label.textColor = NSColor(white: 1, alpha: 0.85)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-        ])
-        updateLayer()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        layer?.backgroundColor = NSColor(hue: hue, saturation: 0.35, brightness: 0.42, alpha: 1).cgColor
     }
 }

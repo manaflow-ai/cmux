@@ -1,55 +1,54 @@
 /*
  * Settings layout and looks (SETTINGS-PAGE-FIRST-PRINCIPLES P1-P5), after styles.css.
  * P1: the categories stay at the window's left; the content is one centered column of at most
- * 720 px, in slightly smaller type and rows than before. Two looks; mount.tsx SHIPPED_LOOK picks:
- *   quiet (shipped): grouped rows in hairline-outlined cards, as macOS System Settings groups them;
- *   dense (:root[data-settings-look="dense"], a gallery variant): no cards, hairline rows, tighter type.
+ * 720 px, in slightly smaller type and rows than before: grouped rows in hairline-outlined cards,
+ * as macOS System Settings groups them. refined.css (mount.tsx sets data-settings-look="refined",
+ * the one look) draws its section nav, cards and controls over these rules.
  * The render rule holds: containers stay transparent; only controls and interaction states fill,
  * with --input-bg, --accent-soft, or --accent for an on control (a switch, a default button).
- * The accent is neutral (the no-blue rule): the theme's text color, never the palette hue the app
- * theme derives for --cmux-app-accent; the knob on it is the window surface.
+ * The accent is --cmux-accent: neutral by default (the no-blue rule: the theme's text color), the
+ * theme's own hue with appearance.accent; the knob on it is --cmux-on-accent.
  */
 :root {
-  --accent: var(--text);
-  --on-accent: var(--cmux-app-window, var(--cmux-surface-token, Canvas));
+  --settings-scale: var(--cmux-interface-scale, 1);
+  --accent: var(--cmux-accent, var(--text));
+  /* A highlighted list row (desktop.css --cmux-row-focus): hover's family, a touch stronger. */
+  --row-focus: var(--cmux-row-focus, var(--accent-soft));
+  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
-  --row-pad-y: 7px;
-  --row-pad-x: 12px;
-  --row-min: 38px;
+  /* The one width of a row's popup (menus, the theme pickers, the accent), so a popup's left edge
+     lines up with the rows around it and its selected label never resizes it. */
+  --row-popup-width: 200px;
+  --row-pad-y: calc(3px * var(--settings-scale));
+  --row-pad-x: calc(12px * var(--settings-scale));
+  --row-min: calc(28px * var(--settings-scale));
   --card-radius: 10px;
   --sidebar-width: 208px;
-  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
-     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
-     own height animate, so nothing else on the page moves. */
-  --motion-hover: var(--cmux-motion-hover, 80ms);
-  --motion-focus: var(--cmux-motion-focus, 100ms);
-  --motion-in: var(--cmux-motion-in, 120ms);
-  --motion-out: var(--cmux-motion-out, 80ms);
-  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
-  font-size: 12.5px;
+  /* Motion: the one motion scale (--cmux-motion-*, pages/shared/desktop.css): hover, focus and
+     anything leaving quick, anything arriving micro, easing out. Only opacity, transform and a
+     collapsing row's own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
+  --motion-in: var(--cmux-motion-micro, 120ms);
+  --motion-out: var(--cmux-motion-quick, 80ms);
+  --motion-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  font-size: calc(12.5px * var(--settings-scale));
 }
 
-:root[data-settings-look="dense"] {
-  --row-pad-y: 4px;
-  --row-pad-x: 2px;
-  --row-min: 30px;
-  --card-radius: 0;
-  --sidebar-width: 188px;
-  font-size: 12px;
-}
 
 .settings {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 
 .sidebar {
-  gap: 12px;
-  padding: 12px 10px;
+  gap: calc(12px * var(--settings-scale));
+  padding: calc(12px * var(--settings-scale)) calc(10px * var(--settings-scale));
 }
 
 .content {
-  padding: 26px 32px 56px;
+  --content-pad-end: calc(56px * var(--settings-scale));
+  padding: calc(26px * var(--settings-scale)) var(--page-edge) var(--content-pad-end);
 }
 
 .column {
@@ -75,11 +74,18 @@
   padding-bottom: 4px;
 }
 
+/* The filter sits on the search field's line at the field's height: icon and count centered on one
+   line (no superscript count). */
 .filter-button {
   position: relative;
-  gap: 2px;
-  border-radius: 6px;
-  padding: 4px;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 26px;
+  border-radius: 7px;
+  padding: 0 6px;
 }
 
 .filter-button[aria-pressed="true"] {
@@ -88,7 +94,8 @@
 }
 
 .filter-count {
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -113,23 +120,14 @@
   font-weight: 500;
 }
 
-:root[data-settings-look="dense"] .section-link {
-  padding: 3px 7px;
-  border-radius: 5px;
-}
 
 .section-title {
-  font-size: 22px;
+  font-size: calc(22px * var(--settings-scale));
   font-weight: 650;
   letter-spacing: -0.01em;
   margin: 0 0 20px;
 }
 
-:root[data-settings-look="dense"] .section-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 14px;
-}
 
 .result-section-title {
   font-size: 13px;
@@ -150,20 +148,18 @@
   color: var(--text);
 }
 
-:root[data-settings-look="dense"] .group {
-  margin-bottom: 16px;
-}
 
-:root[data-settings-look="dense"] .group-title {
-  margin: 0 0 2px;
-  font-size: 11px;
-  color: var(--muted-text);
-}
 
-/* Quiet: one outlined card per group, rows divided by hairlines inset from the card's edge. */
+/* One outlined card per group, rows divided by hairlines inset from the card's edge. */
 .rows {
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
+}
+
+/* Controls in a row are 22 px (a 16 px line in padding and a hairline border), so a row with one
+   line of text is --row-min tall; a row with help text takes a second line. */
+.row :is(.field, .segment, .button, .theme-button) {
+  line-height: 16px;
 }
 
 .row {
@@ -181,6 +177,46 @@
   box-shadow: none;
 }
 
+/* A glass card (Settings > Chief): the card is liquid glass (.ui-glass, ui/glass/glass.css: the
+   theme surface's translucent tint, never opaque) holding its title, help and rows; the rows drop
+   their own outline and keep the hairlines between them, under one hairline below the header. */
+.group.ui-glass {
+  border-radius: var(--card-radius);
+  padding-top: 10px;
+}
+
+.group.ui-glass > :not(.rows) {
+  margin-inline: var(--row-pad-x);
+}
+
+.group.ui-glass > .rows {
+  border: 0;
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  box-shadow: inset 0 1px 0 var(--border);
+}
+
+.group.ui-glass > .rows > .row:first-child {
+  border-radius: 0;
+}
+
+.group.ui-glass > :last-child:not(.rows) {
+  margin-bottom: 12px;
+}
+
+/* Look's characters keep clear of the Bubble Style row's hairline. */
+.group.chief-pet.ui-glass > :not(.rows):has(+ .rows) {
+  margin-bottom: 16px;
+}
+
+/* A Chief row lays out across (picture, name and role, backend, Locked): `.row` above stacks a
+   row's lines and loads after styles.css's .chiefs-row, so the row drew every part centred down
+   the card. */
+.rows > .chiefs-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 .rows > .row:first-child {
   border-top-left-radius: var(--card-radius);
   border-top-right-radius: var(--card-radius);
@@ -191,14 +227,21 @@
   border-bottom-right-radius: var(--card-radius);
 }
 
-:root[data-settings-look="dense"] .rows {
-  border: 0;
-  border-top: 1px solid var(--border);
+/* Search wraps each row in `.collapse > .collapse-body` (SearchResults), so the first and last
+   shown rows take the card's edges here. The last one's divider drew a second line under the
+   card's rounded edge. */
+.rows > .collapse[data-open]:not(.collapse[data-open] ~ .collapse) .row {
+  border-top-left-radius: var(--card-radius);
+  border-top-right-radius: var(--card-radius);
 }
 
-:root[data-settings-look="dense"] .rows > .row:last-child {
-  box-shadow: inset 0 -1px 0 var(--border);
+.rows > .collapse[data-open]:not(:has(~ .collapse[data-open])) .row {
+  box-shadow: none;
+  border-bottom-left-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
 }
+
+
 
 .row-main {
   gap: 20px;
@@ -214,9 +257,6 @@
   line-height: 1.35;
 }
 
-:root[data-settings-look="dense"] .row-help {
-  font-size: 11px;
-}
 
 /* P4: a scope override or an MDM lock, inline on its setting. */
 .row-managed {
@@ -224,7 +264,7 @@
   margin-top: 3px;
   padding: 1px 7px 1px 5px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 11px;
 }
 
@@ -233,7 +273,7 @@
   justify-content: flex-start;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 26px;
   font-size: 11.5px;
   color: var(--muted-text);
 }
@@ -285,7 +325,30 @@
   padding: 2px 10px;
 }
 
-.link-button {
+/* The button already rests on --input-bg, so its hover steps up to the accent's soft fill. */
+.button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+/* An action row keeps its control and the empty Reset slot on one line: a long path shrinks to an
+   ellipsis instead of pushing the slot onto a line of its own. */
+.action-row-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.action-row-control > .row-help {
+  min-width: 0;
+}
+
+/* A card's intro is a sentence or two: it wraps instead of clipping, with room before the card. */
+.group > .row-help {
+  margin-bottom: 8px;
+  white-space: normal;
+}
+
+.link-button,
+.channel-link {
   color: var(--accent-text);
 }
 
@@ -298,22 +361,185 @@
   margin: 0 0 24px;
 }
 
-.theme-preview,
-.theme-palette {
+.theme-preview {
   display: block;
   width: 100%;
   height: auto;
 }
 
-.theme-palette {
-  margin-top: 14px;
-  color: var(--muted-text);
+/* The theme's colors (ThemeTokens): 16 ANSI swatches in two rows, then the four named colors.
+   Each swatch is a button that opens its tuner; an edited one carries a dot. */
+/* Both are fieldsets (the swatch groups), without the fieldset's own frame. */
+.theme-tokens,
+.token-tuner-snaps {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
-.theme-palette-hex {
+.theme-tokens {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.theme-tokens-row,
+.theme-tokens-named {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-tokens-named {
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 4px;
+}
+
+.theme-tokens-label {
+  width: 52px;
+  flex: none;
+}
+
+.theme-tokens-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-tokens-hex,
+.token-tuner-hex {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--text-caption);
+}
+
+.theme-tokens-hex {
   opacity: 0.8;
+}
+
+.theme-token {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.theme-token:not(:disabled) {
+  cursor: pointer;
+}
+
+.theme-token:not(:disabled):hover {
+  box-shadow: 0 0 0 2px var(--row-focus);
+}
+
+/* The edited dot: a border-drawn disc in the text color, ringed in the page surface. */
+.theme-token[data-edited]::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 0;
+  height: 0;
+  border: 3.5px solid var(--text);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--cmux-surface-solid, Canvas);
+}
+
+.token-tuner-body {
+  display: grid;
+  gap: 10px;
+  width: 248px;
+  padding: 10px;
+}
+
+.token-tuner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.token-tuner-swatch {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.token-tuner-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.token-tuner-hex {
+  width: 78px;
+}
+
+.token-tuner-slider {
+  display: grid;
+  gap: 4px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.token-tuner-slider input {
+  height: 10px;
+  margin: 0;
+  border-radius: 5px;
+  appearance: none;
+}
+
+.token-tuner-slider input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--cmux-surface-solid, Canvas);
+  border-radius: 50%;
+  background: var(--accent);
+  appearance: none;
+}
+
+.token-tuner-snaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.token-tuner-snap {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.token-tuner-contrast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.token-tuner-contrast[data-contrast-low] {
+  color: var(--warning);
+}
+
+.token-tuner-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .theme-caption {
@@ -333,6 +559,84 @@
   white-space: nowrap;
 }
 
+/* Save as Ghostty Theme and Import Theme File, with their inline name and replace prompts. */
+.theme-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.theme-files-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.theme-files-row .field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+/* Colors the Ghostty config sets itself, which no theme changes: what, where, and the way out.
+   A card like the theme rows (the app theme's own border); the icon, on the message's first line,
+   and the message in the warning color, as the settings file's row notices (.notice). */
+.theme-overrides {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  font-size: var(--text-sm);
+}
+
+.theme-overrides > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+/* Text and buttons share a row; when the text would get too narrow, the buttons move under it,
+   aligned with its start. */
+.theme-overrides-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.theme-overrides-text {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--warning);
+}
+
+/* The where is secondary: muted, so only the message reads as the warning. */
+.theme-overrides-source {
+  color: var(--muted-text);
+  overflow-wrap: break-word;
+}
+
+.theme-overrides-error {
+  color: var(--danger);
+}
+
+.theme-overrides-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
 .theme-studio .row-help {
   white-space: normal;
@@ -349,15 +653,22 @@
   color: var(--accent-text);
 }
 
+/* Every theme and accent popup on the Theme page has one width, so neither the chosen name nor a
+   row's Reset moves it; a long name ellipsizes. */
 .theme-button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  max-width: 280px;
+  box-sizing: border-box;
+  width: var(--row-popup-width);
+  max-width: 100%;
   padding: 2px 6px 2px 3px;
 }
 
 .theme-button-name {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -367,16 +678,17 @@
   color: var(--muted-text);
 }
 
-.theme-chip {
+.theme-ball {
   flex-shrink: 0;
-  width: 28px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
-.theme-chip-empty {
+.theme-ball-empty {
   display: inline-block;
+  box-sizing: border-box;
   border: 1px dashed var(--border-strong);
-  border-radius: 4px;
+  border-radius: 50%;
 }
 
 .theme-popover {
@@ -403,7 +715,15 @@
 }
 
 .theme-option[data-highlighted] {
-  background: var(--accent-soft);
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* The right-clicked (pinned) preview: its ball is ringed in the text color while the app shows it. */
+.theme-option-row[data-previewing] .theme-ball {
+  border-radius: 50%;
+  outline: 1.5px solid currentColor;
+  outline-offset: 1px;
 }
 
 .theme-option-row {
@@ -424,6 +744,12 @@
   color: var(--accent-text);
 }
 
+.theme-empty {
+  padding: 6px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
 .theme-count {
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
@@ -432,7 +758,7 @@
   color: var(--muted-text);
 }
 
-/* The Reset slot: every row reserves it, so the control fades and scales in place. */
+/* The Reset slot: every row reserves it, so the control fades in place. */
 .reset-slot {
   display: inline-flex;
   flex: none;
@@ -442,17 +768,14 @@
 
 .reset-button {
   opacity: 0;
-  transform: scale(0.8);
   transition:
     opacity var(--motion-out) var(--motion-ease),
-    transform var(--motion-out) var(--motion-ease),
     background var(--motion-hover);
 }
 
 .reset-slot[data-shown] .reset-button {
   opacity: 1;
-  transform: none;
-  transition-duration: var(--motion-in), var(--motion-in), var(--motion-hover);
+  transition-duration: var(--motion-in), var(--motion-hover);
 }
 
 /* A category fades in when it opens; a transform never moves anything else. */
@@ -466,7 +789,6 @@
 @keyframes settings-pop {
   from {
     opacity: 0;
-    transform: scale(0.92);
   }
 }
 
@@ -517,8 +839,9 @@
   margin-top: 0;
 }
 
+/* The popup surfaces keep their fades (pages/shared/desktop.css). */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop),
   *::before,
   *::after {
     animation: none !important;
@@ -557,6 +880,165 @@
   }
 
   .content {
-    padding: 14px 16px 40px;
+    --content-pad-end: 40px;
+    padding: 14px var(--page-edge) var(--content-pad-end);
+    --content-fade-top: 12px;
   }
+}
+
+/* Chief Pet (ChiefPetCard): the pet's own page, after ChatGPT's Mini & Pets. */
+.chief-pet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 2px 12px;
+}
+
+.chief-pet-lede {
+  margin: 0;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.chief-pet-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 160px;
+  margin-bottom: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.chief-pet-preview[data-enabled="false"] .chief-pet-art {
+  opacity: 0.45;
+}
+
+.chief-pet-art,
+.chief-pet-choice-art img {
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+.chief-pet-art {
+  width: 88px;
+  height: 80px;
+}
+
+.chief-pet-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+}
+
+.chief-pet-rail i {
+  height: 14px;
+  border-left: 1px solid var(--border-strong);
+}
+
+.chief-pet-up {
+  transform: rotate(180deg);
+}
+
+
+.chief-pet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 12px;
+}
+
+.chief-pet-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  position: relative;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--motion-hover) var(--motion-ease);
+}
+
+.chief-pet-choice:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.chief-pet-choice[aria-pressed="true"] {
+  border-color: var(--text);
+}
+
+/* The chosen character's check, top right (ChatGPT's picker marks its pick the same way). */
+.chief-pet-choice[aria-pressed="true"]::after {
+  content: "✓";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.chief-pet-choice-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 76px;
+}
+
+.chief-pet-choice-art img {
+  width: 72px;
+  height: 66px;
+}
+
+.chief-pet-choice strong {
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.chief-pet-choice-help {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: 1.35;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue
+   wheel, inline). */
+.accent-swatch {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.accent-popover .theme-list {
+  outline: none;
+}
+
+.accent-popover .theme-option {
+  cursor: default;
+}
+
+.accent-popover .theme-option[aria-selected="true"] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }

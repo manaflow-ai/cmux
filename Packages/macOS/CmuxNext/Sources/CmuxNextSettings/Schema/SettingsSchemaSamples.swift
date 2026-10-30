@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// Candidate values per setting kind for the schema export: the export keeps
@@ -7,6 +6,13 @@ import Foundation
 /// actor) can prove it agrees with Swift on every row.
 nonisolated enum SettingsSchemaSamples {
     static func samples(for descriptor: SettingDescriptor) -> (accept: [JSONValue], refuse: [JSONValue]) {
+        if descriptor.path == CustomDensitiesSetting().configPath {
+            let tight = JSONValue.object(["id": .string("my-tight"), "name": .string("My Tight"), "level": .number(-0.25),
+                                          "fontSize": .number(11.5), "tokens": .object(["sidebarRowHeight": .number(22)])])
+            return ([.array([]), .array([tight])],
+                    [.string("my-tight"), .array([.object([:])]), .array([.object(["id": .string("Bad Id"), "name": .string("x")])]),
+                     .array([.object(["id": .string("a"), "name": .string("A"), "level": .string("1")])])])
+        }
         if descriptor.path == ChatSettings.rootsPath {
             return ([.array([]), .array([.string("/opt/cmux-chat-data")])],
                     [.string("/opt/cmux-chat-data"), .array([.string("~/chats")]), .array([.string("/")]), .array([.string("/Volumes/chats")]), .array([.number(1)])])
@@ -22,12 +28,19 @@ nonisolated enum SettingsSchemaSamples {
         case .choiceOrNumber(let choices, let number):
             return (choices.map { .string($0.value) } + numbers(number).accept,
                     [.string("__not_a_choice__"), .bool(true)] + numbers(number).refuse)
+        case .choiceOrURL(let choices, let urlKey):
+            let url = { (text: String) in JSONValue.object([urlKey: .string(text)]) }
+            return (choices.map { .string($0.value) } + [url("http://mini.tail1234.ts.net:7320"), url("https://100.101.102.103/")],
+                    [.string("__not_a_choice__"), .string(urlKey), .number(1), url("ftp://mini.tail1234.ts.net"),
+                     url("http://mini.tail1234.ts.net/path"), url("http://mini.tail1234.ts.net?x=1"), url("not a url"),
+                     .object([urlKey: .number(7320)]), .object(["__other__": .string("http://mini.tail1234.ts.net")]),
+                     .object([urlKey: .string("http://mini.tail1234.ts.net"), "__extra__": .string("x")])])
         case .number(let number):
             return numbers(number)
         case .color:
             return ([.string("#1a2B3c"), .string("#1A2B3C80"), .string("1a2b3c")],
                     [.string("red"), .string("#12345"), .string("#1234567"), .string("#12345g"), .number(0)])
-        case .sound, .theme, .fontFamily:
+        case .sound, .theme, .fontFamily, .text:
             // Valid names depend on the machine; only the shape is portable.
             return ([], [.number(1), .bool(true), .null])
         case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
@@ -53,10 +66,15 @@ nonisolated enum SettingsSchemaSamples {
         case .stringMap:
             return ([.object([:]), .object(["*": .string("★"), "Work": .string("")])],
                     [.string("★"), .array([]), .object(["Work": .number(1)])])
+        case .soundRules:
+            return ([.object([:]), .object(["ws_1": .string("none"), "Ops": .object(["sound": .string("Glass"), "volume": .number(0.5),
+                                                                                    "events": .object(["needsInput": .string("Ping")])])])],
+                    [.string("Glass"), .array([]), .object(["ws_1": .number(1)]), .object(["ws_1": .object(["volume": .string("loud")])]),
+                     .object(["ws_1": .object(["events": .object(["ringing": .string("Ping")])])])])
         case .stringList:
             return ([.array([]), .array([.string("ws-1"), .string("2B7F0C3A-workspace")])],
                     [.string("ws-1"), .array([.number(1)]), .array([.string("")]), .object([:])])
-        case .orderedChoices(let choices):
+        case .orderedChoices(let choices), .choiceSet(let choices):
             return ([.array([]), .array(choices.reversed().map { .string($0.value) })],
                     [.string(choices.first?.value ?? "a"), .array([.string("__not_a_choice__")]), .array([.number(1)])])
         }
@@ -68,13 +86,5 @@ nonisolated enum SettingsSchemaSamples {
         let span = max(high - low, 1)
         return ([.number(low), .number(high), .number(low + (high - low) / 2)],
                 [.number(low - span), .number(high + span), .string("1")])
-    }
-}
-
-/// SHA-256 of the canonical rows JSON, lowercase hex: the daemon reports it
-/// so a client can tell that it renders the schema the owner validates.
-nonisolated enum SettingsSchemaHash {
-    static func hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }

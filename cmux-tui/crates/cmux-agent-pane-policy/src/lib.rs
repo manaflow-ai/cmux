@@ -9,10 +9,10 @@
 //! one function on every page frame, [`check::check_frame`] (Swift
 //! `AgentPaneTransport.checkOne`, in its order), and relays only the object
 //! it returns ([`check::encode`]). The shared case files in `tests/cases` run
-//! against this crate (`tests/parity.rs`) and against the Swift functions
-//! (CmuxNextAgentPaneTests `AgentPanePolicyParityTests`; `check.json` against
-//! `checkOne`); `tests/typescript.rs` checks the lists against what the page
-//! sends (webviews/src/agent-session/acpmux).
+//! against this crate (`tests/parity.rs`); `tests/swift.rs` checks the
+//! requests and params lists against the Swift host's tables
+//! (`AcpmuxPaneMethods.requests`, `knownParams`), and `tests/typescript.rs`
+//! against what the page sends (webviews/src/agent-session/acpmux).
 //!
 //! Host-owned (state or disk; the Rust host that adopts this crate implements
 //! them, owner: the GPUI lane, cmux2-gpui `apps/cmux2` agent pane host, with
@@ -20,6 +20,13 @@
 //! - the folder check against the pane's roots, which reads the disk
 //!   (`AcpmuxPathPolicy.check`, `canonical`); this crate only says which
 //!   frames wait for it ([`check::needs_path_check`], `policy.json` `path_keys`);
+//!   a session/new for another machine (a non-empty `_meta.acpmux.peer`) names
+//!   that machine's folder, so its `cwd` gets only a shape check (absolute, no
+//!   NUL, at most 4096 bytes) and goes as named (`AcpmuxPathPolicy+Peer`);
+//! - in that folder step, a session/new's `_meta.acpmux.noProject` (Do not
+//!   work in a project): the host strips it, since it is the pane's own and
+//!   never reaches acpmux, and fills a missing cwd with the agent-home folder
+//!   instead of the pane's root (`AcpmuxPathPolicy` product rule 1);
 //! - feeding the pane's scope: [`sessions::PaneSessions`] ports
 //!   `AcpmuxPaneSessions` (`add`, `sent`, `observe`, `holdsSource`), the host
 //!   calls it with what the pane sent and the daemon answered, and decides the
@@ -43,6 +50,7 @@
 //! `policy.json` needs that review.
 
 pub mod answers;
+pub mod build_identity;
 pub mod check;
 pub mod connection;
 pub mod data;

@@ -10,10 +10,8 @@ use cmux_server_core::install_key::{SystemRandom, verify};
 use serde_json::{Value, json};
 
 use super::client::{
-    BindResult, CloudClient, Http, MemoryStore, Store, bind_machine, ensure_install_key,
+    BindResult, Http, MemoryStore, Store, bind_machine, ensure_install_key, record_owner_kind,
 };
-use super::sender::{Answer, OpRequest};
-use super::session::Session;
 use super::wire::*;
 
 const DEV: &str = "https://cmux-api-development.debussy.workers.dev";
@@ -58,15 +56,6 @@ impl Fake {
         let fake = Fake::default();
         fake.0.borrow_mut().prefix_env = "development".to_owned();
         fake
-    }
-    fn ops(&self) -> Vec<Seen> {
-        self.0.borrow().seen.iter().filter(|s| s.url.ends_with("/v1/ops")).cloned().collect()
-    }
-    fn clear(&self) {
-        self.0.borrow_mut().seen.clear();
-    }
-    fn script(&self, answers: Vec<(u16, Value)>) {
-        self.0.borrow_mut().ops = answers.into();
     }
 }
 
@@ -134,59 +123,6 @@ fn daemon() -> DaemonInfo {
     }
 }
 
-/// A bound client against the fake (bind done with the vector's answer).
-fn bound_client(fake: &Fake) -> CloudClient<Fake> {
-    let rng = SystemRandom::new();
-    let mut store = MemoryStore::default();
-    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
-    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
-    let BindResult::Bound(bound) = bind_machine(&mut store, fake, &key, "AAAA=", &daemon(), T0)
-    else {
-        panic!("bind failed")
-    };
-    CloudClient::new(fake.clone(), *bound, key)
-}
-
-/// What the role's worker does: send each request, feed the answer back.
-fn drive(
-    client: &mut CloudClient<Fake>,
-    session: &mut Session,
-    mut queue: Vec<OpRequest>,
-    now: u64,
-) -> Vec<String> {
-    let mut reasons = Vec::new();
-    while let Some(req) = queue.pop() {
-        let answer = client.op(&req, T0 + now);
-        reasons.push(req.reason.clone());
-        queue.extend(session.answered(&req, &answer, now, 0.5).0);
-    }
-    reasons
-}
-
-#[test]
-fn bind_file_allows_only_the_environment_origin() {
-    assert_eq!(parse_bind_file(&bind_text()).unwrap().env, Env::Dev);
-    let other = bind_text().replace(DEV, "https://cloud-api.cmux.dev");
-    assert!(parse_bind_file(&other).unwrap_err().contains("api_origin"));
-    assert!(parse_bind_file(&bind_text().replace("\"dev\"", "\"qa\"")).is_err());
-    assert!(parse_bind_file(&bind_text().replace(TEAM, "team_short")).is_err());
-}
-
-#[test]
-fn install_key_is_kept_per_instance_and_replaced_on_a_new_instance_id() {
-    let rng = SystemRandom::new();
-    let mut store = MemoryStore::default();
-    let a = ensure_install_key(&mut store, "i-aaa", &rng).unwrap();
-    assert!(a.rotated);
-    assert_eq!(store.mode_of(INSTALL_KEY_FILE), Some(0o600));
-    let again = ensure_install_key(&mut store, "i-aaa", &rng).unwrap();
-    assert!(!again.rotated);
-    assert_eq!(again.key.public_jwk(), a.key.public_jwk());
-    let clone = ensure_install_key(&mut store, "i-bbb", &rng).unwrap();
-    assert!(clone.rotated);
-    assert_ne!(clone.key.public_jwk(), a.key.public_jwk());
-}
-
 #[test]
 fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     let fake = Fake::new();
@@ -216,319 +152,145 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
 }
 
 #[test]
-fn a_spent_token_is_refused_and_never_overwrites_bound() {
-    let fake = Fake::new();
-    let _ = bound_client(&fake);
-    let rng = SystemRandom::new();
+fn owner_kind_is_written_once_and_never_replaces_a_record() {
+    use crate::team_ssh::enroll::TEAM_ENROLL_FILE;
+    // Nothing recorded: the bind records `owner`, 0644.
     let mut store = MemoryStore::default();
-    store.write(BOUND_FILE, "{\"before\":1}", 0o600).unwrap();
-    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
-    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
-    let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), T0);
-    assert_eq!(result, BindResult::Refused("auth.forbidden".to_owned()));
-    assert_eq!(store.read(BOUND_FILE).as_deref(), Some("{\"before\":1}"));
-    assert_eq!(store.read(BIND_FILE), None);
-}
-
-#[test]
-fn token_signs_prefix_and_nonce_and_refuses_another_environment() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    fake.0.borrow_mut().prefix_env = "production".to_owned();
-    assert!(client.token(T0).unwrap_err().contains("prefix"));
-    fake.0.borrow_mut().prefix_env = "development".to_owned();
-    assert_eq!(client.token(T0).unwrap(), "tok-1");
-    let seen = fake.0.borrow().seen.clone();
-    let token_req = seen.iter().rfind(|s| s.url.ends_with("/v1/auth/token")).unwrap();
-    assert_eq!(token_req.body["user"], USER);
-    assert_eq!(token_req.body["install"], INSTALL);
-    assert_eq!(token_req.body["nonce"], "nonce-1");
-}
-
-#[test]
-fn first_report_goes_to_ops_after_start_with_zero_sessions() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    fake.clear();
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let reqs = session.start(0);
-    assert_eq!(drive(&mut client, &mut session, reqs, 0), ["start"]);
-    let ops = fake.ops();
-    assert_eq!(ops.len(), 1);
-    assert_eq!(ops[0].url, format!("{DEV}/v1/ops"), "where: the bound environment's /v1/ops");
-    assert_eq!(ops[0].bearer.as_deref(), Some("tok-1"));
-    assert_eq!(
-        ops[0].body,
-        json!({ "op": "cloud.vm.status.report", "params": {
-            "machine": MACHINE, "state": "running", "daemon": daemon().to_json(),
-            "activity": { "active_sessions": 0 },
-        }})
-    );
-}
-
-#[test]
-fn changes_coalesce_to_one_report_per_10s_latest_wins() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let reqs = session.start(0);
-    drive(&mut client, &mut session, reqs, 0);
-    fake.clear();
-    let line = |n: u64, key: &str, at: u64| {
-        json!({ "activity": { "active_sessions": n, key: at } }).to_string()
-    };
-    let (reqs, _) = session.line(&line(1, "last_user_input_at", T0), 1);
-    assert!(reqs.is_empty(), "inside the 10 s window");
-    let (reqs, _) = session.line(&line(2, "last_agent_action_at", T0 + 1), 2);
-    assert!(reqs.is_empty());
-    assert_eq!(session.next_deadline(), Some(10_000), "one window deadline");
-    let reqs = session.fire(10_000);
-    assert_eq!(drive(&mut client, &mut session, reqs, 10_000), ["change"]);
-    let ops = fake.ops();
-    assert_eq!(ops.len(), 1);
-    assert_eq!(
-        ops[0].body["params"]["activity"],
-        json!({ "active_sessions": 2, "last_user_input_at": T0, "last_agent_action_at": T0 + 1 })
-    );
-}
-
-#[test]
-fn heartbeat_is_one_deadline_rearmed_after_each_accepted_report() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let reqs = session.start(0);
-    drive(&mut client, &mut session, reqs, 0);
-    fake.clear();
-    assert_eq!(session.reporter.deadlines(), [60_000]);
-    assert!(session.fire(59_999).is_empty());
-    let reqs = session.fire(60_000);
-    assert_eq!(drive(&mut client, &mut session, reqs, 60_000), ["heartbeat"]);
-    assert_eq!(fake.ops().len(), 1);
-    assert_eq!(session.reporter.deadlines(), [120_000]);
-}
-
-#[test]
-fn failed_reports_back_off_honor_retry_after_and_cap_at_10_min() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let reqs = session.start(0);
-    drive(&mut client, &mut session, reqs, 0);
-    fake.clear();
-    let mut script = vec![(
-        200,
-        json!({ "ok": false, "error": { "code": "cloud.rate_limited", "details": { "retry_after_ms": 4_000 } } }),
-    )];
-    script.extend((0..12).map(|_| (503, json!({ "code": "owner.unreachable" }))));
-    fake.script(script);
-    let reqs = session.line(&json!({ "activity": { "active_sessions": 0 } }).to_string(), 5_000).0;
-    assert!(reqs.is_empty());
-    let mut now = 10_000;
-    let reqs = session.fire(now);
-    drive(&mut client, &mut session, reqs, now);
-    let mut delays = Vec::new();
-    for _ in 0..13 {
-        let deadlines = session.reporter.deadlines();
-        assert_eq!(deadlines.len(), 1, "while failing, the retry is the only timer: {deadlines:?}");
-        delays.push(deadlines[0] - now);
-        now = deadlines[0];
-        let reqs = session.fire(now);
-        drive(&mut client, &mut session, reqs, now);
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(store.read(VM_KIND_FILE).as_deref(), Some("owner\n"));
+    assert_eq!(store.mode_of(VM_KIND_FILE), Some(0o644));
+    // A record the create (or anything else) wrote first is kept, whatever it says.
+    for existing in ["team\n", "owner\n", "", "something-else\n"] {
+        let mut store = MemoryStore::default();
+        store.write(VM_KIND_FILE, existing, 0o600).unwrap();
+        record_owner_kind(&mut store).unwrap();
+        assert_eq!(store.read(VM_KIND_FILE).as_deref(), Some(existing));
+        assert_eq!(store.mode_of(VM_KIND_FILE), Some(0o600));
     }
-    assert!(delays[0] >= 4_000, "{delays:?}");
-    assert!(delays.windows(2).all(|w| w[1] >= w[0]), "{delays:?}");
-    assert_eq!(*delays.last().unwrap(), 600_000);
-    assert_eq!(fake.ops().len(), 14);
-    assert_eq!(session.reporter.deadlines(), [now + 60_000], "heartbeat re-armed after success");
+    // A team enroll on disk with no record: nothing is written.
+    let mut store = MemoryStore::default();
+    store.write(TEAM_ENROLL_FILE, "{}", 0o600).unwrap();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(store.read(VM_KIND_FILE), None);
+    // A check that fails for any reason but "not found" writes nothing.
+    for broken in [VM_KIND_FILE, TEAM_ENROLL_FILE] {
+        let mut store = MemoryStore::default();
+        store.make_unreadable(broken);
+        assert!(record_owner_kind(&mut store).is_err(), "{broken}");
+        assert_eq!(store.mode_of(VM_KIND_FILE), None, "{broken}");
+    }
 }
 
-#[test]
-fn resume_sends_one_report_named_resume() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let reqs = session.start(0);
-    drive(&mut client, &mut session, reqs, 0);
-    fake.clear();
-    // The supervisor's Resumed event (outside the 10 s window).
-    let reqs = session.resume(30_000);
-    assert_eq!(drive(&mut client, &mut session, reqs, 30_000), ["resume"]);
-    assert_eq!(fake.ops().len(), 1);
-    // The interim agent's socket line still works.
-    let reqs = session.line("{\"resume\": true}", 45_000).0;
-    assert_eq!(drive(&mut client, &mut session, reqs, 45_000), ["resume"]);
+/// The agent's real store under a temporary root.
+#[cfg(target_os = "linux")]
+fn file_store() -> (tempfile::TempDir, super::role::FileStore, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = super::role::FileStore::new(crate::config::Paths::new(dir.path()));
+    let kind = dir.path().join(VM_KIND_FILE.trim_start_matches('/'));
+    (dir, store, kind)
 }
 
+#[cfg(target_os = "linux")]
 #[test]
-fn change_and_resume_before_one_send_are_both_named() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let reqs = session.start(0);
-    drive(&mut client, &mut session, reqs, 0);
-    assert!(
-        session.line(&json!({ "activity": { "active_sessions": 1 } }).to_string(), 1).0.is_empty()
-    );
-    assert!(session.resume(2).is_empty());
-    let reqs = session.fire(10_000);
-    assert_eq!(drive(&mut client, &mut session, reqs, 10_000), ["change+resume"]);
+fn owner_kind_keeps_a_record_it_cannot_read() {
+    // Not UTF-8: it cannot be read as text, but it is a record, so it stays.
+    let (_dir, mut store, kind) = file_store();
+    std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+    std::fs::write(&kind, [0xff, 0xfe, b'\n']).unwrap();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read(&kind).unwrap(), [0xff, 0xfe, b'\n']);
+    // A path that cannot be checked (its directory is a file): an error, no write.
+    let (dir, mut store, _) = file_store();
+    std::fs::write(dir.path().join("etc"), "not a directory").unwrap();
+    assert!(record_owner_kind(&mut store).is_err());
+    assert_eq!(std::fs::read_to_string(dir.path().join("etc")).unwrap(), "not a directory");
 }
 
-#[test]
-fn daemon_activity_maps_to_sessions_and_real_times() {
-    let change = activity_from_daemon(&json!({
-        "attached_clients": 2, "live_agents": 1, "last_user_input_at_ms": 5, "last_agent_action_at_ms": null,
-    }));
-    assert_eq!(
-        change,
-        ActivityChange {
-            active_sessions: Some(3),
-            last_user_input_at: Some(5),
-            last_agent_action_at: None
+/// A writer (the devbox sync, the create's write) that lands right after
+/// `record_owner_kind` checks for a record.
+#[cfg(target_os = "linux")]
+struct LandsAfterCheck {
+    inner: super::role::FileStore,
+    kind: std::path::PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl Store for LandsAfterCheck {
+    fn read(&self, file: &str) -> Option<String> {
+        self.inner.read(file)
+    }
+    fn present(&self, file: &str) -> Result<bool, String> {
+        let present = self.inner.present(file)?;
+        if file == VM_KIND_FILE && !present {
+            std::fs::write(&self.kind, "team\n").unwrap();
         }
-    );
-    assert_eq!(activity_from_daemon(&json!({})).active_sessions, Some(0));
+        Ok(present)
+    }
+    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
+        self.inner.write(file, text, mode)
+    }
+    fn create_new(&mut self, file: &str, text: &str, mode: u32) -> Result<bool, String> {
+        self.inner.create_new(file, text, mode)
+    }
+    fn remove(&mut self, file: &str) {
+        self.inner.remove(file);
+    }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
-fn activity_capability_is_advertised_only_while_the_stream_is_live() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let reqs = session.start(0);
-    drive(&mut client, &mut session, reqs, 0);
-    fake.clear();
-    assert!(session.activity_stream(true, 1).is_empty(), "held for the window");
-    let reqs = session.daemon_activity(&json!({ "attached_clients": 1, "live_agents": 0 }), 2);
-    assert!(reqs.is_empty());
-    let reqs = session.fire(10_000);
-    assert_eq!(drive(&mut client, &mut session, reqs, 10_000), ["daemon+change"]);
-    let ops = fake.ops();
-    assert_eq!(
-        ops[0].body["params"]["daemon"]["capabilities"],
-        json!(["terminal", "files", "activity"])
-    );
-    assert_eq!(ops[0].body["params"]["activity"]["active_sessions"], 1);
-    let reqs = session.activity_stream(false, 20_000);
-    assert_eq!(drive(&mut client, &mut session, reqs, 20_000), ["daemon"]);
-    assert_eq!(
-        fake.ops()[1].body["params"]["daemon"]["capabilities"],
-        json!(["terminal", "files"])
-    );
+fn owner_kind_never_replaces_a_record_written_after_its_check() {
+    let (dir, inner, kind) = file_store();
+    std::fs::create_dir_all(kind.parent().unwrap()).unwrap();
+    let mut store = LandsAfterCheck { inner, kind: kind.clone() };
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "team\n");
+    // No temp file is left beside it.
+    let names: Vec<_> = std::fs::read_dir(kind.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, ["vm-kind"]);
+    // With nothing there, the same store writes `owner`, 0644.
+    let (_dir2, mut store, kind) = file_store();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(&kind).unwrap().permissions().mode() & 0o777, 0o644);
+    drop(dir);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
-fn events_v1_kinds_only_in_order_rate_limit_honored() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    fake.script(vec![
-        (200, json!({ "ok": false, "error": { "code": "cloud.rate_limited", "details": { "retry_after_ms": 100 } } })),
-        (200, json!({ "ok": true, "value": { "delivered": true } })),
-    ]);
-    let (reqs, note) = session.line(
-        &json!({ "event": { "kind": "agent.exploded", "at": T0, "data": {} } }).to_string(),
-        0,
-    );
-    assert!(reqs.is_empty() && note.unwrap().contains("kind"));
-    let line = json!({ "event": { "kind": "agent.finished", "at": T0, "data": { "title": "Done", "outcome": "success" } } });
-    let reqs = session.line(&line.to_string(), 0).0;
-    assert_eq!(drive(&mut client, &mut session, reqs, 0), ["agent.finished"]);
-    assert_eq!(session.next_deadline(), Some(100));
-    let reqs = session.fire(100);
-    drive(&mut client, &mut session, reqs, 100);
-    let ops = fake.ops();
-    assert_eq!(ops.len(), 2);
-    assert_eq!(
-        ops[1].body,
-        json!({ "op": "cloud.vm.event.emit", "params": { "machine": MACHINE, "kind": "agent.finished", "at": T0, "data": { "title": "Done", "outcome": "success" } } })
-    );
-    assert!(session.events.is_empty());
-}
-
-#[test]
-fn heartbeat_override_only_in_dev() {
-    assert_eq!(heartbeat_ms_for(Env::Dev, Some("15000")), 15_000);
-    assert_eq!(heartbeat_ms_for(Env::Dev, Some("999")), DEFAULT_HEARTBEAT_MS);
-    assert_eq!(heartbeat_ms_for(Env::Dev, Some("x")), DEFAULT_HEARTBEAT_MS);
-    assert_eq!(heartbeat_ms_for(Env::Stg, Some("15000")), DEFAULT_HEARTBEAT_MS);
-    assert_eq!(heartbeat_ms_for(Env::Prod, Some("15000")), DEFAULT_HEARTBEAT_MS);
-}
-
-#[test]
-fn daemon_block_from_identify_is_gated_and_versioned() {
-    let identify = json!({
-        "version": "0.40.0", "build_commit": "abcdef0123456789",
-        "capabilities": ["terminal", "loopback-forward-v1", "fs-v1", "vm-activity-v1"],
-    });
-    let info = daemon_info_from_identify(&identify, false);
-    assert_eq!(info.version, "0.40.0+abcdef012345");
-    assert_eq!(info.capabilities, ["fs-v1", "loopback-forward-v1", "vm-agent-v1"]);
-    assert_eq!(
-        daemon_info_from_identify(&json!({}), true).capabilities,
-        ["vm-agent-v1", "activity"]
-    );
-}
-
-#[test]
-fn transport_failure_keeps_the_report_for_the_retry() {
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let req = session.start(0).pop().unwrap();
-    let (next, note) = session.answered(&req, &Answer::Transport, 0, 0.5);
-    assert!(next.is_empty());
-    assert_eq!(note.as_deref(), Some("report start failed"));
-    assert_eq!(session.reporter.deadlines(), [5_000]);
-    let retry = session.fire(5_000);
-    assert_eq!(retry[0].reason, "start");
-}
-
-/// The server applies one report per 10 s measured from when it RECEIVED the
-/// last applied one (cloud-vm.ts VmStatusQueue); dev-e2e on 2026-10-08 saw
-/// change, heartbeat and resume reports `held` because the agent measured its
-/// window from its own SEND time, one latency earlier. The window starts when
-/// the answer arrives, which is after the server's receive time.
-#[test]
-fn the_10s_window_counts_from_the_answer_not_the_send() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    let mut reqs = session.start(0);
-    let req = reqs.pop().expect("first report");
-    let answer = client.op(&req, T0);
-    // The answer arrives 300 ms after the send.
-    let (next, _) = session.answered(&req, &answer, 300, 0.5);
-    assert!(next.is_empty());
-    let line = json!({ "activity": { "active_sessions": 1 } }).to_string();
-    let (reqs, _) = session.line(&line, 1_000);
-    assert!(reqs.is_empty(), "inside the window");
-    assert_eq!(session.next_deadline(), Some(10_300), "10 s after the answer arrived");
-    assert!(
-        session.fire(10_000).is_empty(),
-        "10 s after the send is still inside the server's window"
-    );
-}
-
-/// A held report is applied by the server's alarm at the end of its window, up
-/// to 10 s after the answer, and that moves the server's window. dev-e2e on
-/// 2026-10-08 (hostrun5): after a unit restart every report was held in turn.
-/// After a held answer the next report waits two windows from the answer.
-#[test]
-fn after_a_held_answer_the_next_report_waits_two_windows() {
-    let fake = Fake::new();
-    let mut client = bound_client(&fake);
-    let mut session = Session::new(MACHINE, daemon(), 60_000);
-    fake.script(vec![(
-        200,
-        json!({ "ok": true, "op": "cloud.vm.status.report", "value": { "applied": false } }),
-    )]);
-    let mut reqs = session.start(0);
-    let req = reqs.pop().expect("first report");
-    let answer = client.op(&req, T0);
-    let (next, _) = session.answered(&req, &answer, 300, 0.5);
-    assert!(next.is_empty());
-    let line = json!({ "activity": { "active_sessions": 1 } }).to_string();
-    let (reqs, _) = session.line(&line, 1_000);
-    assert!(reqs.is_empty());
-    assert_eq!(session.next_deadline(), Some(20_300), "the held report applies up to 10 s later");
+fn a_failed_write_leaves_no_temp_file() {
+    use super::role::WriteStep;
+    let temps = |dir: &std::path::Path| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .map(|e| e.unwrap().file_name().into_string().unwrap())
+                    .filter(|name| name.contains(".tmp-"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for step in [WriteStep::Write, WriteStep::Permissions, WriteStep::Rename] {
+        let (_dir, mut store, kind) = file_store();
+        store.fail_next(step);
+        assert!(store.write(VM_KIND_FILE, "owner\n", 0o644).is_err(), "{step:?}");
+        assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new(), "{step:?}");
+        assert!(!kind.exists(), "{step:?}");
+    }
+    for step in [WriteStep::Write, WriteStep::Permissions, WriteStep::Link] {
+        let (_dir, mut store, kind) = file_store();
+        store.fail_next(step);
+        assert!(store.create_new(VM_KIND_FILE, "owner\n", 0o644).is_err(), "{step:?}");
+        assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new(), "{step:?}");
+        assert!(!kind.exists(), "{step:?}");
+    }
+    // A write that works leaves only the file.
+    let (_dir, mut store, kind) = file_store();
+    store.write(VM_KIND_FILE, "owner\n", 0o644).unwrap();
+    assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new());
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
 }

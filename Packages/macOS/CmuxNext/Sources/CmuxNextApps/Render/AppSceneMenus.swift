@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextDesign
 import SwiftUI
 
 /// A Menu node: a pull-down of its `menu` items.
@@ -37,7 +39,11 @@ struct AppSceneMenuItems: View {
                     pick(path + [index])
                 } label: {
                     if let symbol = item["symbol"]?.stringValue {
-                        Label(item["title"]?.stringValue ?? "", systemImage: symbol)
+                        Label {
+                            Text(item["title"]?.stringValue ?? "")
+                        } icon: {
+                            Image(nsImage: NSImage.menuSymbol(symbol) ?? NSImage())
+                        }
                     } else {
                         Text(item["title"]?.stringValue ?? "")
                     }

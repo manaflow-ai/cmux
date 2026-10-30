@@ -60,6 +60,15 @@ install-cmux-tui-client.sh installs the binary only while bundle-map.json maps i
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 
+Remote browser host: `Contents/Helpers/cmux-remote-browser-host.app` holds a pinned prebuilt
+binary (`remote-browser-host.pin.json`) and four helper copies of it. Its Rust section
+(`rust-cmux-remote-browser-host`) comes from the crate's own Cargo.lock at the pin's
+`source_commit` (checked against `crate_tree`), which the permanent tag
+`cmux-rbh-src-<commit, 11 characters>` holds (publish-remote-browser-host.sh pushes it). It links
+CEF's libcef_dll wrapper and loads the app's CEF (same `cef_sha256`, embed-remote-browser-host.sh),
+so it needs the CEF framework's CREDITS.html and LICENSE.txt. `bin/cmux-mobile-host` (cmux-next-ios) has its
+own section from `cmux-next-ios/rust/Cargo.lock`.
+
 Ghostty's Zig packages: `cmux-tui/build-support/notices/ghostty/`
 (collect-ghostty-licenses.py, verify-ghostty-license-bundle.py, pinned-licenses/),
 shared with cmux-browser. A Zig package without a license file needs pinned
@@ -75,7 +84,9 @@ nightly-next collects a second tree from that submodule
 puts the tree and its Zig packages in the source archive. A product that
 builds cmux-tui with its own Ghostty pin passes `--ghostty-revision-file`.
 
-Linked set: `vt_link_graph.py generate` (Testbox or CI; it runs zig) builds
+Linked set: `vt_link_graph.py generate` (CI or a Testbox; it runs zig; a
+`ghosttykit-pin/<name>` push uploads it as the source-archive run's
+`vt-link-graph` artifact) builds
 libghostty-vt with `-Dstrip=false` and an empty Zig cache for aarch64/x86_64
 macOS, aarch64/x86_64 Linux musl and x86_64 Windows GNU, reads the archive's DWARF source paths and
 writes `vt-link-graph.json`. `check_ghostty_vt_notices.py --link-graph` checks

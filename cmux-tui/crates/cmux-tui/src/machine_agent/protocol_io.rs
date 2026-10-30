@@ -41,6 +41,8 @@ pub(super) fn read_frame<R: BufRead>(reader: &mut R) -> Result<Envelope, FrameRe
     loop {
         let available = match reader.fill_buf() {
             Ok(available) => available,
+            // A signal (EINTR) interrupts the read, not the stream: retry.
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) => {
                 frame.zeroize();
                 return Err(FrameReadError::Io(error));

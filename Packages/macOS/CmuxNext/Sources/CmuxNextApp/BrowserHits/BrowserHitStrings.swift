@@ -11,6 +11,9 @@ enum BrowserHitStrings {
         String(format: t("browserHits.menu.search", "Search %1$@ for “%2$@”"), engine, snippet)
     }
 
+    /// Copy Link for a `mailto:` link, as Chrome names it.
+    static var copyEmailAddress: String { t("browserHits.menu.copyEmailAddress", "Copy Email Address") }
+
     /// Look Up “…”.
     static func lookUp(_ snippet: String) -> String {
         String(format: t("browserHits.menu.lookUp", "Look Up “%@”"), snippet)
@@ -24,6 +27,25 @@ enum BrowserHitStrings {
     static func downloadBlocked(_ name: String) -> String {
         String(format: t("browserHits.download.blocked", "Blocked download of “%@”"), name)
     }
+
+    /// The media hub with no tab playing (BrowserMediaMenu).
+    static var mediaNothingPlaying: String { t("browserHits.media.nothingPlaying", "Nothing Playing") }
+
+    // The toolbar's Downloads popup (BrowserDownloadsPopup) and its rows' menu (BrowserDownloadsMenu).
+    static var downloadsEmpty: String { t("browserHits.downloads.empty", "No Downloads") }
+    static var downloadsClear: String { t("browserHits.downloads.clear", "Clear Finished Downloads") }
+    static var downloadOpen: String { t("browserHits.downloads.open", "Open") }
+    static var downloadsShowFolder: String { t("browserHits.downloads.showFolder", "Open Downloads Folder") }
+    static var downloadShowInFinder: String { t("browserHits.downloads.showInFinder", "Show in Finder") }
+    static var downloadPause: String { t("browserHits.downloads.pause", "Pause") }
+    static var downloadResume: String { t("browserHits.downloads.resume", "Resume") }
+    static var downloadRetry: String { t("browserHits.downloads.retry", "Retry") }
+    static var downloadCancel: String { t("browserHits.downloads.cancel", "Cancel Download") }
+    static var downloadCopyLink: String { t("browserHits.downloads.copyLink", "Copy Download Link") }
+    static var downloadPaused: String { t("browserHits.downloads.paused", "Paused") }
+    static var downloadFailedShort: String { t("browserHits.downloads.failed", "Failed") }
+    static var downloadCancelled: String { t("browserHits.downloads.cancelled", "Cancelled") }
+    static var downloadBlockedShort: String { t("browserHits.downloads.blocked", "Blocked") }
 
     /// The blocked-download notice's button: the site's Site settings.
     static var siteSettings: String { t("browserHits.download.siteSettings", "Site Settings…") }

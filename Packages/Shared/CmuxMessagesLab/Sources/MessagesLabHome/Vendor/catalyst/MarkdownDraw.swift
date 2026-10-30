@@ -53,7 +53,7 @@ struct MDPalette {
         let p = make(outgoing: outgoing)
         cacheLock.lock()
         if cache.count > 8 { cache.removeAll() }
-        cache.updateValue(p, forKey: k) // cmux: dictionary write
+        cache.updateValue(p, forKey: k) // dictionary write
         cacheLock.unlock()
         return p
     }
@@ -64,7 +64,7 @@ struct MDPalette {
         // colour threw an NSException on the render queue. Luminance after converting.
         let darkBubble = MDPalette.luminance(text) > 0.5
         func t(_ a: CGFloat) -> UIColor { text.withAlphaComponent(a) }
-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         var tokens: [MDToken: UIColor] = [:]
         if outgoing {
             // On blue: tints of white and pale warm colours (contrast >= 4.5:1 on the deepest blue).
@@ -103,7 +103,7 @@ enum MarkdownDraw {
         ctx.translateBy(x: body.minX, y: body.minY)
         if case let .region(r) = mode {
             // A region alone, in content coordinates (overlay bitmaps): origin = region's left/top.
-            guard let reg = md.regions[checked: r] else { ctx.restoreGState(); return } // cmux: a region of another layout draws nothing
+            guard let reg = md.regions[checked: r] else { ctx.restoreGState(); return } // a region of another layout draws nothing
             ctx.translateBy(x: -reg.frame.minX, y: -reg.frame.minY)
             drawContent(ctx, md, region: r, pal: pal)
             ctx.restoreGState()

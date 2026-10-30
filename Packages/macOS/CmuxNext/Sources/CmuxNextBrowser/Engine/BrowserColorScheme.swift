@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextIcons
 
 /// The color scheme a page sees (`prefers-color-scheme`), chosen per tab
 /// with the toolbar's theme button or `browserTheme`.
@@ -8,12 +9,12 @@ public nonisolated enum BrowserColorScheme: String, CaseIterable, Hashable, Send
     case light
     case dark
 
-    /// The SF Symbol the toolbar's theme button shows for this scheme.
-    public var symbol: String {
+    /// The icon the toolbar's theme button shows for this scheme.
+    public var icon: IconName {
         switch self {
-        case .system: "circle.lefthalf.filled"
-        case .light: "sun.max"
-        case .dark: "moon"
+        case .system: .appearanceSystem
+        case .light: .appearanceLight
+        case .dark: .appearanceDark
         }
     }
 }

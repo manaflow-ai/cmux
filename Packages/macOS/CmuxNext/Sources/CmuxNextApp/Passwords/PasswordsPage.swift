@@ -2,14 +2,15 @@ import AppKit
 import CmuxNextActions
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 extension PageDescriptor {
     /// The Passwords page (plans/cmux-next/passwords.md 1.4): cmux-page://cmux.passwords/. It
-    /// calls its own namespace, and its Import buttons run the two person-only import actions
-    /// (PASSWORDS-IMPORT-ANY-BROWSER), which the host runs only on a click or key in the page.
+    /// calls its own namespace, and its Import buttons run the person-only import actions
+    /// (PASSWORDS-IMPORT-ANY-BROWSER, cx-d0d.65), which the host runs only on a click or key in the page.
     static let passwords = PageDescriptor(id: "cmux.passwords", resource: "passwords", namespaces: ["cmux.passwords."],
-                                          nativeOps: [PageNativeOp.actionRun], actions: ["importFromBrowser", "password.importCSV"],
+                                          nativeOps: [PageNativeOp.actionRun], actions: ["importFromBrowser", "browser.importFromFiles"],
                                           ownsSearchField: true)
 }
 
@@ -41,9 +42,8 @@ final class PasswordsPageService: InternalPageProvider {
     }
 
     func open(focus: Bool) throws {
-        guard let services, let window = services.windows.active, services.pages.show(.passwords, in: window, focus: focus) != nil else {
-            throw ActionFailure(message: RefusalStrings.noWindowOpen)
-        }
+        guard let services else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
+        try ChromiumPageRouter.showPasswords(services, focus: focus)
     }
 
     var page: InternalPageID { .passwords }
@@ -62,6 +62,9 @@ final class PasswordsPageService: InternalPageProvider {
         if let native { routes.append(PageRoute(prefix: "cmux.app.", provider: native)) }
         guard let page = PageWebView(descriptor: .passwords, routes: routes) else { return NSView() }
         provider.anchor = { [weak page] in page }
+        provider.allowExport = { [weak services] in
+            services?.settings.map { BrowserPasswordsSetting.current($0).allowExport } ?? false
+        }
         native?.anchor = { [weak page] in page }
         return page
     }

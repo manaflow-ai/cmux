@@ -12,9 +12,9 @@
   --ve-hover: color-mix(in srgb, var(--ve-fg) 5%, transparent);
   --ve-selected: var(--cmux-selection, color-mix(in srgb, var(--ve-fg) 10%, transparent));
   --ve-surface: var(--cmux-diff-solid-bg, var(--cmux-elevated-background, Canvas));
-  --ve-error: light-dark(#b42318, #ff8a80);
-  --ve-git: light-dark(#c4501b, #f0884f);
-  --ve-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --ve-error: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
+  --ve-git: var(--cmux-app-warning, light-dark(#c4501b, #f0884f));
+  --ve-font: var(--font-ui);
   color-scheme: light dark;
 }
 
@@ -306,7 +306,7 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgb(0 0 0 / 0.16);
+  background: var(--cmux-scrim, rgb(0 0 0 / 0.16));
 }
 
 .ve-sheet-dialog {
@@ -333,7 +333,7 @@
   border: 1px solid var(--ve-line);
   border-radius: 10px;
   background: var(--ve-surface);
-  box-shadow: 0 14px 44px rgb(0 0 0 / 0.24);
+  box-shadow: var(--elevation-2);
 }
 
 .ve-picker-head {
@@ -390,7 +390,10 @@
   color: var(--ve-fg);
 }
 
+/* flex: none: a folder that virtualizes gives the list its full height as a flex basis, and the
+   shrink would come out of the field too (it drew 20px tall). */
 .ve-picker-field {
+  flex: none;
   height: 30px;
   margin: 8px 12px;
   padding: 0 10px;
@@ -446,10 +449,6 @@
   color: var(--ve-fg-3);
   font-size: 11px;
   font-weight: 600;
-}
-
-.ve-picker-row[data-location="true"] + .ve-picker-row:not([data-location]) {
-  margin-top: 4px;
 }
 
 .ve-picker-name,

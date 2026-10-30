@@ -70,6 +70,8 @@ def test_unknown_verbs_and_targets_are_rejected(validator: ModuleType) -> None:
         "cmux browser browser_01ab snapshot",
         "cmux browser identify --json",
         "cmux browser tab_01ab",
+        "cmux browser profile delete --profile Work",
+        "cmux browser tab tab_01ab close",
     ]
     errors = validate(validator, fixture)
     if len(errors) != len(fixture):
@@ -83,6 +85,16 @@ def test_current_forms_are_accepted(validator: ModuleType) -> None:
         "cmux browser page state",
         'cmux browser "$TAB" snapshot --interactive --max-depth 4',
         "cmux browser tab_01ab fill '#q' hello",
+        "cmux browser tab_01ab press Enter",
+        "cmux browser page scroll '#list' --dy 300",
+        "cmux browser tab_01ab select '#size' m",
+        "cmux browser tab_01ab cookies clear --domain example.com",
+        "cmux browser page storage session set k v",
+        "cmux browser tab_01ab wait '#done' --timeout-ms 10000",
+        "cmux browser page screenshot --full-page --out shot.png",
+        "cmux browser page tabs --all",
+        "cmux browser tab_01ab new-tab https://x.test",
+        "cmux browser tab_01ab select",
         "cmux --json browser tab_01ab eval 'document.title'",
         "cmux browser browser_01ab navigate --url https://x.test",
         "cmux browser browser_01ab key --key Enter",
@@ -90,6 +102,11 @@ def test_current_forms_are_accepted(validator: ModuleType) -> None:
         "cmux browser screenshot-page",
         "cmux --json tab create browser --url https://x.test",
         "cmux tab tab_01ab browser show",
+        "cmux --json browser profile list",
+        'cmux --json browser profile create --name "Research"',
+        "cmux browser profile open https://x.test --profile Research --pane pane_01ab",
+        "cmux browser devices list",
+        'cmux --json browser tab "$TAB" set-profile --profile Research',
     ]
     errors = validate(validator, fixture)
     if errors:

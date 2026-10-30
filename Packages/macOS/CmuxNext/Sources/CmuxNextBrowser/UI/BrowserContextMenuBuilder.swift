@@ -1,4 +1,6 @@
 public import AppKit
+import CmuxNextCompat
+import CmuxNextDesign
 
 /// Turns an engine's context menu model into an `NSMenu` and shows it. The
 /// host may put its own items (cmux actions) before and after the engine's.
@@ -11,6 +13,10 @@ public final class BrowserContextMenuBuilder {
 
     /// The page menu while it is open (diagnostics: `debug.menu`).
     public private(set) weak var presentedMenu: NSMenu?
+
+    /// Row images by icon: an extension's files are read once, not on every
+    /// right-click.
+    private let images = BrowserContextMenuImages()
 
     /// Menu items for `request.items`; choosing one completes the request
     /// with its id.
@@ -30,13 +36,10 @@ public final class BrowserContextMenuBuilder {
         // A background tab's view is in no window; AppKit cannot anchor a
         // menu there (it raises). Dismiss the request instead.
         guard view.window != nil else { return request.complete(nil) }
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak view] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let view, view.window != nil else { return request.complete(nil) }
-                self.show(request, in: view, leading: leading, extra: extra)
-            }
+        MainRunLoopBlock.perform { [weak view] in
+            guard let view, view.window != nil else { return request.complete(nil) }
+            self.show(request, in: view, leading: leading, extra: extra)
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     private func show(_ request: BrowserContextMenuRequest, in view: NSView, leading: [NSMenuItem], extra: [NSMenuItem]) {
@@ -51,18 +54,21 @@ public final class BrowserContextMenuBuilder {
             for item in extra { menu.addItem(item) }
         }
         let point = view.isFlipped ? request.location : CGPoint(x: request.location.x, y: view.bounds.height - request.location.y)
+        // A standard macOS menu in the tab's light or dark look, as every cmux right-click menu is.
+        menu.themeRows(in: view.themeScope.fullStrength)
         presentedMenu = menu
         menu.popUp(positioning: nil, at: point, in: view)
         presentedMenu = nil
-        // An engine item's action already completed the request; this ends
-        // a dismissed menu (or one where a host item ran).
-        request.complete(nil)
+        // A chosen engine row completed the request with its id inside popUp; this then ends a
+        // dismissed menu (or one where a host item ran).
+        menu.afterThemedRowRuns { request.complete(nil) }
     }
 
     private func item(for model: BrowserContextMenuItem, request: BrowserContextMenuRequest) -> NSMenuItem {
         if model.kind == .separator { return .separator() }
         let item = NSMenuItem(title: model.title, action: nil, keyEquivalent: "")
         item.isEnabled = model.isEnabled
+        if let icon = model.icon { item.image = images.image(for: icon) }
         item.state = (model.kind == .check || model.kind == .radio) && model.isChecked ? .on : .off
         if model.kind == .submenu {
             let submenu = NSMenu(title: model.title)

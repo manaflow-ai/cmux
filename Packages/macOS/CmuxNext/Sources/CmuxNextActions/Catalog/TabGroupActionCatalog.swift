@@ -6,22 +6,23 @@ nonisolated enum TabGroupActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tabGroup.create",
                 title: String(localized: "action.tabGroup.create", defaultValue: "New Tab Group", bundle: .module),
-                keywords: ["group", "tabs"], category: .tab, symbol: "rectangle.stack.badge.plus", surfaces: [.palette],
-                arguments: [CatalogArgument.nameString.optional, CatalogArgument.colorChoice.optional], targets: [.tab],
+                keywords: ["group", "tabs", "selected", "selection", "group selected tabs"], category: .tab,
+                symbol: "rectangle.stack.badge.plus", surfaces: [.palette],
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.colorChoice.optional, CatalogArgument.tabsList], targets: [.tab],
                 cliName: "tab-group create"
             ),
             ActionDescriptor(
                 id: "tabGroup.addTab",
                 title: String(localized: "action.tabGroup.addTab", defaultValue: "Add Tab to Group…", bundle: .module),
-                keywords: ["group", "member"], category: .tab, symbol: "plus.rectangle.on.rectangle",
-                surfaces: [.palette], arguments: [CatalogArgument.groupTabGroup], targets: [.tab],
+                keywords: ["group", "member", "selected"], category: .tab, symbol: "plus.rectangle.on.rectangle",
+                surfaces: [.palette], arguments: [CatalogArgument.groupTabGroup, CatalogArgument.tabsList], targets: [.tab],
                 cliName: "tab-group add-tab"
             ),
             ActionDescriptor(
                 id: "tabGroup.removeTab",
                 title: String(localized: "action.tabGroup.removeTab", defaultValue: "Remove Tab from Group", bundle: .module),
-                keywords: ["group", "ungroup", "member"], category: .tab, symbol: "minus.rectangle",
-                surfaces: [.palette], targets: [.tab], cliName: "tab-group remove-tab"
+                keywords: ["group", "ungroup", "member", "selected"], category: .tab, symbol: "minus.rectangle",
+                surfaces: [.palette], arguments: [CatalogArgument.tabsList], targets: [.tab], cliName: "tab-group remove-tab"
             ),
             ActionDescriptor(
                 id: "tabGroup.rename",
@@ -34,6 +35,18 @@ nonisolated enum TabGroupActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.tabGroup.setColor", defaultValue: "Set Tab Group Color…", bundle: .module),
                 keywords: ["group", "color"], category: .tab, symbol: "paintpalette", surfaces: [.palette],
                 arguments: [CatalogArgument.colorChoice], targets: [.tabGroup], cliName: "tab-group set-color"
+            ),
+            ActionDescriptor(
+                id: "tabGroup.setIcon",
+                title: String(localized: "action.tabGroup.setIcon", defaultValue: "Set Tab Group Icon…", bundle: .module),
+                keywords: ["group", "emoji", "symbol", "badge"], category: .tab, symbol: "face.smiling", surfaces: [.palette],
+                arguments: [CatalogArgument.iconString.optional], targets: [.tabGroup], cliName: "tab-group set-icon"
+            ),
+            ActionDescriptor(
+                id: "tabGroup.clearIcon",
+                title: String(localized: "action.tabGroup.clearIcon", defaultValue: "Remove Tab Group Icon", bundle: .module),
+                keywords: ["group", "emoji", "symbol", "reset"], category: .tab, symbol: "xmark.circle", surfaces: [.palette],
+                targets: [.tabGroup], cliName: "tab-group clear-icon"
             ),
             ActionDescriptor(
                 id: "tabGroup.toggleCollapsed",

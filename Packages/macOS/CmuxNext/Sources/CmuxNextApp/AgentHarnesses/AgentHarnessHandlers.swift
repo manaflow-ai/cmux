@@ -42,6 +42,7 @@ enum AgentHarnessHandlers {
             }
             track(registry) { try await center.restore(backup: backup) }
         })
+        center.updates?.bind(into: registry)
         registry.bind("agent.harness.doctor", run: { invocation in
             guard let id = nonEmpty(invocation.arguments["id"]?.stringValue) else {
                 guard invocation.origin == .user else { throw ActionFailure(message: AgentHarnessStrings.needsAgent) }
@@ -96,6 +97,14 @@ nonisolated enum AgentHarnessStrings {
         text("handlers.agent.harness.needsCommand", "Name what to start: --arg command=<program>, --arg registry=<id> or --arg example=<id>.")
     }
     static var nothingRemoved: String { text("handlers.agent.harness.nothingRemoved", "No removed agent to restore. Name its backup file with --arg backup=<file>.") }
+
+    static var nothingToUpdate: String {
+        text("handlers.agent.harness.nothingToUpdate", "No agent CLI here has an update the app can run. Settings > Agents shows each one's update command.")
+    }
+
+    static func stillUpdating(_ cli: String) -> String {
+        String(format: text("handlers.agent.harness.stillUpdating", "%@ is still updating. Wait for that update to finish, then try again."), cli)
+    }
 
     static func doctorFailed(_ id: String, step: String, detail: String) -> String {
         String(format: text("handlers.agent.harness.doctorFailed", "%@ failed its check at %@: %@"), id, step, detail)

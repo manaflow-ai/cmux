@@ -1,19 +1,11 @@
-/// The Tasks pane layout (plans/cmux-next/tasks.md decision T2). The Tasks
-/// module declares the same raw values (`TasksLayout`); the App maps them.
-public nonisolated enum TasksLayoutPreference: String, Sendable, Hashable, CaseIterable {
-    /// Dense rows grouped by status.
-    case list
-    /// A column per status.
-    case board
-    /// Attention first, with the selected task's detail beside it.
-    case inbox
-}
+// TasksLayoutPreference, the path and the default are generated from schemas/settings/source/tasks.json
+// (SettingsSchema+Tasks*.generated.swift, cx-d5b5d).
 
 /// `tasks.layout` in cmux.json: "list", "board" or "inbox" (default).
 public struct TasksLayoutSetting {
     public nonisolated init() {}
-    public nonisolated let configPath = ["tasks", "layout"]
-    public nonisolated let fallback: TasksLayoutPreference = .inbox
+    public nonisolated let configPath = TasksLayoutSetting.layoutPath
+    public nonisolated let fallback = TasksLayoutSetting.layoutDefault
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

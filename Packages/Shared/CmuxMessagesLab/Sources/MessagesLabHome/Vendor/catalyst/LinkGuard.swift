@@ -126,7 +126,7 @@ enum LinkGuard {
         var out: [String] = []
         var p = list
         while let ai = p {
-            var buf = [CChar](repeating: 0, count: Int(truncatingIfNeeded: NI_MAXHOST)) /* cmux: a constant that widens exactly */
+            var buf = [CChar](repeating: 0, count: Int(truncatingIfNeeded: NI_MAXHOST)) /* a constant that widens exactly */
             if getnameinfo(ai.pointee.ai_addr, ai.pointee.ai_addrlen, &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
                 let s = String(cString: buf)
                 out.append(s.split(separator: "%").first.map(String.init) ?? s)   // drop a scope id
@@ -168,7 +168,7 @@ enum LinkGuard {
 
     /// Sixteen bytes.
     static func isPublicV6(_ b: [UInt8]) -> Bool {
-        // cmux: checked reads and clamped slices (crash program); not sixteen bytes is not public.
+        // checked reads and clamped slices ; not sixteen bytes is not public.
         guard b.count == 16 else { return false }
         func at(_ i: Int) -> UInt8? { b[checked: i] }
         func v4(_ lo: Int) -> Bool { isPublicV4(Array(b.slice(lo, lo + 4))) }
@@ -264,7 +264,7 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        if let j = job(dataTask), response.expectedContentLength > Int64(truncatingIfNeeded: j.limit) /* cmux: Int is 64-bit */, !j.stopAtHeadEnd {
+        if let j = job(dataTask), response.expectedContentLength > Int64(truncatingIfNeeded: j.limit) /* Int is 64-bit */, !j.stopAtHeadEnd {
             j.refusal = .tooLarge; completionHandler(.cancel); return
         }
         completionHandler(.allow)

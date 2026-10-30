@@ -29,6 +29,9 @@ evidence in the source that owns it; use the other repositories as references or
 
 - `cmux` is authoritative for shipped behavior. Review the exact branch head, the owning component,
   and its focused test before comparing a reference surface.
+- The observed reference pins are recorded in `ui-parity-reference-inventory.md`; refresh them when
+  a comparison depends on a newer capture or prototype revision rather than silently citing a moving
+  branch.
 - `messageslab` is consumed through the vendored `Packages/Shared/CmuxMessagesLab` copy. Check its
   recorded source pin and patches with `scripts/cmux-next/check-messageslab-vendor.sh`; a local
   prototype checkout is not a substitute for the pinned source.

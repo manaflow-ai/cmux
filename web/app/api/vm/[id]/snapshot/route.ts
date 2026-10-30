@@ -1,12 +1,15 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
+  vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { snapshotVm } from "../../../../../services/vms/workflows";
 import { idempotencyKeyFromRequest, parseOptionalObjectBody } from "../../../../../services/vms/routeInput";
+import { enforceVmAllocationRateLimit } from "../../../../../services/vms/allocationRateLimit";
+import { vmMutationGuardCopy, vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 
 // Snapshot duration scales with the machine's dirty memory; give it the same
 // long-provisioning budget as create (see app/api/vm/route.ts).
@@ -32,7 +35,28 @@ export async function POST(
       const { id } = await params;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
-      const idempotencyKey = idempotencyKeyFromRequest(request);
+      const idempotency = idempotencyKeyFromRequest(request);
+      if (!idempotency.ok) return idempotency.response;
+      const idempotencyKey = idempotency.key;
+      if (!idempotencyKey) {
+        const copy = await vmMutationGuardCopy("snapshotIdempotencyRequired", vmRequestLocale(request));
+        return vmErrorResponse({
+          error: "vm_idempotency_key_required",
+          status: 400,
+          message: copy.message,
+          action: copy.action,
+          displayTitle: copy.title,
+          phase: "snapshot",
+          retryable: false,
+          details: { field: "Idempotency-Key", maxLength: 128 },
+        });
+      }
+      const limited = await enforceVmAllocationRateLimit({
+        request,
+        route: "vm.snapshot",
+        billingTeamId: account.entitlements.billingTeamId,
+      });
+      if (limited) return limited;
       setSpanAttributes(span, { "cmux.vm.id": id, "cmux.snapshot.named": !!name, "cmux.idempotency_key_set": !!idempotencyKey });
       const run = await runVmRoute(snapshotVm({
         userId: user.id,
@@ -41,7 +65,7 @@ export async function POST(
         providerVmId: id,
         name,
         idempotencyKey,
-      }), { request });
+      }), { request, deadline: { operation: "snapshot" } });
       if (!run.ok) return run.response;
       const snapshot = run.value;
       return jsonResponse({ snapshotId: snapshot.id, id: snapshot.id, name: snapshot.name ?? null, createdAt: snapshot.createdAt });

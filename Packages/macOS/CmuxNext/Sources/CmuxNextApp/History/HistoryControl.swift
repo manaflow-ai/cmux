@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextHistory
@@ -15,8 +16,114 @@ enum HistoryControl {
                 guard let services else { return .value(.null) }
                 return .followUp { await list(services, query) }
             },
-        ]
+        ] + debugMethods(services: services)
     }
+
+    /// `debug.closed_ids` (DEBUG builds only): every closed group the local
+    /// daemon records, newest first, as `closed_id`s `history.reopen` takes.
+    /// Unlike `history.list` it hides nothing (a blank New Tab page, a chat
+    /// with no session yet, a page closed again), so each close the daemon
+    /// committed is one id. It answers after a sync barrier: one round trip
+    /// to the daemon, then the store has applied every event emitted before
+    /// that reply, so the list holds every close committed before the call.
+    /// The every-action sweep reads it before and after an input to reopen
+    /// exactly the groups that input closed.
+    ///
+    /// `debug.history_cookie_backups {action: show|hide|delete_all}` (DEBUG
+    /// builds only; the router drops `debug.*` in Release): drives the
+    /// History page's cookie backups sheet of the active window's selected
+    /// tab through the page model. `delete_all` skips the sheet's
+    /// confirmation, so in a DEV build an agent with the debug socket could
+    /// delete backups; a Release build has no such path.
+    static func debugMethods(services: AppServices) -> [ControlMethod] {
+        #if DEBUG
+        return [
+            .mainActor("debug.closed_ids") { [weak services] _ in
+                guard let services else { throw ControlError.invalidParams("the app is closing") }
+                let daemon = services.daemon
+                guard daemon.store.servesStateResources, daemon.connection != nil else {
+                    throw ControlError(code: "unavailable", message: "the local daemon records no closed history")
+                }
+                return .followUp { try await closedIDs(daemon) }
+            },
+            .mainActor("debug.history_cookie_backups") { [weak services] call in
+                guard let services else { throw ControlError.invalidParams("the app is closing") }
+                let action = call.params["action"]?.stringValue ?? "show"
+                guard ["show", "hide", "delete_all"].contains(action) else {
+                    throw ControlError.invalidParams("action must be show, hide or delete_all")
+                }
+                // Selects the window's History tab (or opens one), as Show History does.
+                services.historyPage.open()
+                return .followUp {
+                    guard let model = await historyPageModel(services) else {
+                        throw ControlError.invalidParams("the active window shows no History page")
+                    }
+                    return await debugCookieBackups(model, action: action)
+                }
+            },
+        ]
+        #else
+        return []
+        #endif
+    }
+
+    #if DEBUG
+    /// `debug.closed_ids`' answer: the daemon's sync barrier, then the store's closed items
+    /// (`session.events`), unfiltered.
+    @MainActor
+    static func closedIDs(_ daemon: DaemonService) async throws -> JSONValue {
+        let sequence: UInt64
+        do {
+            sequence = try await daemon.appliedThroughSyncBarrier()
+        } catch {
+            throw ControlError(code: "unavailable", message: "the local daemon did not answer the barrier: \(error)")
+        }
+        return .object([
+            "closed_ids": .array(daemon.store.closedItems.map { .string(DaemonClosedHistory.historyID($0.id)) }),
+            "sequence": .number(Double(sequence)),
+        ])
+    }
+    #endif
+
+    #if DEBUG
+    /// The page model of the active window's History tab, once its page is
+    /// installed (at most 5 s).
+    @MainActor
+    static func historyPageModel(_ services: AppServices) async -> HistoryPageModel? {
+        let find = { () -> HistoryPageModel? in
+            _ = services.cache.pageInstalls.revision
+            for pane in services.windows.active?.content?.panes.values.map({ $0 }) ?? [] {
+                for tab in pane.pane.tabs where HistoryPageAddress.matches(tab.url.flatMap(URL.init(string:))) {
+                    if let page = services.cache.existingBrowser(tab.id)?.tab as? HistoryPageTab { return page.model }
+                }
+            }
+            return nil
+        }
+        if let model = find() { return model }
+        _ = try? await ControlDeadline.shared.run(method: "debug.history_cookie_backups", deadline: .now + .seconds(5)) { @MainActor in
+            for await found in ObservationStream({ find() != nil }) where found { return true }
+            return false
+        }
+        return find()
+    }
+    #endif
+
+    #if DEBUG
+    @MainActor
+    static func debugCookieBackups(_ model: HistoryPageModel, action: String) async -> JSONValue {
+        switch action {
+        case "show":
+            model.showsCookieBackups = true
+            await model.refreshCookieBackups()
+        case "hide": model.showsCookieBackups = false
+        default: await model.deleteCookieBackupsNow(await model.refreshCookieBackups().map(\.id))
+        }
+        return .object([
+            "shown": .bool(model.showsCookieBackups),
+            "backups": .array(model.cookieBackups.map { .object(["id": .string($0.id), "site": $0.site.map(JSONValue.string) ?? .null]) }),
+        ])
+    }
+    #endif
 
     static func query(from params: [String: JSONValue]) throws -> HistoryQuery {
         var query = HistoryQuery(limit: 100)

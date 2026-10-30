@@ -1,0 +1,32 @@
+.select-gallery {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  min-height: 200px;
+  padding: 36px 24px;
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+}
+
+.select-gallery-button {
+  min-width: 150px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  color: inherit;
+  font: inherit;
+}
+
+.select-gallery-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 55%, transparent);
+  outline-offset: 2px;
+}
+
+.select-gallery-receipt {
+  color: color-mix(in srgb, currentColor 66%, transparent);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}

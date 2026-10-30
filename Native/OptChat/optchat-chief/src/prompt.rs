@@ -4,209 +4,9 @@
 
 use serde_json::{Value, json};
 
-/// The agent's name in the prompts (section 7.2: rename the agent).
-pub const AGENT: &str = "Chief";
-
-/// The line on messages the user sends mid-turn (parity item 7): they are
-/// delivered between tool calls (a harness that cannot steer stops the turn
-/// instead, and the next turn answers).
-pub const MIDRUN: &str = "A message the user sends while you work reaches you between your tool
-calls; take it into account and go on.";
-
-/// The spec's one system prompt for turns and compactions (gist 3c190e0,
-/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief.
-pub fn base_prompt() -> String {
-    optchat_core::system_prompt(AGENT, MIDRUN)
-}
-
-/// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
-/// view as context, and the recipe gives them no prompt of their own.
-pub const VIEW_DOC: &str =
-    "The view: the whole chat between Chief and the user, oldest first, inside
-<chat> tags, as one-line summaries. Each line is
-
-  id+n|text   the n messages from id on, summarized (newlines shown as spaces)
-
-A summary tags each item with its kind: user (the user's words), talk
-(Chief's replies), tool (Chief's tool calls), echo (their results), note
-(memories from before this chat), or work (the report of a subagent or
-a computer task, which the log holds as a user message starting
-\"[id] \"). A short message is its own line, word for word. Recent lines
-cover one message each; the older the messages, the more a line covers.
-A message not summarized yet shows as \"(not summarized yet: zoom it)\".
-No message appears in full, not even the last ones.
-
-Navigating: zoom(id, n) opens line id+n into the two lines of n/2
-messages it was made from; zoom(id, 1) gives message id in full. Zoom
-whenever a summary only mentions something you need, such as what your
-last reply said, a decision, a past attempt or where a file is, before
-you act, guess or ask. date(id) gives the date and time of message id.";
-
-/// The third part of the system prompt, where section 7.2 puts the user's own
-/// instructions file: how this Chief works inside cmux. It names no user and
-/// holds nothing that changes per turn.
-pub const CMUX_INSTRUCTIONS: &str = "# Instructions
-
-You run inside cmux, a terminal for coding agents; the user talks to you in
-cmux Home, and your final reply of each turn is posted there.
-
-- Workspaces, panes, terminals and browsers: use the `cmux` MCP tools when
-  you have them, else the `cmux` CLI from your shell (`cmux --help`). It
-  drives the cmux session of the machine you run on, which may not be the
-  app the user looks at; it never moves the user's focus unless you ask for
-  it. Never close or change workspaces the user did not ask about.
-- Subagents: the tool `spawn(tasks, cwd?)` starts one subagent per task, in
-  parallel, in the background, in `cwd` (give the directory the work is in);
-  it answers their ids at once, and for each one the cmux workspace where
-  the user can watch and join its chat, or that it has none and why. Tell
-  the user only what that answer says. A subagent sees your view and its
-  task, so say in the task what it must do and report.
-  Each one's report reaches you as a message, \"[id] report\", when it
-  finishes. `tell(id, message)` sends a running
-  subagent more instructions. Never wait or poll for them.
-- Your engine: `chief engine show` prints your harness, model and effort
-  and the last turn's stats; `chief engine set --harness H --model M
-  --effort E` changes them from the next turn (only when the user asks).
-- Files: never list, glob or search the whole home folder, or Desktop,
-  Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
-  user names a path there; macOS asks the user for access to each. Search
-  only the folders the work is in, or ask the user where something is.
-- The tools `zoom` and `date` (MCP server `optchat`) read your memory.";
-
-/// The system prompt (the session's CLAUDE.md): the spec's prompt, the cmux
-/// section, then the user's own instructions file (spec 5), read once per
-/// host start so every turn's prompt stays byte-identical. Compactions send
-/// the same text (host.rs), so they read it from the turns' cache entry.
-pub fn claude_md(user: Option<&str>) -> String {
-    system_text(user, &Tools::Mcp)
-}
-
-/// How a turn reaches its memory tools: Claude Code harnesses get the
-/// `optchat` MCP server (the session directory's `.mcp.json`); any other
-/// harness gets no MCP server through acpmux and runs the `chief` launcher
-/// (its absolute path) from its shell.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Tools {
-    Mcp,
-    Cli(String),
-}
-
-/// The system prompt for `tools`: the spec's prompt, the cmux section (its
-/// tool lines for `tools`), then the user's instructions file.
-pub fn system_text(user: Option<&str>, tools: &Tools) -> String {
-    let base = base_prompt();
-    let cmux = match tools {
-        Tools::Mcp => CMUX_INSTRUCTIONS.to_owned(),
-        Tools::Cli(chief) => cli_instructions(chief),
-    };
-    match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{base}\n\n{cmux}\n"),
-    }
-}
-
-/// The cmux section for a harness without the `optchat` MCP server: the
-/// launcher by its absolute path (it is not on that harness's PATH), and the
-/// memory tools as its `zoom` and `date` commands.
-fn cli_instructions(chief: &str) -> String {
-    format!(
-        "# Instructions
-
-You run inside cmux, a terminal for coding agents; the user talks to you in
-cmux Home, and your final reply of each turn is posted there.
-
-- Workspaces, panes, terminals and browsers: use the `cmux` CLI from your
-  shell (`cmux --help`). It drives the cmux session of the machine you run
-  on, which may not be the app the user looks at; it never moves the user's
-  focus unless you ask for it. Never close or change workspaces the user did
-  not ask about.
-- Subagents: `{chief} spawn [--cwd DIR] \"task\" [\"task\" ...]` starts one
-  subagent per task, in parallel, in the background, in DIR (give the
-  directory the work is in); it prints their ids at once, and for each one
-  the cmux workspace where the user can watch and join its chat, or that it
-  has none and why. Tell the user only what it prints. A subagent sees your
-  view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
-  \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
-  sends a running subagent more instructions. Never wait or poll for them.
-- Your engine: `{chief} engine show` prints your harness, model and effort
-  and the last turn's stats; `{chief} engine set --harness H --model M
-  --effort E` changes them from the next turn (only when the user asks).
-- Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
-  `{chief} date ID`, run from your shell."
-    )
-}
-
-/// The subagent system prompt of section 9, verbatim with the agent renamed.
-pub const SUBAGENT: &str = "You are a subagent of Chief, an AI agent that works for one user in a
-single chat that never ends. Chief gave you a task. Do it yourself, with
-your tools, following the user's instructions at the end of this
-prompt: they say who the user is, how their files are organized and how
-they want work done.
-
-Your first message holds the view below, then your task. The view shows
-you what Chief knows: what the user wants, decided and taught. Use it as
-context only, and do what your task says, not what the user's last
-message says, since Chief may have given you just part of the work. Your
-final reply is your report to Chief. Chief may send you more messages, even
-while you work.";
-
-/// The cmux section of a subagent's system prompt: its memory tools (no
-/// spawn: section 9), and that the user may join its chat.
-fn subagent_instructions(tools: &Tools) -> String {
-    let memory = match tools {
-        Tools::Mcp => {
-            "The tools `zoom` and `date` (MCP server `optchat`) read Chief's memory.".to_owned()
-        }
-        Tools::Cli(chief) => format!(
-            "Chief's memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is\n  `{chief} date ID`, run from your shell."
-        ),
-    };
-    format!(
-        "# Instructions
-
-You run inside cmux, a terminal for coding agents. When cmux shows your
-chat in a workspace, the user can watch it and write to you there. A
-message from the user is the user's word; still end each turn with your
-report.
-
-- {memory}
-- The `cmux` CLI drives the cmux session of the machine you run on
-  (`cmux --help`). Never close or change workspaces the user did not ask
-  about."
-    )
-}
-
-/// A subagent's system prompt: SUBAGENT, VIEW_DOC, the cmux section, then
-/// the user's instructions file (section 9).
-pub fn subagent_system_text(user: Option<&str>, tools: &Tools) -> String {
-    let cmux = subagent_instructions(tools);
-    match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{SUBAGENT}\n\n{VIEW_DOC}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{SUBAGENT}\n\n{VIEW_DOC}\n\n{cmux}\n"),
-    }
-}
-
-/// A subagent's first message (section 9): the view at spawn time, one
-/// block per cached piece, then its task. No marker of ours: the subagents
-/// of one spawn start together, so none could read another's entry, and
-/// Claude Code's own breakpoint at the message's end serves the subagent's
-/// later requests.
-pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
-    let task = format!("Your task:\n\n{task}");
-    // An empty chat has no view to give: only the task.
-    let lines = view
-        .lines()
-        .filter(|l| !matches!(l.trim(), "" | "<chat>" | "</chat>"));
-    if lines.count() == 0 {
-        return vec![json!({"type": "text", "text": task})];
-    }
-    turn_blocks(view, &[task])
-}
-
-/// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
-pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
-pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; its report answers it.";
+// The prompt text and the tool descriptions live in the kernel's pure core,
+// shared with the Cloud Chief (chief-kernel, cloud-chief-durable-DESIGN.md 13).
+pub use chief_kernel::prompt::*;
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark
@@ -443,24 +243,149 @@ pub fn user_instructions(path: &std::path::Path) -> Option<String> {
         .filter(|t| !t.trim().is_empty())
 }
 
-/// Tool descriptions, verbatim from section 7.1.
-pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";
-/// What zoom adds for subagents (the MCP tool; the native engine has none).
-pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
-pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
+/// The person profile a Chief home starts with (`optchat/person.md`,
+/// written once when missing; the user edits or empties it). The Chief
+/// runs with no user CLAUDE.md or settings, so without it the Chief knows
+/// nothing of how the user wants work done.
+pub const DEFAULT_PERSON: &str = "# The user
 
-/// The turn's user message (spec 6): the view rendered before the new
-/// messages were logged, then the new messages joined by a blank line.
-///
-/// The view goes in blocks of 4 lines (spec 3.3), so a harness that marks
-/// the last whole block (the native engine) lets the next turn read the
-/// unchanged view; a harness with automatic prefix caching (codex) reads
-/// the byte-identical prefix whatever the blocks.
-pub fn turn_blocks(view: &str, texts: &[String]) -> Vec<Value> {
+This is the user's profile (optchat/person.md); they may edit it.
+
+- Act without asking for safe operations: reading, searching, read-only
+  commands, edits in a worktree or scratch folder. When the user asked for
+  the work, do not ask \"Should I...?\"; do it and report.
+- Ask first only for money, legal matters, physical actions and destructive
+  actions (deleting data, force pushes, production changes).
+- Do not run heavy builds or tests on this Mac when a remote build route
+  (fleet, remote builder) is set up; use that route. The Chief gives such
+  work to a subagent.
+- When you name a page, PR, build, dashboard, job, bead or file, give its
+  real URL or path.
+";
+
+/// The person profile at `path`: the default, written once when the file is
+/// missing (never over an existing file); None when the user emptied it or
+/// it cannot be read.
+pub fn person_profile(path: &std::path::Path) -> Option<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Some(text).filter(|t| !t.trim().is_empty()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Written whole or not at all: a temp file, then a link that
+            // never replaces a file the user made meanwhile.
+            let tmp = path.with_extension(format!("md.tmp.{}", std::process::id()));
+            if std::fs::write(&tmp, DEFAULT_PERSON).is_ok() {
+                let _ = std::fs::hard_link(&tmp, path);
+            }
+            let _ = std::fs::remove_file(&tmp);
+            Some(DEFAULT_PERSON.to_owned())
+        }
+        Err(e) => {
+            crate::log::log(format!(
+                "reading {}: {e}; no person profile this start",
+                path.display()
+            ));
+            None
+        }
+    }
+}
+
+/// The user's part of the system prompt: the person profile, then the
+/// user's instructions file. Read once per host start, so every turn's
+/// prompt stays byte-identical until the host restarts.
+pub fn chief_instructions(person: &std::path::Path, user: &std::path::Path) -> Option<String> {
+    let parts: Vec<String> = [person_profile(person), user_instructions(user)]
+        .into_iter()
+        .flatten()
+        .map(|t| t.trim().to_owned())
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
+}
+
+/// A turn's input in the cached layout (spec 5a): the frozen view in its
+/// blocks of 4 lines, the delta's blocks, the turn's `images`, then `tail`
+/// (per-turn state, never logged). Nothing per-turn goes before the delta's
+/// end. With `ttl`, marks on the view's end, on the previous request's end
+/// (`prev_end`, a delta block index: Bedrock has no look-back, so a read needs a
+/// mark exactly where the last request wrote; hq-1f measured 0.93 without it,
+/// 0.97 with it) and on the delta's end; with no previous end (a new view) the
+/// `<chat>` header instead, the system prompt's own entry. Three marks of the
+/// API's four.
+pub fn input_layout(
+    system: &str,
+    view: &str,
+    delta: &[String],
+    prev_end: Option<usize>,
+    images: &[Value],
+    tail: &str,
+    ttl: Option<CacheTtl>,
+) -> CachedPrompt {
+    let text = |t: &str| json!({"type": "text", "text": t});
     let mut blocks: Vec<Value> = optchat_core::block_pieces(view)
         .into_iter()
-        .map(|piece| json!({"type": "text", "text": piece}))
+        .map(text)
         .collect();
-    blocks.push(json!({"type": "text", "text": texts.join("\n\n")}));
-    blocks
+    let view_end = blocks.len() - 1;
+    blocks.extend(delta.iter().map(|b| text(b)));
+    let delta_end = blocks.len() - 1;
+    let first = match prev_end.filter(|b| *b < delta.len()) {
+        Some(b) => view_end + 1 + b,
+        None => 0,
+    };
+    if let Some(ttl) = ttl {
+        for i in [first, view_end, delta_end] {
+            blocks[i]["cache_control"] = ttl.cache_control();
+        }
+    }
+    blocks.extend(images.iter().cloned());
+    if !tail.is_empty() {
+        blocks.push(text(tail));
+    }
+    CachedPrompt {
+        system: system.to_owned(),
+        blocks,
+    }
+}
+
+/// `input_layout` without marks or system prompt: the blocks of a harness
+/// with automatic prefix caching (codex), byte-stable the same way.
+pub fn input_blocks(view: &str, delta: &[String], images: &[Value], tail: &str) -> Vec<Value> {
+    input_layout("", view, delta, None, images, tail, None).blocks
+}
+
+/// The delta's lines from log index `from` on, as one text (a kept turn
+/// session's next prompt: it holds everything before `from`). None when
+/// there is none, or when a line (`id+n|`) covers ids on both sides of
+/// `from`.
+pub fn delta_from(delta: &[String], from: u64) -> Option<String> {
+    let head = |line: &str| -> Option<(u64, u64)> {
+        let (range, _) = line.split_once('|')?;
+        let (id, n) = range.split_once('+')?;
+        Some((id.parse().ok()?, n.parse().ok()?))
+    };
+    let mut out = String::new();
+    // Whether the line being read (and its continuation lines) is taken.
+    let mut taking = false;
+    for line in delta.iter().flat_map(|b| b.split_inclusive('\n')) {
+        if let Some((id, n)) = head(line) {
+            if id < from && id + n > from {
+                return None;
+            }
+            taking = id >= from;
+        }
+        if taking {
+            out.push_str(line);
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// The index of the delta block that ends at log index `end` (an earlier
+/// request's end): the block before the first one whose first line is at or
+/// past it. None when no block ends there.
+pub fn block_ending_at(delta: &[String], end: u64) -> Option<usize> {
+    let first_id = |b: &String| -> Option<u64> { b.split_once('+')?.0.parse().ok() };
+    let next = delta
+        .iter()
+        .position(|b| first_id(b).is_some_and(|id| id >= end))?;
+    next.checked_sub(1)
 }

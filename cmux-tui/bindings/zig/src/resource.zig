@@ -3767,15 +3767,18 @@ pub const Client = struct {
     }
 
     pub fn listMachines(self: *Client) !MachineList {
+        return self.listMachinesWith(.{});
+    }
+
+    pub fn listMachinesWith(self: *Client, options: MachineReadOptions) !MachineList {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
+        var params = raw.wire.Object.init(arena.allocator());
+        try @import("resource/machine.zig").addCatalog(&params, options);
         return decodeTypedList(
             MachineSnapshot,
             self.allocator,
-            try self.read(
-                .machine_list,
-                .{ .object = raw.wire.Object.init(arena.allocator()) },
-            ),
+            try self.read(.machine_list, .{ .object = params }),
             "machines",
         );
     }
@@ -6968,6 +6971,18 @@ fn encodeLayoutNode(
                     try flag.put("mode", .{ .string = @tagName(dock.mode) });
                     try encoded.put("dock", .{ .object = flag });
                 }
+                if (column.rows) |rows| {
+                    var encoded_rows = std.json.Array.init(allocator);
+                    for (rows) |row| {
+                        var item = raw.wire.Object.init(allocator);
+                        if (row.row_id) |row_id| {
+                            try item.put("row_id", .{ .string = try allocator.dupe(u8, row_id.slice()) });
+                        }
+                        try item.put("height", .{ .integer = row.height });
+                        try encoded_rows.append(.{ .object = item });
+                    }
+                    try encoded.put("rows", .{ .array = encoded_rows });
+                }
                 try columns.append(.{ .object = encoded });
             }
             try object.put("columns", .{ .array = columns });
@@ -7042,49 +7057,13 @@ fn encodeMoveDestination(
     }
 }
 
-pub const MachineOrigin = union(enum) {
-    local,
-    unknown: []const u8,
-
-    pub fn wireName(self: MachineOrigin) []const u8 {
-        return switch (self) {
-            .local => "local",
-            .unknown => |value| value,
-        };
-    }
-};
-
-pub const MachineStatus = union(enum) {
-    running,
-    connecting,
-    sleeping,
-    stopped,
-    unavailable,
-    unknown: []const u8,
-
-    pub fn wireName(self: MachineStatus) []const u8 {
-        return switch (self) {
-            .running => "running",
-            .connecting => "connecting",
-            .sleeping => "sleeping",
-            .stopped => "stopped",
-            .unavailable => "unavailable",
-            .unknown => |value| value,
-        };
-    }
-};
-
-pub const MachineSnapshot = struct {
-    id: MachineId,
-    name: []const u8,
-    origin: MachineOrigin,
-    status: MachineStatus,
-    connectable: bool,
-    deleted: bool,
-    recoverable: bool,
-    /// Catalog-defined forward-compatible fields.
-    extra: ?raw.wire.Object,
-};
+pub const MachineReadOptions = @import("resource/machine.zig").MachineReadOptions;
+const MachineModels = @import("resource/machine.zig").Models(MachineId);
+pub const MachineOrigin = MachineModels.MachineOrigin;
+pub const MachineStatus = MachineModels.MachineStatus;
+pub const MachinePlatform = MachineModels.MachinePlatform;
+pub const MachineCapabilityList = MachineModels.MachineCapabilityList;
+pub const MachineSnapshot = MachineModels.MachineSnapshot;
 
 pub const SessionSnapshot = struct {
     id: SessionId,
@@ -7477,12 +7456,25 @@ pub const LayoutColumnDock = struct {
     mode: LayoutColumnMode,
 };
 
+/// One row of a column (`rows-v1`): its stable id and its height in
+/// permille of the column's viewport height (100 to 1000). Only row 1 may
+/// omit `row_id`, in a document sent to `applyLayout`.
+pub const LayoutRow = struct {
+    row_id: ?SplitId = null,
+    height: u16,
+};
+
 pub const LayoutColumn = struct {
     column_id: SplitId,
     width: f64,
     root: *const LayoutNode,
     /// The column's dock flag (`dock-columns-v1`); null while it scrolls.
     dock: ?LayoutColumnDock = null,
+    /// The column's rows top to bottom (`rows-v1`); null for a column with
+    /// one row. Row 2..n's `row_id` is its compat chain split in `root`. In
+    /// `applyLayout` null keeps the stored rows and an empty slice leaves
+    /// one row.
+    rows: ?[]const LayoutRow = null,
 };
 
 pub const LayoutViewport = struct {
@@ -7945,20 +7937,6 @@ pub const CreatedTerminalPathMutationResult =
 pub const CreatedBrowserPathMutationResult =
     TypedMutationResult(CreatedBrowserPath);
 pub const EmptyMutationResult = TypedMutationResult(EmptyResult);
-
-fn parseMachineOrigin(value: []const u8) MachineOrigin {
-    if (std.mem.eql(u8, value, "local")) return .local;
-    return .{ .unknown = value };
-}
-
-fn parseMachineStatus(value: []const u8) MachineStatus {
-    if (std.mem.eql(u8, value, "running")) return .running;
-    if (std.mem.eql(u8, value, "connecting")) return .connecting;
-    if (std.mem.eql(u8, value, "sleeping")) return .sleeping;
-    if (std.mem.eql(u8, value, "stopped")) return .stopped;
-    if (std.mem.eql(u8, value, "unavailable")) return .unavailable;
-    return .{ .unknown = value };
-}
 
 fn optionalExtra(object: raw.wire.Object) !?raw.wire.Object {
     const value = object.get("extra") orelse return null;
@@ -8635,7 +8613,7 @@ fn decodeLayoutNode(
             const column = try detailObject(raw_column);
             try ensureOnlyFields(
                 column,
-                &.{ "column_id", "width", "root", "dock", "sticky" },
+                &.{ "column_id", "width", "root", "dock", "sticky", "rows" },
             );
             const width = try floatValue(
                 column.get("width") orelse return error.MissingField,
@@ -8658,6 +8636,7 @@ fn decodeLayoutNode(
                 // `sticky` is the pre-R87 name of `dock`: a replayed or
                 // older result still decodes; `dock` wins.
                 .dock = try decodeLayoutColumnDock(column.get("dock") orelse column.get("sticky")),
+                .rows = try decodeLayoutRows(allocator, column.get("rows")),
             };
         }
         node.* = .{ .viewport = .{
@@ -8671,6 +8650,33 @@ fn decodeLayoutNode(
         .raw_object = value,
     } };
     return node;
+}
+
+/// A column's rows (`rows-v1`); an omitted field is null.
+fn decodeLayoutRows(
+    allocator: std.mem.Allocator,
+    value: ?raw.wire.Value,
+) !?[]const LayoutRow {
+    const present = value orelse return null;
+    const items = switch (present) {
+        .array => |array| array.items,
+        else => return error.ExpectedArray,
+    };
+    const rows = try allocator.alloc(LayoutRow, items.len);
+    for (items, 0..) |item, index| {
+        const row = try detailObject(item);
+        try ensureOnlyFields(row, &.{ "row_id", "height" });
+        const height = try objectUnsigned(u16, row, "height", 100);
+        if (height > 1000) return error.IntegerOutOfRange;
+        rows[index] = .{
+            .row_id = if (row.get("row_id") != null)
+                try parseRequiredId(SplitId, row, "row_id")
+            else
+                null,
+            .height = height,
+        };
+    }
+    return rows;
 }
 
 /// An omitted or null flag is null (the column scrolls).
@@ -9302,30 +9308,7 @@ fn decodeTerminalDefaultsSnapshot(
 }
 
 fn decodeMachineSnapshot(value: raw.wire.Value) !MachineSnapshot {
-    const object = try detailObject(value);
-    try ensureOnlyFields(
-        object,
-        &.{
-            "id",
-            "name",
-            "origin",
-            "status",
-            "connectable",
-            "deleted",
-            "recoverable",
-            "extra",
-        },
-    );
-    return .{
-        .id = try parseRequiredId(MachineId, object, "id"),
-        .name = try objectString(object, "name"),
-        .origin = parseMachineOrigin(try objectString(object, "origin")),
-        .status = parseMachineStatus(try objectString(object, "status")),
-        .connectable = try objectBool(object, "connectable"),
-        .deleted = try objectBool(object, "deleted"),
-        .recoverable = try objectBool(object, "recoverable"),
-        .extra = try optionalExtra(object),
-    };
+    return MachineModels.decode(value);
 }
 
 fn decodeSessionSnapshot(value: raw.wire.Value) !SessionSnapshot {
@@ -13519,7 +13502,20 @@ pub const Machine = struct {
     }
 
     pub fn refresh(self: Self) !OwnedMachineSnapshot {
-        return self.impl().refresh();
+        return self.refreshWith(.{});
+    }
+
+    pub fn refreshWith(self: Self, options: MachineReadOptions) !OwnedMachineSnapshot {
+        var params = try Params(MachineId).init(self.client.allocator, "machine", &self.target, null);
+        defer params.deinit();
+        try @import("resource/machine.zig").addCatalog(&params.object, options);
+        return decodeRefreshResult(
+            MachineId,
+            "machine",
+            self.client.allocator,
+            self.id(),
+            try self.client.read(.machine_get, params.asValue()),
+        );
     }
 
     pub fn listSessions(self: Self) !SessionList {

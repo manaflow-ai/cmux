@@ -21,6 +21,7 @@ import type { Strings } from "../pages/shared/i18n";
 import { PrefetchCache } from "../protocol/intents/prefetch";
 import { Breadcrumbs } from "../ui/Breadcrumbs";
 import { Dialog } from "../ui/Dialog";
+import { DialogButton } from "../ui/DialogButton";
 import { DrillList, type DrillSection } from "../ui/DrillList";
 import { EmptyIcon, type EmptyIconName } from "./icons";
 import { baseName, isMarkdownName, isPickerListing, tildePath, type PickerListing, type PickerMode } from "./ops";
@@ -335,7 +336,15 @@ export function PathPicker({
   };
 
   return (
-    <section ref={mountRef} className="ve-picker" data-mode={mode} data-phase={load.phase} aria-label={title}>
+    <section
+      ref={mountRef}
+      className="ve-picker"
+      data-mode={mode}
+      data-phase={load.phase}
+      data-path-mode={path ? "true" : undefined}
+      data-path-rest={path ? (path.rest === "" ? "empty" : "nonempty") : undefined}
+      aria-label={title}
+    >
       <div className="ve-picker-head">
         <span className="ve-picker-title">{title}</span>
         <Breadcrumbs
@@ -424,18 +433,19 @@ export function PathPicker({
           </span>
         </span>
         <span className="ve-picker-actions">
-          <button type="button" className="ve-button" onClick={onCancel}>
+          <DialogButton dialogKey="escape" className="ve-button" onClick={onCancel}>
             {t(E.pickerCancel)}
-          </button>
+          </DialogButton>
           {mode === "folder" ? (
-            <button
-              type="button"
+            // Return chooses the highlighted row (the hint before), not this folder: no key here.
+            <DialogButton
+              dialogKey={null}
               className="ve-button ve-button-primary"
               disabled={!listing || load.phase !== "ready"}
               onClick={() => listing && onChoose(listing.path)}
             >
               {t(E.pickerChooseThis)}
-            </button>
+            </DialogButton>
           ) : null}
         </span>
       </div>

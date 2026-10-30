@@ -94,6 +94,24 @@ fn state_for_hook_kind(kind: &str) -> Option<AgentState> {
     })
 }
 
+/// The roster state a hook journal event moves its terminal to, given the state the roster holds
+/// for it now (`current`); `None` when the event leaves it as it is. A question, an approval or an
+/// error blocks the agent (`state_for_hook_kind`) until the turn ends. A tool call that completes
+/// after the person answered (`PostToolUse`, or its failure) resumes a blocked agent instead:
+/// the agent runs on in its turn, so it is working, not waiting on the person.
+pub(crate) fn hook_roster_state(
+    kind: &str,
+    native_event: &str,
+    current: Option<AgentState>,
+) -> Option<AgentState> {
+    if crate::agent_hooks::is_tool_completion(native_event)
+        && matches!(kind, "agent.state.changed" | "agent.error.reported")
+    {
+        return (current == Some(AgentState::Blocked)).then_some(AgentState::Working);
+    }
+    state_for_hook_kind(kind)
+}
+
 /// One journal record reduced to the fields the roster fold reads. Built
 /// from a live `JournalIngress` at commit time and from stored
 /// `SessionJournalRecord`s during tail replay, with identical semantics so
@@ -492,6 +510,11 @@ pub(crate) struct RosterEntry {
     #[serde(default)]
     pub(crate) agent: Option<String>,
     pub(crate) updated_at_ms: u64,
+    /// When the terminal's agent entered `state` (the journal's clock, like
+    /// `updated_at_ms`): a report that keeps the state, source and session
+    /// keeps it. Absent from entries written before it: `updated_at_ms`.
+    #[serde(default)]
+    pub(crate) since_ms: Option<u64>,
 }
 
 /// Restart fences retained after a plugin child exits. A tagged observation
@@ -506,6 +529,11 @@ struct PluginExitFence {
 }
 
 impl RosterEntry {
+    /// When the agent entered its state; `updated_at_ms` for an older entry.
+    pub(crate) fn since_ms(&self) -> u64 {
+        self.since_ms.unwrap_or(self.updated_at_ms)
+    }
+
     pub(crate) fn agent_state(&self) -> AgentState {
         agent_state_from_str(&self.state).unwrap_or(AgentState::Unknown)
     }
@@ -680,7 +708,12 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
-            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let current =
+                self.entries.get(terminal_id).and_then(|entry| agent_state_from_str(&entry.state));
+            let native_event = event.native_event().unwrap_or_default();
+            let Some(state) = hook_roster_state(event.kind, native_event, current) else {
+                return Vec::new();
+            };
             // The session fence shared with the hook projector decides
             // whether this event belongs to the terminal's current
             // session. It advances even when timestamp arbitration below
@@ -831,6 +864,15 @@ impl AgentRoster {
                 Vec::new()
             };
         }
+        let since_ms = self
+            .entries
+            .get(terminal_id)
+            .filter(|previous| {
+                previous.state == state.as_str()
+                    && previous.source == source.as_str()
+                    && previous.session == session
+            })
+            .map_or(updated_at_ms, RosterEntry::since_ms);
         let entry = RosterEntry {
             state: state.as_str().to_string(),
             source: source.as_str().to_string(),
@@ -842,6 +884,7 @@ impl AgentRoster {
             agent: agent
                 .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone())),
             updated_at_ms,
+            since_ms: Some(since_ms),
         };
         if self.entries.get(terminal_id) == Some(&entry) {
             return Vec::new();
@@ -1011,6 +1054,88 @@ mod tests {
             vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Hook }]
         );
         assert!(roster.entries.is_empty());
+    }
+
+    const CLAUDE_TERMINAL: &str = "term_00000000000000000000000000000001";
+
+    /// Folds one Claude hook event per `(native event, tool)` into a roster and returns the
+    /// terminal's state after each one (empty while it has no entry). The events come from
+    /// `agent_hook_journal_ingress`, so their kinds are the ones a real hook produces.
+    fn claude_roster_states(events: &[(&str, &str)]) -> Vec<String> {
+        let mut roster = AgentRoster::default();
+        let mut states = Vec::new();
+        for (index, (native_event, tool)) in events.iter().enumerate() {
+            let ingress = crate::agent_hook_journal_ingress(
+                "claude",
+                native_event,
+                Some(CLAUDE_TERMINAL),
+                json!({"tool_name": tool}),
+            )
+            .unwrap();
+            roster.apply(&RosterEvent {
+                producer_id: &ingress.producer_id,
+                kind: &ingress.kind,
+                subjects: &ingress.subjects,
+                payload: &ingress.payload,
+                sequence: index as u64 + 1,
+                committed_at_ms: 1_000 + index as u64,
+            });
+            states.push(
+                roster
+                    .entries
+                    .get(CLAUDE_TERMINAL)
+                    .map(|entry| entry.state.clone())
+                    .unwrap_or_default(),
+            );
+        }
+        states
+    }
+
+    /// A question blocks the agent; the tool call that completes after the person answers it
+    /// resumes the agent, which is still in its turn. Before the fix the answer's PostToolUse
+    /// re-raised the question, so the agent stayed blocked (and the sidebar's dot stayed orange)
+    /// until the turn ended.
+    #[test]
+    fn a_completed_question_tool_call_resumes_a_blocked_agent() {
+        assert_eq!(
+            claude_roster_states(&[
+                ("PreToolUse", "AskUserQuestion"),
+                ("PostToolUse", "AskUserQuestion")
+            ]),
+            ["blocked", "working"],
+        );
+    }
+
+    /// An approved permission blocks the agent until its tool call completes.
+    #[test]
+    fn a_completed_approved_tool_call_resumes_a_blocked_agent() {
+        assert_eq!(
+            claude_roster_states(&[("PermissionRequest", "Bash"), ("PostToolUse", "Bash")]),
+            ["blocked", "working"],
+        );
+    }
+
+    /// A failed tool call is a step of a running turn, not a question for the person.
+    #[test]
+    fn a_failed_tool_call_does_not_block_a_working_agent() {
+        assert_eq!(
+            claude_roster_states(&[("UserPromptSubmit", "Bash"), ("PostToolUseFailure", "Bash")]),
+            ["working", "working"],
+        );
+    }
+
+    /// A tool call that completes after the turn ended changes nothing: only a blocked agent
+    /// resumes, so a finished one is not woken into a turn it never started.
+    #[test]
+    fn a_completed_tool_call_leaves_a_finished_turn_alone() {
+        assert_eq!(
+            claude_roster_states(&[
+                ("UserPromptSubmit", "Bash"),
+                ("Stop", ""),
+                ("PostToolUse", "Bash")
+            ]),
+            ["working", "idle", "idle"],
+        );
     }
 
     fn session_payload(session_id: &str) -> Value {

@@ -15,7 +15,16 @@ const surface = "var(--cmux-surface-background, transparent)";
 const bootstrapRule =
   "html{background:var(--cmux-surface-background) !important}body{background:transparent !important}";
 // --accent marks an on control (a switch, a default button), never a surface (layout.css).
-const allowedFills = new Set(["transparent", "none", "var(--accent-soft)", "var(--input-bg)", "var(--accent)"]);
+const allowedFills = new Set([
+  "transparent",
+  "none",
+  "var(--accent-soft)",
+  "var(--input-bg)",
+  "var(--accent)",
+  "var(--row-focus)",
+  // A floating bar over the content (Appearance's Undo, Redo and Reset) is a popup surface.
+  "var(--surface-popup)",
+]);
 const containerTags = new Set([
   "HTML",
   "BODY",
@@ -136,13 +145,17 @@ test("the rendered page: html carries only the surface background, body and cont
   }
 });
 
-test("on controls use the neutral accent: no theme hue (no blue) on switches, links or the current section", () => {
+// The no-blue rule: the system accent never reaches the page. On controls follow appearance.accent
+// through --cmux-accent, which the host sends as the text color by default (app-theme.test.ts),
+// and fall back to the text color; links and the current section stay the text color.
+test("on controls follow appearance.accent with a neutral fallback; links and the current section stay neutral", () => {
   const root = new Map<string, string>();
   for (const { selector, property, value } of declarations(stylesheet))
     if (selector === ":root") root.set(property, value);
   for (const name of ["--accent", "--accent-text"]) {
     expect(root.get(name)).toBeDefined();
     expect(root.get(name)).not.toContain("--cmux-app-accent");
-    expect(root.get(name)).not.toContain("--cmux-accent");
   }
+  expect(root.get("--accent")).toBe("var(--cmux-accent, var(--text))");
+  expect(root.get("--accent-text")).not.toContain("accent");
 });

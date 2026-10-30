@@ -21,11 +21,6 @@ public nonisolated enum AppPermissionPolicy {
         }
     }
 
-    /// The scopes of `scopes` that `tier` may never hold, given `reviewed`.
-    public static func refusedScopes(_ scopes: Set<String>, for tier: AppTier, reviewed: Set<String> = []) -> Set<String> {
-        scopes.filter { !mayHold($0, tier: tier, reviewed: reviewed) }
-    }
-
     // MARK: Profile cap
 
     /// The approval `profile` leaves for `scope` granted with `approval`,

@@ -84,6 +84,11 @@ pub struct SessionContext {
     /// The browser profile (`browser.repl.open {profile}`): `agent` (the
     /// per-workspace agent profile, D12) unless the person picked another.
     pub profile: String,
+    /// The caller's cmux terminal (`browser.repl.open {terminal}`, filled by
+    /// the CLI and MCP clients from `CMUX_TUI_TERMINAL_ID`), so the app can
+    /// draw the lease in that agent's presence colour. Display only: the
+    /// caller states it, so no policy reads it.
+    pub terminal: Option<String>,
 }
 
 /// The profile agents get unless the person names another (D12).
@@ -126,6 +131,9 @@ pub struct Host {
     /// Which destinations this host's browsers may reach (a Cloud machine
     /// is isolated, crate::egress_scope).
     egress: crate::egress_scope::EgressScope,
+    /// The daemon's history link (`--history-fd`), shared by every session.
+    #[cfg(unix)]
+    history_link: Option<Arc<crate::history_link::HistoryLink>>,
 }
 
 impl Host {
@@ -144,6 +152,8 @@ impl Host {
             purge_pending: Mutex::new(None),
             private_data: Arc::default(),
             egress: crate::egress_scope::EgressScope::Machine,
+            #[cfg(unix)]
+            history_link: None,
         }
     }
 
@@ -151,6 +161,13 @@ impl Host {
     /// same scope, so their browsers use its listener).
     pub fn with_egress(mut self, egress: crate::egress_scope::EgressScope) -> Host {
         self.egress = egress;
+        self
+    }
+
+    /// Gives every session's `history` global the daemon's history link.
+    #[cfg(unix)]
+    pub fn with_history_link(mut self, link: crate::history_link::HistoryLink) -> Host {
+        self.history_link = Some(Arc::new(link));
         self
     }
 
@@ -305,6 +322,7 @@ impl Host {
             caller: caller.clone(),
             label: lease_label(params.get("label").and_then(Value::as_str), &name),
             profile: profile.to_owned(),
+            terminal: lease_terminal(params.get("terminal").and_then(Value::as_str)),
         };
         let driver = self.engines.driver(&engine, sink.clone(), &context)?;
         let mut capabilities: Vec<String> =
@@ -313,23 +331,27 @@ impl Host {
         if !capabilities.iter().any(|c| c == "secret.insert") {
             capabilities.push("secret.insert".into());
         }
-        let gate = Arc::new(
-            // A remote caller (CALLER-LOCALITY, from the transport) is
-            // refused loopback and private ranges.
-            Gate::new(
-                driver,
-                Grants {
-                    raw_cdp,
-                    remote: caller.locality.refuses_private_ranges(),
-                    signed_in_profile: profile != AGENT_PROFILE,
-                    isolated: self.egress.isolated().cloned(),
-                },
-            )
-            .with_tab_secrets(self.tab_secrets.clone())
-            .with_private_data_log(self.private_data.clone())
-            // The session name is the lease session (LeaseCaller.session).
-            .with_input_events(&name, sink),
-        );
+        // A remote caller (CALLER-LOCALITY, from the transport) is refused
+        // loopback and private ranges.
+        let gate = Gate::new(
+            driver,
+            Grants {
+                raw_cdp,
+                remote: caller.locality.refuses_private_ranges(),
+                signed_in_profile: profile != AGENT_PROFILE,
+                isolated: self.egress.isolated().cloned(),
+            },
+        )
+        .with_tab_secrets(self.tab_secrets.clone())
+        .with_private_data_log(self.private_data.clone())
+        // The session name is the lease session (LeaseCaller.session).
+        .with_input_events(&name, sink);
+        #[cfg(unix)]
+        let gate = match &self.history_link {
+            Some(link) => gate.with_history_link(link.clone()),
+            None => gate,
+        };
+        let gate = Arc::new(gate);
         let config = VmConfig {
             session_id: name.clone(),
             cwd: session_root(params.get("cwd").and_then(Value::as_str), &self.cwd, &name),
@@ -592,6 +614,21 @@ fn lease_label(label: Option<&str>, session: &str) -> String {
     if text.is_empty() { session.to_owned() } else { text.to_owned() }
 }
 
+/// The caller's terminal id when it has a cmux terminal id's shape
+/// (`term_`, then letters, digits, `_` or `-`; at most 64 characters in
+/// all), else none.
+fn lease_terminal(terminal: Option<&str>) -> Option<String> {
+    terminal
+        .filter(|id| {
+            id.len() <= 64
+                && id.strip_prefix("term_").is_some_and(|rest| {
+                    !rest.is_empty()
+                        && rest.chars().all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
+                })
+        })
+        .map(str::to_owned)
+}
+
 /// Cuts `text` to at most `max` bytes on a character boundary; true when cut.
 fn cap(text: &mut String, max: usize) -> bool {
     if text.len() <= max {
@@ -606,6 +643,10 @@ fn cap(text: &mut String, max: usize) -> bool {
     text.push_str(&format!("\n… {dropped} more bytes (raise maxOutput)"));
     true
 }
+
+#[cfg(test)]
+#[path = "host_runtime_tests.rs"]
+mod runtime_tests;
 
 #[cfg(test)]
 mod tests {
@@ -875,6 +916,22 @@ mod tests {
             session_root(Some(narrow.to_str().unwrap()), "/", "s"),
             narrow.canonicalize().unwrap().display().to_string()
         );
+    }
+
+    #[test]
+    fn lease_terminal_keeps_only_a_terminal_id() {
+        assert_eq!(lease_terminal(Some("term_01J9-x_y")).as_deref(), Some("term_01J9-x_y"));
+        for bad in [
+            "",
+            "term_",
+            "pane_1",
+            "term_a b",
+            "term_\u{202E}x",
+            &format!("term_{}", "a".repeat(60)),
+        ] {
+            assert_eq!(lease_terminal(Some(bad)), None, "{bad:?}");
+        }
+        assert_eq!(lease_terminal(None), None);
     }
 
     #[test]

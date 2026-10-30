@@ -8,6 +8,9 @@ public nonisolated struct OmniboxRequest: Sendable {
     public var gate: OmniboxGenerationGate
     /// The tab that asks (never offered as its own Switch to Tab row).
     public var tabKey: String?
+    /// The asking tab is a Chromium tab: its rows may name Chromium's own
+    /// pages (`chrome://` completions, OmniboxInternalPages).
+    public var allowsChromiumSchemes = false
 
     public init(text: String, generation: UInt64, gate: OmniboxGenerationGate, tabKey: String? = nil) {
         self.text = text
@@ -51,6 +54,11 @@ public final class OmniboxSuggestionEngine {
     public var revealTab: (String) -> Void = { _ in }
     /// Phase B: remote search suggestions (off until the App gives a fetcher).
     public var remote = OmniboxRemoteConfiguration()
+    /// Checks whether a bare typed word is an intranet host (`wiki`); nil
+    /// (the default, and tests) never asks DNS, so a bare word searches.
+    public var intranetProbe: IntranetHostProbe?
+    /// How this engine's omnibars show addresses, and their menu's settings hooks.
+    public let display = OmnibarDisplay()
     public let local: OmniboxLocalIndex
     public private(set) var history: (any OmniboxHistorySource)?
     var now: () -> Date = Date.init
@@ -106,6 +114,8 @@ public final class OmniboxSuggestionEngine {
     public func deliveries(for request: OmniboxRequest) -> AsyncStream<OmniboxDelivery> {
         let (stream, continuation) = AsyncStream.makeStream(of: OmniboxDelivery.self, bufferingPolicy: .bufferingNewest(8))
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolver = self.resolver
+        resolver.urlResolver.allowsChromiumSchemes = request.allowsChromiumSchemes
         let query = OmniboxLocalQuery(
             generation: request.generation, gate: request.gate, text: text, resolver: resolver, maxRows: maxResults,
             sources: sources, inlineAutocomplete: inlineAutocomplete,
@@ -115,11 +125,13 @@ public final class OmniboxSuggestionEngine {
         let remote = sources.contains(.search) && self.remote.enabled && OmniboxRemoteSuggestions.allows(text, resolver: resolver)
             ? self.remote : nil
         let engine = resolver.searchEngine, hidden = pendingDeletes
+        let probe = IntranetHostProbe.candidate(text) == nil ? nil : intranetProbe
+        let intranetHosts = resolver.intranetHosts
         let task = Task {
             guard var rows = await local.run(query) else { return continuation.finish() }
             if !hidden.isEmpty { rows.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
+            var extra: [BrowserSuggestion] = []
             if !providers.isEmpty, !text.isEmpty {
-                var extra: [BrowserSuggestion] = []
                 for provider in providers {
                     if Task.isCancelled { return continuation.finish() }
                     extra += await provider.suggestions(for: text)
@@ -128,6 +140,20 @@ public final class OmniboxSuggestionEngine {
             }
             guard !Task.isCancelled, request.gate.isCurrent(request.generation) else { return continuation.finish() }
             continuation.yield(.local(rows))
+            // A bare word: ask DNS (bounded by the probe's timeout); when the
+            // answer changes what the word is, the rows lead with the new answer.
+            if let probe {
+                let resolves = await probe.resolves(text)
+                if resolves != intranetHosts.isIntranetHost(text) {
+                    intranetHosts.record(text, resolves: resolves)
+                    guard var fresh = await local.run(query), !Task.isCancelled, request.gate.isCurrent(request.generation) else {
+                        return continuation.finish()
+                    }
+                    if !hidden.isEmpty { fresh.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
+                    rows = extra.isEmpty ? fresh : OmniboxPhaseA.merging(fresh, extra, maxRows: maxRows)
+                    continuation.yield(.local(rows))
+                }
+            }
             let answer = rows.first { $0.kind == .answer }?.content
             if let remote, let more = await Self.remoteRows(text, engine: engine, remote: remote, answer: answer),
                !Task.isCancelled, request.gate.isCurrent(request.generation) {
@@ -170,24 +196,12 @@ public final class OmniboxSuggestionEngine {
         inlineAutocomplete = configuration.inlineAutocomplete
         maxResults = configuration.maxRows
         sources = OmniboxSource.defaultOrder + (configuration.calculator ? [.calculator] : [])
+        if display.showsFullURLs != configuration.showFullURLs { display.showsFullURLs = configuration.showFullURLs }
     }
 
     /// Enter loaded typed text as `url`.
     public func noteTyped(_ url: URL) {
         history?.noteTyped(url)
-    }
-
-    /// The row Enter picks when nothing is selected.
-    public func primarySuggestion(for text: String) -> BrowserSuggestion? {
-        OmniboxPhaseA.primary(for: text, resolver: resolver)
-    }
-
-    /// Resolves once every history change and bookmark set received so far
-    /// is in the index (tests).
-    public func historySettled() async {
-        await snapshotTask?.value
-        while let task = pumpTask { await task.value }
-        await bookmarkTask?.value
     }
 
     // MARK: History pump

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
@@ -11,7 +12,10 @@ import os
 /// written only by the owner's replies and fetches, and one ordered log of
 /// pending intents; the visible `document` is the mirror with the pending
 /// intents applied by the same reducer (OWNERSHIP-PRINCIPLES "clients are
-/// projections"). An intent leaves the log on its reply or reject; a
+/// projections"). Intents go to the owner one at a time in log order (an
+/// op can depend on the one before it: a section add, then an item add into
+/// it; Add Home, then its undo), so the owner applies them in the order the
+/// person made them. An intent leaves the log on its reply or reject; a
 /// disconnect keeps it, and it is resent with its key on reconnect. While
 /// the owner is unreachable, edits are refused (nothing queues), except in
 /// DEV with Debug Settings `sidebar.sections.localPrototype`, which edits an
@@ -24,9 +28,12 @@ final class SidebarLayoutService {
     static let capability = "sidebar-layout-v1"
 
     private(set) var document: SidebarLayoutDocument = .defaults
+    /// The sidebar document's bands (`sidebar-doc-v1`, SidebarDocWiring):
+    /// when set, the base the pending intents apply over, and no migration runs.
+    @ObservationIgnored var docLayout: SidebarLayoutDocument? { didSet { recompute() } }
     /// The owner's confirmed layout.
     @ObservationIgnored private(set) var mirror: SidebarLayoutDocument = .defaults
-    /// Ops sent (or to resend) in order, each with its idempotency key.
+    /// Ops to send in order, each with its idempotency key; at most the first is in flight.
     @ObservationIgnored private(set) var pending: [(key: String, op: SidebarLayoutOp, inFlight: Bool)] = []
     @ObservationIgnored private var prototype = SidebarLayoutMemoryOwner()
     @ObservationIgnored private let prototypeEnabled: @MainActor () -> Bool
@@ -58,9 +65,13 @@ final class SidebarLayoutService {
         self.recentsOffered = recentsOffered
     }
 
-    isolated deinit {
-        observation?.cancel()
-        legacyObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            legacyObservation?.cancel()
+        }
     }
 
     /// Follows the owner: fetch when it becomes reachable and after each
@@ -69,7 +80,7 @@ final class SidebarLayoutService {
         guard let remote, observation == nil else { return }
         // task-owner: the service (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self] in
-            for await (available, _) in Observations({ (remote.isAvailable, remote.changeToken) }) {
+            for await (available, _) in ObservationStream({ (remote.isAvailable, remote.changeToken) }) {
                 guard let self, available else { continue }
                 self.refresh()
                 self.resendInterrupted()
@@ -78,7 +89,7 @@ final class SidebarLayoutService {
         // task-owner: the service (cancelled in deinit); event-driven (Observation).
         // A session tree that loads, or a legacy pin that changes, re-runs the one-time pin move.
         legacyObservation = Task { [weak self] in
-            for await _ in Observations({ remote.legacyPins }) { self?.migrateIfNeeded() }
+            for await _ in ObservationStream({ remote.legacyPins }) { self?.migrateIfNeeded() }
         }
     }
 
@@ -99,9 +110,9 @@ final class SidebarLayoutService {
             throw ActionFailure(message: SidebarSectionStrings.rejected(reject.rawValue))
         }
         let key = "sidebar-layout-" + UUID().uuidString.lowercased()
-        pending.append((key, op, true))
+        pending.append((key, op, false))
         recompute()
-        dispatch(key, op)
+        sendNext()
     }
 
     private func sendToPrototype(_ op: SidebarLayoutOp) throws {
@@ -134,23 +145,29 @@ final class SidebarLayoutService {
         }
     }
 
-    /// The intent's reply (or reject, with nil) arrived.
+    /// The intent's reply (or reject, with nil) arrived; the next one goes out.
     func settle(_ key: String, confirmed: SidebarLayoutDocument?) {
         pending.removeAll { $0.key == key }
         if let confirmed { adopt(confirmed) }
         recompute()
+        sendNext()
     }
 
+    /// Sends the oldest intent when none is in flight (one at a time, in log order).
+    private func sendNext() {
+        guard remote != nil, !pending.contains(where: \.inFlight), let first = pending.first else { return }
+        pending[0].inFlight = true
+        dispatch(first.key, first.op)
+    }
+
+    /// A disconnect: the intent stays first in the log and waits for the reconnect.
     private func markInterrupted(_ key: String) {
         guard let index = pending.firstIndex(where: { $0.key == key }) else { return }
         pending[index].inFlight = false
     }
 
     private func resendInterrupted() {
-        for index in pending.indices where !pending[index].inFlight {
-            pending[index].inFlight = true
-            dispatch(pending[index].key, pending[index].op)
-        }
+        sendNext()
     }
 
     /// Fetches the owner's layout.
@@ -174,7 +191,7 @@ final class SidebarLayoutService {
     /// it reads the owner's layout rather than one with the user's edits in
     /// flight.
     func migrateIfNeeded() {
-        guard fetched, usesOwner, pending.isEmpty else { return }
+        guard fetched, usesOwner, pending.isEmpty, docLayout == nil else { return }
         migrateSections()
         if pending.isEmpty { migrateLegacyPins() }
     }
@@ -205,7 +222,7 @@ final class SidebarLayoutService {
     /// Visible = mirror + pending intents (a pending op the mirror now
     /// rejects shows nothing until its own reply settles it).
     private func recompute() {
-        var visible = mirror
+        var visible = docLayout ?? mirror
         for entry in pending {
             if case .success(let next) = SidebarLayoutReducer.reduce(visible, entry.op) { visible = next }
         }

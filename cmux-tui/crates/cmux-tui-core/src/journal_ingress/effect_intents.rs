@@ -2,7 +2,7 @@
 //! receipts, terminal records, workspace registry revisions).
 //!
 //! The request thread waits for the receipt with the same bounded deadline
-//! and commit fence as a producer receipt (`JOURNAL_DURABLE_WAIT`, then at
+//! and commit fence as a producer receipt (`journal_durable_wait()`, then at
 //! most `JOURNAL_COMMIT_RESULT_WAIT` for a commit the writer already
 //! admitted). A writer error, a dropped receipt or an expired deadline
 //! returns an error; nothing waits without a bound. A commit the writer
@@ -15,8 +15,8 @@ use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::time::Instant;
 
 use super::{
-    COMMIT_PENDING, JOURNAL_DURABLE_WAIT, JournalCommitIndeterminate, JournalIngressCompletion,
-    JournalIngressEvent, JournalIngressSender, JournalWriterOwner, QueuedJournalEvent,
+    COMMIT_PENDING, JournalCommitIndeterminate, JournalIngressCompletion, JournalIngressEvent,
+    JournalIngressSender, JournalWriterOwner, QueuedJournalEvent, journal_durable_wait,
 };
 use crate::workspace_registry::{RegistryIntent, RegistryReceipt};
 
@@ -85,8 +85,12 @@ impl JournalIngressSender {
         if !self.accepts_effects() {
             return EffectSend::NotQueued(intent);
         }
+        if self.state.disk_full.is_full() {
+            self.state.disk_full.refused_waiter(&self.state);
+            return EffectSend::Sent(Err(anyhow::anyhow!(super::disk_full::WAITER_ERROR)));
+        }
         let (completion, result) = sync_channel(1);
-        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         if let Err((error, event)) = self.enqueue_until_or_return(
             sender,

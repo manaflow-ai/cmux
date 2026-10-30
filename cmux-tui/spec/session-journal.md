@@ -8,7 +8,7 @@ Storage v1 records durable resource mutations, schema-validated producer
 events, hook manifests and delivery outcomes, checkpoints, and sealed history
 segments. Resource mutations include workspace, screen, pane, and tab focus;
 tab selection; split ratios; viewport column widths; topology; terminal and
-browser lifecycle; continuous terminal output and geometry; frontend focus,
+browser lifecycle; terminal geometry (never terminal output); frontend focus,
 viewport, and geometry observations; frontend projections; explicit agent
 reports; and normalized native agent-hook observations. A pure restoration
 reducer can preview the state reconstructed from a checkpoint and its tail.
@@ -137,9 +137,9 @@ the adapter payload, not in `kind`. The initial agent vocabulary is:
 - `agent.state.changed`
 - `agent.session.ended`
 
-Terminal command history (`terminal-command-journal-v1`, opt-in per daemon
-with `set-terminal-command-history`) adds `shell.command.finished` from the
-reserved producer `cmux_shell`; see `commands.md`.
+Terminal command history (`terminal-command-history-v1`) is not journaled:
+commands are deletable registry rows with a retention (see `commands.md`).
+The producer id `cmux_shell` is reserved.
 
 `blocked` is a derived projection over approval, question, plan-review, and
 error events. It is not the only durable fact.
@@ -165,8 +165,10 @@ authorizes the event. It contains principal, lease, generation, and role.
 groups one operation or flow. `causation_depth` bounds recursive automation.
 
 `subjects` is a deduplicated set. A pane event includes the pane and every
-known ancestor. A move includes source and destination subjects. Consumers
-filter subjects rather than scraping IDs from payloads.
+known ancestor. A move includes source and destination subjects. A workspace
+is a subject when its own value changes (created, moved, renamed, selected,
+closed), not when a workspace order change only shifts its position.
+Consumers filter subjects rather than scraping IDs from payloads.
 
 `sensitivity` is `public`, `metadata`, `sensitive`, or `secret`. Subscription
 authority and export redaction use this field before payload delivery.
@@ -346,14 +348,49 @@ pointer samples before submitting them. It must append the final accepted
 value, including a no-op outcome when an operation receipt needs to explain why
 no state changed.
 
-Terminal output is a high-volume content stream, not inline journal payload.
-The PTY reader copies accepted output only when journaling is enabled, releases
-the terminal lock, and sends it through a dedicated bounded terminal lane to
-the single journal writer. That writer coalesces adjacent chunks up to 256 KiB,
-assigns generation-local byte offsets, and stores the exact bytes accepted by
-the authoritative terminal parser in SQLite BLOBs. JSON wire and sealed-segment
-forms use base64; storage and regex matching use those parser input bytes.
-Accepted geometry changes use the same FIFO terminal lane.
+Terminal output is a high-volume content stream, and it never enters the
+journal, in any mode. Each PTY read used to become a `terminal.output` record
+(about 1.2 KB of metadata, six index rows and a synced commit): an idle agent
+TUI that redraws its cursor at 40 Hz made the daemon write about 25 MB/s, and
+one registry grew to 41.6 GB. The daemon's output store
+(`cmux-tui-core/src/output_store.rs`) owns output now:
+
+- The daemon's Ghostty terminal of each terminal is the hot copy (screen and
+  scrollback, bounded by Ghostty's `scrollback-limit`); attach, screen,
+  history and copy reads come from it.
+- The store keeps each terminal's stream position (generation-local byte
+  offsets) and a 64 KiB raw tail in memory for `terminal.output_read`. The
+  PTY reader only copies bytes into memory; one background writer does all
+  disk work.
+- `terminal.persistence.mode` in `cmux-next.json` (`CMUX_TUI_TERMINAL_PERSISTENCE`
+  overrides it) sets what reaches the disk, in `terminal-output/` beside the
+  registry: `memory` writes nothing (exit replays and close archives keep no
+  screen either); `snapshot` (default) writes one gzip VT replay per terminal
+  (screen plus recent scrollback), replaced atomically, only when the
+  terminal's text, size, screen or history changed, at most every 30 s, at a
+  journal checkpoint and at quit; `full` also appends every byte to
+  per-terminal gzip segment files every 3 s (no fsync per write), and frames of
+  unchanged content (identical redraws) are not stored.
+  `terminal.persistence.maxBytesPerTerminal` and
+  `terminal.persistence.maxTotalBytes` cap the files (snapshot: 50 MB total;
+  full: 100 MB per terminal, 2 GB total); the oldest go first.
+- `terminal.scrollback.maxTotalMemoryBytes` (default 256 MiB) bounds the
+  scrollback RAM of all terminals together; past it the terminals that printed
+  least recently get a lower Ghostty scrollback limit first (their oldest
+  pages go), and get their configured limit back when there is room again.
+  The per-terminal cap stays Ghostty's `scrollback-limit`.
+- A respawn after a lost host (a reboot) seeds the new shell with the exit
+  replay, else the store's screen (full mode: rebuilt from the segments),
+  else an older registry's checkpoint blob. Clearing a terminal's history
+  drops its stored output and rewrites its snapshot at once.
+
+Accepted geometry changes and the small `terminal.output.gap` markers
+(`host_reconnect`, `host_respawn`; no bytes) still use the FIFO terminal lane.
+Registries written before this change keep their output records; the readers
+below still understand them. A subscription with `kinds: ["terminal.output"]` or the
+`terminal_output` regex field matches only those older records; a new hook
+with the `terminal_output` regex field is refused (it could never fire). Wait
+for terminal text with `terminal.wait` and read it with `terminal.output_read`.
 
 External producers and durable frontend observations use a second bounded
 lane. One coalesced wake signal drives both lanes; each batch reserves capacity
@@ -363,17 +400,9 @@ occupy the terminal lane or block the PTY reader. Byte order is strict within
 the terminal lane, durable producer order is strict within the producer lane,
 and the writer assigns commit order when independent lanes race.
 
-Lossless terminal capture can still backpressure the PTY after its own bounded
-lane fills during a prolonged storage stall. Removing that final bound requires
-an acknowledged durable output spool or an explicit loss policy at the
-terminal-host boundary. Moving the same queue into another process does not
-remove the storage bound.
-
-The checkpoint writer captures each terminal under its terminal lock as a
-bounded VT replay blob, compresses it with deterministic gzip, and stores it by
-SHA-256 content ID. The checkpoint records terminal ID, grid, format, digest,
-and byte count. Restoration applies later output chunks and geometry changes in
-sequence after that checkpoint.
+A checkpoint names its terminals but keeps no VT replay blob (terminal
+screens stay out of the journal); it asks the output store to write its
+snapshots at once instead. Checkpoints of older registries keep their blobs.
 
 Raw keyboard input and paste contents are secret by default and are not
 journaled. An audited opt-in recorder may store encrypted content references.
@@ -432,9 +461,21 @@ exits. It does not initialize the TUI frontend. The main terminal process owns
 only the bounded socket handler and single-writer journal actor; provider hook
 execution remains in the provider's external process.
 
+If a terminal output write exhausts that wait, the capture lane waits for
+bounded durable admission of a `terminal.output.gap` marker and disables
+further capture for that terminal. If journal admission has already failed, the
+daemon reports that the marker could not be stored. The daemon and PTY host
+continue running; a stored gap makes the missing byte range explicit for
+restoration and diagnostics.
+
 The helper allows four seconds for the complete journal receipt. Installed
 command providers allow at least five seconds, so their outer timeout cannot
-cancel an event before the journal's two-second commit-admission window ends.
+cancel an event before the helper's bounded wait ends. Terminal output capture
+uses a separate thirty-second durable-admission default because a hosted VM can
+be descheduled for longer than a normal interactive request. Set
+`CMUX_TUI_JOURNAL_DURABLE_WAIT_MS` to tune that wait on a host; values are
+clamped to five seconds through five minutes. Older registries migrate to
+SQLite incremental auto-vacuum once at open before periodic maintenance starts.
 
 Install, inspect, or remove all detected provider adapters with:
 
@@ -462,6 +503,13 @@ directory, then atomically merges command-hook configuration or installs one
 owned plugin file. Existing unrelated hooks remain in place. Reinstallation is
 idempotent, legacy cmux-tui journal shims are migrated, and an unrecognized
 file at an owned plugin path is never overwritten.
+
+`status` reports each provider as `installed`, `partial` or `absent`, or as
+`conflict` when the target exists in a form installation refuses (a symlink,
+a non-file, or a plugin file cmux-tui did not write) and `unavailable` when it
+cannot be inspected. Those two states carry a machine-readable `reason`
+(`symlink`, `not_a_file`, `not_a_directory`, `not_owned` or `unreadable`) and
+a human-readable `detail`; `cmux --json agent hook status` emits them.
 
 Command-hook providers wait for only the helper's bounded durable receipt.
 Plugin providers return from their callback immediately and let an external
@@ -656,6 +704,12 @@ cmux --session main --jsonl session current journal segment seal \
 cmux --session main --jsonl session current journal segment list
 ```
 
+Checkpoint and segment list responses are bounded to the catalog-safe result
+size (4,096 entries), with checkpoints ordered newest first and segments in
+their existing sequence order. The active journal remains the source of truth;
+the list operations are inspection surfaces and do not attempt to materialize
+an unbounded history in one protocol response.
+
 ## Retention and storage
 
 Append-only does not require one SQLite table to grow forever. The active tail
@@ -682,6 +736,15 @@ The public stream is asynchronous, while blocking SQLite work stays on the
 session writer or dedicated read workers. An async SQLite wrapper would move
 the same synchronous SQLite calls onto another worker and add scheduling hops;
 it would not make the database engine asynchronous.
+
+The daemon's journal-maintenance worker periodically creates a checkpoint after
+4,096 new records and seals up to eight 1,024-record segments per maintenance
+tick. Preparation and compression happen outside the registry writer, and each
+short commit releases that writer before the next segment. New registries use
+SQLite incremental auto-vacuum and take a bounded 256-page vacuum step after a
+maintenance pass. Existing registries keep their current SQLite auto-vacuum
+mode; sealing still reclaims active journal rows, while filesystem shrinkage
+requires the registry's existing vacuum policy.
 
 Canonical segments are retained until explicit session deletion or an explicit
 export-and-forget policy. Size pressure cannot silently delete history. Storage

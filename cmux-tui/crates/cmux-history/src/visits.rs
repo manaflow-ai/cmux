@@ -4,20 +4,26 @@
 //! Incognito never gets one.
 
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::entry::{HistoryEntry, HistoryKind};
 use crate::error::HistoryError;
-use crate::fold::tokens;
+use crate::fold::{fold, tokens};
 
 /// Visits older than 90 days are pruned.
 pub const RETENTION_MS: i64 = 90 * 86_400_000;
 /// At most 100,000 visits per profile; prune drops the oldest beyond it.
 pub const MAX_VISITS: usize = 100_000;
+/// Main database plus WAL/SHM accepted from the app-local legacy store.
+const MAX_IMPORT_FILE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_IMPORT_URL_BYTES: i64 = 8_192;
+const MAX_IMPORT_TITLE_BYTES: i64 = 1_024;
+const MAX_IMPORT_TAB_BYTES: i64 = 1_024;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS visits(
@@ -30,7 +36,9 @@ CREATE TABLE IF NOT EXISTS removed_visits(
   visit_time_ms INTEGER NOT NULL, tab TEXT);
 CREATE INDEX IF NOT EXISTS removed_visits_backup ON removed_visits(backup);
 CREATE INDEX IF NOT EXISTS removed_visits_time ON removed_visits(visit_time_ms);
-PRAGMA user_version=2;
+CREATE TABLE IF NOT EXISTS imported_logs(
+  source TEXT PRIMARY KEY, visits INTEGER NOT NULL);
+PRAGMA user_version=3;
 ";
 
 /// A finished main-frame navigation to record.
@@ -110,14 +118,61 @@ impl VisitStore {
         connection
             .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
         connection.execute_batch(SCHEMA)?;
-        Ok(Self { connection })
+        let searchable = connection
+            .prepare("SELECT 1 FROM pragma_table_info('visits') WHERE name = 'search'")?
+            .exists([])?;
+        if !searchable {
+            connection.execute_batch("ALTER TABLE visits ADD COLUMN search TEXT")?;
+        }
+        let store = Self { connection };
+        store.fill_search()?;
+        Ok(store)
+    }
+
+    /// Sets the folded search text of every visit that has none: rows from
+    /// before the column, restored and imported rows. A record or a title
+    /// update writes it in its own statement. Runs in batches by id, so it
+    /// never loads every row at once.
+    fn fill_search(&self) -> Result<(), HistoryError> {
+        const BATCH: i64 = 1000;
+        let mut after = i64::MIN;
+        loop {
+            let rows: Vec<(i64, String, Option<String>)> = {
+                let mut statement = self.connection.prepare(
+                    "SELECT id, url, title FROM visits WHERE id > ?1 AND search IS NULL \
+                     ORDER BY id LIMIT ?2",
+                )?;
+                statement
+                    .query_map(params![after, BATCH], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    })?
+                    .collect::<Result<_, _>>()?
+            };
+            let Some(&(last, _, _)) = rows.last() else { return Ok(()) };
+            let transaction = self.connection.unchecked_transaction()?;
+            {
+                let mut update =
+                    transaction.prepare("UPDATE visits SET search = ?1 WHERE id = ?2")?;
+                for (id, url, title) in &rows {
+                    update.execute(params![search_text(url, title.as_deref()), id])?;
+                }
+            }
+            transaction.commit()?;
+            after = last;
+        }
     }
 
     /// Records a visit; returns its id.
     pub fn record(&self, visit: &NewVisit) -> Result<i64, HistoryError> {
         self.connection.execute(
-            "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
-            params![visit.url, visit.title, visit.at_ms, visit.tab],
+            "INSERT INTO visits(url, title, visit_time_ms, tab, search) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                visit.url,
+                visit.title,
+                visit.at_ms,
+                visit.tab,
+                search_text(&visit.url, visit.title.as_deref())
+            ],
         )?;
         Ok(self.connection.last_insert_rowid())
     }
@@ -126,14 +181,15 @@ impl VisitStore {
     /// Returns the number of visits changed (0 or 1).
     pub fn update_title(&self, url: &str, title: &str) -> Result<usize, HistoryError> {
         Ok(self.connection.execute(
-            "UPDATE visits SET title = ?1 WHERE id = \
+            "UPDATE visits SET title = ?1, search = ?3 WHERE id = \
              (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1)",
-            params![title, url],
+            params![title, url, search_text(url, Some(title))],
         )?)
     }
 
     /// Visits newest first. Every folded token of `text` must appear in the
-    /// URL or the title (SQL `LIKE`, ASCII case insensitive, as in Swift),
+    /// folded URL and title (SQL `LIKE` on the `search` column, so the limit
+    /// applies after the filter),
     /// and the visit must be at or after `since_ms`.
     pub fn visits(
         &self,
@@ -146,10 +202,8 @@ impl VisitStore {
         );
         let mut bindings = vec![Sql::Integer(since_ms.unwrap_or(0))];
         for token in tokens(text) {
-            sql.push_str(" AND (url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')");
-            let pattern = format!("%{}%", escape_like(&token));
-            bindings.push(Sql::Text(pattern.clone()));
-            bindings.push(Sql::Text(pattern));
+            sql.push_str(" AND search LIKE ? ESCAPE '\\'");
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&token))));
         }
         sql.push_str(" ORDER BY visit_time_ms DESC, id DESC LIMIT ?");
         bindings.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
@@ -292,6 +346,7 @@ impl VisitStore {
         }
         transaction.execute("DELETE FROM removed_visits WHERE backup = ?1", params![backup])?;
         transaction.commit()?;
+        self.fill_search()?;
         Ok(rows.len())
     }
 
@@ -375,11 +430,213 @@ impl VisitStore {
         Ok(removed)
     }
 
+    /// Copies every visit of another log file of the same schema (the app's
+    /// own `History.sqlite` from before the daemon owned page history) in
+    /// one transaction, keeping times, titles and tabs; new ids. The other
+    /// file is opened read-only and never changed. The same transaction
+    /// records the path and validated row digest, so the same generation is
+    /// never imported twice, also not by another session. Returns how
+    /// many visits came in (0 for a file imported before).
+    pub fn import(&self, other: &Path) -> Result<usize, HistoryError> {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok())
+            .unwrap_or(0);
+        self.import_at(other, now_ms)
+    }
+
+    /// [`VisitStore::import`] at an explicit retention time.
+    pub fn import_at(&self, other: &Path, now_ms: i64) -> Result<usize, HistoryError> {
+        Self::import_metadata(other)?;
+        let mut source = Connection::open_with_flags(
+            other,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        source.busy_timeout(Duration::from_millis(250))?;
+        let source_transaction = source.transaction()?;
+        // Establish one WAL snapshot. Every validation and copied row below
+        // belongs to that same snapshot.
+        let _: i64 =
+            source_transaction
+                .query_row("SELECT COUNT(*) FROM sqlite_schema", [], |row| row.get(0))?;
+        let page_count: i64 =
+            source_transaction.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let page_size: i64 =
+            source_transaction.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        let logical_bytes = (page_count.max(0) as u64).saturating_mul(page_size.max(0) as u64);
+        if logical_bytes > MAX_IMPORT_FILE_BYTES {
+            return Err(HistoryError::InvalidImport(format!(
+                "source is too large (maximum {MAX_IMPORT_FILE_BYTES} bytes)"
+            )));
+        }
+        let (visits, url_bytes, title_bytes, tab_bytes): (i64, i64, i64, i64) = source_transaction
+            .query_row(
+                "SELECT COUNT(*),
+                        COALESCE(MAX(length(CAST(url AS BLOB))), 0),
+                        COALESCE(MAX(length(CAST(title AS BLOB))), 0),
+                        COALESCE(MAX(length(CAST(tab AS BLOB))), 0)
+                 FROM (SELECT url, title, tab FROM visits LIMIT ?1)",
+                [i64::try_from(MAX_VISITS + 1).unwrap_or(i64::MAX)],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
+        if visits > i64::try_from(MAX_VISITS).unwrap_or(i64::MAX) {
+            return Err(HistoryError::InvalidImport(format!(
+                "too many visits (maximum {MAX_VISITS})"
+            )));
+        }
+        if url_bytes > MAX_IMPORT_URL_BYTES
+            || title_bytes > MAX_IMPORT_TITLE_BYTES
+            || tab_bytes > MAX_IMPORT_TAB_BYTES
+        {
+            return Err(HistoryError::InvalidImport("a visit field is too large".into()));
+        }
+        let mut rows = source_transaction.prepare(
+            "SELECT typeof(url), length(CAST(url AS BLOB)),
+                    typeof(title), COALESCE(length(CAST(title AS BLOB)), 0),
+                    typeof(visit_time_ms),
+                    typeof(tab), COALESCE(length(CAST(tab AS BLOB)), 0),
+                    url, title, visit_time_ms, tab
+             FROM visits ORDER BY visit_time_ms, id LIMIT ?1",
+        )?;
+        let transaction = self.connection.unchecked_transaction()?;
+        let mut imported = 0;
+        let mut imported_digest = Sha256::new();
+        imported_digest.update(other.to_string_lossy().as_bytes());
+        {
+            let mut insert = transaction.prepare(
+                "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            let mut cursor = rows.query([i64::try_from(MAX_VISITS + 1).unwrap_or(i64::MAX)])?;
+            while let Some(row) = cursor.next()? {
+                if imported >= MAX_VISITS {
+                    return Err(HistoryError::InvalidImport(format!(
+                        "too many visits (maximum {MAX_VISITS})"
+                    )));
+                }
+                let url_kind: String = row.get(0)?;
+                let url_bytes: i64 = row.get(1)?;
+                let title_kind: String = row.get(2)?;
+                let title_bytes: i64 = row.get(3)?;
+                let time_kind: String = row.get(4)?;
+                let tab_kind: String = row.get(5)?;
+                let tab_bytes: i64 = row.get(6)?;
+                if url_kind != "text"
+                    || !matches!(title_kind.as_str(), "null" | "text")
+                    || time_kind != "integer"
+                    || !matches!(tab_kind.as_str(), "null" | "text")
+                {
+                    return Err(HistoryError::InvalidImport(
+                        "a visit field has the wrong type".into(),
+                    ));
+                }
+                if url_bytes > MAX_IMPORT_URL_BYTES
+                    || title_bytes > MAX_IMPORT_TITLE_BYTES
+                    || tab_bytes > MAX_IMPORT_TAB_BYTES
+                {
+                    return Err(HistoryError::InvalidImport("a visit field is too large".into()));
+                }
+                let (url, title, at_ms, tab): (String, Option<String>, i64, Option<String>) =
+                    (row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?);
+                imported_digest.update((url.len() as u64).to_le_bytes());
+                imported_digest.update(url.as_bytes());
+                match &title {
+                    Some(title) => {
+                        imported_digest.update([1]);
+                        imported_digest.update((title.len() as u64).to_le_bytes());
+                        imported_digest.update(title.as_bytes());
+                    }
+                    None => imported_digest.update([0]),
+                }
+                imported_digest.update(at_ms.to_le_bytes());
+                match &tab {
+                    Some(tab) => {
+                        imported_digest.update([1]);
+                        imported_digest.update((tab.len() as u64).to_le_bytes());
+                        imported_digest.update(tab.as_bytes());
+                    }
+                    None => imported_digest.update([0]),
+                }
+                imported += insert.execute(params![url, title, at_ms, tab])?;
+            }
+        }
+        drop(rows);
+        source_transaction.commit()?;
+        let digest = imported_digest.finalize();
+        let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let marker = format!("v4|{}|{digest}", other.display());
+        let seen = transaction
+            .prepare("SELECT 1 FROM imported_logs WHERE source = ?1")?
+            .exists(params![marker])?;
+        if seen {
+            return Ok(0);
+        }
+        transaction.execute(
+            "INSERT INTO imported_logs(source, visits) VALUES (?1, ?2)",
+            params![marker, i64::try_from(imported).unwrap_or(i64::MAX)],
+        )?;
+        let cutoff = now_ms.saturating_sub(RETENTION_MS);
+        transaction
+            .execute("DELETE FROM removed_visits WHERE visit_time_ms < ?1", params![cutoff])?;
+        transaction.execute("DELETE FROM visits WHERE visit_time_ms < ?1", params![cutoff])?;
+        transaction.execute(
+            "DELETE FROM visits WHERE id IN
+             (SELECT id FROM visits ORDER BY visit_time_ms DESC, id DESC LIMIT -1 OFFSET ?1)",
+            params![i64::try_from(MAX_VISITS).unwrap_or(i64::MAX)],
+        )?;
+        transaction.commit()?;
+        self.fill_search()?;
+        Ok(imported)
+    }
+
+    /// Size and latest modification of the legacy database and its SQLite
+    /// sidecars. Every present component must be a regular file, never a link.
+    fn import_metadata(path: &Path) -> Result<(), HistoryError> {
+        let mut bytes = 0_u64;
+        for suffix in ["", "-wal", "-shm"] {
+            let candidate = if suffix.is_empty() {
+                path.to_path_buf()
+            } else {
+                let mut name = path.as_os_str().to_os_string();
+                name.push(suffix);
+                name.into()
+            };
+            let metadata = match std::fs::symlink_metadata(&candidate) {
+                Ok(metadata) => metadata,
+                Err(error)
+                    if !suffix.is_empty() && error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if !metadata.file_type().is_file() {
+                return Err(HistoryError::InvalidImport(
+                    "source and sidecars must be regular files".into(),
+                ));
+            }
+            bytes = bytes.saturating_add(metadata.len());
+            if bytes > MAX_IMPORT_FILE_BYTES {
+                return Err(HistoryError::InvalidImport(format!(
+                    "source is too large (maximum {MAX_IMPORT_FILE_BYTES} bytes)"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn count(&self) -> Result<u64, HistoryError> {
         let count: i64 =
             self.connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))?;
         Ok(count.unsigned_abs())
     }
+}
+
+/// The folded text a search matches: URL and title.
+fn search_text(url: &str, title: Option<&str>) -> String {
+    fold(&format!("{url} {}", title.unwrap_or_default()))
 }
 
 /// Escapes `LIKE` wildcards with backslash.

@@ -18,6 +18,7 @@
 //! (`/etc/cmux/daemon-instance-id`), not a second metadata read (the agent is
 //! the single metadata reader); a parked machine (the bake's id) refuses.
 
+use crate::json::JsonField;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -112,8 +113,8 @@ pub fn machine_instance(paths: &Paths) -> Result<String, String> {
 /// This clone's key; a key made for another instance id is replaced.
 pub fn team_key(paths: &Paths, instance: &str, rng: &SystemRandom) -> Result<InstallKey, String> {
     if let Some(saved) = read_json::<Value>(paths, TEAM_KEY_FILE)
-        && saved["instance_id"] == instance
-        && let Some(text) = saved["pkcs8"].as_str()
+        && *saved.field("instance_id") == instance
+        && let Some(text) = saved.field("pkcs8").as_str()
         && let Ok(key) = InstallKey::from_pkcs8_base64url(text, rng)
     {
         return Ok(key);
@@ -146,6 +147,7 @@ pub fn enroll(
         TEAM_ENROLL_FILE,
         &EnrollRecord { instance_id: instance.into(), team: team.into(), epoch },
     )?;
+    record_team_kind(paths)?;
     Ok(json!({ "instance_id": instance, "public_jwk": key.public_jwk(), "signature": signature }))
 }
 
@@ -163,7 +165,7 @@ pub fn commit(paths: &Paths, instance: &str, bound: &TeamBound) -> Result<(), St
     let key = read_json::<Value>(paths, TEAM_KEY_FILE).ok_or("no team key: enroll first")?;
     let enrolled =
         read_json::<EnrollRecord>(paths, TEAM_ENROLL_FILE).ok_or("no enroll on this clone")?;
-    if key["instance_id"] != instance
+    if *key.field("instance_id") != instance
         || enrolled
             != (EnrollRecord {
                 instance_id: instance.into(),
@@ -173,7 +175,23 @@ pub fn commit(paths: &Paths, instance: &str, bound: &TeamBound) -> Result<(), St
     {
         return Err("commit does not match this clone's last enroll".into());
     }
-    write_json(paths, TEAM_BOUND_FILE, bound)
+    write_json(paths, TEAM_BOUND_FILE, bound)?;
+    record_team_kind(paths)
+}
+
+/// Records this machine as a team VM (`cloud::wire::VM_KIND_FILE`, root,
+/// 0644): from its first enroll, and again at every sync pass of a bound
+/// team VM (a VM enrolled by an older build).
+pub fn record_team_kind(paths: &Paths) -> Result<(), String> {
+    let path = paths.at(crate::cloud::wire::VM_KIND_FILE);
+    let current = std::fs::read_to_string(&path).ok();
+    if current.as_deref().map(str::trim) == Some("team") {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    write_atomic(&path, b"team\n", 0o644).map_err(|e| format!("vm-kind: {e}"))
 }
 
 /// The binding for this clone, if any (a binding of another clone is ignored).

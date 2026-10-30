@@ -19,7 +19,7 @@ public struct ChildWindowPolicy {
     public static var legacyPanels: Set<String> = [
         "DividerMousePanel", "PalettePanel", "PageInfoPanel",
         "TabGroupEditorPanel", "HoverCardPanel", "NSPanel", "FeedPanel",
-        "BrowserPopupPanel", "NotificationsPanel", "_NSPopoverWindow",
+        "NotificationsPanel", "_NSPopoverWindow",
     ]
 
     public private(set) static var violations: [String] = []
@@ -29,8 +29,12 @@ public struct ChildWindowPolicy {
     /// Whether `child` may be a child window of a main window `parent`.
     public static func allows(_ child: NSWindow, parent: NSWindow) -> Bool {
         if WindowOverlayHost.isPageWindow(child) { return true }
+        // AppKit's full screen titlebar: AppKit adds it, the app does not.
+        if WindowOverlayHost.isAppKitChrome(child) { return true }
         if let host = WindowOverlayHost.existingHost(for: parent), child === host.panel { return true }
         if child is OverlayHostPanel { return true }
+        // The shared native popups (omnibar and toolbar) are child panels above the page by design.
+        if child is NativePopupPanel { return true }
         return legacyPanels.contains(String(describing: type(of: child)))
     }
 
@@ -47,7 +51,4 @@ public struct ChildWindowPolicy {
         #endif
         return false
     }
-
-    /// Forgets recorded violations (tests).
-    public static func resetViolations() { violations.removeAll() }
 }

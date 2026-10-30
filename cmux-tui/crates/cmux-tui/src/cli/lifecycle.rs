@@ -5,6 +5,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -22,15 +23,39 @@ pub(super) enum ServerAction {
     /// running owner keeps the grace it was started with.
     Ensure {
         terminal_reap_grace: Option<Duration>,
+        /// Test harnesses: the spawned owner ends with this pid (`local_owner::exit_with`).
+        exit_with_pid: Option<crate::local_owner::ExitWith>,
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
         install_key_stdin: bool,
+        /// Private app contract (cx-n3bs): while the owner restores, print
+        /// one `{"progress":"restoring",...}` JSON line per progress interval
+        /// on stdout before the result, so the app bounds its wait by
+        /// progress instead of a fixed timeout.
+        progress: bool,
+        /// Private app contract (cx-hnmbt.2): an owner this call spawns
+        /// opens its loopback WebSocket listener (`--ws-loopback`).
+        websocket: Option<crate::local_owner::EnsureWebSocket>,
+        /// Private app contract (cx-jniyz, the app's "Restart cmux-tui"):
+        /// first stop an owner that accepts but does not answer `identify`
+        /// (`local_owner::replace_if_unresponsive`), then ensure as usual.
+        replace_unresponsive: bool,
     },
     Stop {
         force: bool,
         end_terminals: bool,
+        /// How long to wait for an owner that still restores its session
+        /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
+        restore_wait: Duration,
     },
     ReloadConfig,
+    /// cx-ossub: rewrite the session's registry into a compact file with
+    /// incremental auto-vacuum while no owner runs (refused while one does).
+    /// Needs an explicit `--session`; `--state-dir` overrides the default
+    /// state root (`CMUX_TUI_STATE_DIR` or the platform default).
+    CompactRegistry {
+        state_dir: Option<std::path::PathBuf>,
+    },
 }
 
 pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
@@ -58,9 +83,21 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     }
     let expected_session = global.session.clone();
+    if let ServerAction::CompactRegistry { state_dir } = plan.action {
+        return run_compact_registry(expected_session, state_dir, global.output);
+    }
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
-        Err(_error) => {
+        Err(error) => {
+            // The resolver's typed refusal passes through unchanged.
+            let failure = super::wire::resolve_failure(&error);
+            if failure["code"] == "socket.no_daemon" {
+                return super::wire::print_local_error(
+                    &failure,
+                    global.output,
+                    super::wire::RESOLVE_FAILURE_EXIT,
+                );
+            }
             if let Some(session) = global.session.as_deref()
                 && cmux_tui_core::server::validate_session_name(session).is_err()
             {
@@ -82,7 +119,15 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin } = plan.action {
+    if let ServerAction::Ensure {
+        terminal_reap_grace,
+        exit_with_pid,
+        install_key_stdin,
+        progress,
+        websocket,
+        replace_unresponsive,
+    } = plan.action
+    {
         // Read before anything else: stdin is the app's pipe, never argv/env.
         let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
             Ok(key) => key,
@@ -93,13 +138,26 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         };
         return run_ensure(
             expected_session,
-            terminal_reap_grace,
+            (terminal_reap_grace, exit_with_pid),
             install_key,
-            socket,
-            socket_output,
-            socket_is_derived,
+            (socket, socket_is_derived),
+            (progress, replace_unresponsive),
+            websocket,
             global.output,
         );
+    }
+    if let ServerAction::Stop { force, end_terminals, restore_wait } = plan.action {
+        let stop = StopWait {
+            socket: &socket,
+            socket_is_derived,
+            session: expected_session.as_deref(),
+            limit: restore_wait,
+            retry_flags: (force, end_terminals),
+            output: global.output,
+        };
+        if let Err(exit_code) = stop.wait_for_restore() {
+            return exit_code;
+        }
     }
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
@@ -127,6 +185,24 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let deadline = Instant::now() + Duration::from_secs(10);
     let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
         Ok(identity) => identity,
+        // A timeout is a busy session, not a foreign one: say so, or the
+        // reader restarts a healthy session with another build.
+        Err(ExchangeError::Timeout) => {
+            return local_error(
+                "server.busy",
+                crate::localization::catalog().local_server.identity_timeout,
+                global.output,
+                3,
+            );
+        }
+        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+            return local_error(
+                "server.unavailable",
+                crate::localization::catalog().local_server.communication_failed,
+                global.output,
+                3,
+            );
+        }
         Err(_) => {
             return local_error(
                 "server.identity_failed",
@@ -198,7 +274,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
-        ServerAction::Ensure { .. } => unreachable!("ensure returns before the lifecycle exchange"),
+        ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
+            unreachable!("ensure and compact-registry return before the lifecycle exchange")
+        }
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -279,7 +357,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
-        ServerAction::Stop { force, end_terminals } => {
+        ServerAction::Stop { force, end_terminals, .. } => {
             if end_terminals
                 && !identity["capabilities"]
                     .as_array()
@@ -287,7 +365,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.end_terminals_unsupported",
-                    crate::localization::catalog().local_server.end_terminals_unsupported,
+                    &refused_with_fix(
+                        crate::localization::catalog().local_server.end_terminals_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
                     global.output,
                     1,
                 );
@@ -302,7 +384,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.force_unsupported",
-                    crate::localization::catalog().local_server.force_unsupported,
+                    &refused_with_fix(
+                        crate::localization::catalog().local_server.force_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
                     global.output,
                     1,
                 );
@@ -368,34 +454,277 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 }
 
-/// Reads the install key straight from descriptor 0 (no buffered stdin
-/// copy outlives it; the parsed key is zeroized on drop).
+/// What a stop knows of an owner that is not ready yet.
+#[derive(Clone, Copy)]
+enum RestorePhase {
+    /// The owner holds the connection unanswered: it restores its session
+    /// (registry, terminal hosts), or it is too busy to answer.
+    Restoring,
+    /// The owner answered `lifecycle_ready: false` (its pid when it said):
+    /// it restored and finishes its startup, and refuses `shutdown-daemon`.
+    Starting(Option<u64>),
+}
+
+impl RestorePhase {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Restoring => "restoring",
+            Self::Starting(_) => "starting",
+        }
+    }
+
+    fn starting(self) -> bool {
+        matches!(self, Self::Starting(_))
+    }
+
+    fn pid(self) -> Option<u64> {
+        match self {
+            Self::Restoring => None,
+            Self::Starting(pid) => pid,
+        }
+    }
+}
+
+/// `server stop`'s wait for an owner that is still restoring.
+///
+/// Since d674e3164cc (cx-n3bs) an owner binds its socket before it restores
+/// its session and holds every connection unanswered until the restore
+/// ends; then `identify` says `lifecycle_ready: false` until its startup
+/// ends, and `shutdown-daemon` is refused until then. A stop that met such
+/// an owner used to give up after its 10 s identify deadline (or at once on
+/// `lifecycle_ready: false`), so a stop during a slow restore never stopped
+/// the owner. The stop now waits up to `limit`: by default the 2 minutes
+/// `server ensure` gives a live owner's restore (`RESTORE_DEADLINE`, the
+/// restore's own bound on the client side), so a stop never gives up on an
+/// owner an ensure would still wait for.
+struct StopWait<'a> {
+    socket: &'a std::path::Path,
+    socket_is_derived: bool,
+    session: Option<&'a str>,
+    limit: Duration,
+    /// `--force` and `--end-terminals`, repeated in the retry command.
+    retry_flags: (bool, bool),
+    output: OutputMode,
+}
+
+/// How long one read waits before the stop checks its bound and its
+/// progress report again.
+const STOP_WAIT_SLICE: Duration = Duration::from_secs(1);
+
+/// The pause before a stop asks an owner that said `lifecycle_ready: false`
+/// again. The socket has no readiness event for a client that did not start
+/// the owner (`local_owner` polls the same way), so the stop re-asks.
+const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+impl StopWait<'_> {
+    /// Returns once the owner on the socket is ready (or gone, or answers
+    /// in a way the lifecycle exchange reports itself); `Err` with the exit
+    /// code once it printed why the stop gives up.
+    fn wait_for_restore(&self) -> Result<(), i32> {
+        let started = Instant::now();
+        let deadline = started + self.limit;
+        let mut reported: Option<Instant> = None;
+        let mut connects = 0_u32;
+        'connect: loop {
+            connects += 1;
+            if connects > 1 {
+                // A connection closed under the wait: past the bound, or for
+                // an owner that keeps closing, the lifecycle exchange reports
+                // what the socket does now.
+                if Instant::now() >= deadline {
+                    return Ok(());
+                }
+                std::thread::sleep(STOP_POLL_INTERVAL);
+            }
+            let Ok(stream) =
+                cmux_tui_core::server::connect_session_socket(self.socket, self.socket_is_derived)
+            else {
+                // Absent or unreachable: the lifecycle exchange reports it.
+                return Ok(());
+            };
+            let mut connection = BufReader::new(stream);
+            let mut id = 0_u64;
+            loop {
+                id += 1;
+                let request = json!({"id": format!("stop-wait-{id}"), "cmd": "identify"});
+                let sent = writeln!(connection.get_mut(), "{request}")
+                    .and_then(|()| connection.get_mut().flush());
+                if sent.is_err() {
+                    // A parked connection the owner dropped (its park cap)
+                    // or an owner that exited: ask again on a new one.
+                    continue 'connect;
+                }
+                let phase = loop {
+                    let slice = deadline.max(Instant::now() + STOP_POLL_INTERVAL);
+                    let slice = slice.min(Instant::now() + STOP_WAIT_SLICE);
+                    match read_reply(&mut connection, &request["id"], slice) {
+                        Ok(identity) => match identity.get("lifecycle_ready") {
+                            Some(Value::Bool(false)) => {
+                                break RestorePhase::Starting(
+                                    identity.get("pid").and_then(Value::as_u64),
+                                );
+                            }
+                            _ => return Ok(()),
+                        },
+                        Err(ExchangeError::Timeout) => {}
+                        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+                            continue 'connect;
+                        }
+                        // A refused or malformed identify: the lifecycle
+                        // exchange reports it with its own codes.
+                        Err(_) => return Ok(()),
+                    }
+                    self.report(RestorePhase::Restoring, started, &mut reported);
+                    if Instant::now() >= deadline {
+                        return Err(self.give_up(RestorePhase::Restoring, started));
+                    }
+                };
+                self.report(phase, started, &mut reported);
+                if Instant::now() >= deadline {
+                    return Err(self.give_up(phase, started));
+                }
+                std::thread::sleep(STOP_POLL_INTERVAL);
+            }
+        }
+    }
+
+    /// One progress line on stderr once the wait passes a slice, then one
+    /// per `local_owner::PROGRESS_INTERVAL` (a quick owner start is silent).
+    fn report(&self, phase: RestorePhase, started: Instant, reported: &mut Option<Instant>) {
+        let now = Instant::now();
+        let waited = now.duration_since(started);
+        let due = match *reported {
+            None => waited >= STOP_WAIT_SLICE,
+            Some(last) => {
+                now.duration_since(last) + STOP_POLL_INTERVAL
+                    >= crate::local_owner::PROGRESS_INTERVAL
+            }
+        };
+        if !due {
+            return;
+        }
+        *reported = Some(now);
+        let message = crate::localization::catalog().local_server.stop_waiting(
+            phase.starting(),
+            waited.as_secs(),
+            self.limit.as_secs(),
+        );
+        let mut stderr = std::io::stderr().lock();
+        let _ = match self.output {
+            OutputMode::Quiet => return,
+            OutputMode::Json | OutputMode::JsonLines => writeln!(
+                stderr,
+                "{}",
+                json!({
+                    "progress": "restoring",
+                    "session": self.session,
+                    "phase": phase.name(),
+                    "pid": phase.pid(),
+                    "waited_ms": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),
+                    "message": message,
+                })
+            ),
+            OutputMode::Human => writeln!(stderr, "{message}"),
+        };
+    }
+
+    /// Prints why the stop gives up (`server.stop_restoring`, retryable)
+    /// and the command that retries with a longer wait; the exit code.
+    fn give_up(&self, phase: RestorePhase, started: Instant) -> i32 {
+        let waited = started.elapsed();
+        let longer = (self.limit * 2).max(crate::local_owner::RESTORE_DEADLINE);
+        let mut retry =
+            super::fix_command::stop_daemon(&super::fix_command::this_cli(), self.socket);
+        let (force, end_terminals) = self.retry_flags;
+        if force {
+            retry.push_str(" --force");
+        }
+        if end_terminals {
+            retry.push_str(" --end-terminals");
+        }
+        retry.push_str(&format!(" --restore-wait-seconds {}", longer.as_secs().min(3600)));
+        let message = crate::localization::catalog().local_server.stop_gave_up(
+            phase.starting(),
+            waited.as_secs(),
+            &retry,
+        );
+        super::wire::print_local_error(
+            &json!({
+                "code": "server.stop_restoring",
+                "message": message,
+                "details": {
+                    "reason": "restoring",
+                    "phase": phase.name(),
+                    "pid": phase.pid(),
+                    "session": self.session,
+                    "waited_ms": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),
+                    "retry": retry,
+                },
+                "retryable": true,
+            }),
+            self.output,
+            3,
+        )
+    }
+}
+
+/// The reply to the request `id` on `connection`, skipping events and
+/// other replies, before `deadline`.
+fn read_reply(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    id: &Value,
+    deadline: Instant,
+) -> Result<Value, ExchangeError> {
+    loop {
+        let Some(response) = read_response(connection, deadline)? else {
+            return Err(ExchangeError::Closed);
+        };
+        if response.get("event").is_some() || &response["id"] != id {
+            continue;
+        }
+        if response["ok"] == true {
+            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+        }
+        let error =
+            response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
+        return Err(ExchangeError::Rejected(error));
+    }
+}
+
+/// Reads the install key straight from standard input (descriptor 0, or
+/// the stdin handle on Windows): no buffered stdin copy outlives it; the
+/// parsed key is zeroized on drop.
 fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::FrontendKey> {
     #[cfg(unix)]
-    {
+    let stdin = {
         use std::os::fd::AsFd;
-        let stdin = std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
-        cmux_tui_core::server::read_frontend_key(stdin)
-    }
-    #[cfg(not(unix))]
-    {
-        cmux_tui_core::server::read_frontend_key(std::io::stdin().lock())
-    }
+        std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?)
+    };
+    #[cfg(windows)]
+    let stdin = {
+        use std::os::windows::io::AsHandle;
+        std::fs::File::from(std::io::stdin().as_handle().try_clone_to_owned()?)
+    };
+    cmux_tui_core::server::read_frontend_key(stdin)
 }
 
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
-/// existed and `started` for one this call spawned.
+/// existed and `started` for one this call spawned. `socket` is the socket
+/// path and whether it was derived from the session name; the owner pair is
+/// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
+/// and `--replace-unresponsive`.
 fn run_ensure(
     expected_session: Option<String>,
-    terminal_reap_grace: Option<Duration>,
+    (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::local_owner::ExitWith>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
-    socket: std::path::PathBuf,
-    socket_output: String,
-    socket_is_derived: bool,
+    (socket, socket_is_derived): (std::path::PathBuf, bool),
+    (progress, replace_unresponsive): (bool, bool),
+    websocket: Option<crate::local_owner::EnsureWebSocket>,
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
+    let socket_output = socket.to_string_lossy().into_owned();
     let spec = crate::local_owner::OwnerSpec {
         session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
         socket,
@@ -404,49 +733,117 @@ fn run_ensure(
         term: None,
         initial_host_colors: None,
         terminal_reap_grace,
+        exit_with_pid,
         install_key,
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).
         chief_tools_socket: crate::startup_env::chief_tools_socket(),
+        // ...and the Chief brains the app gave it (taken out at start too).
+        chief_brains: cmux_tui_core::chief_brains::taken(),
+        websocket,
+    };
+    let replaced = if replace_unresponsive {
+        match crate::local_owner::replace_if_unresponsive(&spec) {
+            Ok(replaced) => replaced.map(|replaced| replaced.pid),
+            Err(error) => {
+                let details = match &error {
+                    crate::local_owner::ReplaceError::Signal(error) => {
+                        json!({"reason": error.to_string()})
+                    }
+                    _ => json!({}),
+                };
+                return local_error_with_details(
+                    error.code(),
+                    messages.replace_refused,
+                    details,
+                    output,
+                    3,
+                );
+            }
+        }
+    } else {
+        None
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
-    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {
+    let report = |restoring: &crate::local_owner::Restoring| {
+        print_progress(&spec.session, restoring);
+    };
+    let reporter = if progress {
+        crate::local_owner::RestoreProgress::new(&report)
+    } else {
+        crate::local_owner::RestoreProgress::silent()
+    };
+    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline, &reporter)
+    {
         Ok(ensured) => {
             let (status, message, ready) = match &ensured {
                 crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
+                crate::local_owner::Ensured::Started(ready) if replaced.is_some() => {
+                    ("replaced", messages.replaced, ready)
+                }
                 crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
             };
-            print_success(
-                json!({
-                    "status":status,
-                    "session":ready.session,
-                    "socket":socket_output,
-                    "pid":ready.pid,
-                    "generation":ready.generation,
-                    "message":message,
-                }),
-                output,
-            )
+            let mut result = json!({
+                "status":status,
+                "session":ready.session,
+                "socket":socket_output,
+                "pid":ready.pid,
+                "generation":ready.generation,
+                "message":message,
+            });
+            if let Some(pid) = replaced {
+                result.set("replaced_pid", json!(pid));
+            }
+            print_success(result, output)
         }
-        Err(crate::local_owner::EnsureError::Spawn(_error)) => {
-            local_error("server.spawn_failed", &messages.owner_spawn_failed(), output, 3)
-        }
-        Err(crate::local_owner::EnsureError::NotReady) => {
-            local_error("server.unavailable", messages.owner_not_ready, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::WrongOwner) => {
-            local_error("server.wrong_owner", messages.wrong_owner, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::DifferentSession) => {
-            local_error("server.different_session", messages.different_session, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::InvalidIdentity) => {
-            local_error("server.invalid_identity", messages.invalid_identity, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::UnsupportedProtocol) => {
-            local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
+        Err(error) => {
+            let (code, message, exit_code) = match error {
+                crate::local_owner::EnsureError::Spawn(_error) => {
+                    ("server.spawn_failed", messages.owner_spawn_failed(), 3)
+                }
+                crate::local_owner::EnsureError::NotReady => {
+                    ("server.unavailable", messages.owner_not_ready.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::RestoreTimeout => {
+                    ("server.restore_timeout", messages.owner_restore_timeout.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::WrongOwner => {
+                    ("server.wrong_owner", messages.wrong_owner.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::DifferentSession => {
+                    ("server.different_session", messages.different_session.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::DifferentState => {
+                    ("server.different_state", messages.different_state.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::InvalidIdentity => {
+                    ("server.invalid_identity", messages.invalid_identity.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::UnsupportedProtocol => {
+                    ("server.unsupported_protocol", messages.unsupported_protocol.to_string(), 3)
+                }
+            };
+            // The app learns that the old owner is gone even when the new
+            // one did not start.
+            let details = replaced.map_or_else(|| json!({}), |pid| json!({"replaced_pid": pid}));
+            local_error_with_details(code, &message, details, output, exit_code)
         }
     }
+}
+
+/// One restore progress line on stdout (`server ensure --restore-progress`). The
+/// result stays the last JSON line, so a reader that takes the last line
+/// still reads the result.
+fn print_progress(session: &str, restoring: &crate::local_owner::Restoring) {
+    use std::io::Write as _;
+    let line = json!({
+        "progress": "restoring",
+        "session": session,
+        "pid": restoring.pid,
+        "waited_ms": u64::try_from(restoring.waited.as_millis()).unwrap_or(u64::MAX),
+    });
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{line}").and_then(|()| stdout.flush());
 }
 
 fn valid_session_name(session: &str) -> bool {
@@ -589,6 +986,66 @@ fn usage_error(message: &str, output: OutputMode) -> i32 {
     local_error("usage.invalid", message, output, 2)
 }
 
+/// `server compact-registry --session <name> [--state-dir <path>]`: offline,
+/// with the owner's session locks, so it needs no socket. The session is
+/// never guessed: a wrong default would compact another session than the one
+/// the user stopped. Exit 3 with `server.compact_owner_running` while an
+/// owner holds the session.
+fn run_compact_registry(
+    expected_session: Option<String>,
+    state_dir: Option<std::path::PathBuf>,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let Some(session) = expected_session else {
+        return local_error("usage.invalid", messages.registry_compact_needs_session, output, 2);
+    };
+    let Some(root) = state_dir.or_else(cmux_tui_core::platform::workspace_state_dir) else {
+        return local_error_with_details(
+            "server.compact_no_registry",
+            messages.registry_compact_no_registry,
+            json!({"session": session, "reason": "no_state_dir"}),
+            output,
+            3,
+        );
+    };
+    match cmux_tui_core::compact_registry(&root, &session) {
+        Ok(compaction) => print_success(
+            json!({
+                "status": "compacted",
+                "session": session,
+                "path": compaction.path.to_string_lossy(),
+                "before_bytes": compaction.before_bytes,
+                "after_bytes": compaction.after_bytes,
+                "warning": compaction.warning,
+                "message": messages.registry_compacted,
+            }),
+            output,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::NoRegistry(path)) => local_error_with_details(
+            "server.compact_no_registry",
+            messages.registry_compact_no_registry,
+            json!({"session": session, "path": path.to_string_lossy()}),
+            output,
+            3,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::OwnerRunning(error)) => local_error_with_details(
+            "server.compact_owner_running",
+            messages.registry_compact_owner_running,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            3,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::Failed(error)) => local_error_with_details(
+            "server.compact_failed",
+            messages.registry_compact_failed,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            1,
+        ),
+    }
+}
+
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     local_error_with_details(code, message, json!({}), output, exit_code)
 }
@@ -609,6 +1066,13 @@ fn local_error_with_details(
 
 fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
+}
+
+/// A stop this daemon refuses (another build): `text` and the one command
+/// that restarts the daemon at `socket` with `cli`'s build
+/// (plans/cmux-next/version-skew.md).
+fn refused_with_fix(text: &str, cli: &std::path::Path, socket: &std::path::Path) -> String {
+    format!("{text} {}", super::fix_command::restart_daemon(cli, socket))
 }
 
 #[cfg(test)]

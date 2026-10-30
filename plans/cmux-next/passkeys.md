@@ -209,3 +209,114 @@ Each in a CEF tab and in a WebKit tab (New WebKit Tab from the palette):
 - K15 comes from code inspection, not a reproduction.
 - Stock Chromium (Chrome for Testing 153.0.8010.12, one major below our fork) passes every judged test RP scenario with a virtual authenticator, and its `getClientCapabilities()` reports `immediateGet`, `relatedOrigins`, `hybridTransport`, `signalAllAcceptedCredentials`, `signalCurrentUserDetails`, `signalUnknownCredential`, `extension:prf`, `extension:largeBlob` and the JSON helpers. PRF and largeBlob on iCloud Keychain itself (not a virtual authenticator) are unverified.
 - K8 oracle from that run: an allow list with `transports: ["internal", "hybrid"]` is answered by the local platform credential; `["hybrid"]` alone is not sent to it (Chromium goes to the phone flow; with no UI it ends in `NotAllowedError`). A WebKit bridge must route the same way.
+
+## 10. Measured 2026-10-12 (cx-d0d.5)
+
+Run on a fleet capture mini (no Touch ID, no iCloud account, no phone or security key) with
+`scripts/cmux-next/passkeys-matrix-e2e.py`, which serves the section 7 test RP and runs it in a real
+cmux-next pane over the app socket. In CEF each scenario gets Chromium's DevTools virtual
+authenticator through `debug.cef.devtools` (Debug builds); WebKit has none, so it runs only the
+scenarios that need no authenticator.
+
+| Scenario (known bug) | CEF, DEV build of 8f408161 | WebKit, DEV build | WebKit, signed cmux NEXT 1.0.0-nightly.3825679260001 |
+| --- | --- | --- | --- |
+| create-platform, get-discoverable, get-allow-list | pass | skip (no virtual authenticator) | skip |
+| get-large-challenge (K12) | pass | skip | skip |
+| get-no-user-handle (K11) | pass | skip | skip |
+| abort-conditional-then-modal (K15) | pass | skip | skip |
+| abort-modal (K15) | pass | fail: `NotAllowedError` (no passkey authorization, K18) | fail: `NotAllowedError` (no entitlement) |
+| prf-create-get, large-blob, cred-props (K17) | pass | skip | skip |
+| client-capabilities (K17) | pass | pass | pass |
+| user-id-too-long, insecure-rp-id | pass | pass | pass |
+| transports-internal-hybrid (K8) | pass (platform answers) | skip | skip |
+| transports-hybrid-only (K8, record only) | `NotAllowedError`, as the stock Chromium oracle | skip | skip |
+| cross-origin-iframe-denied, -allowed (K17) | pass, pass | pass (WebKit says "document is not focused"), skip | same |
+| opaque-origin-iframe-uvpa, sandboxed-iframe-create (R122) | pass, pass | pass, pass | pass, pass |
+| Probe: `isUserVerifyingPlatformAuthenticatorAvailable` (K1) | false (DEV: no entitlement) | false | false |
+
+Signed-build findings:
+- **K1 is open in signed cmux-next: cx-urd.62.** cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) is
+  signed with `cmux.next-dev.entitlements` and no provisioning profile, on purpose (nightly.yml, #19743).
+  The bundle has no `web-browser.public-key-credential`, application id or keychain group, so platform
+  passkeys fail in both engines. A plain WebKit `navigator.credentials.get` is refused with
+  `NotAllowedError`. No signed cmux-next build can run section 8 until cx-urd.62 lands.
+- K2 holds: the signed bundle has `NSBluetoothAlwaysUsageDescription`.
+- K9 holds: the passkey sources (`WebKitPasskey*.swift`, `*Passkey*.swift` in CEF,
+  `shim_passkeys.mm`) call no private selectors.
+- Not measured: the signed build's CEF tab did not answer the socket (`openBrowser` and page eval past
+  the 2 s deadline) in two launches on a fresh mini. Without the entitlement CEF has no platform
+  authenticator either, so this does not change the K1 result.
+
+Still UNVERIFIED (needs cx-urd.62 and real hardware): section 8 checks 1-7 (Touch ID, QR/hybrid
+cx-d0d.46, YubiKey, conditional UI on github.com, Google re-auth, agent refusal cx-d0d.48, background
+K10), K16 visibility (cx-d0d.47), and every WebKit row that needs an authenticator.
+Harness note (2026-10-14: the socket deadline is now 6 s, see section 11): `debug.cef.devtools` replies arrive after the socket's 2 s deadline; the calls still
+run (`not_run: false`), and the script clears authenticators with `WebAuthn.disable`.
+
+## 11. Roaming keys and hybrid on a real RP, 2026-10-14 (cx-d0d.97)
+
+Lawrence 2026-10-14: "ensure we support passkey sign in with bluetooth and security key like
+yubikey". `scripts/cmux-next/passkeys-roaming-e2e.py` runs in a cmux-next DEV app's CEF pane on
+https://webauthn.io (Register with Authenticator Attachment "Cross-Platform", then Authenticate with
+the username filled, so an allow list; a pass ends on webauthn.io's `/profile`). Run as a fleet-built
+GUI proof: `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA` on cmux-lawrence-2.
+
+| Check (job 1013-203840-2d7cbf, DEV tag pkhw1, ref 78a4260e) | Result |
+| --- | --- |
+| Virtual USB key, CTAP 2.1, discoverable + UV (a YubiKey 5 with PIN) | pass |
+| Virtual USB key, U2F only (older keys) | pass |
+| Virtual NFC key | pass (Chromium runs it; desktop Chromium has no real NFC transport on macOS) |
+| Virtual BLE key | pass |
+| Virtual hybrid (`cable`, the phone after the QR scan) | pass |
+| No virtual authenticator, Cross-Platform register (the only real-hardware row) | Chromium's sheet opens as its own window (448x356 pt) centered over the pane, top edge on the pane; it went to the real YubiKey on the host, which has no PIN, so the sheet asked "PIN required: Set up a new PIN for your security key" with the caret in the PIN field. No Chrome or Google promo. |
+
+The five virtual rows run with Chromium's UI off, and CEF lost the authenticator id (below), so
+they prove the request path through each kind of virtual authenticator and webauthn.io's server
+checks, not real USB, BLE or hybrid I/O.
+
+Findings:
+- No fork or app change is needed for USB/NFC/BLE keys or hybrid: Chromium's stack runs in the
+  browser process (the app), and the tab-modal sheet has its host (CEF Chrome style gives each tab a
+  Browser with a `WebContentsModalDialogManager`). Without that manager Chromium shows no sheet and
+  still sends the request to the key, which then times out (cmux-browser's symptom, 2026-10-14).
+- The sheet keeps Chromium's look (decision D2 (a)): dark surface, blue buttons.
+- Entitlements: USB and Bluetooth need none (the app is not sandboxed); `NSBluetoothAlwaysUsageDescription`
+  is in the DEV and the signed cmux NEXT Info.plist. The signed cmux NEXT (build 3849738712201) has no
+  `web-browser.public-key-credential` and no profile (cx-urd.62); the NIGHTLY-identity copy (cx-x7hwx,
+  `scripts/ci/nightly-next-legacy-identity.sh`) signs with `cmux.nightly.entitlements` and the NIGHTLY
+  profile, which grant it. Apple has no App ID for cmux NEXT (nightly-next probe: "App ID
+  com.cmuxterm.app.next: missing").
+- Harness: CEF's in-process DevTools loses the reply of `WebAuthn.addVirtualAuthenticator` (timedOut
+  after 5 s) while the call runs, so the script does not need the id. `debug.cef.devtools` now has a
+  6 s control deadline (was 2 s); CEF's own 5 s wait still applies. The capture helper's `--with-popups` composite came back blank white on this
+  host; the single-window pictures (`*.front.png`) and the window lists are the evidence.
+- UNVERIFIED (needs a person): PIN typed into the sheet and a real touch (YubiKey run on
+  cmux-lawrence-2, `--real`), a phone over BLE, Touch ID in the signed NIGHTLY identity. Steps:
+  `.cmux-scratch/passkeys/checklist.md` in hq.
+
+### 11.1 Real hardware on cmux-lawrence-2, 2026-10-14 (Lawrence at the Mac, DEV tag pkhw4)
+
+- YubiKey 5, touch only (webauthn.io Discoverable Credential "Discouraged"): register + sign-in
+  PASS (job 1013-214604-51740b). Chromium's sheet showed over the pane while the key waited.
+- Phone (iPhone, hybrid): three runs failed with NotAllowedError after "Follow the steps on your
+  device"; the iPhone spun, then "The operation could not be completed". Logged run
+  1013-223234-567855 (FIDO verbose log + net-log): the tunnel WebSocket to `wss://cable.auth.com`
+  opened (101, `fido.cable`, direct), the handshake and the phone's GetInfo arrived, then the Mac
+  sent no makeCredential and Apple's server closed the tunnel after 90 s. Cause: the YubiKey (now
+  with a PIN) was plugged in; Chromium dispatched to it, asked getPINRetries and showed
+  "PIN required", so `MakeCredentialRequestHandler` left `kWaitingForTouch`. When the first
+  Bluetooth permission of the new DEV app id resolved 5 s later, the sheet moved to the QR (hints
+  `hybrid`) without a start-over, and `DispatchRequest` drops every authenticator outside
+  `kWaitingForTouch`, the phone too. Not the network, not cmux's request handling, not Bluetooth TCC.
+  Next proof: the same run with the key unplugged. Fork candidate: moving to the hybrid sheet while a
+  security key holds the PIN step must start the request over.
+
+### 11.2 Decision: one bundle id (Lawrence, 2026-10-14)
+
+"plan is to use same bundle ID we will sunset cmux-classic and only ship cmux-next in the future".
+cmux-next ships as `com.cmuxterm.app` (and `com.cmuxterm.app.nightly` for nightly) with the
+existing passkey entitlement and profiles; no new App ID and no Apple request for
+`com.cmuxterm.app.next`. The interim cmux NEXT identity (`com.cmuxterm.app.nightly.cmux-next`)
+stays without platform passkeys until it goes away; its NIGHTLY-identity copy (cx-x7hwx) is the
+signed build where Touch ID / iCloud Keychain passkeys are checked. The hybrid race fix ships in CEF
+`cef-154.0.28-cmux.25` (cmux CEF fork branch `cmux/8037-cmux25-rc`).

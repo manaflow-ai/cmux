@@ -21,6 +21,10 @@ public final class DaemonPrestart: Sendable {
     /// activation (the connection watches its socket through it too).
     public let wake: RetryWake
     private let attempt: Task<Outcome, Never>
+    /// The bundled binary's build commit (`--version`), for the version
+    /// handoff check: read from here, because a run begun only once the app
+    /// started its services was still going when the connection came back.
+    public let bundledCommit: Task<String?, Never>
 
     /// Starts the attempt now. `configuration.retryWake` is replaced by `wake`.
     public init(launcher: DaemonLauncher, configuration: DaemonConnection.Configuration,
@@ -30,6 +34,8 @@ public final class DaemonPrestart: Sendable {
         var configuration = configuration
         configuration.retryWake = wake
         let fixed = configuration
+        // task-owner: one `--version` run per launch, bounded by its timeout
+        bundledCommit = Task.detached(priority: .userInitiated) { try? await launcher.bundledBuildCommit() }
         // task-owner: one attempt per launch; its requests carry the connection's deadlines
         attempt = Task.detached(priority: .userInitiated) {
             let connection = DaemonConnection(configuration: fixed, endpointProvider: launcher.endpointProvider)
@@ -37,6 +43,7 @@ public final class DaemonPrestart: Sendable {
             do {
                 let identity = try await connection.start()
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
+                await connection.prefetchSnapshot()
                 return .success((connection, identity))
             } catch {
                 await connection.close()

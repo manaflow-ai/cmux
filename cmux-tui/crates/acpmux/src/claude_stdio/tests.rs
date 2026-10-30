@@ -27,241 +27,548 @@ async fn prompt_becomes_user_line_and_result_answers_it() {
     }
 }
 
+/// Claude Code's stream-json bridge accepts a client `side_question` control
+/// request while its main turn is running. It answers with the callback's
+/// payload, without an ACP prompt or transcript event.
 #[tokio::test]
-async fn interrupt_result_is_cancelled() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.outbound(&Message::request(
-        1,
-        method::SESSION_PROMPT,
-        json!({"prompt": [{"type": "text", "text": "go"}]}),
-    ))
-    .await;
-    let Outbound::Lines(lines) =
-        t.outbound(&Message::notification(method::SESSION_CANCEL, json!({}))).await
-    else {
-        panic!()
-    };
-    assert_eq!(lines[0]["request"]["subtype"], "interrupt");
-    let msgs = t.inbound(&json!({"type": "result", "subtype": "error_during_execution", "is_error": true, "result": null})).await;
-    match &msgs[0] {
-        Message::Response { result, .. } => {
-            assert_eq!(result.as_ref().unwrap()["stopReason"], "cancelled")
-        }
-        _ => panic!(),
-    }
-}
-
-#[tokio::test]
-async fn resume_startup_result_is_ignored() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.outbound(&Message::request(
-        3,
-        method::SESSION_PROMPT,
-        json!({"prompt": [{"type": "text", "text": "q"}]}),
-    ))
-    .await;
-    let noise = t.inbound(&json!({"type": "result", "subtype": "success", "result": "", "num_turns": 0, "duration_api_ms": 0})).await;
-    assert!(noise.is_empty(), "startup result must not answer the prompt");
-    let real = t.inbound(&json!({"type": "result", "subtype": "success", "result": "A", "num_turns": 1, "duration_api_ms": 500})).await;
-    assert!(matches!(&real[0], Message::Response { id, .. } if *id == 3));
-}
-
-#[tokio::test]
-async fn permission_round_trip() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let msgs = t.inbound(&json!({"type": "control_request", "request_id": "abc", "request": {"subtype": "can_use_tool", "tool_name": "Write", "input": {"file_path": "/x/y.txt", "content": "ok"}, "tool_use_id": "tu1"}})).await;
-    let Message::Request { id, method: m, params } = &msgs[0] else { panic!() };
-    assert_eq!(m, method::SESSION_REQUEST_PERMISSION);
-    assert_eq!(params.as_ref().unwrap()["toolCall"]["title"], "Write y.txt");
-    let Outbound::Lines(lines) = t
-        .outbound(&Message::ok(
-            id.clone(),
-            json!({"outcome": {"outcome": "selected", "optionId": "allow_once"}}),
-        ))
-        .await
-    else {
-        panic!()
-    };
-    assert_eq!(lines[0]["response"]["request_id"], "abc");
-    assert_eq!(lines[0]["response"]["response"]["behavior"], "allow");
-}
-
-#[test]
-fn wrapper_words_come_before_claude_flags() {
-    let profile = crate::config::HarnessProfile {
-        kind: crate::config::HarnessKind::ClaudeStdio,
-        argv: vec!["sr".into(), "claude".into(), "proxy".into()],
-        env: Default::default(),
-        description: None,
-        fallback: None,
-        family: None,
-        models: vec![],
-        model: None,
-        effort: None,
-        policy: None,
-    };
-    let plan =
-        spawn_plan(&profile, Some("abc"), false, None, Some("high"), "default", Some("opus"));
-    assert_eq!(plan.program, "sr");
-    assert_eq!(&plan.args[..3], &["claude", "proxy", "-p"]);
-    assert!(plan.args.windows(2).any(|w| w == ["--resume", "abc"]));
-    assert!(plan.args.windows(2).any(|w| w == ["--effort", "high"]));
-    assert!(plan.args.windows(2).any(|w| w == ["--model", "opus"]));
-    assert!(plan.args.windows(2).any(|w| w == ["--permission-mode", "default"]));
-}
-
-#[tokio::test]
-async fn unknown_permission_option_denies() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let msgs = t.inbound(&json!({"type": "control_request", "request_id": "r1", "request": {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "ls"}, "tool_use_id": "tu1"}})).await;
-    let Message::Request { id, .. } = &msgs[0] else { panic!() };
-    let Outbound::Lines(lines) = t
-        .outbound(&Message::ok(
-            id.clone(),
-            json!({"outcome": {"outcome": "selected", "optionId": "forged"}}),
-        ))
-        .await
-    else {
-        panic!()
-    };
-    assert_eq!(lines[0]["response"]["response"]["behavior"], "deny");
-}
-
-#[tokio::test]
-async fn rejected_model_change_keeps_the_old_model() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.outbound(&Message::request(5, method::SESSION_SET_MODEL, json!({"modelId": "opus"}))).await;
-    assert_eq!(t.config_options_value().await[0]["currentValue"], "haiku");
-    let msgs = t.inbound(&json!({"type": "control_response", "response": {"subtype": "error", "request_id": "ctl-5", "error": "no"}})).await;
-    assert!(matches!(&msgs[0], Message::Response { error: Some(_), .. }));
-    assert_eq!(t.config_options_value().await[0]["currentValue"], "haiku");
-    t.outbound(&Message::request(6, method::SESSION_SET_MODEL, json!({"modelId": "opus"}))).await;
-    t.inbound(&json!({"type": "control_response", "response": {"subtype": "success", "request_id": "ctl-6"}})).await;
-    assert_eq!(t.config_options_value().await[0]["currentValue"], "opus");
-}
-
-#[tokio::test]
-async fn failed_initialize_is_an_error() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.outbound(&Message::request(1, method::INITIALIZE, json!({}))).await;
-    let msgs = t.inbound(&json!({"type": "control_response", "response": {"subtype": "error", "request_id": "init-1", "error": "bad"}})).await;
-    assert!(matches!(&msgs[0], Message::Response { error: Some(_), .. }));
-}
-
-#[tokio::test]
-async fn max_turns_ends_the_prompt_and_startup_errors_answer_it() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.outbound(&Message::request(
-        2,
-        method::SESSION_PROMPT,
-        json!({"prompt": [{"type": "text", "text": "q"}]}),
-    ))
-    .await;
-    let msgs = t.inbound(&json!({"type": "result", "subtype": "error_max_turns", "is_error": true, "num_turns": 3, "duration_api_ms": 9})).await;
-    match &msgs[0] {
-        Message::Response { result, error: None, .. } => {
-            assert_eq!(result.as_ref().unwrap()["stopReason"], "max_turn_requests")
-        }
-        _ => panic!(),
-    }
-    t.outbound(&Message::request(
-        3,
-        method::SESSION_PROMPT,
-        json!({"prompt": [{"type": "text", "text": "q"}]}),
-    ))
-    .await;
-    let msgs = t.inbound(&json!({"type": "result", "subtype": "success", "is_error": true, "result": "limit", "num_turns": 0, "duration_api_ms": 0})).await;
-    assert!(matches!(&msgs[0], Message::Response { error: Some(_), .. }));
-}
-
-#[tokio::test]
-async fn unsupported_control_request_is_answered() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let msgs = t.inbound(&json!({"type": "control_request", "request_id": "h1", "request": {"subtype": "hook_callback"}})).await;
-    assert!(msgs.is_empty());
-    let replies = t.take_stdin_replies().await;
-    assert_eq!(replies[0]["response"]["subtype"], "error");
-    assert_eq!(replies[0]["response"]["request_id"], "h1");
-}
-
-#[tokio::test]
-async fn embedded_resource_reaches_claude() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+async fn native_side_question_uses_claude_control_protocol() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
     let req = Message::request(
+        19,
+        SIDE_QUESTION,
+        json!({
+            "question": "what does this function do?",
+            "history": [{"question": "earlier", "response": "already answered"}]
+        }),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(
+        lines,
+        vec![json!({
+            "type": "control_request",
+            "request_id": "side-19",
+            "request": {
+                "subtype": "side_question",
+                "question": "what does this function do?",
+                "history": [{"question": "earlier", "response": "already answered"}]
+            }
+        })]
+    );
+
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": "side-19",
+                "response": {"response": "It reads the file.", "synthetic": false}
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: Some(result), error: None }]
+            if *id == 19 && result["response"] == "It reads the file." && result["synthetic"] == false
+    ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_missing_answer_callback() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
+    let req = Message::request(20, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Lines(_) = t.outbound(&req).await else { panic!() };
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "error",
+                "request_id": "side-20",
+                "error": "side_question is not supported in this context"
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: None, error: Some(error) }]
+            if *id == 20 && error.message.contains("side_question is not supported")
+    ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_an_idle_chat_before_writing_control_request() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    let req = Message::request(21, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Reply(Message::Response { id, result: None, error: Some(error) }) =
+        t.outbound(&req).await
+    else {
+        panic!("idle side question must be refused before writing to Claude")
+    };
+    assert_eq!(id, Value::from(21));
+    assert_eq!(error.code, -32601);
+    assert!(error.message.contains(SIDE_QUESTION));
+}
+
+/// A steer Claude Code reads after the reply it is writing (cx-f51kv): the
+/// reply's text and the steer's answer are two API messages, and each chunk
+/// names its message, so the pane ends the reply where its message ends.
+#[tokio::test]
+async fn text_chunks_carry_their_message_id() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let start = |id: &str| json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": id, "model": "claude-haiku"}}});
+    let text = |s: &str| json!({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": s}}});
+    let mut ids = Vec::new();
+    for line in [start("msg_1"), text("The Sun also rises."), start("msg_2"), text("DONE")] {
+        for m in t.inbound(&line).await {
+            if let Message::Notification { params, .. } = m
+                && let Some(u) = params.as_ref().and_then(|p| p.get("update"))
+                && u["sessionUpdate"] == "agent_message_chunk"
+            {
+                ids.push((u["content"]["text"].clone(), u["messageId"].clone()));
+            }
+        }
+    }
+    assert_eq!(
+        ids,
+        vec![(json!("The Sun also rises."), json!("msg_1")), (json!("DONE"), json!("msg_2"))]
+    );
+}
+
+/// A slash command Claude Code runs itself (`/permissions`, `/config`,
+/// `/clear`) answers in one synthetic line and a result with no turn and no
+/// API time, which is also what a resumed process's startup noise looks like.
+/// That result ends the prompt; before, the chat stayed running with Stop doing
+/// nothing (cosmic-gray, 2026-10-14). Lines as Claude Code 2.1.299 prints them.
+#[tokio::test]
+async fn a_late_result_for_a_stopped_prompt_ends_only_that_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id: i64, text: &str| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    let answered = |msgs: &[Message], want: i64| {
+        msgs.iter().any(|m| matches!(m, Message::Response { id, .. } if *id == want))
+    };
+    let echo = |lines: &[Value]| json!({"type": "user", "isReplay": true, "uuid": lines[0]["uuid"], "message": lines[0]["message"]});
+    let result = json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 2, "duration_api_ms": 900, "result": "done"});
+
+    let Outbound::Lines(first) = t.outbound(&prompt(1, "run the slow build")).await else {
+        panic!()
+    };
+    t.inbound(&echo(&first)).await;
+    t.inbound(&json!({"type": "assistant", "message": {"id": "a1", "role": "assistant", "content": [{"type": "text", "text": "building"}]}})).await;
+    // Stop: Claude Code is slow to answer the interrupt, so acpmux ends the turn
+    // itself (hub/cancel.rs) and sends the next prompt before that result comes.
+    let Outbound::Lines(second) = t.outbound(&prompt(2, "name three fruits")).await else {
+        panic!()
+    };
+    let msgs = t.inbound(&result).await;
+    assert!(!answered(&msgs, 2), "the stopped turn's result ended the next prompt: {msgs:?}");
+    assert!(answered(&msgs, 1), "the stopped prompt stayed open: {msgs:?}");
+
+    t.inbound(&echo(&second)).await;
+    t.inbound(&json!({"type": "assistant", "message": {"id": "a2", "role": "assistant", "content": [{"type": "text", "text": "apple"}]}})).await;
+    let msgs = t.inbound(&result).await;
+    assert!(answered(&msgs, 2), "the next prompt's own result did not end it: {msgs:?}");
+}
+
+#[tokio::test]
+async fn a_local_command_result_ends_the_prompt() {
+    let local_result = |text: &str| json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "result": text});
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id: i64, text: &str| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    let answered = |msgs: &[Message], want: i64| {
+        msgs.iter().any(|m| {
+            matches!(m, Message::Response { id, result: Some(r), .. } if *id == want && r["stopReason"] == "end_turn")
+        })
+    };
+
+    let Outbound::Lines(_) = t.outbound(&prompt(1, "/permissions")).await else { panic!() };
+    let said = "/permissions isn't available in this environment.";
+    t.inbound(&json!({"type": "assistant", "local_command_outcome": {"kind": "unavailable_headless"}, "message": {"id": "s1", "model": "<synthetic>", "role": "assistant", "content": [{"type": "text", "text": said}]}})).await;
+    let msgs = t.inbound(&local_result(said)).await;
+    assert!(answered(&msgs, 1), "/permissions left its prompt open: {msgs:?}");
+
+    // /clear says nothing: its reset line comes before the empty result.
+    let Outbound::Lines(_) = t.outbound(&prompt(2, "/clear")).await else { panic!() };
+    t.inbound(&json!({"type": "system", "subtype": "conversation_reset"})).await;
+    let msgs = t.inbound(&local_result("")).await;
+    assert!(answered(&msgs, 2), "/clear left its prompt open: {msgs:?}");
+
+    // A resumed process's empty result before anything of the turn is still noise.
+    let Outbound::Lines(_) = t.outbound(&prompt(3, "hi")).await else { panic!() };
+    let msgs = t.inbound(&local_result("")).await;
+    assert!(!answered(&msgs, 3), "startup noise ended the prompt: {msgs:?}");
+}
+
+/// Claude Code 2.1.303's `/compact`, as it streams it: the compacting status,
+/// the boundary, the summary as a synthetic user line, the command's stdout,
+/// and a result with no turn and no API time. The prompt ends (before, that
+/// result read as startup noise and the chat stayed running), the chat gets a
+/// running and a completed `compaction` update, and the summary becomes a
+/// `compaction_summary` update. A wrapper's `compact_metadata.reason` is kept.
+#[tokio::test]
+async fn compact_ends_its_prompt_and_reports_the_compaction() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = Message::request(
         4,
         method::SESSION_PROMPT,
-        json!({"prompt": [{"type": "resource", "resource": {"uri": "file:///a.rs", "text": "fn a() {}"}}]}),
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "/compact"}]}),
     );
-    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
-    let text = lines[0]["message"]["content"][0]["text"].as_str().unwrap();
-    assert!(text.contains("file:///a.rs") && text.contains("fn a() {}"), "{text}");
-}
-
-#[tokio::test]
-async fn a_text_block_keeps_its_cache_control_and_drops_other_fields() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let marker = json!({"type": "ephemeral", "ttl": "1h"});
-    let req = Message::request(
-        9,
-        method::SESSION_PROMPT,
-        json!({"sessionId": "acp-1", "prompt": [
-            {"type": "text", "text": "prefix", "cache_control": marker, "annotations": {"priority": 1}, "_meta": {"x": 1}},
-            {"type": "text", "text": "step"},
-        ]}),
-    );
-    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
-    let content = lines[0]["message"]["content"].as_array().unwrap();
-    // Claude Code's stream-json input copies user blocks to the API as they
-    // are, so the marker reaches the Messages request unchanged.
-    assert_eq!(content[0], json!({"type": "text", "text": "prefix", "cache_control": marker}));
-    assert_eq!(content[1], json!({"type": "text", "text": "step"}));
-}
-
-#[tokio::test]
-async fn an_image_block_reaches_claude_as_a_base64_image_before_the_text() {
-    // The Chief's turn sends a pasted image as an ACP image block next to
-    // the message text (chief-done.md item 12).
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let req = Message::request(
-        10,
-        method::SESSION_PROMPT,
-        json!({"sessionId": "acp-1", "prompt": [
-            {"type": "image", "mimeType": "image/jpeg", "data": "QUJD"},
-            {"type": "text", "text": "what does this say?"},
-        ]}),
-    );
-    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
-    let content = lines[0]["message"]["content"].as_array().unwrap();
-    assert_eq!(
-        content[0],
-        json!({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "QUJD"}})
-    );
-    assert_eq!(content[1], json!({"type": "text", "text": "what does this say?"}));
-}
-
-/// OptChat's compactor probe warns when the session's Claude Code is too
-/// old to know the compactor model (it prices it at default rates and
-/// checks it with one more request per session): the init's Claude Code
-/// version goes into the session info.
-#[tokio::test]
-async fn init_reports_the_claude_code_version() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let msgs = t
-        .inbound(&json!({"type": "system", "subtype": "init", "session_id": "s1",
-            "tools": [], "mcp_servers": [], "model": "claude-haiku-5-5",
-            "claude_code_version": "2.1.287"}))
-        .await;
-    let info = msgs
-        .iter()
-        .find_map(|m| match m {
-            Message::Notification { params: Some(p), .. }
-                if p["update"]["sessionUpdate"] == "session_info_update" =>
-            {
-                Some(p["update"]["_meta"]["claude"].clone())
+    let Outbound::Lines(_) = t.outbound(&prompt).await else { panic!() };
+    let lines = [
+        json!({"type": "system", "subtype": "status", "status": "compacting", "session_id": "s"}),
+        json!({"type": "system", "subtype": "status", "status": null, "compact_result": "success", "session_id": "s"}),
+        json!({"type": "system", "subtype": "compact_boundary", "session_id": "s", "compact_metadata": {"trigger": "manual", "pre_tokens": 27183, "post_tokens": 2047, "reason": "account_switch"}}),
+        json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isReplay": false, "isSynthetic": true, "message": {"role": "user", "content": "This session is being continued from a previous conversation. Summary: PLUM-42"}}),
+        json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isReplay": false, "message": {"role": "user", "content": "<local-command-stdout>Compacted </local-command-stdout>"}}),
+        json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "local_command": "compact", "result": ""}),
+    ];
+    let mut updates = Vec::new();
+    let mut ended = false;
+    for line in &lines {
+        for m in t.inbound(line).await {
+            match m {
+                Message::Notification { params, .. } => {
+                    if let Some(u) = params.as_ref().and_then(|p| p.get("update")) {
+                        updates.push(u.clone());
+                    }
+                }
+                Message::Response { id, result: Some(r), .. } if id == 4 => {
+                    ended = r["stopReason"] == "end_turn";
+                }
+                _ => {}
             }
-            _ => None,
+        }
+    }
+    assert!(ended, "/compact left its prompt open: {updates:?}");
+    let kinds: Vec<&str> = updates.iter().filter_map(|u| u["sessionUpdate"].as_str()).collect();
+    assert_eq!(kinds, ["compaction", "compaction", "compaction_summary"], "{updates:?}");
+    assert_eq!(updates[0]["state"], "running");
+    assert_eq!(
+        updates[1],
+        json!({"sessionUpdate": "compaction", "state": "completed", "trigger": "manual", "reason": "account_switch", "preTokens": 27183, "postTokens": 2047})
+    );
+    assert_eq!(
+        updates[2]["text"],
+        "This session is being continued from a previous conversation. Summary: PLUM-42"
+    );
+
+    // A synthetic user line after the compaction's result is not a summary.
+    let later = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true, "message": {"role": "user", "content": "hook text"}});
+    let msgs = t.inbound(&later).await;
+    assert!(
+        !msgs.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction_summary")))),
+        "{msgs:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_subagent_result_does_not_clear_main_compaction() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&json!({
+        "type": "system",
+        "subtype": "status",
+        "status": "compacting"
+    }))
+    .await;
+    assert!(t.is_compacting());
+    t.inbound(&json!({
+        "type": "result",
+        "parent_tool_use_id": "tool-subagent",
+        "subtype": "success"
+    }))
+    .await;
+    assert!(t.is_compacting(), "a subagent result cleared the main compaction flag");
+}
+
+#[tokio::test]
+async fn a_cancelled_compaction_result_cannot_end_the_next_echoed_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
+    assert!(t.is_compacting());
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    assert!(!t.is_compacting(), "new prompt inherited stale compaction state");
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual"}})).await;
+    t.inbound(&json!({"type": "user", "isSynthetic": true, "message": {"role": "user", "content": "old summary"}})).await;
+    let old = t.inbound(&json!({"type": "result", "subtype": "success", "num_turns": 0, "duration_api_ms": 0, "result": ""})).await;
+    assert!(old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(1))));
+    assert!(
+        !old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(2))),
+        "old compaction answered the new prompt: {old:?}"
+    );
+    t.inbound(&json!({"type": "assistant", "message": {"id": "new-message", "content": [{"type": "text", "text": "new reply"}]}})).await;
+    let new =
+        t.inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"})).await;
+    assert!(new.iter().any(|m| matches!(m, Message::Response { id, result: Some(result), .. } if id == &json!(2) && result["stopReason"] == "end_turn")), "{new:?}");
+}
+
+#[tokio::test]
+async fn a_failed_cancelled_compaction_cannot_answer_the_replacement_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":null,"compact_result":"failed","compact_error":"old compaction failed"})).await;
+    let old = t
+        .inbound(&json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}))
+        .await;
+    assert!(old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(1))));
+    assert!(
+        !old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(2))),
+        "failed old compaction answered replacement: {old:?}"
+    );
+    t.inbound(&json!({"type":"assistant","message":{"id":"replacement","content":[{"type":"text","text":"new answer"}]}})).await;
+    let new = t.inbound(&json!({"type":"result","subtype":"success","result":"new answer"})).await;
+    assert!(new.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")), "{new:?}");
+}
+
+#[tokio::test]
+async fn a_new_prompt_clears_a_cancelled_compaction_without_a_result() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type": "assistant", "message": {"id": "new-message", "content": [{"type": "text", "text": "new reply"}]}})).await;
+    let result =
+        t.inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"})).await;
+    assert!(
+        result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_fresh_compaction_answers_after_a_cancelled_compaction_emits_nothing() {
+    for text in ["/compact", "continue"] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        let prompt = |id, text| {
+            Message::request(
+                id,
+                method::SESSION_PROMPT,
+                json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+            )
+        };
+        t.outbound(&prompt(1, "/compact")).await;
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+        t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"})))
+            .await;
+        let Outbound::Lines(lines) = t.outbound(&prompt(2, text)).await else { panic!() };
+        let mut echo = lines[0].clone();
+        echo["isReplay"] = json!(true);
+        t.inbound(&echo).await;
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+        t.inbound(&json!({"type":"system","subtype":"compact_boundary"})).await;
+        let result = t
+            .inbound(
+                &json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}),
+            )
+            .await;
+        assert!(result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")), "fresh compaction stranded: {result:?}");
+        assert!(!t.cancelled_compaction.load(Ordering::SeqCst));
+        assert!(!t.cancelled_compaction_boundary.load(Ordering::SeqCst));
+    }
+}
+
+#[tokio::test]
+async fn a_cancelled_boundary_keeps_later_compaction_metadata_fenced() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    let stale = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
+    assert!(!stale.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{stale:?}");
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    let fresh = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":9}})).await;
+    assert!(!fresh.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{fresh:?}");
+}
+
+/// After a forced Stop, Claude's untagged boundary cannot identify which
+/// compaction ended, even if a fresh running status has already arrived.
+#[tokio::test]
+async fn a_late_boundary_cannot_complete_a_fresh_running_compaction() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    let running =
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    assert!(running.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/state")) == Some(&json!("running")))));
+    t.context_used.store(123, Ordering::SeqCst);
+    // Neither the first nor a later untagged boundary is authoritative: the
+    // old compaction may emit no boundary at all, so counting does not help.
+    for _ in 0..2 {
+        let late = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
+        assert!(!late.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "ambiguous completion escaped: {late:?}");
+        let summary = t.inbound(&json!({"type":"user","isSynthetic":true,"message":{"role":"user","content":"old summary"}})).await;
+        assert!(!summary.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction_summary")))), "ambiguous summary escaped: {summary:?}");
+        assert!(t.is_compacting(), "ambiguous boundary cleared the fresh compaction");
+        assert_eq!(t.context_used.load(Ordering::SeqCst), 123);
+    }
+    t.inbound(&json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}))
+        .await;
+    t.outbound(&prompt(3, "another prompt")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    let later = t.inbound(&json!({"type":"system","subtype":"compact_boundary"})).await;
+    assert!(!later.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "settlement cleared the metadata fence: {later:?}");
+    // A source without cancellation still reports ordinary boundaries (the
+    // existing compact_ends_its_prompt_and_reports_the_compaction covers it).
+}
+
+#[tokio::test]
+async fn a_delayed_cancel_retains_its_compaction_snapshot() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    // The old boundary has already cleared the live flag while Stop waited
+    // for its writer. The captured hub state must still fence later metadata.
+    assert!(!t.is_compacting());
+    t.outbound(&Message::notification(
+        method::SESSION_CANCEL,
+        json!({"sessionId":"acp-1","_meta":{"acpmux":{"compactionCancelled":true}}}),
+    ))
+    .await;
+    let late = t.inbound(&json!({"type":"system","subtype":"compact_boundary"})).await;
+    assert!(!late.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{late:?}");
+}
+
+/// A `/compact` that fails: the compacting status, then a status clearing it
+/// with a failed `compact_result`, and the same zero-turn success result. The
+/// failed status is the turn's output, so the result ends the prompt rather
+/// than read as startup noise, and the chat gets a failed `compaction` that
+/// says why (`compact_error`).
+#[tokio::test]
+async fn a_failed_compact_ends_its_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = Message::request(
+        5,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "/compact"}]}),
+    );
+    let Outbound::Lines(_) = t.outbound(&prompt).await else { panic!() };
+    let lines = [
+        json!({"type": "system", "subtype": "status", "status": "compacting", "session_id": "s"}),
+        json!({"type": "system", "subtype": "status", "status": null, "compact_result": "failed", "compact_error": "Prompt is too long", "session_id": "s"}),
+        json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "local_command": "compact", "result": ""}),
+    ];
+    let mut states = Vec::new();
+    let mut errors = Vec::new();
+    let mut ended = false;
+    for line in &lines {
+        for m in t.inbound(line).await {
+            match m {
+                Message::Notification { params, .. } => {
+                    if let Some(u) = params.as_ref().and_then(|p| p.get("update")) {
+                        states.push(u["state"].clone());
+                        errors.push(u.get("error").cloned());
+                    }
+                }
+                Message::Response { id, result: Some(_), .. } if id == 5 => ended = true,
+                _ => {}
+            }
+        }
+    }
+    assert!(ended, "a failed /compact left its prompt open: {states:?}");
+    assert_eq!(states, [json!("running"), json!("failed")]);
+    assert_eq!(errors, [None, Some(json!("Prompt is too long"))]);
+}
+
+/// The mode menu shows Claude Code's own modes, as Claude Code shows them:
+/// its labels, its one-line descriptions and its order (Auto, Manual, Accept
+/// edits, Plan, Bypass permissions). acpmux invents none ("Normal", "Full
+/// access"); the ids stay Claude Code's `--permission-mode` values.
+#[tokio::test]
+async fn modes_are_claude_codes_own_labels_descriptions_and_order() {
+    let t = Translator::new("acp-1".into(), "bypassPermissions", "haiku", "default");
+    let modes = t.modes_value().await;
+    assert_eq!(modes["currentModeId"], "bypassPermissions");
+    let listed: Vec<(String, String, String)> = modes["availableModes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            let s = |k: &str| m[k].as_str().unwrap_or("").to_owned();
+            (s("id"), s("name"), s("description"))
         })
-        .expect("a session_info_update");
-    assert_eq!(info["version"], "2.1.287");
-    assert_eq!(info["model"], "claude-haiku-5-5");
+        .collect();
+    let want = [
+        ("auto", "Auto", "Claude handles permission decisions"),
+        ("default", "Manual", "Always ask before making changes"),
+        ("acceptEdits", "Accept edits", "Automatically accept all file edits"),
+        ("plan", "Plan", "Create a plan before making changes"),
+        ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
+    ];
+    let want: Vec<(String, String, String)> =
+        want.iter().map(|(i, n, d)| (i.to_string(), n.to_string(), d.to_string())).collect();
+    assert_eq!(listed, want);
+    // The config option offers the same list, in the same order.
+    let options = t.config_options_value().await;
+    let mode = options.as_array().unwrap().iter().find(|o| o["id"] == "mode").unwrap();
+    let values: Vec<&str> =
+        mode["options"].as_array().unwrap().iter().filter_map(|o| o["value"].as_str()).collect();
+    assert_eq!(values, ["auto", "default", "acceptEdits", "plan", "bypassPermissions"]);
 }

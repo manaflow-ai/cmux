@@ -9,6 +9,10 @@ struct Conversation: Codable, Equatable {
     var title: String
     var participants: [Participant]
     var messages: [Message]
+    /// cmux: a group conversation (CmuxHomeCore `ConversationSummary.kind(me:) == .group`): the transcript
+    /// names the first bubble of each run of another person's messages and draws their avatar beside the
+    /// last (RowBuilder). nil or false: a direct or Chief chat, no names or avatars.
+    var cmuxGroup: Bool? = nil
 }
 
 struct Participant: Codable, Equatable {
@@ -58,6 +62,15 @@ struct Message: Codable, Equatable {
     /// plain text, always (the default: a user's message with `*` or `|` stays as typed).
     /// `.markdown`: the host marks it (an agent's reply), and the markdown engine renders it.
     var format: MessageFormat? = nil
+    /// `ThreadMode.tree` (a host option): the message this reply answers, when it is not the thread
+    /// root (`replyTo` stays the root, so the transcript groups the reply with its thread). nil in
+    /// `.messages` mode (macOS Messages: a reply answers its thread) and for a reply to the root.
+    /// The host sends it as the reply's parent (cmux: `reply_to`; ThreadHost.swift).
+    var parent: PartRef? = nil
+    /// `ThreadMode.tree`: the host's count of the replies under this message (a root: its whole
+    /// thread; a reply: its branch), when the loaded window may not hold them all (cmux: the
+    /// daemon's `reply_count`). nil: counted from the loaded messages. Ignored in `.messages` mode.
+    var replyCount: Int? = nil
 
     struct Edit: Codable, Equatable { var text: String; var at: String }
 
@@ -274,7 +287,7 @@ enum Instant {
         guard b.count == 20 || b.count == 25 else { return nil }
         func num(_ i: Int, _ n: Int) -> Int? {
             var v = 0
-            for c in b.slice(i, i + n) { guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(truncatingIfNeeded: c - 48) } // cmux: no index math
+            for c in b.slice(i, i + n) { guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(truncatingIfNeeded: c - 48) } // no index math
             return v
         }
         guard b[4] == 45, b[7] == 45, b[10] == 84, b[13] == 58, b[16] == 58,
@@ -341,7 +354,7 @@ enum Fixtures {
     }
     static func loadConversation() -> Conversation {
         let url = sharedDirectory.appendingPathComponent("conversation.json")
-        // cmux: no try! (crash program); a missing or unreadable fixture is an empty conversation.
+        // no try! ; a missing or unreadable fixture is an empty conversation.
         guard let data = try? Data(contentsOf: url),
               let conversation = try? JSONDecoder().decode(Conversation.self, from: data) else {
             return Conversation(id: "", title: "", participants: [], messages: [])
@@ -350,7 +363,7 @@ enum Fixtures {
     }
     /// Resolve an AssetRef: a path relative to shared/assets or a file URL.
     static func assetURL(_ ref: String) -> URL {
-        // cmux: no force unwrap; a file: ref that does not parse resolves like any other ref.
+        // no force unwrap; a file: ref that does not parse resolves like any other ref.
         if ref.hasPrefix("file:"), let url = URL(string: ref) { return url }
         // Catalyst fixture assets (Fixtures/real, bundled as `real/`).
         // isDirectory given: no file system lookup per call (a stat for every image row in each

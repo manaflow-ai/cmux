@@ -1,10 +1,13 @@
-import { errorMessage } from "./transportErrors";
+import { errorMessage, isHostRefusal } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
+import { lastModel } from "./lastPick";
+import { heldOptionPick } from "./heldOptions";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
+import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -40,11 +43,25 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 export type SwitchPort = {
   /// A turn is running in the session the pane shows.
   turnRunning(): boolean;
-  /// The shown session: its id, its harness, whether it has nothing in it yet, and its folder
-  /// when a new chat can start there.
-  shown(): { sessionId: string; harness?: string; empty: boolean; cwd?: string } | undefined;
+  /// The shown session: its id, its harness, whether it has nothing in it yet, its folder when a
+  /// new chat can start there, and the config options it names (once attached).
+  shown():
+    | {
+        sessionId: string;
+        harness?: string;
+        model?: string;
+        empty: boolean;
+        cwd?: string;
+        configOptions?: readonly {
+          id: string;
+          name?: string | null;
+          category?: string | null;
+          options?: readonly { value: string }[];
+        }[];
+      }
+    | undefined;
   /// `session/new` on `harness`; does not show it.
-  create(harness: string, cwd?: string): Promise<string | undefined>;
+  create(harness: string, cwd?: string, model?: string): Promise<string | undefined>;
   /// Stops showing the current session (the pane draws the new chat meanwhile).
   leave(): void;
   /// Shows and attaches `sessionId`; undefined when a newer selection won.
@@ -62,6 +79,9 @@ export type SwitchPort = {
   prewarm(harness: string, cwd?: string): void;
   /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
   prewarmSupported(): boolean;
+  /// A new chat starts only with its first send (a chat on another machine, cx-k21v): a pick
+  /// before it is remembered, and the send starts the session.
+  startsOnSend?(): boolean;
 };
 
 /// Injected time, so the debounce is testable and the store never keeps a timer while idle.
@@ -179,7 +199,17 @@ export class HarnessSwitch {
   private lastHint?: { harness: string; at: number };
   private handlers: SwitchHandlers = {};
 
-  constructor(private readonly clock: SwitchClock = browserSwitchClock) {}
+  constructor(private readonly clock: SwitchClock = browserSwitchClock) {
+    // A pending chat's access chip draws acpmux's kept answer (`applySwitch`): it asks again when
+    // the answer may have changed, and draws again when a kept answer changed.
+    onStartModeAskAgain(() => {
+      const intent = this.intent;
+      if (intent && !intent.reused) void askStartMode(intent.harness, intent.cwd);
+    });
+    onStartModeKept(() => {
+      if (this.intent) this.changed();
+    });
+  }
 
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -208,6 +238,13 @@ export class HarnessSwitch {
   connect(port: SwitchPort): void {
     this.port = port;
     const intent = this.intent;
+    // A chat on another machine whose start answered on a connection that dropped: the new
+    // connection already shows that chat (empty, same agent), so the switch takes it instead of
+    // starting again, which the machine refuses (a false failure, cx-k21v).
+    if (intent && !intent.sessionId && port.startsOnSend?.()) {
+      const shown = port.shown();
+      if (shown?.empty && (!shown.harness || shown.harness === intent.harness)) intent.sessionId = shown.sessionId;
+    }
     if (intent && intent.phase !== "failed" && intent.phase !== "trust" && !intent.running) void this.run(intent);
   }
   /// The connection dropped: whatever was in flight runs again on the next client.
@@ -221,21 +258,39 @@ export class HarnessSwitch {
   /// the project). Draws it now; resolves with the session once it opens (undefined when a newer
   /// pick or a cancel replaced it, or it failed). `deferred`: the pane stays where it is (the New
   /// Tab page, cx-e2aa) and the new chat shows with the next prompt, as a pick during a turn does.
-  switchTo(harness: string, folder?: string, options: { deferred?: boolean } = {}): Promise<string | undefined> {
+  /// `model`: a model row of `harness` was picked; the new chat starts on it and draws it now.
+  /// `options`: config picks made with it (a typed combo's effort and Fast, under their kind's id,
+  /// heldOptions.ts), held as a pick during the switch is: applied before the first prompt.
+  switchTo(
+    harness: string,
+    folder?: string,
+    options: { deferred?: boolean; model?: string; options?: Readonly<Record<string, string>> } = {},
+  ): Promise<string | undefined> {
     const previous = this.intent;
     const port = this.port;
     const shownSession = port?.shown();
     const cwd = folder ?? previous?.cwd ?? shownSession?.cwd;
-    if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd)
+    const held = Object.entries(options.options ?? {});
+    if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd) {
+      if (options.model) void this.pickModel(options.model);
+      for (const [configId, value] of held) this.pickConfig(configId, value);
       return previous.done.promise;
+    }
     // While the shown session's turn streams (or the pane holds a page), the pick applies to the next turn.
     const shown = options.deferred ? false : (previous?.shown ?? !(port?.turnRunning() ?? false));
-    // Back to the harness of the session still on screen: there is nothing left to switch.
+    // Back to the harness of the session still on screen: there is nothing left to switch. The
+    // pick's held options are not sent from here: that session is live, and the composer sends a
+    // combo's effort and Fast to it once it reports the picked model (ComposerPickers `crossing`),
+    // as a combo in a running chat does. Sending them here as well raced that, and a write still in
+    // flight when the model reported went out twice.
     if (!shown && previous && shownSession?.harness === harness) {
       this.cancel();
+      if (options.model && options.model !== shownSession.model)
+        void this.pickModel(options.model, { sessionId: shownSession.sessionId, model: shownSession.model });
       return Promise.resolve(shownSession.sessionId);
     }
     const done = deferred<string | undefined>();
+    const model = options.model ?? (previous?.harness === harness ? previous.config.model : undefined);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -244,7 +299,12 @@ export class HarnessSwitch {
       phase: "starting",
       queued: previous?.queued ?? [],
       // A model or mode picked for one harness does not carry to another; to another folder it does.
-      config: previous?.harness === harness ? previous.config : { options: {} },
+      config: {
+        ...(previous?.harness === harness ? previous.config : { options: {} }),
+        // A model row of this harness picked it, or the caller passed the one last picked on it
+        // (`lastOfferedModel`): the new chat starts on that model.
+        ...(model ? { model } : {}),
+      },
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
     };
@@ -252,6 +312,8 @@ export class HarnessSwitch {
     this.modelPick = undefined;
     this.configPick = undefined;
     this.intent = intent;
+    // Each held option takes its gesture ticket now, in the pick's own handler.
+    for (const [configId, value] of held) this.holdConfig(intent, configId, value);
     if (shown && shownSession && !previous) {
       this.left = shownSession.empty ? { sessionId: shownSession.sessionId, harness: shownSession.harness } : undefined;
       port?.leave();
@@ -263,13 +325,21 @@ export class HarnessSwitch {
     }
     this.cancelHintTimer();
     this.changed();
+    // Before session/new: acpmux's answer as its rules stand when the chat is asked for.
+    if (!intent.reused) void askStartMode(intent.harness, intent.cwd);
     void this.run(intent);
     return done.promise;
   }
 
   /// A prompt sent from the composer. Returns undefined when no switch holds it (the caller sends
   /// it as usual), else a promise that settles as the send would.
-  send(text: string, attachments: ComposerAttachment[] = [], written?: () => void): Promise<unknown> | undefined {
+  /// `promptId`: a seeded prompt's own id (its host ticket is bound to it, cx-k21v gap 4).
+  send(
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    written?: () => void,
+    promptId?: string,
+  ): Promise<unknown> | undefined {
     let intent = this.intent;
     if (!intent) return undefined;
     // After a failure, sending is retrying with this prompt.
@@ -286,7 +356,7 @@ export class HarnessSwitch {
       });
       return { promise, resolve, reject };
     })();
-    const id = crypto.randomUUID();
+    const id = promptId ?? crypto.randomUUID();
     intent.queued = [...intent.queued, { id, text, attachments, at: Date.now(), resolve, reject, written }];
     // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
     // after Trust (the first held prompt only: one ticket per send).
@@ -297,31 +367,36 @@ export class HarnessSwitch {
       this.port?.leave();
     }
     this.changed();
-    if (intent.sessionId && !intent.running) void this.run(intent);
+    if ((intent.sessionId || this.port?.startsOnSend?.()) && !intent.running) void this.run(intent);
     return promise;
   }
 
   /// A model pick. While a switch is pending it is recorded for the new session; in a live
-  /// session it draws at once and goes to the agent, reverting if the agent refuses it.
-  pickModel(model: string, live?: { sessionId: string; model?: string }): Promise<void> {
+  /// session it draws at once and goes to the agent, reverting if the agent refuses it. Resolves
+  /// whether the pick holds: false when the agent refused it or there was no session to take it.
+  pickModel(model: string, live?: { sessionId: string; model?: string }): Promise<boolean> {
     const intent = this.intent;
     if (intent) {
       intent.config = { ...intent.config, model };
       this.changed();
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
     const port = this.port;
-    if (!port || !live) return Promise.resolve();
+    if (!port || !live) return Promise.resolve(false);
     const pick = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
     this.configPick = undefined;
     this.changed();
-    return port.setModel(model).catch((error) => {
-      if (this.modelPick !== pick) return;
-      this.modelPick = undefined;
-      this.changed();
-      this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
-    });
+    return port.setModel(model).then(
+      () => true,
+      (error) => {
+        if (this.modelPick !== pick) return false;
+        this.modelPick = undefined;
+        this.changed();
+        this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
+        return false;
+      },
+    );
   }
   /// A permission mode or config option picked while a switch is pending; false otherwise.
   /// A held pick takes a gesture ticket at once (pane-native transport); a live pick needs none.
@@ -348,13 +423,18 @@ export class HarnessSwitch {
       });
       return true;
     }
-    this.intent.config = { ...this.intent.config, options: { ...this.intent.config.options, [configId]: value } };
-    this.intent.tickets.set(
+    this.holdConfig(this.intent, configId, value);
+    this.changed();
+    return true;
+  }
+
+  /// Records a config pick on `intent` for its session, with the pick's gesture ticket.
+  private holdConfig(intent: Intent, configId: string, value: string): void {
+    intent.config = { ...intent.config, options: { ...intent.config.options, [configId]: value } };
+    intent.tickets.set(
       `config:${configId}`,
       this.takeTicket({ method: "session/set_config_option", params: { configId, value } }),
     );
-    this.changed();
-    return true;
   }
 
   private takeTicket(intent: GestureIntent): Promise<string | undefined> {
@@ -375,7 +455,8 @@ export class HarnessSwitch {
     if (!intent || !prompt) return;
     intent.queued = intent.queued.filter((candidate) => candidate !== prompt);
     this.handlers.restore?.(prompt.text, prompt.attachments);
-    prompt.reject(new Error(t("switch.cancelled")));
+    // Back in the composer (`handedBack`): the sender puts nothing back.
+    prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
     this.changed();
   }
 
@@ -450,7 +531,8 @@ export class HarnessSwitch {
     intent.sessionId = undefined;
     if (restoreQueued && intent.queued.length) {
       this.handBack(intent.queued);
-      for (const prompt of intent.queued) prompt.reject(new Error(t("switch.cancelled")));
+      for (const prompt of intent.queued)
+        prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
       intent.queued = [];
     }
     intent.done.resolve(undefined);
@@ -459,11 +541,13 @@ export class HarnessSwitch {
   private async run(intent: Intent): Promise<void> {
     const port = this.port;
     if (!port || intent.running) return;
-    intent.running = port;
     let sessionId = intent.sessionId;
+    // A chat on another machine starts with the first send, never with a pick (cx-k21v).
+    if (!sessionId && intent.queued.length === 0 && port.startsOnSend?.()) return;
+    intent.running = port;
     if (!sessionId) {
       try {
-        sessionId = await port.create(intent.harness, intent.cwd);
+        sessionId = await port.create(intent.harness, intent.cwd, intent.config.model);
       } catch (error) {
         if (intent.running === port) intent.running = undefined;
         // A dropped connection is not a failure: the next client runs it again.
@@ -511,22 +595,34 @@ export class HarnessSwitch {
     if (model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
     // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
     const pickRefused = (error: unknown) => {
-      const code = (error as { code?: unknown } | undefined)?.code;
-      if (typeof code === "string" && code.startsWith("transport.")) this.handlers.notice?.(errorMessage(error));
+      if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
     };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
+    // A pick held before the session named its options (a New Tab combo's effort or Fast) goes under
+    // the opened session's own option id and value; one it offers no option or no such value for is
+    // not sent, and a session that reports an empty list takes none. A session whose attach carried
+    // no list at all (an older acpmux, a port that cannot read it) has said nothing to resolve the
+    // picks against: they go as they were held, as before, and the agent answers for them.
+    const offered = port.shown()?.configOptions;
+    // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
+    // disable a mode, and the chat would otherwise run on another one with no reason given.
     if (mode)
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch(pickRefused),
+          .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
       );
-    for (const [configId, value] of Object.entries(options))
+    for (const [configId, value] of Object.entries(options)) {
+      const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
+      if (!pick) continue;
+      // The pick's ticket is bound to the frame it was taken for: a renamed pick goes without it.
+      const same = pick.configId === configId && pick.value === value;
       applied.push(
         ticket(`config:${configId}`)
-          .then((t) => port.setConfig(configId, value, t))
+          .then((t) => port.setConfig(pick.configId, pick.value, same ? t : undefined))
           .catch(pickRefused),
       );
+    }
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);
     if (this.intent !== intent) return;
@@ -610,15 +706,37 @@ export class HarnessSwitch {
 /// picked model drawn until the session reports a change). During one, the target harness's
 /// composer comes from the session once it attaches, else from what that harness last reported
 /// (harnessProfiles.ts), else from the catalog; queued prompts draw as the user's messages.
-/// The model a new chat on `harness` starts on before anything is picked: what a session acpmux
-/// last started there reported, else its last session's, else the catalog's first.
+/// The model a new chat on `harness` in `folder` starts on before anything is picked: acpmux's
+/// saved default or the profile's own model (`start`, acpmux start_defaults.rs), else the one last
+/// picked on it here (lastPick.ts) while the harness still offers it, else acpmux's catalog
+/// default, else what a session acpmux last started there reported, else its last session's, else
+/// the catalog's first.
 export function defaultModel(
   harness: string,
   catalog: Catalog,
   profiles: HarnessProfiles = harnessProfiles,
+  folder?: string,
 ): string | undefined {
   const profile = profiles.get(harness);
-  return profile?.startModel ?? profile?.model ?? catalog.find((entry) => entry.id === harness)?.models[0]?.id;
+  const start = catalog.find((entry) => entry.id === harness)?.start;
+  // A saved default (acpmux defaults, or a pick acpmux saved) or the profile's own model wins over
+  // this page's last pick: acpmux starts the chat on it.
+  const decided = start?.modelSource === "saved" || start?.modelSource === "profile" ? start.model : undefined;
+  return (
+    decided ??
+    lastOfferedModel(harness, catalog, folder) ??
+    start?.model ??
+    profile?.startModel ??
+    profile?.model ??
+    catalog.find((entry) => entry.id === harness)?.models[0]?.id
+  );
+}
+
+/// The model last picked on `harness` in `folder` (lastPick.ts), while the harness still offers it.
+export function lastOfferedModel(harness: string, catalog: Catalog, folder?: string): string | undefined {
+  const picked = lastModel(harness, folder);
+  const models = catalog.find((entry) => entry.id === harness)?.models ?? [];
+  return picked && (models.length === 0 || models.some((model) => model.id === picked)) ? picked : undefined;
 }
 
 export function applySwitch(
@@ -652,8 +770,25 @@ export function applySwitch(
   const live = attached ? raw.summary : undefined;
   const profile = profiles.get(intent.harness);
   const config = intent.config;
-  const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles);
-  const modes = live?.modes ?? profile?.modes;
+  const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles, intent.cwd);
+  // Before the session reports, the mode acpmux answers it will start the chat in
+  // (`_acpmux/start_mode`, kept per harness and folder), never the mode the harness's last chat
+  // ran, nor another folder's answer; none without an answer for this folder.
+  const modes =
+    live?.modes ??
+    (profile?.modes && {
+      ...profile.modes,
+      currentModeId:
+        raw.origin === "remote" || raw.origin === "peer"
+          ? undefined
+          : exactStartMode(intent.harness, intent.cwd)?.modeId,
+    });
+  const configOptions = live?.configOptions ?? profile?.configOptions;
+  const held = { ...config.options };
+  for (const [configId, value] of Object.entries(config.options)) {
+    const pick = heldOptionPick(configId, value, configOptions ?? []);
+    if (pick && !(pick.configId in held)) held[pick.configId] = pick.value;
+  }
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
     harness: intent.harness,
@@ -661,8 +796,8 @@ export function applySwitch(
     // Nothing to confirm before a session: the composer sequences picks against what it draws.
     confirmedModel: live ? live.model : predicted,
     modes: modes && config.mode ? { ...modes, currentModeId: config.mode } : modes,
-    configOptions: (live?.configOptions ?? profile?.configOptions)?.map((option) =>
-      option.id in config.options ? { ...option, currentValue: config.options[option.id] } : option,
+    configOptions: configOptions?.map((option) =>
+      option.id in held ? { ...option, currentValue: held[option.id] } : option,
     ),
     promptCapabilities: live?.promptCapabilities ?? profile?.promptCapabilities,
   };
@@ -702,5 +837,7 @@ export function applySwitch(
     handoff: undefined,
     commands: [],
     missingSession: undefined,
+    unavailable: undefined,
+    missingReason: undefined,
   };
 }

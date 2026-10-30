@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Live check of rapid switching (briefs/rapid-switch-1009) on a running tagged cmux-next build.
 
-Previous / Next on the browser-style keys: a focused pane with 2+ tabs steps its tabs, wrapping
+Previous / Next (the palette's `navigate.next` / `navigate.previous`): a focused pane with 2+ tabs steps its tabs, wrapping
 inside the pane; any other focus (a 1-tab pane, a field, nothing) steps the sidebar rows. The
 script attaches to an app already running (a capture slot's `capture-host launch`, or a tagged
-build) through its debug socket, makes two workspaces, presses the real chords through
-`debug.key` and reads the window's sidebar selection (`debug.sidebar_rows`) and the focused
+build) through its debug socket, makes two workspaces, runs the actions and reads the window's sidebar selection (`debug.sidebar_rows`) and the focused
 pane's selected tab (`debug.surfaces`). With --tab-rows it also turns Show Tabs Under Workspaces
 on and checks that Next walks a workspace's tab rows one at a time. It never launches or quits
 the app.
@@ -62,10 +61,13 @@ def action(name, args=None):
 
 
 def key(name, modifiers):
-    """A chord through the window's real key path; the reply names the action that took it."""
-    reply = rpc("debug.key", {"key": name, "modifiers": modifiers})
+    """Previous / Next run as the palette runs them: since Leo 2026-10-12 the browser-style keys
+    are Chrome tab keys that select sidebar items (chrome-tab-keys-e2e.py), and these two
+    actions have no default key. The reply names the action, as `debug.key`'s did."""
+    command = "navigate.next" if name == "}" else "navigate.previous"
+    action(command)
     time.sleep(0.5)  # test harness: the switch settles
-    return reply if isinstance(reply, dict) else {}
+    return {"action": command}
 
 
 def sidebar():
@@ -147,11 +149,11 @@ def main():
     start = selected()
     reply = key("}", ["cmd"])
     after = selected()
-    row("1-tab pane: Cmd-Shift-] steps the sidebar", "navigate.next; another row selected",
+    row("1-tab pane: Next steps the sidebar", "navigate.next; another row selected",
         f"action={reply.get('action')} {start} -> {after}", reply.get("action") == "navigate.next" and after and after != start)
     reply = key("{", ["cmd"])
     back = selected()
-    row("1-tab pane: Cmd-Shift-[ steps back", "navigate.previous; the first row again",
+    row("1-tab pane: Previous steps back", "navigate.previous; the first row again",
         f"action={reply.get('action')} {after} -> {back}", reply.get("action") == "navigate.previous" and back == start)
 
     print("newSurface:", action("newSurface"), flush=True)
@@ -162,7 +164,7 @@ def main():
     for _ in range(2):
         reply = key("}", ["cmd"])
         tabs.append(focused_pane().get("selected_tab"))
-        row("2-tab pane: Cmd-Shift-] stays in the pane", "navigate.next; same row, the pane's other tab",
+        row("2-tab pane: Next stays in the pane", "navigate.next; same row, the pane's other tab",
             f"action={reply.get('action')} row {workspace} -> {selected()} tab {tabs[-2]} -> {tabs[-1]}",
             reply.get("action") == "navigate.next" and selected() == workspace and tabs[-1] != tabs[-2])
     row("2-tab pane: Next wraps inside the pane", "two presses come back to the first tab", f"tabs {tabs}", tabs[0] is not None and tabs[2] == tabs[0])

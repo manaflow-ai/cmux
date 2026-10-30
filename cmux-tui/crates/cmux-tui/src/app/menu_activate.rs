@@ -92,6 +92,9 @@ impl App {
                 self.open_rename_workspace_prompt_for(id);
             }
             MenuAction::CloseWorkspace(id) => self.request_delete_workspace(id),
+            MenuAction::PinWorkspace { workspace, pinned } => {
+                self.set_workspace_pinned(workspace, pinned);
+            }
             MenuAction::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
             MenuAction::RestoreManagedWorkspace(index) => {
                 let workspace_id = self

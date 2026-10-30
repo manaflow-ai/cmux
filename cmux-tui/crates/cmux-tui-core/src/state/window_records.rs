@@ -5,12 +5,50 @@
 use serde_json::json;
 
 use crate::mux::*;
+use crate::state::closed_history_store as closed;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::state::window_record_store::{
     self as store, MAX_RECORD_BYTES, PLACEHOLDER_INSTALL_ID, RESOURCE, record_id,
 };
+
+/// Whether a window record says its window is open (`open`, default true).
+fn is_open(record: &Value) -> bool {
+    record.get("open").and_then(Value::as_bool) != Some(false)
+}
+
+/// Closed history of a put (reopen-closed.md 4): a window that was open and
+/// now is not becomes a `window` group; a window that is open again (or
+/// first written open) drops its window groups. A first put of a closed
+/// window records nothing (the app restored it closed).
+fn window_close_changes(
+    transaction: &rusqlite::Transaction<'_>,
+    id: &str,
+    current: Option<&store::StoredRecord>,
+    record_json: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let record: Value = serde_json::from_str(record_json)?;
+    if is_open(&record) {
+        return closed::remove_window_groups(transaction, id);
+    }
+    let was_open = current.is_some_and(|current| is_open(&current.snapshot["record"]));
+    if !was_open {
+        return Ok(Vec::new());
+    }
+    let name = match record.get("workspace_key").and_then(Value::as_str) {
+        Some(key) => closed::workspace_name(transaction, key)?,
+        None => None,
+    };
+    let keys = record
+        .get("workspace_key")
+        .into_iter()
+        .chain(record.get("workspace_keys").and_then(Value::as_array).into_iter().flatten())
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    Ok(closed::insert_window_group(transaction, id, name, &keys)?.into_iter().collect())
+}
 
 /// One write of a window record.
 pub(crate) enum WindowRecordChange {
@@ -121,6 +159,12 @@ impl Mux {
                             now_ms(),
                         )?;
                         changes.push(state_upsert(RESOURCE, &id, snapshot.clone()));
+                        changes.extend(window_close_changes(
+                            transaction,
+                            &id,
+                            current.as_ref(),
+                            &record_json,
+                        )?);
                         Ok(StateChanges::new(snapshot, changes))
                     }
                     None => {
@@ -133,9 +177,12 @@ impl Mux {
                             return Err(record_conflict(&id, expected, current.revision));
                         }
                         store::delete_record(transaction, install_id, window_id)?;
+                        // A window that is gone cannot be reopened.
+                        let mut changes = vec![state_delete(RESOURCE, &id)];
+                        changes.extend(closed::remove_window_groups(transaction, &id)?);
                         Ok(StateChanges::new(
                             json!({"id": id, "revision": current.revision.to_string()}),
-                            vec![state_delete(RESOURCE, &id)],
+                            changes,
                         ))
                     }
                 }

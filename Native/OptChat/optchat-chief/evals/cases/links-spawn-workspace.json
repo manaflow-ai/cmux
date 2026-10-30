@@ -1,0 +1,23 @@
+{
+  "id": "links-spawn-workspace",
+  "owner": "a672",
+  "about": "a spawned subagent's workspace is a cmux://workspace link, never a raw ws_ id",
+  "turns": [
+    {
+      "text": "The sidebar unread dot is misaligned again in cmux-next. Get someone on it.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(cmux://workspace/ws_[0-9a-f]{8,}\\)"
+        },
+        {
+          "type": "no_raw_ids"
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import { TeamForbidden, teamLabel } from "../lib/team-picker"
 import { isNotTeamMember } from "../lib/team-scope"
 import { callerRole, type TeamRole } from "../lib/team-vm"
 import { TeamVmSection } from "./-team-vm"
+import { AiSpendingSection, useAiLimits } from "./-ai-spending"
 
 export const Route = createFileRoute("/team")({ component: Team })
 
@@ -48,6 +49,8 @@ function Team() {
     })
     return { forbidden: false, value, revision: r.body.revision, role }
   })
+  // Hooks before any early return: the AI limits of the loaded team (cx-ds09i).
+  const ai = useAiLimits(dir.data && !dir.data.forbidden ? dir.data.value.team : undefined)
   if (signedIn === false)
     return (
       <p>
@@ -60,6 +63,7 @@ function Team() {
   const d = loaded?.value
   const role = loaded?.role ?? null
   const shown = d ? teams.list?.teams.find((t) => t.id === d.team) : undefined
+  const names = new Map((d?.members ?? []).map((m) => [m.user, m.display_name] as const))
   return (
     <>
       <h2>{shown ? teamLabel(locale, shown) : "Team"}</h2>
@@ -70,6 +74,7 @@ function Team() {
         </p>
       ) : null}
       {d ? <TeamVmSection team={d.team} role={role} /> : null}
+      {d ? <AiSpendingSection ai={ai} names={names} /> : null}
       <h3>Members</h3>
       <div className="card">
         <table>

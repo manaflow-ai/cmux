@@ -3,8 +3,10 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextScreenshots
 import CmuxNextTerminal
 import CmuxNextTerminalFind
+import CmuxNextCompat
 
 // Find (the terminal's find bar over Ghostty search, the browser's find bar, the chat's) and input
 // sent through the daemon.
@@ -93,9 +95,20 @@ extension TerminalHandlers {
         registry.bind("sendCtrlFToTerminal", invoke: { send("\u{06}", paste: false, $0, ctx) })
         // Ctrl-L: the shell redraws at the top and the old screen stays in scrollback.
         registry.bind("clearScreenKeepScrollback", invoke: { send("\u{0C}", paste: false, $0, ctx) })
-        registry.bind("pasteLastScreenshot", invoke: { invocation in
-            guard let url = latestScreenshot() ?? ctx.refuse(RefusalStrings.noScreenshot) else { return }
-            send(shellQuoted(url.path), paste: true, invocation, ctx)
+        // The folder read runs off the main actor (a Desktop holds thousands of files, or sits in iCloud).
+        registry.bindEffect("pasteLastScreenshot", effect: { invocation in
+            guard let (tab, pane) = ctx.daemonTab(invocation) else { return .done }
+            guard tab.kind == .pty else { return .refused(RefusalStrings.notATerminal) }
+            let surface = tab.surface
+            let daemon = ctx.services.daemon(for: pane)
+            // action-wait-allow: the path to paste is known only after the screenshot folder is read
+            return .waiting(.fileSystem) {
+                guard let url = await latestScreenshot() else {
+                    return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot)
+                }
+                let text = shellQuoted(url.path)
+                return await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) }
+            }
         })
         registry.bind("palette.terminalOpenDirectory", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
@@ -112,21 +125,11 @@ extension TerminalHandlers {
         ctx.services.daemon(for: pane).send("send") { try await $0.send(surface, text: text, paste: paste) }
     }
 
-    /// Newest file in the macOS screenshot folder (`com.apple.screencapture location`, else Desktop).
-    private static func latestScreenshot() -> URL? {
-        let folder = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location")
-            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
-            ?? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
-        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys)) ?? []
-        let images = Set(["png", "jpg", "jpeg", "heic", "tiff"])
-        // One pass, one date read per file (the listing prefetched it); the first newest wins a tie.
-        var newest: (url: URL, modified: Date)?
-        for file in files where images.contains(file.pathExtension.lowercased()) {
-            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            if newest.map({ $0.modified < modified }) ?? true { newest = (file, modified) }
-        }
-        return newest?.url
+    /// Newest picture in the macOS screenshot folder (`com.apple.screencapture location`, else Desktop).
+    @concurrent
+    nonisolated private static func latestScreenshot() async -> URL? {
+        let folder = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment()).systemFolder()
+        return await ScreenshotFolderReader().newestPicture(in: folder)
     }
 
     static func shellQuoted(_ path: String) -> String {
@@ -136,7 +139,7 @@ extension TerminalHandlers {
     /// Opens `directory` in Finder, or in `app` (a bundle id, app name, or path).
     private static func open(_ directory: URL, with app: String?, _ ctx: AppActionContext) {
         guard let app, !app.isEmpty else {
-            NSWorkspace.shared.open(directory)
+            NSWorkspace.shared.openInBackground(directory)
             return
         }
         let workspace = NSWorkspace.shared

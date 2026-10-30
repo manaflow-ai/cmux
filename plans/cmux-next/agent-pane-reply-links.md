@@ -28,18 +28,18 @@ the spelling and to the canonical path (symlinks resolved); the roots check uses
 outside the roots is never checked on disk, so the page cannot probe for files. The gesture is spent only
 after both checks pass. `agentPane.links.outsideRoots`: `open` (the default), `confirm` (native sheet), `text`.
 
-Web images (`AgentPaneSafeFetch`, `AgentPaneNetworkRules`): https only; every resolved address must be
-public (no loopback, RFC 1918, link-local, CGNAT/Tailscale, ULA, multicast, documentation; embedded IPv4 in
-mapped, NAT64 and 6to4 addresses is checked); each redirect is checked again (at most 3); the address each
-transaction used (`URLSessionTaskMetrics`) must be known and public, or the body is dropped; ephemeral
-session, no cookies, cache, credentials or proxy; 10 MB, 10 s; decoded and re-encoded as PNG (2048 px).
+Web images (`AgentPaneSafeFetch` over `GuardedRemoteFetch` in CmuxNextPages, shared with the markdown
+remote images): https only; no `localhost`, `.local` or `.internal` name; the name is resolved once and every
+resolved address must be public (`RemoteAddress`: no loopback, RFC 1918, link-local, CGNAT/Tailscale, ULA,
+site-local, multicast, documentation; embedded IPv4 in mapped, NAT64 and 6to4 addresses is checked); the
+connection goes to exactly a checked address (Network.framework, the URL's host as TLS server name and
+`Host` header, system trust), so a DNS rebinding cannot move it (cx-e9t); each redirect is checked again
+(at most 3); HTTP/1.1 (chunked; gzip, deflate, br decoded; browser headers; any 2xx) with no cookies, cache, credentials, referrer or proxy; 10 MB, 10 s for the whole
+fetch; decoded and re-encoded as PNG (2048 px).
 Local images: inside the roots, 10 MB, decoded by ImageIO; SVG rebuilt without script, handlers, foreign
 content or links out.
 
 ## Known residuals
-1. DNS rebinding: URLSession resolves the name again after the check, so one GET can reach a private
-   address; its body never reaches the page. Follow-up: connect to the checked address (Network.framework,
-   the checked endpoint with SNI and a Host header).
-2. A folder swap between the check and a read is possible (read-only display). Any future write path must
+1. A folder swap between the check and a read is possible (read-only display). Any future write path must
    use openat with a directory descriptor.
-3. `browserId: "cmux"` opens any validated http(s) URL in a cmux browser tab after a gesture.
+2. `browserId: "cmux"` opens any validated http(s) URL in a cmux browser tab after a gesture.

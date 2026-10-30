@@ -38,6 +38,11 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # The Rust god-file ratchet and rustfmt are structural and style guards:
+  # while this is `warn` they print their findings as warnings and pass (Leo,
+  # 2026-10-19). clippy -D warnings stays blocking: it is also this gate's
+  # all-targets compile check. Set to `fail` to make the style guards block again.
+  CMUX_NEXT_STYLE_GUARDS: warn
 
 jobs:
   validate-inputs:
@@ -90,7 +95,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: Rust MSRV (1.91)
     needs: validate-inputs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -104,7 +109,8 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -124,7 +130,7 @@ jobs:
   web-frontend:
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -141,7 +147,7 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           # `vp check` and Vitest 5 need Node ^22.18 or ^24.11.
-          node-version: "24.11.1"
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: |
             cmux-tui/bindings/typescript/package-lock.json
@@ -167,7 +173,7 @@ jobs:
     # the default branch; otherwise the job passes without work.
     name: Go pane SDK
     needs: validate-inputs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -234,7 +240,11 @@ jobs:
       matrix:
         include:
           - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+            # The full Linux test gate is compile- and process-heavy. Keep the
+            # fork path on the public 4-vCPU fallback, while trusted repository
+            # runs use the available 32-vCPU Blacksmith lane. Honor a repository
+            # override only when it names another 32-vCPU lane.
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -263,10 +273,18 @@ jobs:
             && git fetch --quiet --no-tags --depth=1 origin "$merge_base"; then
             base=(--base "$merge_base")
           fi
-          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          # Exit 1 is a god file (warn-only while CMUX_NEXT_STYLE_GUARDS is warn); any other code is a broken check.
+          rc=0
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" || rc=$?
+          if (( rc == 1 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=god files (rust)::over the hard ceiling; warn-only (Leo 2026-10-19), see this step's log"
+            exit 0
+          fi
+          exit "$rc"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       # libghostty-vt for cmux-tui comes only from ghostty-next. Fail here,
       # loudly, when that checkout is missing or empty instead of later in
@@ -301,6 +319,7 @@ jobs:
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           # One Linux key lets lint and test reuse each other's compiled crates.
           shared-key: cmux-tui-${{ matrix.os }}
@@ -349,18 +368,25 @@ jobs:
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
-        run: cargo fmt --check
+        run: |
+          if ! cargo fmt --check; then
+            echo "unformatted=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=cmux-tui rustfmt::cmux-tui is not rustfmt-clean; run cargo fmt in cmux-tui"
+            [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
+          fi
 
       - name: Prepare hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         working-directory: cmux-tui
         run: |
           cargo fmt
           git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
+          # The later lint and test steps check the commit as pushed, not the reformatted tree.
+          git checkout -- .
           test -s "$RUNNER_TEMP/rustfmt.patch"
 
       - name: Upload hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustfmt-${{ matrix.os }}-${{ github.sha }}
@@ -370,7 +396,32 @@ jobs:
 
       - name: cargo clippy
         working-directory: cmux-tui
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        # cmux-holder-v3 is the frozen fixture of an old shipped holder: never edited, never linted.
+        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings
+
+      # Panic ratchet (plans/cmux-next/rust-panic-free.md): production targets
+      # only (--lib --bins), so tests, benches and build scripts stay free.
+      # A crate may not gain an unwrap/expect/panic/indexing hit; a new crate
+      # starts at zero. Dependencies are already checked by the step above,
+      # so this rechecks only the workspace crates.
+      - name: Rust panic ratchet
+        if: ${{ !cancelled() }}
+        working-directory: cmux-tui
+        run: |
+          read -r -a panic_flags <<<"$(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags)"
+          cargo clippy --workspace --lib --bins --locked --message-format=json -- "${panic_flags[@]}" > "$RUNNER_TEMP/panic-clippy.jsonl"
+          python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$RUNNER_TEMP/panic-clippy.jsonl"
+
+      # The red log lists at most 20 hits per crate; the full clippy JSON lets a
+      # fixer (or --update-baseline, which needs a Linux run) work from the laptop.
+      - name: Upload panic ratchet clippy JSON
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: panic-clippy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/panic-clippy.jsonl
+          if-no-files-found: ignore
+          retention-days: 3
 
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
       # cmux-tui lint/test steps never build it. Its tests pin the C header
@@ -378,9 +429,23 @@ jobs:
       - name: cmux-rd-ffi (own workspace)
         working-directory: cmux-tui/crates/cmux-rd-ffi
         run: |
-          cargo fmt --check
+          cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
+
+      # cmux-layout-reducer-ffi is its own workspace too (no committed
+      # Cargo.lock): its C ABI tests cover the sidebar reducer and the Tasks
+      # preview. cmux-app-ffi links it, and build-app-ffi.sh builds --locked,
+      # so a stale cmux-app-ffi/Cargo.lock fails here with the needed diff.
+      - name: cmux-layout-reducer-ffi (own workspace)
+        working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
+        run: |
+          cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cd ../cmux-app-ffi
+          cargo metadata --format-version 1 > /dev/null
+          git diff --exit-code -- Cargo.lock
 
   valgrind-leak-check-shard:
     env:
@@ -388,7 +453,7 @@ jobs:
     name: valgrind-leak-check (startup)
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
     # the bounded startup parsers and terminal replay state only.
     timeout-minutes: 40
@@ -404,7 +469,8 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install valgrind
         run: |
@@ -424,6 +490,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
 
       - name: Build test binaries
@@ -438,9 +505,12 @@ jobs:
           mkdir -p target
           # Cargo target selectors keep this startup shard from compiling the
           # unrelated workspace test harnesses. The selected targets map to
-          # the cmux_tui-* and terminal-* binaries checked below.
+          # the cmux_tui-* and terminal-* binaries checked below. The startup
+          # tests live in the cmux_tui library (src/main.rs); the cmux-tui
+          # bin's test binary has the same cmux_tui-<hash> name and none of
+          # them, so it is not built here.
           cargo test \
-            -p cmux-tui --bin cmux-tui \
+            -p cmux-tui --lib \
             -p ghostty-vt --test terminal \
             --locked --no-run --message-format=json \
             > target/cargo-test-binaries.jsonl
@@ -537,7 +607,7 @@ jobs:
             local bin="$1"
             local test_name="$2"
             if ! "$bin" --list | grep -Fqx "$test_name: test"; then
-              echo "::error::$(basename "$bin") does not contain exact test '$test_name'" >&2
+              echo "::error::$(basename "$bin") does not contain exact test '$test_name': it was renamed, moved or now builds in another target; update startup_tests and the cargo selector in Build test binaries" >&2
               exit 1
             fi
           }
@@ -546,7 +616,13 @@ jobs:
           terminal_bin=""
           while IFS= read -r bin; do
             case "$(basename "$bin")" in
-              cmux_tui-*) cmux_tui_bin="$bin" ;;
+              cmux_tui-*)
+                if [[ -n "$cmux_tui_bin" ]]; then
+                  echo "::error::more than one cmux_tui test binary ($cmux_tui_bin and $bin); select one cargo target in Build test binaries" >&2
+                  exit 1
+                fi
+                cmux_tui_bin="$bin"
+                ;;
               terminal-*) terminal_bin="$bin" ;;
             esac
           done < target/valgrind-test-binaries.txt
@@ -628,18 +704,45 @@ jobs:
           ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
-      - name: Fetch the ghostty-next Zig packages (retried)
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # cmux-tailnet's build script compiles libtailscale with `go build`. The
+      # owned Mac minis have no Go, so clippy died there before any test ran.
+      # go-version matches the pinned libtailscale go.mod (see its build.rs).
+      #
+      # No Actions cache for Go on an owned mini. The mini keeps its own
+      # ~/go/pkg/mod between jobs, and Go makes that tree read-only, so
+      # untarring the ~590 MB cache over it failed with "Can't unlink
+      # already-existing object: Permission denied" on 8 of 8 sampled jobs
+      # (2026-10-29). Each of those jobs still downloaded the tarball (about 63 s)
+      # and then tried to save it again (about 48 s). Blacksmith VMs start empty,
+      # so they keep the cache.
+      - name: Set up pinned Go (libtailscale)
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: ${{ !contains(runner.name, '-glaeda') }}
+          cache-dependency-path: cmux-tui/crates/cmux-tailnet/build.rs
+
+      # On an owned mini, only feat-cmux-next saves. The cache key carries a hash
+      # of each mini's Rust environment, and a dispatch on a branch can read only
+      # that branch's entries and the default branch's. So a branch save almost
+      # never comes back: 0 of 8 sampled jobs restored one (2026-10-29). Each
+      # branch save took about 155 s and 0.6-0.9 GB of the repository's 10 GB
+      # GitHub cache store. These saves filled about 70% of the store, and the
+      # store evicts by least-recent use, so other caches were pushed out.
       - name: Cache cargo build
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-macos
+          save-if: ${{ !contains(runner.name, '-glaeda') || github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Report cargo cache hit rate
         if: always()
@@ -662,10 +765,26 @@ jobs:
       # the focused tests so a macOS-only compile break cannot hide behind the
       # reduced test list.
       - name: cargo clippy (macOS targets)
+        id: clippy
         working-directory: cmux-tui
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        # cmux-holder-v3 is the frozen fixture of an old shipped holder: never edited, never linted.
+        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings
+
+      # Focused mode runs the requested filter here too (cx-jcfoz): before, this job ran only
+      # its fixed groups, so a filtered dispatch reported macOS green without running the
+      # test, and a macOS-only regression landed. No match fails, as on Linux.
+      - name: Focused test filter (macOS)
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' }}
+        working-directory: cmux-tui
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+          # Linux-only test files compile to nothing here; the Linux job stays strict.
+          CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST: "1"
+        shell: bash
+        run: ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER" --test-threads=2
 
       - name: Mac discovery and socket tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         # The platform module contains the macOS discovery, socket and cwd
         # checks. Run its one test binary once instead of rebuilding it for
@@ -673,12 +792,14 @@ jobs:
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib platform::tests:: -- --test-threads=2'
 
       - name: Mac link caller signature tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         # cmux-link checks a caller's code signature only on macOS
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
       - name: Mac browser host provider tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         # The provider socket's peer pid differs by platform (macOS reports
         # the last process that used the server end), and the inherited
@@ -688,6 +809,7 @@ jobs:
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
 
       - name: Mac process and PTY tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         run: |
           # macOS always has /bin/zsh; the Linux runner has none, so this
@@ -697,6 +819,7 @@ jobs:
             -- --exact
 
       - name: Mac theme, layout and launchd tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         run: |
           ../scripts/ci/cargo-test-selected.sh -p cmux-theme-tokens --test load \
@@ -704,25 +827,41 @@ jobs:
           ../scripts/ci/cargo-test-selected.sh -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
 
+      # An app update replaces the daemon while terminals run; the new build
+      # must adopt the hosts the previous one spawned (durable-sessions.md
+      # 4.2). The cross-build test is ignored without a previous binary, so
+      # run it here against the release-pinned daemon, the one release users
+      # update from.
+      - name: Previous release upgrade adoption
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
+        working-directory: cmux-tui
+        run: |
+          ../scripts/cmux-next/pin-cmux-tui.sh fetch --pin
+          pin_commit="$(sed -n 's/^commit=//p' ../scripts/cmux-next/cmux-tui.pin)"
+          CMUX_TUI_PREVIOUS_BIN="$PWD/target/hosted/$pin_commit/cmux-tui" \
+            ../scripts/ci/cargo-test-selected.sh -p cmux-tui --test terminal_host_recovery \
+            hosts_of_a_previous_build_survive_an_upgrade_restart_and_are_adopted -- --ignored
+
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
       # check compares against (schemas/terminal-corpus/crosscheck/run.sh).
       - name: Terminal corpus host snapshots (macOS arm64)
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         run: cargo test -p ghostty-vt --test terminal_corpus
 
-  # The chatmux-relay crate's tests on macOS. 9f4acf5b2787 (#17051) dropped
-  # the `test (macos)` matrix entry, which was their only macOS run. The
-  # relay builds no Ghostty or Zig code, so this job needs only Rust.
-  # Attempt 1 takes the owned minis through CI_SIDE_LANE_RUNNER (the glaeda-aws
-  # pools have no runners); workflow text never names an owned pool label
-  # (tests/test_ci_self_hosted_guard.sh). A rerun goes back to the background
-  # lane.
-  macos-relay:
-    name: chatmux-relay tests (macOS)
+  # The Chief's crate (Native/OptChat/optchat-chief, its own Cargo workspace): its
+  # test suite, then the behavior test that needs a real headless cmux-tui daemon
+  # (`#[ignore]`d in a plain `cargo test`; run here with CMUX_TUI_BIN): the Chief's
+  # live Home workspace block (cx-ebm.59.2). Full mode, or focused with
+  # test_filter optchat_chief.
+  optchat-chief:
+    name: optchat-chief tests (real daemon)
     needs: validate-inputs
-    if: inputs.mode == 'full' || inputs.test_filter == 'chatmux_relay' || inputs.test_filter == 'chatmux-relay'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 30
+    if: inputs.mode == 'full' || inputs.test_filter == 'optchat_chief'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -734,21 +873,70 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
-      - name: Use short temporary directory for macOS socket tests
-        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+      - name: Use the pinned workspace Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("cmux-tui/rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
+      # Path dependencies can add registry dependencies to Chief's separate
+      # workspace. Keep registry versions pinned and publish Cargo's repair;
+      # drift still fails this job before the expensive daemon build.
+      - name: Resolve Chief workspace lockfile
+        id: chief_lock
+        working-directory: Native/OptChat/optchat-chief
+        run: cargo update --workspace
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Publish generated Chief lockfile
+        if: always() && steps.chief_lock.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          workspaces: cmux-tui -> target
-          shared-key: cmux-tui-macos-relay
+          name: optchat-chief-lock-${{ inputs.commit }}
+          path: Native/OptChat/optchat-chief/Cargo.lock
+          if-no-files-found: error
+          retention-days: 3
 
-      - name: cargo test -p chatmux-relay
+      - name: Require committed Chief lockfile
+        run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Build the cmux-tui daemon and CLI
         working-directory: cmux-tui
-        run: cargo test -p chatmux-relay --locked
+        run: cargo build --locked -p cmux-tui --bin cmux-tui
+
+      # The shared Claude Code turn crate and the Cloud Chief's Rust turn runner
+      # (its own workspace; the runner's tests drive the real binary on Linux).
+      - name: chief-turn test suite
+        working-directory: Native/OptChat/chief-turn
+        run: cargo test --locked
+
+      - name: optchat-chief test suite
+        working-directory: Native/OptChat/optchat-chief
+        run: cargo test --locked
+
+      - name: Home view behavior test against a real daemon
+        working-directory: Native/OptChat/optchat-chief
+        run: |
+          export CMUX_TUI_BIN="$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
+          cargo test --locked --test home_view_daemon -- --ignored
+
+      # The DM link of a non-default Chief (person-only selection, conflict
+      # replay; worker 5 f218b8add8b0). tests/shared_acpmux.rs needs no daemon:
+      # it runs in the suite step above.
+      - name: Chief DM behavior test against a real daemon
+        working-directory: Native/OptChat/optchat-chief
+        run: |
+          export CMUX_TUI_BIN="$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
+          cargo test --locked --test dm_daemon -- --ignored
 
   test:
     env:
@@ -756,13 +944,15 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # A green run takes ~40 min on a 32 vCPU runner (the workspace test step alone
+    # 36.6 min, run 40976799846); 40 cancelled the first all-green run.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -779,13 +969,15 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
+          echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -805,11 +997,13 @@ jobs:
       # Keep cargo's registry and cmux-tui/target between runs. Without it every
       # Linux test run compiled the whole workspace (test (linux) about 921 s).
       # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
-      # the same branch builds incrementally; branch caches never reach main's scope.
+      # the same branch builds incrementally; the shared Linux key also preserves
+      # unchanged crate outputs across trusted branches.
       - name: Cache cargo build
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-${{ matrix.os }}
 
@@ -834,11 +1028,8 @@ jobs:
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
-      - name: cargo fmt
-        id: rustfmt-check
-        working-directory: cmux-tui
-        run: cargo fmt --check
-
+      # No `cargo fmt --check` here: lint (linux) gates formatting (and uploads
+      # the patch). Here a format-only diff ended the job before any test ran.
       - name: userland agent plugin package tests
         working-directory: cmux-tui
         # The reference plugin is an independent Cargo workspace, so the
@@ -848,7 +1039,7 @@ jobs:
 
 
       - name: focused Linux journal process-fence test
-        if: inputs.mode == 'focused' && runner.os == 'Linux'
+        if: inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib
@@ -856,12 +1047,12 @@ jobs:
           -- --exact
 
       - name: focused macOS journal process-fence tests
-        if: inputs.mode == 'focused' && runner.os == 'macOS'
+        if: inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' && runner.os == 'macOS'
         working-directory: cmux-tui
         run: ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib unix_process_scope::tests::mac_process_scope_
 
       - name: focused journal writer shutdown test
-        if: inputs.mode == 'focused'
+        if: inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief'
         working-directory: cmux-tui
         run: >-
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib
@@ -869,7 +1060,7 @@ jobs:
           -- --exact
 
       - name: focused final journal ownership tests
-        if: inputs.mode == 'focused'
+        if: inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief'
         working-directory: cmux-tui
         run: |
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib \
@@ -885,14 +1076,16 @@ jobs:
       - name: cargo test
         working-directory: cmux-tui
         env:
+          CARGO_BUILD_JOBS: ${{ matrix.os == 'linux' && '32' || '6' }}
           MODE: ${{ inputs.mode }}
           TEST_FILTER: ${{ inputs.test_filter }}
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
             # Process-heavy CLI tests can exceed the runner's child-process
-            # limit on the smaller macOS and Windows matrix runners.
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=2
+            # limit on the smaller macOS and Windows matrix runners, and
+            # timing-bound tests flake at 32 threads on Linux.
+            cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
@@ -902,32 +1095,13 @@ jobs:
             cargo test -p cmux-tui-core --doc --locked
             exit 0
           fi
-          if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
-            # Cargo test names do not include their package name. Keep this
-            # explicit selector so focused verification can exercise the
-            # relay crate instead of silently selecting zero tests.
-            cargo test -p chatmux-relay --locked
+          # optchat_chief selects the optchat-chief job (its own Cargo workspace), no cmux-tui test.
+          if [[ "$TEST_FILTER" == "optchat_chief" ]]; then
+            echo "test_filter optchat_chief: the optchat-chief job runs those tests"
             exit 0
           fi
-          cargo test --workspace --locked "$TEST_FILTER" -- --list \
-            | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
-          normal_names="$RUNNER_TEMP/cmux-tui-focused-normal.txt"
-          grep -E ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt" | sort > "$normal_names" || true
-          ignored_names="$RUNNER_TEMP/cmux-tui-focused-ignored.txt"
-          ignored_listing="$RUNNER_TEMP/cmux-tui-focused-ignored-list.txt"
-          cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored > "$ignored_listing"
-          grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
-          runnable_names="$RUNNER_TEMP/cmux-tui-focused-runnable.txt"
-          comm -23 "$normal_names" "$ignored_names" > "$runnable_names" || true
-          if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then
-            echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
-            exit 1
-          fi
-          if [[ ! -s "$normal_names" ]]; then
-            echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
-            exit 1
-          fi
-          cargo test --workspace --locked "$TEST_FILTER"
+          # The same script runs the filter on macOS (`macos` job), cx-jcfoz.
+          ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER"
 
       - name: Optional Iroh route and auth tests
         if: inputs.mode == 'full'
@@ -938,7 +1112,7 @@ jobs:
             remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
             remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
           do
-            cargo test --locked -p cmux-tui --bin cmux-tui --features iroh-transport \
+            cargo test --locked -p cmux-tui --lib --features iroh-transport \
               "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
             grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
           done
@@ -985,7 +1159,8 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -1030,6 +1205,24 @@ jobs:
           # owner-only directory and sandbox refusals; mock-daemon tests.
           cargo test --locked --target x86_64-pc-windows-gnu \
             -p cmux-sdk -p cmux-daemon-client
+          # acpmux builds for Windows (the port lands in steps): every
+          # target, tests included, so no Unix-only code comes back ungated.
+          cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets
+          # acpmux on Windows through its CLI and socket: daemon run, status,
+          # the start lock, the saved token, shutdown.
+          cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
+            --test windows_daemon -- --test-threads=1
+          # The handle-bound DACL/path identity discriminators are Windows-only
+          # lib tests; compiling them does not prove SetSecurityInfo stayed on
+          # the opened object.
+          cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
+            --lib owner_only::tests:: -- --test-threads=1
+          # Per-terminal hosts on Windows (bead cx-ko2e,
+          # plans/cmux-next/windows-terminal-hosts.md): a terminal survives a
+          # fenced daemon restart, and a daemon in a kill-on-close job without
+          # breakaway marks its terminal (behavior tests through the daemon).
+          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
+            --test windows_terminal_hosts -- --test-threads=1
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through
@@ -1076,6 +1269,53 @@ jobs:
           Unregister-ScheduledTask -TaskName 'cmux-local-socket-peer' -Confirm:$false -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force 'C:\cls-peer' -ErrorAction SilentlyContinue
 
+      # The acpmux daemon refuses a peer of another user, and its CLI refuses
+      # a socket another user owns. The peer runs as LocalService through a
+      # scheduled task, as in the step above; the next step deletes the task.
+      - name: Refuse an acpmux peer of another user (LocalService)
+        working-directory: cmux-tui
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = 'C:\amx-peer'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          icacls $dir /grant '*S-1-1-0:(OI)(CI)F' | Out-Null
+          $exe = cargo test --locked --target x86_64-pc-windows-gnu -p acpmux `
+              --test windows_daemon --no-run --message-format=json |
+            ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable -and $_.target.name -eq 'windows_daemon' } |
+            Select-Object -Last 1 -ExpandProperty executable
+          if (-not $exe) { throw 'no windows_daemon test executable' }
+          Copy-Item $exe "$dir\peer.exe"
+          $parent = Start-Process -PassThru -NoNewWindow -FilePath $exe `
+            -ArgumentList '--ignored','--exact','other_user_peer_is_refused','--nocapture','--test-threads','1' `
+            -RedirectStandardOutput "$dir\parent.out" -RedirectStandardError "$dir\parent.err"
+          # Read the handle now, or ExitCode can stay empty after the exit.
+          $null = $parent.Handle
+          $deadline = (Get-Date).AddSeconds(120)
+          while (-not (Test-Path "$dir\ready")) {
+            if ($parent.HasExited) { Get-Content "$dir\parent.out", "$dir\parent.err" -ErrorAction SilentlyContinue; throw 'the daemon test ended before it was ready' }
+            if ((Get-Date) -gt $deadline) { throw 'the acpmux daemon never got ready' }
+            Start-Sleep -Milliseconds 200
+          }
+          $action = New-ScheduledTaskAction -Execute "$dir\peer.exe" -Argument '--ignored --exact other_user_child --test-threads 1'
+          $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\LOCAL SERVICE' -LogonType ServiceAccount
+          Register-ScheduledTask -TaskName 'acpmux-peer' -Action $action -Principal $principal | Out-Null
+          Start-ScheduledTask -TaskName 'acpmux-peer'
+          if (-not $parent.WaitForExit(180000)) { $parent.Kill(); throw 'the acpmux peer test timed out' }
+          Get-Content "$dir\parent.out", "$dir\parent.err", "$dir\child-done" -ErrorAction SilentlyContinue
+          if (-not ((Get-Content "$dir\child-done" -ErrorAction SilentlyContinue) -match '^user: S-1-5-19$')) { throw 'the peer did not run as LocalService' }
+          if ($parent.ExitCode -ne 0) { throw "other_user_peer_is_refused failed ($($parent.ExitCode))" }
+
+      - name: Delete the acpmux LocalService peer task
+        if: always()
+        shell: pwsh
+        run: |
+          Unregister-ScheduledTask -TaskName 'acpmux-peer' -Confirm:$false -ErrorAction SilentlyContinue
+          Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE 'C:\\amx-peer\\%'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          Remove-Item -Recurse -Force 'C:\amx-peer' -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force 'C:\amx-peer-home' -ErrorAction SilentlyContinue
+
   cdp-browser-smoke:
     name: CDP browser smoke (${{ matrix.os }})
     needs: validate-inputs
@@ -1087,7 +1327,7 @@ jobs:
       matrix:
         include:
           - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1102,11 +1342,16 @@ jobs:
       - name: Set up pinned Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.4"
 
       - name: Install pinned Playwright dependencies
         working-directory: web
         run: bun install --frozen-lockfile
+
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
 
       - name: Install pinned Playwright Chromium (Linux)
         if: runner.os == 'Linux'
@@ -1170,7 +1415,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1186,7 +1431,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.4"
           cache: npm
           cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
 
@@ -1195,7 +1440,8 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -1263,22 +1509,36 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      version: 0.0.0-nightly.19700101.0
-      pypi_version: 0.0.0.dev197001010
+      # Exercise release stamping: 0.0.0-* is reserved for raw artifacts,
+      # whose CLI intentionally reports the workspace version instead.
+      version: 0.0.1-nightly.19700101.0
+      pypi_version: 0.0.1.dev197001010
       package_npm: ${{ inputs.mode == 'full' }}
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
-      # Build the exact reference plugin beside the daemon artifact.
-      build_agent_plugin: true
+      # Focused runs build the macOS target on a Linux runner
+      # (scripts/ci/macos-cross.sh, the same path cmux-tui-artifacts
+      # publishes from), so they never wait in the macOS runner queue: the
+      # Mac leg queued 23-84 min and ran 17-20 min on 2026-10-20, and was the
+      # critical path. Full runs keep the Mac build, which also packages npm
+      # and PyPI. The Linux path stages the reference plugin inside the
+      # cmux-tui-<target> artifact (cmux-tui-agent-screen-detection-<target>,
+      # optional: left out with a warning when it does not build), so only
+      # full runs build it as a separate artifact.
+      # scripts/verify-cmux-tui-hosted.sh reads it from there in focused mode.
+      darwin_builder: ${{ inputs.mode == 'full' && 'mac' || 'linux' }}
+      build_agent_plugin: ${{ inputs.mode == 'full' }}
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
-      # The macOS builds take the minis' side label on attempt 1, like this
-      # workflow's other macOS jobs; ci-owned-pool-rescue.yml re-runs one left
-      # queued or refused there, and attempt 2 takes macos_retry_runner (the
-      # matrix plan-build made on attempt 1 is reused by that re-run).
-      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+      # The macOS builds go straight to Blacksmith macOS 15 on every attempt.
+      # Never the minis' side label: there they queued behind the side lane
+      # until the run was cancelled (#20612), and the light side label takes
+      # only light jobs. Never vars.MACOS_RUNNER_PR either: it names the
+      # 12 vCPU macOS 26 label the nightly app build needs, and Blacksmith's
+      # macOS capacity is shared. tests/test_ci_tui_routes_avoid_nightly_label.py
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
       windows_runner: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
       checkout_ref: ${{ inputs.commit }}
 
@@ -1289,7 +1549,7 @@ jobs:
       - validate-inputs
       - lint
       - macos
-      - macos-relay
+      - optchat-chief
       - msrv-check
       - web-frontend
       - go-pane
@@ -1306,7 +1566,7 @@ jobs:
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
       LINT_RESULT: ${{ needs.lint.result }}
       MACOS_RESULT: ${{ needs.macos.result }}
-      MACOS_RELAY_RESULT: ${{ needs.macos-relay.result }}
+      OPTCHAT_CHIEF_RESULT: ${{ needs.optchat-chief.result }}
       TEST_FILTER: ${{ inputs.test_filter }}
       MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
@@ -1321,20 +1581,25 @@ jobs:
       - name: Require selected verification jobs
         shell: bash
         run: |
+          # Check every selected job, then fail once: a red lint (often a
+          # base clippy red) must not hide whether the Rust tests passed.
+          failed=0
           require_success() {
             local name="$1"
             local result="$2"
-            if [[ "$result" != "success" ]]; then
+            if [[ "$result" == "success" ]]; then
+              echo "$name: success"
+            else
               echo "::error::$name finished with result '$result'" >&2
-              exit 1
+              failed=1
             fi
           }
 
           require_success "input validation" "$VALIDATE_RESULT"
           require_success "lint" "$LINT_RESULT"
           require_success "macOS lint and tests" "$MACOS_RESULT"
-          if [[ "$MODE" == "full" || "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
-            require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"
+          if [[ "$MODE" == "full" || "$TEST_FILTER" == "optchat_chief" ]]; then
+            require_success "optchat-chief tests" "$OPTCHAT_CHIEF_RESULT"
           fi
           require_success "Rust MSRV check" "$MSRV_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
@@ -1349,3 +1614,4 @@ jobs:
             require_success "Chrome CDP smoke" "$CDP_BROWSER_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
           fi
+          exit "$failed"

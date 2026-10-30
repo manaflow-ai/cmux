@@ -21,7 +21,7 @@ public final class SettingsApplier {
         self.registry = registry
     }
 
-    public static var validDensities: Set<String> { Set(Density.allCases.map(\.rawValue)) }
+    public static var validDensities: Set<String> { Set(DensityPreset.allCases.map(\.rawValue)) }
     public static var validMetrics: Set<String> { Set(MetricKey.allCases.map(\.rawValue)) }
 
     /// Applies `snapshot` and returns every diagnostic: the parse
@@ -35,22 +35,56 @@ public final class SettingsApplier {
         }
 
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
-        let density = snapshot.density.flatMap(Density.init(rawValue:)) ?? .compact
-        if design.density != density { design.density = density }
+        if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
+        let density = snapshot.selectedDensity
+        if design.densityTokens != density { design.densityTokens = density }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
+        let interfaceScale = DesignSettings.clampedInterfaceScale(CGFloat(snapshot.interfaceScale))
+        if design.interfaceScale != interfaceScale { design.interfaceScale = interfaceScale }
         let agentPaneZoom = CGFloat(min(max(snapshot.agentPaneZoom, AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound))
         if design.agentPaneZoom != agentPaneZoom { design.agentPaneZoom = agentPaneZoom }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
+        if design.enabledAnimations != snapshot.animationKinds.enabled { design.enabledAnimations = snapshot.animationKinds.enabled }
+        if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
+        if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
+        if design.calmMode != snapshot.calmMode { design.calmMode = snapshot.calmMode }
+        if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
+        if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
+            design.disabledAnimationCategories = snapshot.motionCategories.disabled
+        }
+        if design.classicHome != snapshot.classicHome { design.classicHome = snapshot.classicHome }
+        if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
+        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
+        if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }
+        if design.homeBubbleColors != snapshot.homeBubbleColors { design.homeBubbleColors = snapshot.homeBubbleColors }
+        if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
+        if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
+        if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
+        if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
+        if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
+        if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
+        let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
+        if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
+        let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
+        if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
+        let groupHoverCard = snapshot.hoverCards.groupCardOptions
+        if design.groupHoverCard != groupHoverCard { design.groupHoverCard = groupHoverCard }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
         if design.dockColumnEdge != snapshot.dockColumnEdge { design.dockColumnEdge = snapshot.dockColumnEdge }
         if design.dockColumnMode != snapshot.dockColumnMode { design.dockColumnMode = snapshot.dockColumnMode }
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
+        if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
+        if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
+        if design.layoutScrollModifier != snapshot.layoutScrollModifier { design.layoutScrollModifier = snapshot.layoutScrollModifier }
+        if design.pagesHandleCommandScroll != snapshot.pagesHandleCommandScroll {
+            design.pagesHandleCommandScroll = snapshot.pagesHandleCommandScroll
+        }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
@@ -86,22 +120,66 @@ public final class SettingsApplier {
                 continue
             }
             let id = registry.canonicalID(for: requested)
-            switch binding {
-            case .unbound:
-                setOverride(nil, for: id)
-            case .stroke(let stroke):
-                setOverride(Self.shortcut(for: stroke), for: id)
-            case .chord(let first, let second):
-                // Only Command and Control chords reach the key router.
-                guard first.command || first.control else {
-                    diagnostics.append(SettingsDiagnostic(kind: .unsupportedChord, path: path,
-                                                          message: "the first key of a chord needs cmd or ctrl; the default shortcut stays"))
+            var keys: [[Shortcut]] = []
+            for key in binding.keys {
+                switch key {
+                case .stroke(let stroke):
+                    keys.append([Self.shortcut(for: stroke)])
+                case .chord(let first, let second):
+                    // Only Command and Control chords reach the key router.
+                    guard first.command || first.control else {
+                        diagnostics.append(SettingsDiagnostic(kind: .unsupportedChord, path: path,
+                                                              message: binding.keys.count > 1
+                                                                  ? "the first key of a chord needs cmd or ctrl; this key is skipped"
+                                                                  : "the first key of a chord needs cmd or ctrl; the default shortcut stays"))
+                        continue
+                    }
+                    keys.append([Self.shortcut(for: first), Self.shortcut(for: second)])
+                case .unbound, .alternates:
                     continue
                 }
-                let chord = ShortcutChord(Self.shortcut(for: first), Self.shortcut(for: second))
-                if registry.chordOverrides[id] != chord { registry.setChordOverride(chord, for: id) }
             }
+            // A numbered family (`⌘1…9`) is named by one key.
+            if keys.count > 1, registry.descriptor(for: id)?.shortcutFamily != nil {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path,
+                                                      message: "a numbered family takes one key; only the first is used"))
+                keys = [keys[0]]
+            }
+            if binding.keys.isEmpty {
+                setOverride(nil, for: id)
+            } else if let primary = keys.first {
+                if primary.count == 1 {
+                    setOverride(primary[0], for: id)
+                } else {
+                    let chord = ShortcutChord(primary[0], primary[1])
+                    if registry.chordOverrides[id] != chord { registry.setChordOverride(chord, for: id) }
+                }
+            } else {
+                continue
+            }
+            // `{"any": [...]}`: the keys after the first run the action too.
+            let alternates = Array(keys.dropFirst())
+            if registry.alternateShortcuts[id] ?? [] != alternates { registry.setAlternateShortcuts(alternates, for: id) }
             applied.insert(id)
+        }
+        // `tabs.swapCmdTAndCmdN`: Cmd-T is New Workspace and Cmd-N New Tab, unless the user
+        // bound either one above (then neither moves: half a swap would put two actions on one
+        // key). Turning it off removes the pair like any other binding.
+        let swap: [(ActionID, String)] = [("newTab.default", "n"), ("newTab", "t")]
+        if snapshot.swapCmdTAndCmdN, !swap.contains(where: { applied.contains($0.0) }) {
+            for (id, key) in swap {
+                setOverride(Shortcut(key, modifiers: [.command]), for: id)
+                applied.insert(id)
+            }
+        }
+        // `tabs.commandDigits = tabs`: Cmd-1…9 select tabs and Ctrl-1…9 workspaces (the two trade
+        // keys), unless the user bound either one above; then neither moves, as with the swap above.
+        let digits: [(ActionID, NSEvent.ModifierFlags)] = [("selectSurfaceByNumber", [.command]), ("selectWorkspaceByNumber", [.control])]
+        if snapshot.commandDigits == .tabs, !digits.contains(where: { applied.contains($0.0) }) {
+            for (id, modifiers) in digits {
+                setOverride(Shortcut("1", modifiers: modifiers), for: id)
+                applied.insert(id)
+            }
         }
         for id in appliedShortcutIDs.subtracting(applied) {
             registry.removeShortcutOverride(for: id)
@@ -134,7 +212,7 @@ public final class SettingsApplier {
     }
 
     private func setOverride(_ shortcut: Shortcut?, for id: ActionID) {
-        if let current = registry.shortcutOverrides[id], current == shortcut { return }
+        if let current = registry.shortcutOverrides[id], current == shortcut, registry.alternateShortcuts[id] == nil { return }
         registry.setShortcutOverride(shortcut, for: id)
     }
 
@@ -162,12 +240,12 @@ public final class SettingsApplier {
     /// One diagnostic per group of actions that claim the same shortcut in
     /// the same context.
     public static func conflictDiagnostics(in registry: ActionRegistry) -> [SettingsDiagnostic] {
-        registry.shortcutConflicts().map { group in
-            let shortcut = registry.shortcutDisplay(for: group[0]) ?? ""
+        registry.shortcutConflictGroups().map { group in
+            let shortcut = registry.shortcutDisplay(group.shortcut, for: group.ids[0])
             return SettingsDiagnostic(
                 kind: .shortcutConflict,
-                path: group.map { "shortcuts.bindings.\($0.rawValue)" }.joined(separator: ", "),
-                message: "\(shortcut) is bound to \(group.map(\.rawValue).joined(separator: ", "))"
+                path: group.ids.map { "shortcuts.bindings.\($0.rawValue)" }.joined(separator: ", "),
+                message: "\(shortcut) is bound to \(group.ids.map(\.rawValue).joined(separator: ", "))"
             )
         }
     }

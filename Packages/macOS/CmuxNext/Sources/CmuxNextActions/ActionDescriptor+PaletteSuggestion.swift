@@ -3,7 +3,7 @@
 /// Catalog data: exported as `palette_suggested` in action-surfaces.json.
 extension ActionDescriptor {
     nonisolated static let paletteSuggestions: [ActionID] = [
-        "newTab.sameKind", "splitRight", "openBrowser", "palette.newAgentChat", "newTab", "openSettings",
+        "newTab.default", "splitRight", "openBrowser", "palette.newAgentChat", "newTab", "openSettings",
     ]
 
     /// This action's place in the empty palette's Suggested section, or nil.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run CMUX's fast CI static checks locally, before a native build or push."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import fnmatch
 import hashlib
 import json
@@ -14,6 +15,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 # Discovery must not create new inputs in an otherwise clean checkout.
@@ -62,24 +64,48 @@ CHECK_INPUTS = {
 }
 
 
+INTEGRATION_BRANCH = "feat-cmux-next"
+
+
 def automatic_scope(repo, environ):
     """Use local Git metadata only; CI keeps the full static recipe."""
     if any(environ.get(key, "").lower() not in ("", "0", "false", "no")
            for key in ("CI", "GITHUB_ACTIONS")):
         return {"mode": "ci_full", "base_ref": None, "reason": "CI: full static recipe"}
+    candidates = []
     for remote in ("upstream", "origin"):
         try:
             base = subprocess.run(
                 ["git", "-C", str(repo), "symbolic-ref", "-q", f"refs/remotes/{remote}/HEAD"],
                 capture_output=True, text=True, check=True, timeout=5).stdout.strip()
-            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
-                           capture_output=True, check=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             continue
-        return {"mode": "affected", "base_ref": base,
-                "reason": f"Local default-branch reference: {base} (no fetch)"}
+        candidates.append((base, f"Local default-branch reference: {base} (no fetch)"))
+    # feat-cmux-next split from main long ago, so main's merge base with one of its branches is that
+    # old split and would select every check. The candidate with the fewest commits between it and
+    # HEAD wins; ties keep list order. On a large partial clone each git call takes seconds.
+    ranked = []
+    for remote in ("upstream", "origin"):
+        base = f"refs/remotes/{remote}/{INTEGRATION_BRANCH}"
+        candidates.append((base, f"Local integration-branch reference: {base} (no fetch)"))
+    for order, (base, reason) in enumerate(candidates):
+        try:
+            ahead = int(subprocess.run(["git", "-C", str(repo), "rev-list", "--count", f"{base}..HEAD"],
+                                       capture_output=True, text=True, check=True, timeout=30).stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        ranked.append((ahead, order, base, reason))
+    # rev-list counts every HEAD commit for a base with no shared history, so confirm the winner's
+    # merge base, falling back to the next candidate.
+    for _, _, base, reason in sorted(ranked):
+        try:
+            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
+                           capture_output=True, check=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        return {"mode": "affected", "base_ref": base, "reason": reason}
     return {"mode": "full_fallback", "base_ref": None,
-            "reason": "No usable local remote-default reference: full static recipe; parse local Swift edits"}
+            "reason": "No usable local base reference: full static recipe; parse local Swift edits"}
 
 
 def affected_checks(repo, base):
@@ -153,6 +179,19 @@ def stop_process(proc):
         proc.wait()
 
 
+_ACTIVE_PROCESSES = set()
+_ACTIVE_PROCESSES_LOCK = threading.Lock()
+_CANCEL_REQUESTED = threading.Event()
+
+
+def stop_active_processes():
+    """Settle every concurrently running check after an interrupt."""
+    with _ACTIVE_PROCESSES_LOCK:
+        active = tuple(_ACTIVE_PROCESSES)
+    for proc in active:
+        stop_process(proc)
+
+
 def execute(repo, item, timeout):
     name, phase, label, argv = item
     started = time.monotonic()
@@ -164,15 +203,32 @@ def execute(repo, item, timeout):
     # Child output never fills a pipe or the public receipt. Retain a bounded
     # diagnostic tail for this local invocation; the temporary raw log is removed.
     with tempfile.TemporaryFile() as log:
+        proc = None
         try:
-            proc = subprocess.Popen(argv, cwd=repo, stdout=log, stderr=subprocess.STDOUT,
-                                    start_new_session=True)
+            with _ACTIVE_PROCESSES_LOCK:
+                # Cancellation sets the event before taking this lock. A
+                # worker that has not started yet therefore cannot cross
+                # Popen after the cancellation snapshot.
+                if _CANCEL_REQUESTED.is_set():
+                    result["status"] = "interrupted"
+                    result["cancelled"] = True
+                    output = "Interrupted before this check started."
+                else:
+                    proc = subprocess.Popen(argv, cwd=repo, stdout=log, stderr=subprocess.STDOUT,
+                                            start_new_session=True)
+                    _ACTIVE_PROCESSES.add(proc)
+            if proc is None:
+                result["elapsed_seconds"] = round(time.monotonic() - started, 3)
+                return result, output
             result["executed"] = True
             try:
                 code = proc.wait(timeout=timeout)
                 result["status"] = "passed" if code == 0 else "failed"
                 if code < 0 or code in (130, 143):
                     result["status"] = "interrupted"
+                if _CANCEL_REQUESTED.is_set():
+                    result["status"] = "interrupted"
+                    result["cancelled"] = True
                 result["exit_code"] = code
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
                 stop_process(proc)
@@ -195,6 +251,10 @@ def execute(repo, item, timeout):
                     output += "\nNo usable nonzero unittest execution summary; tests claim failed.\n"
         except OSError as error:
             output = str(error)
+        finally:
+            if proc is not None:
+                with _ACTIVE_PROCESSES_LOCK:
+                    _ACTIVE_PROCESSES.discard(proc)
     result["elapsed_seconds"] = round(time.monotonic() - started, 3)
     return result, output
 
@@ -263,7 +323,10 @@ def stdin_swift_files(data):
     return [os.fsdecode(p) for p in data.split(b"\0") if p.endswith(b".swift")]
 
 
-def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_changed=None, swift_stdin0=None, affected=None):
+def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_changed=None, swift_stdin0=None,
+        affected=None, jobs=1):
+    if not isinstance(jobs, int) or jobs < 1:
+        raise ValueError("jobs must be a positive integer")
     before = receipt.observe(repo)
     affected_selection = None
     if affected is not None:
@@ -298,6 +361,8 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
         result["recipe"]["argv"] += ["--swift-changed", swift_changed]
     elif swift_stdin0 is not None:
         result["recipe"]["argv"] += ["--swift-stdin0"]
+    if jobs != 1:
+        result["recipe"]["argv"] += ["--jobs", str(jobs)]
     result["source"]["repository"] = "cmux (caller-supplied checkout)"
     result["source"].update(before=before, head_sha=before["commit"], checkout_sha=before["commit"],
                              tree=before.get("tree"))
@@ -333,12 +398,7 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                 pass  # The parser command still determines this check's result.
     if not items:
         raise ValueError("at least one known check must be selected")
-    for item in items:
-        if cancelled:
-            executions.append({"id": item[0], "phase": item[1], "argv": item[3],
-                               "status": "skipped", "executed": False, "tests": None})
-            continue
-        print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
+    def run_item(item):
         if item[0] == "swift-syntax" and not paths:
             execution = {"id": item[0], "phase": item[1], "argv": [], "tests": None,
                          "status": "skipped", "reason": "no_swift_inputs", "executed": False,
@@ -351,8 +411,9 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
             output = "swiftc is unavailable; select an installed Swift toolchain and retry."
         else:
             execution, output = execute(repo, item, timeout)
-        executions.append(execution)
-        cancelled = execution["cancelled"]
+        return execution, output
+
+    def report(item, execution, output):
         count = execution["tests"]
         details = f'; {count["executed"]} tests executed, {count["skipped"]} skipped' if count and count["executed"] is not None else ""
         print(f'{execution["status"].upper()} {item[0]} ({execution["elapsed_seconds"]:.2f}s{details})', file=stream)
@@ -363,6 +424,72 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
             if item[0] == "swift-syntax":
                 rerun += ["--swift"] + [str(p.relative_to(repo.resolve())) for p in paths]
             print(f"Rerun from this checkout: {shlex.join(rerun)}", file=stream)
+
+    # CI can overlap independent static recipes on one runner. Keep the local
+    # default serial so callers retain the historical output and Ctrl-C
+    # behavior, while an explicit jobs value makes the speed tradeoff visible.
+    if jobs == 1:
+        for item in items:
+            if cancelled:
+                executions.append({"id": item[0], "phase": item[1], "argv": item[3],
+                                   "status": "skipped", "executed": False, "tests": None})
+                continue
+            print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
+            execution, output = run_item(item)
+            executions.append(execution)
+            cancelled = execution["cancelled"]
+            report(item, execution, output)
+    else:
+        if cancelled:
+            executions = [{"id": item[0], "phase": item[1], "argv": item[3],
+                           "status": "skipped", "executed": False, "tests": None}
+                          for item in items]
+        else:
+            for item in items:
+                print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
+            pool = None
+            submitted = []
+            try:
+                pool = ThreadPoolExecutor(max_workers=min(jobs, len(items)))
+                for item in items:
+                    submitted.append((item, pool.submit(run_item, item)))
+                results = [future.result() for _, future in submitted]
+            except KeyboardInterrupt:
+                _CANCEL_REQUESTED.set()
+                stop_active_processes()
+                for _, future in submitted:
+                    future.cancel()
+                # A worker may have crossed Popen between the first snapshot
+                # and future cancellation. Take one more snapshot before
+                # waiting for every worker to settle.
+                stop_active_processes()
+                if pool is not None:
+                    pool.shutdown(wait=True, cancel_futures=True)
+                interrupted = ({"status": "interrupted", "executed": False,
+                                "exit_code": None, "output_sha256": None, "tests": None,
+                                "cancelled": True, "elapsed_seconds": 0})
+                results = []
+                for item, future in submitted:
+                    results.append(
+                        (interrupted | {"id": item[0], "phase": item[1], "argv": item[3]},
+                         "Interrupted before this check completed.")
+                        if future.cancelled() else future.result()
+                    )
+                # Submission itself can be interrupted. Keep an explicit
+                # receipt for every item that never reached the executor.
+                for item in items[len(submitted):]:
+                    results.append(
+                        (interrupted | {"id": item[0], "phase": item[1], "argv": item[3]},
+                         "Interrupted before this check was submitted.")
+                    )
+                cancelled = True
+            else:
+                pool.shutdown(wait=True)
+            finally:
+                _CANCEL_REQUESTED.clear()
+            for item, (execution, output) in zip(items, results):
+                executions.append(execution)
+                report(item, execution, output)
     result["source"]["after"] = receipt.observe(repo)
     result["evidence"] = {"kind": "local_static_preflight", "executions": executions}
     if affected_selection is not None:
@@ -462,6 +589,8 @@ Details and examples: docs/verification-receipts.md""")
     execution.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1],
                            help="Trusted target checkout; its scripts execute locally (default: this checkout)")
     execution.add_argument("--timeout", type=float, default=60, help="Seconds per check (default 60)")
+    execution.add_argument("--jobs", type=int, default=1,
+                           help="Run independent checks concurrently (default 1; CI may use a bounded value)")
     args = parser.parse_args()
     if args.all and (args.affected is not None or args.only):
         parser.error("--all, --affected and --only are alternatives")
@@ -509,13 +638,16 @@ Details and examples: docs/verification-receipts.md""")
         return 0
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be a finite positive number")
+    if args.jobs < 1:
+        parser.error("--jobs must be a positive integer")
     selected = args.only or [c[0] for c in CHECKS]
     json_stdout = args.receipt == Path("-")
     try:
         result = run(args.repo.resolve(), selected, args.timeout,
                      stream=sys.stderr if json_stdout else sys.stdout, swift_files=args.swift,
                      swift_changed=args.swift_changed, affected=args.affected,
-                     swift_stdin0=sys.stdin.buffer.read() if args.swift_stdin0 else None)
+                     swift_stdin0=sys.stdin.buffer.read() if args.swift_stdin0 else None,
+                     jobs=args.jobs)
     except ValueError as error:
         parser.error(str(error))
     if automatic is not None:

@@ -17,11 +17,11 @@ extension DaemonConnection {
     }
 
     /// `transaction` is accepted for source compatibility; `update-tab-group`
-    /// does not echo one (the change arrives as `tree-changed`).
+    /// does not echo one (the change arrives as `tree-changed`). `icon`: `tab-group-icon-v1`.
     @discardableResult
-    public func updateTabGroup(_ group: TabGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                               collapsed: Bool? = nil, transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
-        try await requestNew(UpdateTabGroupRequest(group: group, name: name, color: color, collapsed: collapsed))
+    public func updateTabGroup(_ group: TabGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged, collapsed: Bool? = nil,
+                               icon: FieldUpdate<String> = .unchanged, transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
+        try await requestNew(UpdateTabGroupRequest(group: group, name: name, color: color, collapsed: collapsed, icon: icon))
     }
 
     /// Adds tabs at the end of the group. With `index` (position inside the
@@ -109,14 +109,6 @@ extension DaemonConnection {
         let result = try await requestNew(ReopenSavedTabGroupRequest(saved: saved, pane: pane, transaction: transaction))
         guard let index, let group = result.groupID else { return result }
         return try await moveTabGroup(group, to: result.pane ?? pane, index: index, transaction: transaction)
-    }
-
-    @available(*, deprecated, renamed: "reopenSavedTabGroup(_:in:index:transaction:)")
-    @discardableResult
-    public func openSavedTabGroup(_ saved: SavedTabGroupID, in pane: PaneID? = nil, index: Int? = nil,
-                                  transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
-        guard let pane else { throw DaemonError.malformedResponse("reopen-saved-tab-group requires a pane") }
-        return try await reopenSavedTabGroup(saved, in: pane, index: index, transaction: transaction)
     }
 
     /// Unsaves the record linked to a live group; the group stays.

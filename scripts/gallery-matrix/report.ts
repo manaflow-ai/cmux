@@ -1,16 +1,16 @@
-// What a reader sees of the per-PR gallery diff (compare.ts): the diff page (changed states first,
+// What a reader sees of a published gallery diff (compare.ts): the diff page (changed states first,
 // each as a highlight overlay, a slider and an onion skin; unchanged states folded), the sticky PR
 // comment, and the summary the team feed shows on the PR's card.
 import { STATUS_ORDER, type Outcome, type Status } from "./compare";
 
 export type ReportLinks = {
-  /** The diff page, the PR's gallery and its matrix index, when published. */
+  /** The diff page, gallery and matrix index, when published. */
   diff?: string;
   gallery?: string;
   matrix?: string;
   /** The review feed card for this PR, already filtered and expanded. */
   feed?: string;
-  /** The CI run whose artifact holds the diff page and the renders, until a host serves them. */
+  /** The publisher run whose artifact holds the diff page and renders, until a host serves them. */
   artifact?: string;
   /** The thumbnails' URL prefix: a state's thumbnail is this followed by its key (pr-media raw URLs). */
   thumbBase?: string;
@@ -298,7 +298,8 @@ function layered(o, mode) {
 }
 function metricsText(m) {
   if (!m) return "";
-  return "CLS " + m.layoutShift.toFixed(3) + " · " + m.longFrames + " long frame" + (m.longFrames === 1 ? "" : "s") + (m.longFrames ? " (max " + m.longFrameMaxMs.toFixed(1) + " ms)" : "") + (m.frameSource === "raf" ? " · software-rendered, not a gate" : "");
+  const settle = typeof m.settleMs === "number" && Number.isFinite(m.settleMs) ? " · settled " + m.settleMs.toFixed(1) + " ms" : "";
+  return "CLS " + m.layoutShift.toFixed(3) + " · " + m.longFrames + " long frame" + (m.longFrames === 1 ? "" : "s") + (m.longFrames ? " (max " + m.longFrameMaxMs.toFixed(1) + " ms)" : "") + settle + (m.frameSource === "raf" ? " · software-rendered, not a gate" : "");
 }
 function settleLatency(frames) {
   const values = (frames || []).map((frame) => frame.play && frame.play.settleMs).filter((value) => typeof value === "number" && Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
@@ -348,7 +349,8 @@ function card(o, i) {
       const src = f.head || f.base;
       const cell = el("button", {type: "button", class: "frame-cell"}, ...(src ? [img(src, f.label)] : []), el("span", {class: "frame-label"}, f.label), el("span", {class: "tag " + f.status}, f.status));
       if (f.play) cell.append(el("span", {class: "frame-metrics" + (f.play.status === "fail" ? " fail" : "")}, metricsText(f.play) + (f.play.problems.length ? " · " + f.play.problems.join("; ") : "")));
-      if (f.basePlay && f.play && (f.basePlay.layoutShift !== f.play.layoutShift || f.basePlay.longFrames !== f.play.longFrames)) cell.append(el("span", {class: "frame-metrics"}, "base: " + metricsText(f.basePlay)));
+      const settleChanged = typeof f.basePlay?.settleMs === "number" && Number.isFinite(f.basePlay.settleMs) && typeof f.play?.settleMs === "number" && Number.isFinite(f.play.settleMs) && f.basePlay.settleMs !== f.play.settleMs;
+      if (f.basePlay && f.play && (f.basePlay.layoutShift !== f.play.layoutShift || f.basePlay.longFrames !== f.play.longFrames || settleChanged)) cell.append(el("span", {class: "frame-metrics"}, "base: " + metricsText(f.basePlay)));
       cell.onclick = () => select(f, cell);
       strip.append(cell);
     }
@@ -361,6 +363,13 @@ function card(o, i) {
   if (o.play && o.play.error) parts.push(el("div", {class: "sub"}, "Play: " + o.play.error));
   return el("article", {id: o.key, "data-entry": o.entry}, ...parts);
 }
+function settleChanged(o) {
+  return (o.frames || []).some((f) => {
+    const base = f.basePlay?.settleMs;
+    const head = f.play?.settleMs;
+    return typeof base === "number" && Number.isFinite(base) && base >= 0 && typeof head === "number" && Number.isFinite(head) && head >= 0 && base !== head;
+  });
+}
 order.forEach((status) => {
   const list = outcomes.map((o, i) => [o, i]).filter(([o]) => o.status === status);
   if (!list.length) return;
@@ -368,11 +377,23 @@ order.forEach((status) => {
     const section = el("section", {"data-status": status});
     const failed = list.filter(([o]) => o.play && o.play.status === "fail");
     const unchanged = list.filter(([o]) => !o.play || o.play.status !== "fail");
-    if (failed.length) section.append(el("h2", {}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
+    if (failed.length) section.append(el("h2", {"data-heading": "play-failures"}, "Play checks failed (" + failed.length + ")"), ...failed.map(([o, i]) => card(o, i)));
+    const latency = unchanged.filter(([o]) => settleChanged(o));
+    if (latency.length) {
+      section.append(
+        el("h2", {"data-heading": "latency-receipts"}, "Latency changed (" + latency.length + ")"),
+        ...latency.map(([o, i]) => {
+          const node = card(o, i);
+          node.dataset.settleReceipt = "true";
+          return node;
+        }),
+      );
+    }
+    const plain = unchanged.filter(([o]) => !settleChanged(o));
     const details = el("details", {});
     details.append(
-      el("summary", {"data-summary": "unchanged"}, unchanged.length + " unchanged"),
-      el("ul", {class: "plain"}, ...unchanged.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
+      el("summary", {"data-summary": "unchanged"}, plain.length + " unchanged"),
+      el("ul", {class: "plain"}, ...plain.map(([o, i]) => el("li", {"data-entry": o.entry}, labels[i]))),
     );
     section.append(details);
     main.append(section);
@@ -392,16 +413,22 @@ const applyEntryFilter = () => {
   for (const section of main.querySelectorAll("[data-status]")) {
     const status = section.dataset.status;
     if (status === "unchanged") {
-      const failed = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
+      const failed = [...section.querySelectorAll("article[data-entry]:not([data-settle-receipt])")].filter((node) => !node.hidden);
+      const receipts = [...section.querySelectorAll("article[data-settle-receipt]")].filter((node) => !node.hidden);
       const unchanged = [...section.querySelectorAll("ul.plain [data-entry]")].filter((node) => !node.hidden);
-      const heading = section.querySelector("h2");
+      const heading = section.querySelector("h2[data-heading='play-failures']");
       if (heading) {
         heading.hidden = failed.length === 0;
         heading.textContent = "Play checks failed (" + failed.length + ")";
       }
+      const latencyHeading = section.querySelector("h2[data-heading='latency-receipts']");
+      if (latencyHeading) {
+        latencyHeading.hidden = receipts.length === 0;
+        latencyHeading.textContent = "Latency changed (" + receipts.length + ")";
+      }
       const summary = section.querySelector("[data-summary='unchanged']");
       if (summary) summary.textContent = unchanged.length + " unchanged";
-      section.hidden = failed.length === 0 && unchanged.length === 0;
+      section.hidden = failed.length === 0 && receipts.length === 0 && unchanged.length === 0;
     } else {
       const visible = [...section.querySelectorAll("article[data-entry]")].filter((node) => !node.hidden);
       const heading = section.querySelector("h2");

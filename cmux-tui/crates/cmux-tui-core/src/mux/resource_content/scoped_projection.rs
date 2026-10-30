@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+use super::projection_crosscheck::projection_difference;
 use super::*;
 use crate::diagnostics::ProjectionSpans;
 use crate::resource::{BrowserPublicId, WorkspacePublicId};
@@ -340,13 +341,23 @@ fn reindex_scope(state: &mut State, scope: &HashSet<WorkspacePublicId>) -> anyho
                 indexes.pane_ids.insert(pane.id, pane.public_id.clone());
                 indexes.pane_screen.insert(pane.id, screen.id);
                 for slot in &pane.tabs {
-                    let (Some(tab), Some(content)) = (
-                        indexes.tab_ids.get(slot).cloned(),
-                        indexes.content_ids.get(slot).cloned(),
-                    ) else {
+                    // The topology's record, else the live surface's identity
+                    // (`State::tab_identity_of`): a lost record is repaired,
+                    // not left to fail every later mutation (cx-95uaf).
+                    let identity = match (indexes.tab_ids.get(slot), indexes.content_ids.get(slot))
+                    {
+                        (Some(tab), Some(content)) => Some((tab.clone(), content.clone())),
+                        _ => state.surfaces.get(slot).and_then(|surface| {
+                            let identity = surface.resource_identity()?;
+                            Some((identity.tab_id.clone(), identity.content_id.clone()))
+                        }),
+                    };
+                    let Some((tab, content)) = identity else {
                         state.resource_indexes = indexes;
                         anyhow::bail!("tab slot {slot} has no durable identity");
                     };
+                    indexes.tab_ids.insert(*slot, tab.clone());
+                    indexes.content_ids.insert(*slot, content.clone());
                     indexes.tabs.insert(tab, *slot);
                     let placements = indexes.content_placements.entry(content).or_default();
                     if !placements.contains(slot) {
@@ -359,24 +370,6 @@ fn reindex_scope(state: &mut State, scope: &HashSet<WorkspacePublicId>) -> anyho
     }
     state.resource_indexes = indexes;
     split_ids::mint_split_public_ids(state, splits)
-}
-
-/// A published value without the fields that a live surface changes on its
-/// own threads (output revision, title, size, directory, status): two walks
-/// a moment apart may read different ones.
-fn stable_value(change: &Value) -> Value {
-    let mut value = change["value"].clone();
-    let volatile: &[&str] = match change["resource"].as_str() {
-        Some("terminal") => &["stream_revision", "title", "cols", "rows", "cwd", "extra"],
-        Some("browser") => &["title", "loading", "status", "error", "frames_stalled", "size"],
-        _ => &[],
-    };
-    if let Some(fields) = value.as_object_mut() {
-        for field in volatile {
-            fields.remove(*field);
-        }
-    }
-    value
 }
 
 fn scope_list(scope: &HashSet<WorkspacePublicId>) -> Vec<WorkspacePublicId> {
@@ -409,70 +402,4 @@ fn terminal_tab_ids(state: &State, id: &TerminalPublicId) -> anyhow::Result<Vec<
         tabs.push((id.clone(), pane.public_id.clone(), position, tab.clone()));
     }
     Ok(terminal_tab_ids_in_canonical_order(tabs).remove(id).unwrap_or_default())
-}
-
-/// `None` when `scoped` commits what `full` would (the same rows after
-/// unchanged-row pruning, the same public values for what it restates, and
-/// the same deletes); otherwise the first difference.
-fn projection_difference(
-    registry: &WorkspaceRegistry,
-    scoped: &ResourceEffectProjection,
-    full: &ResourceEffectProjection,
-) -> anyhow::Result<Option<String>> {
-    use crate::workspace_registry::resource_store::prune_unchanged_resource_changes;
-    let db = registry.connection.get();
-    let transaction = db.unchecked_transaction()?;
-    let scoped_rows = prune_unchanged_resource_changes(&transaction, &scoped.patch)?.changes;
-    let full_rows = prune_unchanged_resource_changes(&transaction, &full.patch)?.changes;
-    drop(transaction);
-    if let Some(change) = scoped_rows.iter().find(|change| !full_rows.contains(change)) {
-        return Ok(Some(format!("only the scoped projection writes {change:?}")));
-    }
-    if let Some(change) = full_rows.iter().find(|change| !scoped_rows.contains(change)) {
-        return Ok(Some(format!("only the full projection writes {change:?}")));
-    }
-    let key = |change: &Value| {
-        (
-            change["kind"].as_str().unwrap_or_default().to_string(),
-            change["resource"].as_str().unwrap_or_default().to_string(),
-            change["id"].as_str().unwrap_or_default().to_string(),
-        )
-    };
-    let empty = Vec::new();
-    let full_changes = full.changes.as_array().unwrap_or(&empty);
-    let scoped_changes = scoped.changes.as_array().unwrap_or(&empty);
-    let full_values = full_changes
-        .iter()
-        .map(|change| (key(change), stable_value(change)))
-        .collect::<HashMap<_, _>>();
-    let scoped_values = scoped_changes
-        .iter()
-        .map(|change| (key(change), stable_value(change)))
-        .collect::<HashMap<_, _>>();
-    for (change_key, value) in &scoped_values {
-        if full_values.get(change_key) != Some(value) {
-            return Ok(Some(format!(
-                "the full projection does not publish {change_key:?} {value}"
-            )));
-        }
-    }
-    for (change_key, value) in &full_values {
-        if scoped_values.contains_key(change_key) {
-            continue;
-        }
-        let (kind, resource, id) = change_key;
-        if kind == "delete" {
-            return Ok(Some(format!("the scoped projection omits the delete of {resource} {id}")));
-        }
-        // An upsert the scoped walk left out must be one the journal states
-        // already (when the fold can tell).
-        if let Some(stated) = registry.stated_topology_value(resource, id) {
-            let stated =
-                stated.map(|value| stable_value(&json!({"resource":resource,"value":value})));
-            if stated.as_ref() != Some(value) {
-                return Ok(Some(format!("the scoped projection omits a changed {resource} {id}")));
-            }
-        }
-    }
-    Ok(None)
 }

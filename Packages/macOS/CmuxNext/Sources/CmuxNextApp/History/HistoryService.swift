@@ -1,5 +1,7 @@
 import CmuxNextBrowser
+import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextSettings
 import Foundation
 
 /// The read-side merge of every history owner (plans/cmux-next/history.md
@@ -8,14 +10,17 @@ import Foundation
 /// `history.list`. Owns the per-profile visit logs; never a second copy of
 /// a fact another owner keeps.
 final class HistoryService {
-    private unowned let services: AppServices
+    unowned let services: AppServices
     /// `<Application Support>/<bundle id>`, set at launch; nil keeps page
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
+    private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
     let hidden: HiddenHistoryStore
     let agents: AgentHistory
     let commands: CommandHistory
+    let closedRetention: ClosedHistoryRetention
     /// Tabs this process made a page for (a later page for the same tab is
     /// a reload, not a visit).
     var installedPageKeys: Set<String> = []
@@ -26,7 +31,8 @@ final class HistoryService {
         self.services = services
         hidden = HiddenHistoryStore(services: services)
         agents = AgentHistory(services: services, hidden: hidden)
-        commands = CommandHistory(services: services, hidden: hidden)
+        commands = CommandHistory(services: services)
+        closedRetention = ClosedHistoryRetention(services: services)
     }
 
     /// Launch: page history becomes durable in `supportDirectory`.
@@ -37,8 +43,16 @@ final class HistoryService {
         for (profile, entry) in cache.profileHistories { attach(entry.history, profile: profile) }
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
-        // Closed workspaces are seen only from now on: start watching.
-        _ = services.closedWorkspaces
+        adoptDaemonHistoryOnFirstConnection()
+        // Folders of closed workspaces deleted while the app was not running (the CLI, another app).
+        DaemonClosedHistory.emptyAgentHomeTrash()
+    }
+
+    /// Launch: keeps each daemon's command recording and closed-history
+    /// retention in step with the settings.
+    func startDaemonSync(settings: SettingsController) {
+        commands.start(settings: settings)
+        closedRetention.start(settings: settings)
     }
 
     // MARK: Pages
@@ -47,7 +61,16 @@ final class HistoryService {
     /// from the profile's log.
     func attach(_ history: InMemoryBrowserHistory, profile: BrowserProfileID) {
         let sink = sink(for: profile)
-        history.persistence = sink
+        let route = routes[profile] ?? RoutingVisitSink(local: sink, profile: BrowserProfileRecord.wireID(for: profile)) { [weak self] in
+            self?.daemonHistory
+        }
+        routes[profile] = route
+        route.onRemove = { [weak self, wire = BrowserProfileRecord.wireID(for: profile)] url in
+            guard let sync = self?.services.onboarding.historySync else { return }
+            Task { await sync.forgetPage(url, profile: wire) }  // task-owner: imported pages too
+        }
+        history.persistence = route
+        if let daemon = daemonHistory { return seedFromDaemon(history, profile: profile, daemon) }
         let log = sink.log
         // task-owner: one-shot launch read of the profile's visit log
         Task { [weak history] in
@@ -70,6 +93,12 @@ final class HistoryService {
         return sink
     }
 
+    /// Drains writes routed to the app-local log before daemon handoff.
+    func flushLocalHistory(profile: BrowserProfileID) async -> Bool {
+        guard let sink = sinks[profile] else { return true }
+        return await sink.flush()
+    }
+
     /// Every profile's log: the default one first.
     private var profileLogs: [(profile: String, log: BrowserVisitLog)] {
         var profiles: [BrowserProfileID] = [.default]
@@ -81,6 +110,7 @@ final class HistoryService {
 
     /// Every entry matching `query`, newest first.
     func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
+        if let daemon = daemonHistory { return await daemonEntries(query, daemon) }
         let wants = { (kind: HistoryEntry.Kind) in query.kinds.isEmpty || query.kinds.contains(kind) }
         var all: [HistoryEntry] = []
         if wants(.location) { all += locationEntries() }
@@ -109,7 +139,8 @@ final class HistoryService {
 
     /// The entry with `id` among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
-        await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
+        if let daemon = daemonHistory { return await daemonEntry(id: id, daemon) }
+        return await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
     }
 
     func locationEntries() -> [HistoryEntry] {
@@ -123,65 +154,63 @@ final class HistoryService {
         }
     }
 
+    /// Closed tabs, screens and workspaces, as the daemons record them
+    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
+    /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
     func closedEntries() -> [HistoryEntry] {
-        closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries() + daemonClosedEntries()
-    }
-
-    /// Closed tabs, screens and workspaces a daemon records
-    /// (`closed-history-v1`); the app's own trackers skip those daemons.
-    private func daemonClosedEntries() -> [HistoryEntry] {
-        DaemonClosedHistory.entries([.tab, .screen, .workspace], in: services).map { entry in
-            let item = entry.item, tab = item.tabs.first
+        let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
+        return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
+            let item = entry.item, tab = Self.shownTab(item)
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
             case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
             case .screen: .screen
-            case .workspace: .workspace
+            // A closed window lists as its workspace (it reopens with the workspaces it kept).
+            case .workspace, .window: .workspace
             }
-            let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-                ?? item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+            let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
-                                                    machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.url)
+                                                    machine: entry.daemon.machineID, cwd: tab?.cwd,
+                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil)
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
-                                detail: tab?.url ?? tab?.cwd, machineName: local ? nil : entry.daemon.machineID,
+                                detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
         }
     }
 
-    private func closedScreenEntries() -> [HistoryEntry] {
-        services.closedScreens.records.map { record in
-            let title = record.spec.name.flatMap { $0.isEmpty ? nil : $0 } ?? HistoryAppStrings.screenTitle(record.index + 1)
-            let item = ClosedItem(id: record.id, kind: .screen, title: title, machine: "", workspace: record.workspaceTitle,
-                                  cwd: record.cwd)
-            return HistoryEntry(id: "closed:screen:\(record.id)", kind: .closed, time: record.closedAt, title: title,
-                                detail: record.workspaceTitle, isAvailable: services.workspace(id: record.workspaceID) != nil,
-                                payload: .closed(item))
-        }
+    /// Whether reopening `item` gives something back (Leo 2026-10-11: Recently Closed was full of
+    /// "workspace-35 about:blank" rows). A group or a window always does; a tab, screen or
+    /// workspace only with a tab that is not ``isBlank(_:)``.
+    static func isWorthReopening(_ item: CmuxNextDaemon.ClosedItem) -> Bool {
+        item.group != nil || item.kind == .window || item.tabs.contains { !isBlank($0) }
     }
 
-    private func closedWorkspaceEntries() -> [HistoryEntry] {
-        services.closedWorkspaces.records.map { record in
-            let item = ClosedItem(id: record.id, kind: .workspace, title: record.name, machine: record.machine, cwd: record.cwd)
-            let local = record.machine == MachineRegistry.localID
-            return HistoryEntry(id: "closed:workspace:\(record.id)", kind: .closed, time: record.closedAt, title: record.name,
-                                detail: record.cwd, machineName: local ? nil : record.machine,
-                                isAvailable: services.machines.daemons.contains { $0.machineID == record.machine }, payload: .closed(item))
-        }
+    /// An untouched New Tab page or a browser on `about:blank`, as the daemon marks it (`empty`).
+    /// A closed chat with no title yet or a remote terminal looks the same otherwise, and reopens.
+    static func isBlank(_ tab: CmuxNextDaemon.ClosedItem.Tab) -> Bool { tab.empty }
+
+    /// A closed name or address worth showing: a chat or New Tab page is kept as a browser tab on
+    /// `about:blank` (a tab item carries that as its name too), never a name or an address.
+    static func realText(_ text: String?) -> String? {
+        text.flatMap { $0.isEmpty || $0 == "about:blank" ? nil : $0 }
     }
 
-    private func closedTabEntries() -> [HistoryEntry] {
-        guard let closed = services.closedTabs else { return [] }
-        return closed.records.map { record in
-            let split = ClosedTabTracker.split(record.tabID)
-            let item = ClosedItem(id: record.tabID, kind: record.kind == .browser ? .browserTab : .terminalTab,
-                                  title: record.title ?? record.url ?? record.cwd ?? Strings.untitledTerminal,
-                                  machine: split?.machine ?? "", workspace: ClosedTabTracker.split(record.workspaceID)?.id,
-                                  cwd: record.cwd, url: record.url)
-            return HistoryEntry(id: "closed:\(record.tabID)", kind: .closed, time: record.closedAt ?? Date(), title: item.title,
-                                detail: record.url ?? record.cwd,
-                                machineName: split?.machine == MachineRegistry.localID ? nil : split?.machine, payload: .closed(item))
-        }
+    /// The tab an item is named by: its first real one, past any New Tab page beside it.
+    static func shownTab(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextDaemon.ClosedItem.Tab? {
+        item.tabs.first { !isBlank($0) } ?? item.tabs.first
+    }
+
+    /// A daemon closed item's title and detail line. A page tab (a diff,
+    /// Settings) is named by its page and has no address to show: its
+    /// `url` is the `about:blank` placeholder (cx-h7y9).
+    static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
+        let tab = shownTab(item)
+        let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
+        let url = realText(tab?.url)
+        let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
+            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? url ?? tab?.cwd ?? Strings.untitledTerminal
+        return (title, page == nil ? url ?? tab?.cwd : nil)
     }
 
     // MARK: Clearing
@@ -190,6 +219,23 @@ final class HistoryService {
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
+        if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
+        if daemonHistory != nil {
+            // The daemon removes page visits and trail entries and hides agents; terminal commands
+            // are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
+            let appOwned: Set<HistoryEntry.Kind> = [.command]
+            let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
+            if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
+            if wants(.command) { commands.delete(since: since) }
+            if wants(.page) {
+                for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
+                    services.cache.history(for: profile).forget(since: since)
+                }
+            }
+            if wants(.location) { services.locationTrail.clear(since: since) }
+            onChange?()
+            return
+        }
         if wants(.page) {
             for (profile, _) in profileLogs {
                 guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
@@ -198,19 +244,23 @@ final class HistoryService {
             }
         }
         if wants(.location) { services.locationTrail.clear(since: since) }
-        if wants(.closed) {
-            services.closedTabs?.clear(since: since)
-            services.closedScreens.clear(since: since)
-            services.closedWorkspaces.clear(since: since)
-        }
+        if wants(.closed) { DaemonClosedHistory.clear(since: since, services: services) }
         if wants(.agent) { agents.hide(since: since) }
-        if wants(.command) { commands.hide(since: since) }
+        if wants(.command) { commands.delete(since: since) }
         onChange?()
     }
 
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
         let since = range.start(now: Date())
+        Task { [sync = services.onboarding.historySync, wire = BrowserProfileRecord.wireID(for: profile)] in await sync.forget(profile: wire, since: since) }  // task-owner: imported pages too
+        if daemonHistory != nil {
+            let wireID = BrowserProfileRecord.wireID(for: profile)
+            daemonMutation { try await $0.clear(kinds: [.page], range: range, profile: wireID) }
+            services.cache.history(for: profile).forget(since: since)
+            onChange?()
+            return
+        }
         sink(for: profile).clear(since: since)
         services.cache.history(for: profile).forget(since: since)
         onChange?()
@@ -218,6 +268,16 @@ final class HistoryService {
 
     /// Removes one entry (the page's Remove from History).
     func remove(_ entry: HistoryEntry) {
+        // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
+        // it serves history-v1) removes every visit of it.
+        if daemonHistory != nil, entry.kind != .page, entry.kind != .command {
+            let id = entry.id
+            daemonMutation { try await $0.remove(ids: [id]) }
+            // The daemon removes every trail entry of the place; so do the app's Back/Forward steps.
+            if case .location(let location, _) = entry.payload { services.locationTrail.remove(location.key) }
+            onChange?()
+            return
+        }
         switch entry.payload {
         case .page(let url, let profile):
             let engine = BrowserProfileRecord.engineProfile(for: profile) ?? .default
@@ -225,34 +285,45 @@ final class HistoryService {
         case .location(let location, _):
             services.locationTrail.remove(location.key)
         case .closed(let item):
-            // The daemon owns its closed history; the entry ages out there.
-            guard DaemonClosedHistory.daemonID(fromHistoryID: item.id) == nil else { break }
-            switch item.kind {
-            case .terminalTab, .browserTab: _ = services.closedTabs?.take(item.id)
-            case .screen: _ = services.closedScreens.take(id: item.id)
-            case .workspace: services.closedWorkspaces.discard(item.id)
-            }
+            // Delete Permanently on the daemon that owns it.
+            guard let id = DaemonClosedHistory.daemonID(fromHistoryID: item.id),
+                  let entry = DaemonClosedHistory.entry(id, in: services) else { break }
+            DaemonClosedHistory.delete(entry, services: services)
         case .agent(let session):
             agents.hide(session)
         case .command(let command):
-            commands.hide(command)
+            commands.delete(command)
         }
         onChange?()
     }
 
     /// Removes every page visit of `host` in every profile.
     func removePages(host: String) {
+        Task { [sync = services.onboarding.historySync] in await sync.forgetSite(host: host) }  // task-owner: imported pages too
+        if daemonHistory != nil {
+            // One site removal on the daemon (one backup); memory forgets without persistence.
+            daemonMutation { try await $0.removeSite(host: host, profile: nil) }
+            for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
+                services.cache.history(for: profile).forget(host: host)
+            }
+            onChange?()
+            return
+        }
         for (profile, _) in profileLogs {
             guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
+            // One removal in the log; memory forgets without persistence (not a Remove from History per page).
             sink(for: engine).remove(host: host)
-            let memory = services.cache.history(for: engine)
-            for entry in memory.entries where entry.url.host()?.lowercased() == host.lowercased() { memory.removeEntry(for: entry.url) }
+            services.cache.history(for: engine).forget(host: host)
         }
         onChange?()
     }
 
-    /// A deleted browser profile: its log file goes too.
+    /// A deleted browser profile: its page history goes too, on the daemon and in the app-local log.
     func forget(profile: BrowserProfileID) {
+        if daemonHistory != nil {
+            let wireID = BrowserProfileRecord.wireID(for: profile)
+            daemonMutation { try await $0.clear(kinds: [.page], range: .all, profile: wireID) }
+        }
         sinks[profile]?.clear(since: nil)
         sinks[profile] = nil
     }

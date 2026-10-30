@@ -38,6 +38,31 @@ impl Mux {
         favicon_url: Option<Option<String>>,
         owner: Option<String>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
+        self.update_frontend_browser_tab_with_owner_and_profile_as(
+            actor,
+            surface,
+            url,
+            title,
+            favicon_url,
+            None,
+            owner,
+        )
+    }
+
+    /// Record a frontend-rendered browser's location, optional hosting app
+    /// owner, and browser profile assignment. A profile is addressed by its
+    /// stable id or exact display name and `Some(None)` clears it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_frontend_browser_tab_with_owner_and_profile_as(
+        &self,
+        actor: &Actor,
+        surface: SurfaceId,
+        url: Option<String>,
+        title: Option<String>,
+        favicon_url: Option<Option<String>>,
+        profile_id: Option<Option<String>>,
+        owner: Option<String>,
+    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
         let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
@@ -47,6 +72,7 @@ impl Mux {
         if let Some(owner) = &owner {
             crate::state::window_record_store::validate_key("owner", owner)?;
         }
+        let previous_url = runtime.browser_url();
         let (mut record, mut changed) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let result = registry.update_frontend_browser(
@@ -54,6 +80,7 @@ impl Mux {
                 url.as_deref(),
                 title.as_deref(),
                 favicon_url.as_ref().map(Option::as_deref),
+                profile_id.as_ref().map(|value| value.as_deref()),
             )?;
             if result.1 {
                 self.reload_presentation(&registry)?;
@@ -71,6 +98,8 @@ impl Mux {
             record.owner = Some(owner);
             changed = true;
         }
+        // tab-attention-v1: the page the agent asked the person to act on is gone.
+        let navigated_to = url.clone().filter(|url| previous_url.as_ref() != Some(url));
         if changed {
             if let Some(browser) = runtime.as_browser() {
                 browser.set_frontend_location(url, title.clone());
@@ -80,6 +109,9 @@ impl Mux {
                 self.emit(MuxEvent::TitleChanged { surface, title: Arc::from(title) });
             }
             self.emit_tab_changed(surface);
+        }
+        if let Some(page) = &navigated_to {
+            self.clear_attention_after_navigation(actor, surface, page);
         }
         Ok((record, changed))
     }

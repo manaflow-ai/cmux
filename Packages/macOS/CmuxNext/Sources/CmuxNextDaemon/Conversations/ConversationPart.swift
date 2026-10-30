@@ -24,6 +24,8 @@ public enum ConversationPart: Codable, Sendable, Hashable {
     case work(session: String, host: String?, status: String, preview: String?)
     /// A file stored by SHA-256 (`local-attachments-v1`).
     case attachment(ConversationAttachment)
+    /// A link with the preview its sender fetched.
+    case linkPreview(ConversationLinkPreview)
     case unknown(type: String, payload: JSONValue)
 
     enum CodingKeys: String, CodingKey {
@@ -44,6 +46,8 @@ public enum ConversationPart: Codable, Sendable, Hashable {
                          preview: try container.decodeIfPresent(String.self, forKey: .preview))
         case "attachment":
             self = .attachment(try ConversationAttachment(from: decoder))
+        case "link_preview":
+            self = .linkPreview(try ConversationLinkPreview(from: decoder))
         default:
             self = .unknown(type: type, payload: try JSONValue(from: decoder))
         }
@@ -67,6 +71,10 @@ public enum ConversationPart: Codable, Sendable, Hashable {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode("attachment", forKey: .type)
             try attachment.encode(to: encoder)
+        case .linkPreview(let link):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode("link_preview", forKey: .type)
+            try link.encode(to: encoder)
         case .unknown(_, let payload):
             try payload.encode(to: encoder)
         }
@@ -78,7 +86,11 @@ public enum ConversationPart: Codable, Sendable, Hashable {
         case .text(let text, _): text
         case .work(let session, _, let status, let preview): preview ?? "\(session) \(status)"
         case .attachment(let attachment): attachment.name
-        case .unknown(let type, _): type
+        case .linkPreview(let link): link.title ?? link.url
+        // A part type this build does not know: its link when it carries one
+        // (a newer part with a `url`, like `link_preview` before it), else its type.
+        case .unknown(let type, let payload):
+            if case .object(let fields) = payload, case .string(let url)? = fields["url"], !url.isEmpty { url } else { type }
         }
     }
 }

@@ -18,7 +18,7 @@
 //! and starts new ones in the saved directory otherwise.
 
 use super::tab_drag::{TabDragDestination, TabDragIds, apply_tab_drag};
-use super::tab_strip::{StripRequest, StripResult};
+use super::tab_strip::{StripRequest, StripResult, group_archive};
 use super::*;
 use crate::workspace_registry::{
     DEFAULT_PROFILE_ID, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember, TabGroupRecord,
@@ -205,13 +205,13 @@ impl Mux {
         output.context("tab group change committed no result")
     }
 
-    fn emit_tab_group_members(&self, members: &[SurfaceId], transaction: Option<&str>) {
+    pub(super) fn emit_tab_group_members(&self, members: &[SurfaceId], transaction: Option<&str>) {
         for surface in members {
             self.emit_tab_changed_for_transaction(*surface, transaction.map(Arc::from));
         }
     }
 
-    fn tab_group_outcome(&self, group: &str) -> TabGroupOutcome {
+    pub(crate) fn tab_group_outcome(&self, group: &str) -> TabGroupOutcome {
         let presentation = self.presentation_snapshot();
         self.with_state(|state| {
             let record = presentation.tab_groups.groups.get(group).cloned();
@@ -245,6 +245,7 @@ impl Mux {
             name,
             color,
             id.clone(),
+            None,
         )?;
         let outcome = self.tab_group_outcome(&id);
         self.emit_tab_group_members(&outcome.members, transaction);
@@ -252,7 +253,8 @@ impl Mux {
     }
 
     /// The shared body of raw `create-tab-group` and v2 `tab_group.create`.
-    /// `tabs` resolves the members against the locked state.
+    /// `tabs` resolves the members against the locked state. `icon` is the
+    /// group's icon (a closed record's reopen forms the group with it).
     pub(crate) fn tab_group_create(
         self: &Arc<Self>,
         request: StripRequest,
@@ -260,12 +262,16 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
         id: String,
+        icon: Option<String>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let name = name.unwrap_or_default();
         let color = color.unwrap_or_else(|| "grey".to_string());
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
         validate_workspace_group_id(&id)?;
+        if let Some(icon) = &icon {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
+        }
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
                 anyhow::ensure!(
@@ -308,6 +314,7 @@ impl Mux {
                         color,
                         collapsed: false,
                         saved_id: None,
+                        icon,
                     },
                 );
                 for surface in &members {
@@ -319,7 +326,9 @@ impl Mux {
         Ok(commit)
     }
 
-    /// Rename, recolor, or collapse a group. A linked saved group follows.
+    /// Rename, recolor, collapse, or set or clear the icon of a group
+    /// (`icon`: `None` keeps it, `Some(None)` clears it). A linked saved
+    /// group follows.
     pub fn update_tab_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -327,6 +336,7 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
+        icon: Option<Option<String>>,
     ) -> anyhow::Result<TabGroupOutcome> {
         self.tab_group_update(
             StripRequest::local(actor, "tab.group.update"),
@@ -334,6 +344,7 @@ impl Mux {
             name,
             color,
             collapsed,
+            icon,
         )?;
         Ok(self.tab_group_outcome(group))
     }
@@ -345,12 +356,18 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
+        icon: Option<Option<String>>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         if let Some(name) = &name {
             validate_tab_group_name(name)?;
         }
         if let Some(color) = &color {
             validate_tab_group_color(color)?;
+        }
+        // The shared icon string; an asset must be stored (checked again in
+        // the writing transaction, so no sweep runs in between).
+        if let Some(Some(icon)) = &icon {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
         }
         let group_id = group.to_string();
         let (_, commit) =
@@ -367,6 +384,9 @@ impl Mux {
                 }
                 if let Some(collapsed) = collapsed {
                     record.collapsed = collapsed;
+                }
+                if let Some(icon) = icon {
+                    record.icon = icon;
                 }
                 edit.saved = mux.saved_record_for(state, &edit.groups, &group_id);
                 edit.result = StripResult::Group(group_id);
@@ -570,7 +590,13 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Split { pane, edge, ratio },
+                            TabDragDestination::Split {
+                                pane,
+                                edge,
+                                ratio,
+                                keep_focus: false,
+                                around: None,
+                            },
                             &ids,
                             false,
                         )?;
@@ -588,7 +614,13 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Column { pane, after_column, width, dock: None },
+                            TabDragDestination::Column {
+                                pane,
+                                after_column,
+                                width,
+                                dock: None,
+                                keep_focus: false,
+                            },
                             &ids,
                             false,
                         )?;
@@ -619,7 +651,9 @@ impl Mux {
                             id: workspace_id,
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
-                            name: Mux::default_workspace_name(state),
+                            name: mux.default_workspace_name(state),
+                            name_source: crate::resource_name::NameSource::Auto,
+                            name_revision: 0,
                             screens: vec![Screen {
                                 id: screen_id,
                                 public_id: ScreenPublicId::random()?,
@@ -680,15 +714,17 @@ impl Mux {
         let group_id = group.to_string();
         let (_, commit) = self.commit_tab_strip_change(request, None, move |_, state, edit| {
             let members = group_members(state, &edit.groups, &group_id);
-            anyhow::ensure!(
-                edit.groups.groups.remove(&group_id).is_some(),
-                crate::state::commit::state_not_found("tab_group", &group_id)
-            );
+            let record = edit
+                .groups
+                .groups
+                .remove(&group_id)
+                .ok_or_else(|| crate::state::commit::state_not_found("tab_group", &group_id))?;
             edit.groups.members.retain(|_, member| member != &group_id);
             let tabs = members
                 .iter()
                 .map(|surface| tab_public_id(state, *surface))
                 .collect::<anyhow::Result<Vec<_>>>()?;
+            edit.ungrouped = Some(group_archive(state, &group_id, &record, &tabs));
             edit.result = StripResult::Release { group: group_id, tabs };
             Ok(())
         })?;
@@ -793,7 +829,8 @@ impl Mux {
         Ok(commit)
     }
 
-    /// Add a new view of a running terminal to `pane` (its last tab).
+    /// Add a new view of a running terminal to `pane`: its last tab, or at
+    /// the strip index of a [`super::tab_strip::tab_slot::scoped`] creation in `pane`.
     pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
         actor: &Actor,
@@ -812,8 +849,15 @@ impl Mux {
             terminal: Some(public.as_str().to_string()),
             ..Self::ordinary_resource_selectors()
         };
-        let index =
-            self.with_state(|state| state.panes.get(&pane).map_or(0, |record| record.tabs.len()));
+        // Peeked, and taken only once the view exists: a failed reattach
+        // leaves it to the new terminal `reopen_tab_record` falls back to.
+        let requested = tab_strip::tab_slot::peek_for(pane);
+        let index = self.with_state(|state| {
+            tab_strip::tab_slot::slot(
+                requested,
+                state.panes.get(&pane).map_or(0, |record| record.tabs.len()),
+            )
+        });
         self.resource_project_terminal_selected(
             selectors,
             destination,
@@ -822,6 +866,7 @@ impl Mux {
             None,
             &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
         )?;
+        tab_strip::tab_slot::take_for(pane);
         self.with_state(|state| {
             state.panes.get(&pane).and_then(|record| record.tabs.get(index).copied())
         })
@@ -877,6 +922,7 @@ impl Mux {
             color: record.color.clone(),
             members,
             updated_at_ms: now_ms(),
+            icon: record.icon.clone(),
         })
     }
 

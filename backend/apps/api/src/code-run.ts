@@ -5,6 +5,7 @@ import type { AutomationEgressProps } from "./automation-egress.ts"
 import { CmuxCaps } from "./automation-caps.ts"
 import { CodeStorage, teamRepoName } from "./code-storage.ts"
 import type { Env } from "./env.ts"
+import { userLimitMicros } from "./usage-user.ts"
 import type { RecordResult } from "./usage-meter-do.ts"
 
 /**
@@ -44,6 +45,10 @@ export interface CodeRunInput {
   /** The code body's egress allowlist; empty = no network. */
   readonly egress?: ReadonlyArray<string>
   readonly input: unknown
+  /** The member this run's cost counts against (the automation's owner, or UNATTRIBUTED_USER; cx-ds09i). */
+  readonly user: string
+  /** That member's monthly AI limit in micro-dollars, read once at the run's start (runCode). */
+  readonly limitMicros?: number
 }
 
 /** A refusal the run reports as its final error (only the harness sets these codes, never tenant code). */
@@ -65,8 +70,11 @@ export const testBundles = new Map<string, string>()
 
 const meterOf = (env: Env, team: string) => env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
 
-const record = async (env: Env, team: string, records: ReadonlyArray<UsageRecord>): Promise<RecordResult> =>
-  (await meterOf(env, team).record(team, records)) as unknown as RecordResult
+const record = async (env: Env, team: string, records: ReadonlyArray<UsageRecord>, limit?: { user: string; limitMicros: number }): Promise<RecordResult> =>
+  (await meterOf(env, team).record(team, records, limit)) as unknown as RecordResult
+
+/** The run's member limit for the meter (records name the member; the meter answers user_allowed). */
+const memberLimit = (run: CodeRunInput) => (run.limitMicros === undefined ? undefined : { user: run.user, limitMicros: run.limitMicros })
 
 /**
  * The loader id: one Dynamic Worker per (environment, team, automation, commit, path, egress list). Code
@@ -218,9 +226,11 @@ export class WrappedStep extends RpcTarget {
     const hash = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")
     let r: RecordResult
     try {
+      // The member's limit is read again at every step boundary, so a removed, demoted or lowered member stops at the next step (review P3).
+      const limitUsd = await this.#env.TEAM_DO.get(this.#env.TEAM_DO.idFromName(this.#run.team)).aiUserLimit(this.#run.team, this.#run.user)
       r = await record(this.#env, this.#run.team, [
-        { key: `step:${this.#run.run}:${kind}:${hash}#${n}`, meter: "automation.steps", quantity: 1, source: "step", observed_at: Date.now(), run: this.#run.run, automation: this.#run.automation, step: name, commit: this.#run.ref.commit }
-      ])
+        { key: `step:${this.#run.run}:${kind}:${hash}#${n}`, meter: "automation.steps", quantity: 1, source: "step", observed_at: Date.now(), run: this.#run.run, automation: this.#run.automation, step: name, commit: this.#run.ref.commit, user: this.#run.user }
+      ], { user: this.#run.user, limitMicros: userLimitMicros(limitUsd) })
     } catch (e) {
       const message = `usage meter unavailable: ${e instanceof Error ? e.message : String(e)}`
       if (inStep) throw new Error(message)
@@ -228,6 +238,7 @@ export class WrappedStep extends RpcTarget {
     }
     if (r!.invalid > 0 || r!.too_large) this.#stop("meter.invalid", "the usage ledger refused this step's record")
     if (!r!.allowed) this.#stop("budget.cap_reached", `the team's automation spending cap is reached (${r!.summary.stopped})`)
+    if (r!.user_allowed === false) this.#stop("user_limit.reached", "the automation owner reached their monthly AI spending limit for this team")
   }
 
   async do(name: string, a: unknown, b?: unknown): Promise<unknown> {
@@ -302,8 +313,11 @@ interface HarnessEntrypoint {
  * re-entry cheap. Throws CodeRunError for refusals the run reports as failed;
  * the harness's own stop reason wins over anything tenant code throws or returns.
  */
-export const runCode = async (env: Env, step: WorkflowStep, run: CodeRunInput, startedAt: Date): Promise<unknown> => {
+export const runCode = async (env: Env, step: WorkflowStep, input: CodeRunInput, startedAt: Date): Promise<unknown> => {
   if (!env.LOADER) throw new CodeRunError("body.unsupported", "this deployment has no Worker Loader binding")
+  // The owner's monthly AI limit, read once in a durable step (TeamDO team.ai_limit.set, else the default).
+  const limitUsd = await step.do("cmux:user-limit", { retries: { limit: 5, delay: 1000, backoff: "exponential" } }, async () => env.TEAM_DO.get(env.TEAM_DO.idFromName(input.team)).aiUserLimit(input.team, input.user))
+  const run: CodeRunInput = { ...input, limitMicros: userLimitMicros(limitUsd) }
   const egress = run.egress ?? []
   const id = await loaderId(env, run.team, run.automation, run.ref, egress)
   // Gate and start record in one harness step: the engine retries a short meter outage.
@@ -311,17 +325,18 @@ export const runCode = async (env: Env, step: WorkflowStep, run: CodeRunInput, s
     const day = new Date().toISOString().slice(0, 10)
     const r = await record(env, run.team, [
       // Cloudflare bills a unique Dynamic Worker (id + code) per day; the ledger counts the same.
-      { key: `dw:${id}:${day}`, meter: "automation.dynamic_workers", quantity: 1, source: "scheduler", observed_at: Date.now(), automation: run.automation, commit: run.ref.commit }
-    ])
-    return r.allowed
+      { key: `dw:${id}:${day}`, meter: "automation.dynamic_workers", quantity: 1, source: "scheduler", observed_at: Date.now(), automation: run.automation, commit: run.ref.commit, user: run.user }
+    ], memberLimit(run))
+    return r.allowed ? (r.user_allowed === false ? "user_limit" : "ok") : "cap"
   })
-  if (!allowed) throw new CodeRunError("budget.cap_reached", "the team's automation spending cap is reached")
+  if (allowed === "cap") throw new CodeRunError("budget.cap_reached", "the team's automation spending cap is reached")
+  if (allowed === "user_limit") throw new CodeRunError("user_limit.reached", "the automation owner reached their monthly AI spending limit for this team")
   // The first load in this isolate fetches the bundle before the loader, so a missing or oversize
   // bundle fails as itself (an error thrown inside the loader's callback loses its code).
   const fetched = loaded.has(id) ? undefined : await loadBundle(env, run.team, run.ref)
   if (loaded.size >= MAX_LOADED_IDS) loaded.clear()
   loaded.add(id)
-  const props = { team: run.team, commit: run.ref.commit }
+  const props = { team: run.team, commit: run.ref.commit, user: run.user }
   const worker = env.LOADER.get(id, async () => ({
     compatibilityDate: TENANT_COMPATIBILITY_DATE,
     mainModule: "harness.js",

@@ -74,6 +74,15 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// An agent turn runs in one of the workspace's tabs (daemon agent
     /// state): the row's working indicator.
     public var agentWorking: Bool
+    /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
+    /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
+    public var agentChip: SidebarPriorityEntry.State?
+    /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
+    /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
+    public var agentStep: String?
+    /// The usage rules the workspace's agent chats on this Mac break (their acpmux lanes'
+    /// `usageWarnings`, one line each): the row's warning badge and its tooltip. Empty: no badge.
+    public var usageWarnings: [String] = []
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
@@ -89,14 +98,30 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
-    /// The brand id (CmuxAgentBrands) of an agent working or waiting in one of the
-    /// workspace's tabs; the row draws its mark per `SidebarAgentMarkVariant`.
+    /// The winning report is an OSC 7501 program status record: the program opted in to the
+    /// finer row icons (a shield for permission, each pending item), with
+    /// `sidebar.detailedStatusIcons` off (Lawrence msg 1351).
+    public var activityFromProgram = false
+    /// The brand id (CmuxAgentBrands) of an agent running in one of the workspace's
+    /// tabs, a working or waiting one first; the row draws its mark per `SidebarAgentMarkVariant`.
     public var agentBrand: String?
+    /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
+    public var agentIcon: SidebarAgentIcon?
+    /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
+    public var agentName: String?
+    /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
+    public var lastMessage: String?
+    /// The text of the newest unread notification in the workspace's tabs
+    /// (`WorkspaceRowElement.notification`); nil once they are read.
+    public var notificationText: String?
     /// Determinate or indeterminate bar under the row: the workspace's
     /// reported progress, else a terminal's OSC 9;4 progress.
     public var progress: SidebarProgress?
     /// Tabs in pane order, shown only when the sidebar tab setting is enabled.
     public var tabs: [SidebarTab]
+    /// The selected tab of the most recently focused pane (the tab the row stands for): the
+    /// second crumb of a `SidebarRowTitleMode.breadcrumb` name. Nil for a workspace with no tabs.
+    public var focusedTab: TabID?
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
@@ -113,6 +138,36 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
     /// own workspace replaces the row. Nil for every other row.
     public var stage: String?
+    /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
+    /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
+    public var isUnnamed = false
+    /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
+    /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
+    public var isArchived = false
+    /// Agents acting in the workspace's tabs right now, in a stable order
+    /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
+    public var presence: [SidebarPresence] = []
+    /// What agents and scripts reported (`cmux workspace status|log|progress`)
+    /// beyond the ports and pr entries: the row's status block. Nil when
+    /// nothing is reported.
+    public var reported: SidebarWorkspaceStatus?
+    /// The sound of the workspace's tabs: a speaker on the row while a tab
+    /// plays sound or is muted; a click on it mutes or unmutes them. Nil
+    /// while every tab is silent.
+    public var audio: SidebarWorkspaceAudio?
+    /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
+    public var checklist: [SidebarChecklistItem] = []
+    /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
+    public var detail = SidebarWorkspaceDetail()
+    /// The person's notes for the workspace (Edit Workspace Description…): its first line leads
+    /// the row's second line and the hover card shows it whole. Nil while unset.
+    public var workspaceDescription: String?
+    /// The task lane the person pinned (Mark as Done, Set Workspace Status): the hover card names
+    /// it and done-fold logic can use it. Nil while automatic.
+    public var taskStatus: SidebarTaskStatus?
+    /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
+    /// default (regular).
+    public var titleWeight: SidebarRowDecoration.Weight?
 
     public init(
         id: WorkspaceID,
@@ -134,6 +189,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         agentBrand: String? = nil,
+        agentIcon: SidebarAgentIcon? = nil,
+        agentName: String? = nil,
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live,
@@ -161,6 +218,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.agentBrand = agentBrand
+        self.agentIcon = agentIcon
+        self.agentName = agentName
         self.progress = progress
         self.tabs = tabs
         self.rowState = rowState

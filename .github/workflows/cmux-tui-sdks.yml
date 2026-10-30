@@ -30,11 +30,15 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_cmux_tui_headless_debug_workflow.py"
+      - ".github/workflows/cmux-tui-headless-debug.yml"
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
+      - "scripts/cmux-next/cmux-code-mode-runner"
+      - "tests/test_cmux_code_mode_mcp.py"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -62,11 +66,15 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_cmux_tui_headless_debug_workflow.py"
+      - ".github/workflows/cmux-tui-headless-debug.yml"
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
+      - "scripts/cmux-next/cmux-code-mode-runner"
+      - "tests/test_cmux_code_mode_mcp.py"
   workflow_dispatch:
 
 concurrency:
@@ -165,6 +173,10 @@ jobs:
       - name: Test SDK publishing workflow guards
         run: python3 tests/test_tui_publish_workflow_security.py -v
 
+      # The feat-cmux-next debug daemon is saved under conformance's key.
+      - name: Test the headless debug daemon producer
+        run: python3 tests/test_cmux_tui_headless_debug_workflow.py -v
+
       - name: Test public TUI installers
         run: python3 tests/test_tui_installers.py
 
@@ -194,7 +206,7 @@ jobs:
     name: ${{ matrix.language }} package
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -371,7 +383,7 @@ jobs:
     name: ${{ matrix.language }} consumer
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -530,7 +542,7 @@ jobs:
     name: Rust SDK MSRV (1.88)
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -564,7 +576,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -572,7 +584,10 @@ jobs:
           persist-credentials: false
 
       - name: Initialize Ghostty protocol submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        shell: bash
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -587,7 +602,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20.19.5"
+          node-version: "22.23.4"
           cache: npm
           cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
 
@@ -634,6 +649,19 @@ jobs:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
 
+      # The exact binary's key names the whole cmux-tui tree, so a PR that changes
+      # cmux-tui never hits it. Restore feat-cmux-next's target dir
+      # (cmux-tui-headless-debug.yml saves it) and rebuild only what changed. Read-only here.
+      - name: Cache the cmux-tui target dir
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-headless-debug
+          cache-workspace-crates: "true"
+          save-if: false
+
       - name: Build exact headless cmux-tui
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         working-directory: cmux-tui
@@ -641,7 +669,8 @@ jobs:
           test "$(zig version)" = "0.16.0"
           cargo build -p cmux-tui --bin cmux-tui --locked
 
-      # Pull request caches stay read-only; main publishes the build they reuse.
+      # Pull request caches stay read-only. main publishes the build they reuse,
+      # and cmux-tui-headless-debug.yml does on feat-cmux-next.
       - name: Save the headless cmux-tui build
         if: ${{ github.event_name == 'push' && steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -680,4 +709,39 @@ jobs:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
         run: |
           cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
-          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live -- --nocapture
+          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live --test session_deltas_live -- --nocapture
+
+  # The code-mode MCP (cmux-tui/bindings/typescript/code-mode/mcp.mjs) and the bwrap sandbox of
+  # scripts/cmux-next/cmux-code-mode-runner: a cancelled cmux_exec returns and leaves no process
+  # behind. No job ran this test (it had no registry entry, tests/test_pr_lane_coverage.py), and
+  # it skips without bun and bwrap, so this job installs both and the test fails on CI without them.
+  code-mode:
+    name: code-mode MCP cancellation
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
+      # namespace; bwrap needs one, so the runner VM lifts that restriction.
+      - name: Install bwrap
+        run: |
+          set -euo pipefail
+          if ! command -v bwrap >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y bubblewrap
+          fi
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --ro-bind / / true
+
+      - name: A cancelled cmux_exec returns and leaves no process behind
+        run: python3 tests/test_cmux_code_mode_mcp.py

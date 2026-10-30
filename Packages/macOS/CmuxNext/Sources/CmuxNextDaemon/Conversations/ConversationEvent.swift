@@ -51,3 +51,38 @@ public struct ConversationTyping: Decodable, Sendable, Hashable {
         self.on = on
     }
 }
+
+/// A `conversation-draft` event (`conversation-draft-events-v1`, ephemeral):
+/// the running reply of an agent participant, never stored. `fresh` text
+/// replaces the turn's draft, other text appends to it; `done` ends it.
+public struct ConversationDraft: Decodable, Sendable, Hashable {
+    public struct Item: Decodable, Sendable, Hashable {
+        public var turn: String
+        public var segment: UInt64
+        public var seq: UInt64
+        public var kind: String
+        public var text: String
+        public var fresh: Bool
+        public var done: Bool
+
+        public init(turn: String, segment: UInt64, seq: UInt64, kind: String, text: String, fresh: Bool, done: Bool) {
+            self.turn = turn
+            self.segment = segment
+            self.seq = seq
+            self.kind = kind
+            self.text = text
+            self.fresh = fresh
+            self.done = done
+        }
+    }
+
+    public var conversation: String
+    public var participant: String
+    public var item: Item
+
+    public init(conversation: String, participant: String, item: Item) {
+        self.conversation = conversation
+        self.participant = participant
+        self.item = item
+    }
+}

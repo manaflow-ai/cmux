@@ -17,14 +17,17 @@ extension UpdateSheetContent {
             let notes = available.releaseNotes.map { UpdateSheetButton.releaseNotes($0.url) }
             return UpdateSheetContent(symbol: "arrow.down.circle",
                                       title: version.isEmpty ? UpdaterStrings.availableNoVersion : UpdaterStrings.available(version),
-                                      detail: current, link: notes, buttons: [.later, .install])
+                                      detail: current, link: notes, buttons: [.later, .update])
         case .notFound:
             return UpdateSheetContent(symbol: "checkmark.circle", title: UpdaterStrings.upToDate,
                                       detail: UpdaterStrings.onChannel(identity.shortVersion, identity.build, UpdaterStrings.channel(identity.track)),
                                       buttons: [.done])
         case .error(let failure):
             let detail = (failure.error as NSError).localizedDescription
-            return UpdateSheetContent(symbol: "exclamationmark.triangle", title: UpdaterStrings.updateFailed, detail: detail, buttons: [.done, .retry])
+            // A failure the in-app installer cannot get past offers the channel's installer.
+            let manual = UpdateManualDownloadRecovery().url(for: failure.error, feedURLString: failure.feedURLString)
+            return UpdateSheetContent(symbol: "exclamationmark.triangle", title: UpdaterStrings.updateFailed, detail: detail,
+                                      buttons: [.done, .retry] + (manual.map { [.downloadManually($0)] } ?? []))
         case .startingDownload:
             return UpdateSheetContent(symbol: "arrow.down.circle", title: UpdaterStrings.startingDownload, progress: .indeterminate, buttons: [])
         case .downloading(let download):

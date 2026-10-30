@@ -5,7 +5,7 @@ import Foundation
 public struct CreateTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "create-tab-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
+    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     /// Tabs of one pane (wire `surfaces`).
     public var tabs: [SurfaceID]
     /// Caller-chosen id makes a retry idempotent; nil lets the daemon generate `tgrp_...`.
@@ -45,21 +45,25 @@ public struct CreateTabGroupRequest: DaemonRequest {
 
 /// Rename, recolor, or collapse/expand; absent fields are unchanged. A linked
 /// saved group follows. The daemon has no color clear: `.clear` sends
-/// `null`, which it treats as unchanged.
+/// `null`, which it treats as unchanged. `icon` (`tab-group-icon-v1`) is
+/// sent only when set; `.clear` sends `null`, which removes it.
 public struct UpdateTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "update-tab-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
+    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var name: String?
     public var color: FieldUpdate<String>
     public var collapsed: Bool?
+    public var icon: FieldUpdate<String>
 
-    public init(group: TabGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged, collapsed: Bool? = nil) {
+    public init(group: TabGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged, collapsed: Bool? = nil,
+                icon: FieldUpdate<String> = .unchanged) {
         self.group = group
         self.name = name
         self.color = color
         self.collapsed = collapsed
+        self.icon = icon
     }
 
     /// `update-tab-group` takes no transaction; `transaction` is ignored.
@@ -69,12 +73,13 @@ public struct UpdateTabGroupRequest: DaemonRequest {
         self.init(group: group, name: name, color: color, collapsed: collapsed)
     }
 
-    enum CodingKeys: String, CodingKey { case group, name, color, collapsed }
+    enum CodingKeys: String, CodingKey { case group, name, color, collapsed, icon }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(group, forKey: .group)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encode(color, forKey: .color)
         try c.encodeIfPresent(collapsed, forKey: .collapsed)
+        try c.encode(icon, forKey: .icon)
     }
 }

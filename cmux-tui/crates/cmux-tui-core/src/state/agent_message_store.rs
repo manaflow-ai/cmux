@@ -3,11 +3,19 @@
 //! registry, so a message outlives the daemon that accepted it; delivery
 //! paths (acpmux prompts, agent hooks) move the receipts forward.
 //!
-//! The tables are additive and carry no foreign keys: an older binary that
-//! opens the registry ignores them.
+//! The tables (agent_message_schema.rs) are additive and carry no foreign
+//! keys: an older binary that opens the registry ignores them. Who may send
+//! what, and where a delivery starts, is agent_message_policy.rs; held
+//! deliveries are released or expire in agent_message_release.rs.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
+
+use super::agent_message_policy::{
+    self as policy, CrossWorkspace, Start, check_limits, invalid, refused,
+};
+use super::agent_message_release::{expire_held, hold_deadline};
+use super::agent_message_schema::DELIVERY_STATES;
 
 /// Bytes of UTF-8 one body may hold.
 pub(crate) const MAX_BODY_BYTES: usize = 32 * 1024;
@@ -15,54 +23,18 @@ pub(crate) const MAX_BODY_BYTES: usize = 32 * 1024;
 pub(crate) const MAX_RECIPIENTS: usize = 64;
 /// Characters of a sender's display name.
 pub(crate) const MAX_SENDER_NAME_CHARS: usize = 64;
-/// Messages kept once every receipt has left `queued`. Messages with a
-/// queued receipt are never pruned.
+/// Messages kept once every receipt has left `queued` and `held`. Messages
+/// with a queued or held receipt are never pruned.
 const KEEP_SETTLED_MESSAGES: i64 = 2000;
-/// The sender of a message sent from a shell that is neither an agent's
-/// terminal nor an acpmux session.
+/// The sender of a message the person sends: a request with no verified
+/// agent identity (no terminal or ACP session launch credential).
 pub(crate) const CLI_SENDER: &str = "cli";
-
-const STATES: [&str; 4] = ["queued", "delivered", "acknowledged", "failed"];
-
-pub(super) fn create_agent_message_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS agent_messages (
-           message_id TEXT PRIMARY KEY NOT NULL,
-           sequence INTEGER NOT NULL UNIQUE,
-           thread_id TEXT NOT NULL,
-           kind TEXT NOT NULL CHECK(kind IN ('message','reply')),
-           sender TEXT NOT NULL,
-           sender_name TEXT,
-           body TEXT NOT NULL,
-           created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0),
-           in_reply_to TEXT,
-           references_json TEXT NOT NULL
-         );
-         CREATE INDEX IF NOT EXISTS agent_messages_thread
-           ON agent_messages(thread_id, sequence);
-         CREATE TABLE IF NOT EXISTS agent_message_deliveries (
-           message_id TEXT NOT NULL,
-           recipient TEXT NOT NULL,
-           position INTEGER NOT NULL CHECK(position >= 0),
-           state TEXT NOT NULL
-             CHECK(state IN ('queued','delivered','acknowledged','failed')),
-           attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
-           updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0),
-           via TEXT,
-           error TEXT,
-           PRIMARY KEY(message_id, recipient)
-         );
-         CREATE INDEX IF NOT EXISTS agent_message_deliveries_recipient
-           ON agent_message_deliveries(recipient, state);",
-    )?;
-    Ok(())
-}
 
 fn bad_request(message: impl Into<String>) -> anyhow::Error {
     anyhow::anyhow!("bad request: {}", message.into())
 }
 
-fn not_found(id: &str) -> anyhow::Error {
+pub(crate) fn not_found(id: &str) -> anyhow::Error {
     anyhow::Error::new(crate::resource::ResourceError::new(
         "resource.not_found",
         format!("no agent message {id:?}"),
@@ -74,7 +46,9 @@ fn not_found(id: &str) -> anyhow::Error {
 /// A message as `agent.message.send` received it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct NewAgentMessage {
-    pub(crate) sender: String,
+    /// The sender the caller wrote, if any. The sender is the verified
+    /// actor; a claim that names anyone else is refused.
+    pub(crate) sender: Option<String>,
     pub(crate) sender_name: Option<String>,
     /// Empty for a reply that goes to its parent's sender.
     pub(crate) recipients: Vec<String>,
@@ -109,9 +83,15 @@ pub(crate) fn is_recipient_address(value: &str) -> bool {
     false
 }
 
-/// A sender is a recipient address or [`CLI_SENDER`].
-pub(crate) fn is_sender_address(value: &str) -> bool {
-    value == CLI_SENDER || is_recipient_address(value)
+/// What `send` knows about the request beyond its fields.
+pub(crate) struct SendContext<'a> {
+    /// The verified sender's address; `None` for the person.
+    pub(crate) agent: Option<&'a str>,
+    /// Whether a `term_` recipient is a terminal of this session.
+    pub(crate) terminal_exists: &'a dyn Fn(&str) -> anyhow::Result<bool>,
+    /// The public id of the workspace an address runs in, when known.
+    pub(crate) workspace_of: &'a dyn Fn(&str) -> Option<String>,
+    pub(crate) rule: CrossWorkspace,
 }
 
 /// Text only: newlines and tabs are the only control characters, so no
@@ -121,7 +101,11 @@ fn validate_body(body: &str) -> anyhow::Result<()> {
         return Err(bad_request("the message is empty"));
     }
     if body.len() > MAX_BODY_BYTES {
-        return Err(bad_request(format!("the message exceeds {MAX_BODY_BYTES} bytes")));
+        return Err(invalid(
+            "body",
+            "body_too_large",
+            format!("the message exceeds {MAX_BODY_BYTES} bytes"),
+        ));
     }
     if body.chars().any(|ch| ch.is_control() && ch != '\n' && ch != '\t') {
         return Err(bad_request(
@@ -163,65 +147,34 @@ pub(crate) fn new_message_id() -> anyhow::Result<String> {
     Ok(id)
 }
 
-/// Store one message with a queued receipt per recipient and return its
-/// snapshot. `terminal_exists` answers whether a `term_` recipient is a
-/// terminal of this session.
+/// Store one message with one receipt per recipient, each started by the
+/// workspace rule, and return its snapshot. Nothing is stored when the
+/// sender claim, a limit or the workspace rule refuses the message.
 pub(crate) fn send(
     transaction: &Transaction<'_>,
     session_id: &str,
     message_id: &str,
     message: &NewAgentMessage,
-    terminal_exists: &dyn Fn(&str) -> anyhow::Result<bool>,
-    now_ms: u64,
+    context: &SendContext<'_>,
+    now_ms: i64,
 ) -> anyhow::Result<Value> {
-    validate_body(&message.body)?;
-    if !is_sender_address(&message.sender) {
-        return Err(bad_request(format!("{:?} is not a sender address", message.sender)));
-    }
-    if let Some(name) = &message.sender_name {
-        validate_sender_name(name)?;
-    }
-    if let Some(thread) = &message.thread_id {
-        validate_message_id("thread_id", thread)?;
-    }
+    let sender = context.agent.unwrap_or(CLI_SENDER);
+    validate(message, sender)?;
+    expire_held(transaction, now_ms)?;
     let parent = match &message.in_reply_to {
         Some(parent_id) => {
-            validate_message_id("in_reply_to", parent_id)?;
             Some(load_envelope(transaction, parent_id)?.ok_or_else(|| not_found(parent_id))?)
         }
         None => None,
     };
-    let mut recipients: Vec<String> = Vec::new();
-    for recipient in &message.recipients {
-        if !recipients.contains(recipient) {
-            recipients.push(recipient.clone());
-        }
-    }
-    if recipients.is_empty() {
-        let Some(parent) = &parent else {
-            return Err(bad_request("give at least one recipient, or a message to reply to"));
-        };
-        if !is_recipient_address(&parent.sender) {
-            return Err(bad_request(format!(
-                "message {} was sent from {}, which has no address to reply to",
-                parent.id, parent.sender
-            )));
-        }
-        recipients.push(parent.sender.clone());
-    }
-    if recipients.len() > MAX_RECIPIENTS {
-        return Err(bad_request(format!(
-            "the message has {} recipients; the limit is {MAX_RECIPIENTS}",
-            recipients.len()
-        )));
-    }
+    let recipients = recipients_of(message, parent.as_ref())?;
     for recipient in &recipients {
         if !is_recipient_address(recipient) {
             return Err(bad_request(format!(
                 "{recipient:?} is not a recipient; use a terminal id (term_...) or acp:<session id>"
             )));
         }
-        if recipient.starts_with("term_") && !terminal_exists(recipient)? {
+        if recipient.starts_with("term_") && !(context.terminal_exists)(recipient)? {
             return Err(anyhow::Error::new(crate::resource::ResourceError::new(
                 "resource.not_found",
                 format!("no terminal {recipient:?} in this session"),
@@ -250,12 +203,26 @@ pub(crate) fn send(
             "message",
         ),
     };
+    if context.agent.is_some() {
+        policy::check_thread_member(transaction, sender, &thread_id)?;
+    }
+    check_limits(
+        transaction,
+        &policy::Send {
+            sender,
+            recipients: &recipients,
+            body: &message.body,
+            thread_id: &thread_id,
+            depth: references.len(),
+            now_ms,
+        },
+    )?;
+    let starts = starts(context, &recipients)?;
     let sequence: i64 = transaction.query_row(
         "SELECT COALESCE(MAX(sequence) + 1, 1) FROM agent_messages",
         [],
         |row| row.get(0),
     )?;
-    let now = i64::try_from(now_ms)?;
     transaction.execute(
         "INSERT INTO agent_messages(
            message_id, sequence, thread_id, kind, sender, sender_name, body,
@@ -266,36 +233,183 @@ pub(crate) fn send(
             sequence,
             thread_id,
             kind,
-            message.sender,
+            sender,
             message.sender_name,
             message.body,
-            now,
+            now_ms,
             message.in_reply_to,
             serde_json::to_string(&references)?,
         ],
     )?;
-    for (position, recipient) in recipients.iter().enumerate() {
+    policy::count_in_thread(transaction, &thread_id, now_ms)?;
+    for (position, (recipient, start)) in recipients.iter().zip(starts).enumerate() {
+        let (state, queued_at, held_until, reason) = match start {
+            Start::Queued => ("queued", Some(now_ms), None, None),
+            Start::Held(reason) => ("held", None, Some(hold_deadline(now_ms)), Some(reason)),
+        };
         transaction.execute(
             "INSERT INTO agent_message_deliveries(
-               message_id, recipient, position, state, attempts, updated_at_ms
-             ) VALUES(?1, ?2, ?3, 'queued', 0, ?4)",
-            params![message_id, recipient, i64::try_from(position)?, now],
+               message_id, recipient, position, state, attempts, updated_at_ms,
+               created_at_ms, queued_at_ms, held_until_ms, reason
+             ) VALUES(?1, ?2, ?3, ?4, 0, ?5, ?5, ?6, ?7, ?8)",
+            params![
+                message_id,
+                recipient,
+                i64::try_from(position)?,
+                state,
+                now_ms,
+                queued_at,
+                held_until,
+                reason
+            ],
         )?;
     }
     prune_settled(transaction)?;
-    snapshot(transaction, session_id, message_id)?.ok_or_else(|| not_found(message_id))
+    snapshot(transaction, session_id, message_id, now_ms)?.ok_or_else(|| not_found(message_id))
+}
+
+/// Every check of a send that needs no parent, terminal or workspace: the
+/// sender claim and the fields' format. `sender` is the verified sender.
+fn validate(message: &NewAgentMessage, sender: &str) -> anyhow::Result<()> {
+    if let Some(claimed) = &message.sender
+        && claimed != sender
+    {
+        return Err(invalid(
+            "sender",
+            "sender_mismatch",
+            format!("this request is sent by {sender}; it cannot claim to be {claimed}"),
+        ));
+    }
+    validate_body(&message.body)?;
+    if let Some(name) = &message.sender_name {
+        validate_sender_name(name)?;
+    }
+    if let Some(thread) = &message.thread_id {
+        validate_message_id("thread_id", thread)?;
+    }
+    if let Some(parent) = &message.in_reply_to {
+        validate_message_id("in_reply_to", parent)?;
+    }
+    if message.recipients.len() > MAX_RECIPIENTS {
+        return Err(bad_request(format!(
+            "the message has {} recipients; the limit is {MAX_RECIPIENTS}",
+            message.recipients.len()
+        )));
+    }
+    if let Some(recipient) = message.recipients.iter().find(|r| !is_recipient_address(r)) {
+        return Err(bad_request(format!(
+            "{recipient:?} is not a recipient; use a terminal id (term_...) or acp:<session id>"
+        )));
+    }
+    Ok(())
+}
+
+/// The checks a send passes before the daemon asks acpmux for workspaces:
+/// [`validate`], then the burst limit and each named recipient's limits,
+/// read-only. `send` checks them all again under the commit's lock. A
+/// retry of a stored send (`idempotency_key` in the ledger) skips them, so
+/// the commit returns the first result.
+pub(crate) fn precheck(
+    connection: &Connection,
+    idempotency_key: &str,
+    message: &NewAgentMessage,
+    agent: Option<&str>,
+    now_ms: i64,
+) -> anyhow::Result<()> {
+    let replay: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM resource_mutations WHERE idempotency_key = ?1)",
+        [idempotency_key],
+        |row| row.get(0),
+    )?;
+    if replay {
+        return Ok(());
+    }
+    let sender = agent.unwrap_or(CLI_SENDER);
+    validate(message, sender)?;
+    let mut recipients: Vec<String> = Vec::new();
+    for recipient in &message.recipients {
+        if !recipients.contains(recipient) {
+            recipients.push(recipient.clone());
+        }
+    }
+    policy::check_traffic(connection, sender, &recipients, &message.body, now_ms)
+}
+
+/// The distinct recipients of `message`: its own, else its parent's sender.
+fn recipients_of(
+    message: &NewAgentMessage,
+    parent: Option<&Envelope>,
+) -> anyhow::Result<Vec<String>> {
+    let mut recipients: Vec<String> = Vec::new();
+    for recipient in &message.recipients {
+        if !recipients.contains(recipient) {
+            recipients.push(recipient.clone());
+        }
+    }
+    if recipients.is_empty() {
+        let Some(parent) = parent else {
+            return Err(bad_request("give at least one recipient, or a message to reply to"));
+        };
+        if !is_recipient_address(&parent.sender) {
+            return Err(bad_request(format!(
+                "message {} was sent from {}, which has no address to reply to",
+                parent.id, parent.sender
+            )));
+        }
+        recipients.push(parent.sender.clone());
+    }
+    if recipients.len() > MAX_RECIPIENTS {
+        return Err(bad_request(format!(
+            "the message has {} recipients; the limit is {MAX_RECIPIENTS}",
+            recipients.len()
+        )));
+    }
+    Ok(recipients)
+}
+
+/// Where each recipient's delivery starts; a refusal names the recipients
+/// the cross-workspace rule refuses.
+fn starts(context: &SendContext<'_>, recipients: &[String]) -> anyhow::Result<Vec<Start>> {
+    let sender_workspace = context.agent.map(|agent| (context.workspace_of)(agent));
+    let mut starts = Vec::with_capacity(recipients.len());
+    let mut refused_recipients = Vec::new();
+    for recipient in recipients {
+        let workspace = (context.workspace_of)(recipient);
+        match policy::start(
+            sender_workspace.as_ref().map(Option::as_deref),
+            workspace.as_deref(),
+            context.rule,
+        ) {
+            Ok(start) => starts.push(start),
+            Err(_) => refused_recipients.push(recipient.clone()),
+        }
+    }
+    if !refused_recipients.is_empty() {
+        return Err(refused(
+            "cross_workspace",
+            format!(
+                "{} runs in another workspace, and this daemon refuses messages across workspaces",
+                refused_recipients.join(", ")
+            ),
+            json!({"recipients": refused_recipients}),
+        ));
+    }
+    Ok(starts)
 }
 
 /// Whether a receipt may move from `from` to `to`. Receipts move forward:
 /// queued, delivered, acknowledged. A queued or failed delivery may fail
-/// (again) or be delivered, and a person may acknowledge a message that was
-/// never delivered.
+/// (again) or be delivered, a delivery path that claimed a message before
+/// handing it over may record that the hand-over failed, and a person may
+/// acknowledge a message that was never delivered. A held delivery moves
+/// only by `agent.message.release`; the policy states (`declined`,
+/// `unsent`, `retracted`) are final.
 fn transition_allowed(from: &str, to: &str) -> bool {
     matches!(
         (from, to),
         ("queued", "delivered" | "acknowledged" | "failed")
             | ("failed", "delivered" | "acknowledged" | "failed")
-            | ("delivered", "acknowledged")
+            | ("delivered", "acknowledged" | "failed")
     )
 }
 
@@ -311,7 +425,7 @@ pub(crate) fn mark(
     state: &str,
     via: Option<&str>,
     error: Option<&str>,
-    now_ms: u64,
+    now_ms: i64,
 ) -> anyhow::Result<Vec<Value>> {
     if !matches!(state, "delivered" | "acknowledged" | "failed") {
         return Err(bad_request("state must be delivered, acknowledged or failed"));
@@ -319,7 +433,8 @@ pub(crate) fn mark(
     if error.is_some() && state != "failed" {
         return Err(bad_request("an error is recorded only for a failed delivery"));
     }
-    let now = i64::try_from(now_ms)?;
+    let now = now_ms;
+    expire_held(transaction, now)?;
     let mut values = Vec::with_capacity(ids.len());
     let mut seen: Vec<&str> = Vec::new();
     for id in ids {
@@ -346,7 +461,11 @@ pub(crate) fn mark(
             transaction.execute(
                 "UPDATE agent_message_deliveries
                  SET state = ?3, attempts = attempts + ?4, updated_at_ms = ?5,
-                     via = COALESCE(?6, via), error = ?7
+                     via = COALESCE(?6, via), error = ?7,
+                     delivered_at_ms = CASE WHEN ?3 = 'delivered' THEN ?5
+                                            ELSE delivered_at_ms END,
+                     acknowledged_at_ms = CASE WHEN ?3 = 'acknowledged' THEN ?5
+                                               ELSE acknowledged_at_ms END
                  WHERE message_id = ?1 AND recipient = ?2",
                 params![id, recipient, state, attempt, now, via, error],
             )?;
@@ -355,7 +474,7 @@ pub(crate) fn mark(
                 "message {id} is {current} for {recipient}; it cannot become {state}"
             )));
         }
-        values.push(snapshot(transaction, session_id, id)?.ok_or_else(|| not_found(id))?);
+        values.push(snapshot(transaction, session_id, id, now)?.ok_or_else(|| not_found(id))?);
     }
     Ok(values)
 }
@@ -366,11 +485,12 @@ pub(crate) fn list(
     session_id: &str,
     filter: &AgentMessageFilter,
     limit: usize,
+    now_ms: i64,
 ) -> anyhow::Result<Vec<Value>> {
     if let Some(state) = &filter.state
-        && !STATES.contains(&state.as_str())
+        && !DELIVERY_STATES.contains(&state.as_str())
     {
-        return Err(bad_request("state must be queued, delivered, acknowledged or failed"));
+        return Err(bad_request(format!("state must be one of {}", DELIVERY_STATES.join(", "))));
     }
     let order = if filter.oldest_first { "ASC" } else { "DESC" };
     let mut statement = connection.prepare(&format!(
@@ -383,7 +503,7 @@ pub(crate) fn list(
                SELECT 1 FROM agent_message_deliveries AS d
                WHERE d.message_id = m.message_id
                  AND (?3 IS NULL OR d.recipient = ?3)
-                 AND (?4 IS NULL OR d.state = ?4)
+                 AND (?4 IS NULL OR {EFFECTIVE_STATE} = ?4)
              )
            )
          ORDER BY m.sequence {order}
@@ -396,18 +516,24 @@ pub(crate) fn list(
                 filter.thread_id,
                 filter.recipient,
                 filter.state,
-                i64::try_from(limit)?
+                i64::try_from(limit)?,
+                now_ms
             ],
             |row| row.get::<_, String>(0),
         )?
         .collect::<Result<Vec<_>, _>>()?;
     let mut values = Vec::with_capacity(ids.len());
     for id in ids {
-        if let Some(value) = snapshot(connection, session_id, &id)? {
+        if let Some(value) = snapshot(connection, session_id, &id, now_ms)? {
             values.push(value);
         }
     }
     Ok(values)
+}
+
+/// The sender of message `id`, if it is stored.
+pub(crate) fn sender_of(connection: &Connection, id: &str) -> anyhow::Result<Option<String>> {
+    Ok(load_envelope(connection, id)?.map(|envelope| envelope.sender))
 }
 
 struct Envelope {
@@ -439,11 +565,21 @@ fn load_envelope(connection: &Connection, id: &str) -> anyhow::Result<Option<Env
         .transpose()
 }
 
-/// The public `AgentMessageSnapshot` of one message.
+/// A delivery's state as of `?6` in [`list`]: a held delivery whose wait is
+/// over reads as declined before a mutation stores it.
+const EFFECTIVE_STATE: &str = "(CASE WHEN d.state = 'held' AND COALESCE(d.held_until_ms, 0) <= ?6
+     THEN 'declined' ELSE d.state END)";
+
+fn optional_decimal(value: Option<i64>) -> Value {
+    value.map_or(Value::Null, |value| Value::String(value.to_string()))
+}
+
+/// The public `AgentMessageSnapshot` of one message as of `now_ms`.
 pub(crate) fn snapshot(
     connection: &Connection,
     session_id: &str,
     id: &str,
+    now_ms: i64,
 ) -> anyhow::Result<Option<Value>> {
     let row = connection
         .query_row(
@@ -471,12 +607,17 @@ pub(crate) fn snapshot(
     else {
         return Ok(None);
     };
-    let mut statement = connection.prepare(
-        "SELECT recipient, state, attempts, updated_at_ms, via, error
-         FROM agent_message_deliveries WHERE message_id = ?1 ORDER BY position",
-    )?;
+    let expired = "d.state = 'held' AND COALESCE(d.held_until_ms, 0) <= ?2";
+    let mut statement = connection.prepare(&format!(
+        "SELECT d.recipient, CASE WHEN {expired} THEN 'declined' ELSE d.state END,
+                d.attempts, d.updated_at_ms, d.via, d.error,
+                CASE WHEN {expired} THEN 'expired' ELSE d.reason END,
+                d.created_at_ms, d.queued_at_ms, d.delivered_at_ms, d.acknowledged_at_ms,
+                CASE WHEN {expired} THEN NULL ELSE d.held_until_ms END
+         FROM agent_message_deliveries AS d WHERE d.message_id = ?1 ORDER BY d.position"
+    ))?;
     let deliveries = statement
-        .query_map([&id], |row| {
+        .query_map(params![&id, now_ms], |row| {
             Ok(json!({
                 "recipient": row.get::<_, String>(0)?,
                 "state": row.get::<_, String>(1)?,
@@ -484,6 +625,12 @@ pub(crate) fn snapshot(
                 "updated_at_ms": row.get::<_, i64>(3)?.to_string(),
                 "via": row.get::<_, Option<String>>(4)?,
                 "error": row.get::<_, Option<String>>(5)?,
+                "reason": row.get::<_, Option<String>>(6)?,
+                "created_at_ms": row.get::<_, i64>(7)?.to_string(),
+                "queued_at_ms": optional_decimal(row.get(8)?),
+                "delivered_at_ms": optional_decimal(row.get(9)?),
+                "acknowledged_at_ms": optional_decimal(row.get(10)?),
+                "held_until_ms": optional_decimal(row.get(11)?),
             }))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -507,7 +654,7 @@ pub(crate) fn snapshot(
 }
 
 /// Drop messages older than the newest [`KEEP_SETTLED_MESSAGES`] once none
-/// of their receipts is still queued.
+/// of their receipts is still queued or held.
 fn prune_settled(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let cutoff: Option<i64> = transaction
         .query_row(
@@ -523,7 +670,7 @@ fn prune_settled(transaction: &Transaction<'_>) -> anyhow::Result<()> {
          WHERE m.sequence <= ?1
            AND NOT EXISTS(
              SELECT 1 FROM agent_message_deliveries AS d
-             WHERE d.message_id = m.message_id AND d.state = 'queued'
+             WHERE d.message_id = m.message_id AND d.state IN ('queued', 'held')
            )";
     transaction.execute(
         &format!("DELETE FROM agent_message_deliveries WHERE message_id IN ({settled})"),

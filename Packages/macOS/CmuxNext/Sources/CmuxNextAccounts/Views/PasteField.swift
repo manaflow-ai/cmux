@@ -18,9 +18,8 @@ struct PasteField: View {
                 .font(palette.emphasized)
             Text(provider == .claude ? AccountsStrings.pasteClaudeBody : AccountsStrings.pasteKeyBody)
                 .font(palette.caption).foregroundStyle(palette.secondary).fixedSize(horizontal: false, vertical: true)
-            SecureField(AccountsStrings.pastePlaceholder, text: $secret)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("cmux.accounts.paste.\(provider.rawValue)")
+            ThemedField(text: $secret, placeholder: AccountsStrings.pastePlaceholder, secure: true,
+                        identifier: "cmux.accounts.paste.\(provider.rawValue)")
             if let error { Text(error).font(palette.caption).foregroundStyle(palette.danger) }
             HStack(spacing: Metrics.space3) {
                 if provider == .claude {

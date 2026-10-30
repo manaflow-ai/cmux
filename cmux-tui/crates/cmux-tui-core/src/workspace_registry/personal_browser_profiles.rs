@@ -1,6 +1,7 @@
 //! Browser profile records of the home session (capability
 //! `browser-profiles-v1`, plans/cmux-next/data-model.md section 5): name,
-//! color, icon, order and an optional import origin. Each browser engine of
+//! color, icon, order, an optional import origin and an optional proxy
+//! (#24432, `browser_profile_proxy`). Each browser engine of
 //! the app keys its own storage by the id (`default` or a lowercase UUID);
 //! the daemon keeps only the records. Workspace and room defaults stay in
 //! `personal_workspaces.browser_profile_id` and `profiles.browser_profile_id`;
@@ -10,9 +11,11 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::browser_profile_proxy::validate_browser_profile_proxy;
 use super::personal_store::{
-    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, subject, validate_appearance,
-    validate_browser_profile_ref, validate_name, validate_personal_json, write_order,
+    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, require_icon_asset, subject,
+    validate_appearance, validate_browser_profile_ref, validate_name, validate_personal_json,
+    write_order,
 };
 use super::{WorkspaceRegistry, new_uuid_v4};
 
@@ -29,6 +32,11 @@ pub(super) fn create_browser_profile_schema(transaction: &Transaction<'_>) -> an
            source_json TEXT
          );",
     )?;
+    if !super::journal_extensions::table_columns(transaction, "browser_profiles")?
+        .contains("proxy_json")
+    {
+        transaction.execute_batch("ALTER TABLE browser_profiles ADD COLUMN proxy_json TEXT;")?;
+    }
     transaction.execute(
         "INSERT OR IGNORE INTO browser_profiles(browser_profile_id, name, position)
          SELECT ?1, 'Default', COALESCE(MAX(position) + 1, 0) FROM browser_profiles",
@@ -46,6 +54,10 @@ pub struct PersonalBrowserProfile {
     pub index: usize,
     /// Import origin (`browser`, `profile_dir`, `display_name`), or null.
     pub source: Option<Value>,
+    /// The profile's proxy `{scheme, host, port, bypass?}` (#24432); absent
+    /// when the profile is direct. Never a secret.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<Value>,
 }
 
 /// Fields of `create-browser-profile`.
@@ -65,6 +77,8 @@ pub struct BrowserProfileUpdate {
     pub name: Option<String>,
     pub color: Option<Option<String>>,
     pub icon: Option<Option<String>>,
+    /// The proxy (#24432): `Some(None)` makes the profile direct again.
+    pub proxy: Option<Option<Value>>,
 }
 
 /// Result of `delete-browser-profile`: the defaults it cleared and the
@@ -76,6 +90,8 @@ pub struct BrowserProfileDeletion {
     pub deleted_bookmarks: usize,
     /// The new `bookmarks_revision` when bookmarks were deleted.
     pub bookmarks_revision: Option<u64>,
+    /// The frontend browser tabs that named the profile, now on the default one.
+    pub cleared_browsers: Vec<String>,
 }
 
 pub(super) fn read_browser_profiles(
@@ -93,7 +109,7 @@ pub(super) fn read_browser_profiles(
         return Ok(Vec::new());
     }
     let mut statement = connection.prepare(
-        "SELECT browser_profile_id, name, color, icon, source_json FROM browser_profiles
+        "SELECT browser_profile_id, name, color, icon, source_json, proxy_json FROM browser_profiles
          ORDER BY position ASC, browser_profile_id ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -103,15 +119,20 @@ pub(super) fn read_browser_profiles(
             row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?,
             row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
         ))
     })?;
     let mut profiles = Vec::new();
     for (index, row) in rows.enumerate() {
-        let (id, name, color, icon, source) = row?;
+        let (id, name, color, icon, source, proxy) = row?;
         let source = source.map(|text| serde_json::from_str::<Value>(&text)).transpose().map_err(
             |error| anyhow::anyhow!("stored browser profile source is invalid: {error}"),
         )?;
-        profiles.push(PersonalBrowserProfile { id, name, color, icon, index, source });
+        let proxy = proxy
+            .map(|text| serde_json::from_str::<Value>(&text))
+            .transpose()
+            .map_err(|error| anyhow::anyhow!("stored browser profile proxy is invalid: {error}"))?;
+        profiles.push(PersonalBrowserProfile { id, name, color, icon, index, source, proxy });
     }
     Ok(profiles)
 }
@@ -127,7 +148,42 @@ fn order(connection: &Connection) -> anyhow::Result<Vec<String>> {
     Ok(read_browser_profiles(connection)?.into_iter().map(|profile| profile.id).collect())
 }
 
+pub(crate) fn resolve_browser_profile_id_in(
+    connection: &Connection,
+    value: &str,
+) -> anyhow::Result<String> {
+    let exact_id = connection
+        .query_row(
+            "SELECT browser_profile_id FROM browser_profiles WHERE browser_profile_id = ?1",
+            [value],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(id) = exact_id {
+        return Ok(id);
+    }
+    let mut statement = connection.prepare(
+        "SELECT browser_profile_id FROM browser_profiles
+         WHERE name = ?1 ORDER BY browser_profile_id ASC",
+    )?;
+    let ids = statement
+        .query_map([value], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    match ids.as_slice() {
+        [id] => Ok(id.clone()),
+        [] => anyhow::bail!("unknown browser profile {value}"),
+        _ => anyhow::bail!("browser profile name is ambiguous: {value}"),
+    }
+}
+
 impl WorkspaceRegistry {
+    /// Resolve a browser profile by its stable id or exact display name.
+    /// Stable ids take precedence; ambiguous names are rejected.
+    pub fn resolve_browser_profile_id(&self, value: &str) -> anyhow::Result<String> {
+        let connection = self.connection.get();
+        resolve_browser_profile_id_in(&connection, value)
+    }
+
     /// Create a browser profile at `index` (default last). An existing id
     /// returns the stored record with `false`, so a retried import finds
     /// the profile it made.
@@ -149,6 +205,7 @@ impl WorkspaceRegistry {
         if let Some(existing) = read_browser_profile(&tx, &id)? {
             return Ok((existing, false));
         }
+        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(&tx, icon))?;
         let mut ids = order(&tx)?;
         let index = input.index.unwrap_or(ids.len()).min(ids.len());
         tx.execute(
@@ -184,8 +241,22 @@ impl WorkspaceRegistry {
             update.color.as_ref().and_then(Option::as_deref),
             update.icon.as_ref().and_then(Option::as_deref),
         )?;
+        let proxy = update
+            .proxy
+            .as_ref()
+            .map(|proxy| {
+                proxy
+                    .as_ref()
+                    .map(|value| {
+                        let stored = validate_browser_profile_proxy(value)?;
+                        validate_personal_json("proxy", &stored, true)
+                    })
+                    .transpose()
+            })
+            .transpose()?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
+        update.icon.clone().flatten().map_or(Ok(()), |icon| require_icon_asset(&tx, &icon))?;
         let before = read_browser_profile(&tx, id)?
             .ok_or_else(|| anyhow::anyhow!("unknown browser profile {id}"))?;
         if let Some(name) = &update.name {
@@ -204,6 +275,12 @@ impl WorkspaceRegistry {
             tx.execute(
                 "UPDATE browser_profiles SET icon = ?2 WHERE browser_profile_id = ?1",
                 params![id, icon],
+            )?;
+        }
+        if let Some(proxy) = &proxy {
+            tx.execute(
+                "UPDATE browser_profiles SET proxy_json = ?2 WHERE browser_profile_id = ?1",
+                params![id, proxy],
             )?;
         }
         let after = read_browser_profile(&tx, id)?
@@ -291,6 +368,7 @@ impl WorkspaceRegistry {
             "UPDATE profiles SET browser_profile_id = NULL WHERE browser_profile_id = ?1",
             [id],
         )?;
+        let cleared_browsers = super::presentation_store::clear_frontend_browser_profile(&tx, id)?;
         tx.execute("DELETE FROM browser_profiles WHERE browser_profile_id = ?1", [id])?;
         let (deleted_bookmarks, bookmarks_revision) =
             super::personal_bookmarks::delete_profile_bookmarks(&tx, id)?;
@@ -301,7 +379,8 @@ impl WorkspaceRegistry {
             "personal.browser_profile.deleted",
             vec![subject("browser_profile", id)],
             &json!({"browser_profile_id": id, "cleared_workspaces": cleared_workspaces,
-                    "cleared_rooms": cleared_rooms, "deleted_bookmarks": deleted_bookmarks}),
+                    "cleared_rooms": cleared_rooms, "deleted_bookmarks": deleted_bookmarks,
+                    "cleared_browsers": cleared_browsers}),
         )?;
         tx.commit()?;
         Ok(BrowserProfileDeletion {
@@ -309,6 +388,7 @@ impl WorkspaceRegistry {
             cleared_rooms,
             deleted_bookmarks,
             bookmarks_revision,
+            cleared_browsers,
         })
     }
 }

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Whether the omnibar shows the bookmark star, and filled or hollow
 /// (plans/cmux-next/bookmarks.md section 3).
@@ -15,19 +16,19 @@ public enum BookmarkStarState: Hashable, Sendable {
 /// The star at the trailing end of the omnibar. Click (or Space/Return when
 /// it has the keyboard) asks the host to bookmark the page or edit its
 /// bookmark; the host anchors the edit bubble at this view.
-final class BookmarkStarButton: NSView {
+final class BookmarkStarButton: NSView, PointerHoverReporting {
     private let image = NSImageView()
-    private var isHovered = false
-    private var tracking: NSTrackingArea?
+    /// Where the pointer is now (`OmnibarPointer`).
+    private var hover: PointerHover?
+    private var isHovered: Bool { hover?.isHovering ?? false }
+    var isPointerHovering: Bool { isHovered }
     var onPress: ((NSView) -> Void)?
 
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage(systemSymbolName: state == .on ? "star.fill" : "star", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
+            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
-            toolTip = label
             setAccessibilityLabel(label)
             needsDisplay = true
         }
@@ -51,10 +52,18 @@ final class BookmarkStarButton: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("cmux.browser.bookmarkStar")
+        hover = PointerHover(self) { [weak self] _ in self?.paintFill(animated: true) }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The badge takes the whole press (not its image or label) and the first
+    /// one in a browser window that is not key: one click acts, as Chrome's
+    /// omnibar buttons do (user, 2026-10-28, "click the star twice").
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func accessibilityPerformPress() -> Bool {
         onPress?(self)
@@ -65,30 +74,50 @@ final class BookmarkStarButton: NSView {
         onPress?(self)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    /// The pointing hand over the star, as over every clickable control (`OmnibarPointer`); its
+    /// rect sits above the bar's arrow rects in the key window.
+    override func resetCursorRects() {
+        if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        needsDisplay = true
+    /// The rects `resetCursorRects` registered, while non-nil (tests).
+    var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?
+
+    override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+        recordedCursorRects?.append((rect, object))
+        super.addCursorRect(rect, cursor: object)
     }
 
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        needsDisplay = true
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover?.refresh()
+    }
+
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
+        // A redraw during a hover fade leaves the fade running.
+        if layer?.animation(forKey: "backgroundColor") == nil { paintFill(animated: false) }
         performWithTheme {
-            layer?.backgroundColor = isHovered ? OmnibarStyle.chipHoverFill.cgColor : NSColor.clear.cgColor
             image.contentTintColor = state == .on ? OmnibarStyle.textPrimary : OmnibarStyle.textSecondary
+        }
+    }
+
+    /// The hover fill eases in and clears at once (`ChromeHover.fade`).
+    private func paintFill(animated: Bool) {
+        guard let layer else { return }
+        performWithTheme {
+            ChromeHover.paint(layer, isHovered ? OmnibarStyle.chipHoverFill : nil, animated: animated && window != nil)
         }
     }
 }

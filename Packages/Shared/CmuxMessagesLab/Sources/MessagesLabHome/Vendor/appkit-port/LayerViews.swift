@@ -36,8 +36,10 @@ class UIView: NSObject, CALayerDelegate {
     var accessibilityLabel: String?
 
     init(frame: CGRect) {
-        layer = CALayer()
+        let l = ViewLayer()
+        layer = l
         super.init()
+        l.view = self
         layer.delegate = self
         layer.contentsScale = DisplayScale.current
         layer.frame = frame
@@ -172,8 +174,8 @@ class UIView: NSObject, CALayerDelegate {
     func setNeedsDisplay() {
         if isHiddenInTree { pendingDisplay = true } else { pendingDisplay = false; layer.setNeedsDisplay() }
     }
-    private var pendingDisplay = false
-    private var isHiddenInTree: Bool {
+    fileprivate var pendingDisplay = false
+    fileprivate var isHiddenInTree: Bool {
         var v: UIView? = self
         while let x = v { if x.layer.isHidden { return true }; v = x.superview }
         return false
@@ -197,7 +199,17 @@ class UIView: NSObject, CALayerDelegate {
             ctx.translateBy(x: 0, y: layer.bounds.height)
             ctx.scaleBy(x: 1, y: -1)
         }
-        ContextScope.run(ctx) { draw(bounds) }
+        // Static drawing code reads Fixture.renderScale: the layer's own scale here (its window view's, cx-3cb
+        // view-scale; two views can draw at two scales).
+        guard DisplayTiming.commitOpen else {
+            // cmux: and its window view's palette (a chat's Chat Colors, PaletteScope).
+            ContextScope.run(ctx) { PaletteScope.with(PaletteScope.palette(of: self)) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } } }
+            return
+        }
+        // The commit after a display change (cx-3cb display-budget evidence): each class's drawing time.
+        let t0 = CACurrentMediaTime()
+        ContextScope.run(ctx) { PaletteScope.with(PaletteScope.palette(of: self)) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } } }
+        DisplayTiming.noteCommit("draw.\(type(of: self))", (CACurrentMediaTime() - t0) * 1000)
     }
 
     func action(for layer: CALayer, forKey event: String) -> CAAction? { NSNull() }
@@ -303,7 +315,8 @@ class UIScrollView: UIView {
     var contentOffset: CGPoint {
         get { layer.bounds.origin }
         set {
-            let s = DisplayScale.current
+            // The window view's scale (labRenderScale: two views can show at two scales).
+            let s = max(1, labRenderScale)
             let newValue = CGPoint(x: (newValue.x * s).rounded() / s, y: (newValue.y * s).rounded() / s)
             guard newValue != layer.bounds.origin else { return }
             layer.bounds.origin = newValue
@@ -395,4 +408,20 @@ class UICollectionViewLayout: NSObject {
     func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? { nil }
     func targetContentOffset(forProposedContentOffset p: CGPoint) -> CGPoint { p }
     func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool { false }
+}
+
+/// A view's layer. Core Animation displays a layer that needs display in the commit even when it is hidden, and it
+/// marks it so itself when its contentsScale changes (a display move: the host sets every layer's scale; cx-3cb
+/// display-budget: the live window's hidden compose buttons and header overlay were drawn on main in the move's
+/// commit). A hidden view's layer is not displayed: it keeps its contents and the request, and draws when shown
+/// (UIView.showPendingDisplay), as setNeedsDisplay does for a hidden view.
+final class ViewLayer: CALayer {
+    weak var view: UIView?
+    override init() { super.init() }
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+    override func display() {
+        if let v = view, v.isHiddenInTree { v.pendingDisplay = true; return }
+        super.display()
+    }
 }

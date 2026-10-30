@@ -38,7 +38,6 @@ pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_
     None => env!("CARGO_PKG_VERSION"),
 };
 pub const NPM_BOOTSTRAP_VERSION: Option<&str> = option_env!("CMUX_TUI_NPM_BOOTSTRAP_VERSION");
-pub const BUILD_IDENTITY: &str = env!("CMUX_TUI_BUILD_IDENTITY");
 
 #[derive(Debug, Clone)]
 pub struct SshBootstrapConfig {
@@ -54,12 +53,29 @@ pub struct SshBootstrapConfig {
     /// Exact local executable used to bootstrap unpublished same-platform
     /// builds. Published distributions continue to install through npm.
     pub local_binary: Option<PathBuf>,
+    /// Where the immutable per-commit cmux-tui builds are published. A native
+    /// client that ships a remote platform's checksum but not its executable
+    /// downloads `<base>/<commit>/cmux-tui-<target>` from here.
+    pub payload_base_url: String,
+    /// Local cache for those downloads, keyed by checksum, so every host of a
+    /// platform reuses one download. `None` when no cache directory is known.
+    pub payload_cache: Option<PathBuf>,
+    /// Tests only: a PAC script evaluated instead of the system proxy settings.
+    /// `None` uses the macOS system proxy and PAC configuration, like URLSession.
+    #[doc(hidden)]
+    pub payload_proxy_pac: Option<String>,
     pub auto_install: bool,
     pub timeout: Duration,
+    /// `remote-probe` capabilities the remote must advertise before this
+    /// client may attach (`SshProviderConfig::required_remote_capabilities`).
+    pub required_capabilities: Vec<String>,
 }
 
 impl SshBootstrapConfig {
-    pub fn defaults(destination: impl Into<String>) -> Self {
+    /// `build_identity` is the binary's `cmux_build_identity::BUILD_IDENTITY`.
+    /// The caller passes it so that this crate does not recompile when the
+    /// identity changes (every source edit in a dev build).
+    pub fn defaults(destination: impl Into<String>, build_identity: impl Into<String>) -> Self {
         Self {
             ssh_binary: "ssh".into(),
             destination: destination.into(),
@@ -69,10 +85,14 @@ impl SshBootstrapConfig {
             npm_package: "cmux".into(),
             package_version: NPM_BOOTSTRAP_VERSION.unwrap_or(DISTRIBUTION_VERSION).into(),
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
-            build_identity: BUILD_IDENTITY.into(),
+            build_identity: build_identity.into(),
             local_binary: std::env::current_exe().ok(),
+            payload_base_url: "https://files.cmux.com/cmux-tui".into(),
+            payload_cache: crate::ssh_artifacts::default_payload_cache(),
+            payload_proxy_pac: None,
             auto_install: true,
             timeout: Duration::from_secs(60),
+            required_capabilities: Vec::new(),
         }
     }
 
@@ -121,6 +141,9 @@ pub struct RemoteProbe {
     pub remote_protocol: u8,
     pub os: String,
     pub arch: String,
+    /// Absent in builds before `remote-probe` advertised capabilities.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,12 +350,29 @@ impl SshBootstrapper {
         })?;
         let remote = self.remote_platform().await?;
         let local = Platform::local();
-        let artifact = crate::ssh_artifacts::payload(
+        let artifact = match crate::ssh_artifacts::payload(
             source,
             &self.config.build_identity,
             &remote.os,
             &remote.arch,
-        )?;
+            &crate::ssh_artifacts::PayloadSource {
+                base_url: &self.config.payload_base_url,
+                cache: self.config.payload_cache.as_deref(),
+                proxy_pac: self.config.payload_proxy_pac.as_deref(),
+            },
+        )? {
+            Some(
+                crate::ssh_artifacts::Payload::Bundled(path)
+                | crate::ssh_artifacts::Payload::Client(path),
+            ) => Some(path),
+            Some(crate::ssh_artifacts::Payload::ClientSlice(slice)) => {
+                Some(crate::ssh_artifacts::extract_client_slice(&slice).await?)
+            }
+            Some(crate::ssh_artifacts::Payload::Published(published)) => {
+                Some(crate::ssh_artifacts::fetch_published(&published).await?)
+            }
+            None => None,
+        };
         if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
                 local: local.display(),
@@ -578,6 +618,14 @@ impl SshBootstrapper {
                 remote: probe.remote_protocol,
                 local: REMOTE_PROTOCOL_VERSION,
             });
+        }
+        if let Some(missing) = self
+            .config
+            .required_capabilities
+            .iter()
+            .find(|capability| !probe.capabilities.contains(capability))
+        {
+            return Err(Incompatibility::MissingCapability { capability: missing.clone() });
         }
         Ok(())
     }
@@ -1013,6 +1061,7 @@ pub enum BootstrapError {
     WindowsRequiresWsl,
     Incompatible { version: String, build_identity: Option<String>, reason: Incompatibility },
     ChecksumMismatch { package: String },
+    PayloadDownload(String),
 }
 
 /// Why a remote cmux-tui cannot serve this client. `code()` is the stable,
@@ -1023,6 +1072,10 @@ pub enum Incompatibility {
     WrongApp { app: String },
     /// The link framing differs; neither side can talk to the other.
     RemoteProtocol { remote: u8, local: u8 },
+    /// The remote speaks this link protocol but is older than a link flag
+    /// this connection needs (for example `remote-link --mux-socket`), so it
+    /// would ignore the flag and reach the wrong daemon (cx-z3zh).
+    MissingCapability { capability: String },
     /// An installing client found another distribution version.
     Distribution { remote: String, local: String },
     /// An installing client with an unpublished build found another build.
@@ -1035,6 +1088,7 @@ impl Incompatibility {
             Self::WrongApp { .. } => "remote-wrong-app",
             Self::RemoteProtocol { remote, local } if remote < local => "remote-protocol-older",
             Self::RemoteProtocol { .. } => "remote-protocol-newer",
+            Self::MissingCapability { .. } => "remote-protocol-older",
             Self::Distribution { .. } => "remote-distribution-mismatch",
             Self::Build { .. } => "remote-build-mismatch",
         }
@@ -1099,6 +1153,10 @@ impl fmt::Display for BootstrapError {
                         formatter,
                         "remote cmux-tui {version} (build {build}) is newer: it speaks remote protocol {remote}, this cmux-tui speaks {local}; update this cmux-tui"
                     ),
+                    Incompatibility::MissingCapability { capability } => write!(
+                        formatter,
+                        "remote cmux-tui {version} (build {build}) is older: it lacks {capability}, which this connection needs; update the remote cmux-tui"
+                    ),
                     Incompatibility::Distribution { remote, local } => write!(
                         formatter,
                         "remote cmux-tui is distribution {remote} (build {build}), this cmux-tui installs {local}; the remote binary does not match this build"
@@ -1111,6 +1169,10 @@ impl fmt::Display for BootstrapError {
                 }?;
                 write!(formatter, " [{}]", reason.code())
             }
+            Self::PayloadDownload(message) => write!(
+                formatter,
+                "could not download the cmux-tui build for the remote platform: {message}"
+            ),
         }
     }
 }

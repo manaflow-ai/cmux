@@ -7,9 +7,15 @@
 //! - [`Mirror`]: a read-only copy of the session tree with typed deltas,
 //!   plus the personal workspace groups and sidebar order and the session's
 //!   tab groups.
-//! - [`DaemonEvent::BookmarksChanged`] and [`DaemonEvent::PersonalChanged`]:
-//!   `bookmarks-changed` and `personal-changed` from a protocol-12
-//!   `subscribe` stream, when the daemon has `bookmarks-v1` or `profiles-v1`.
+//! - [`DaemonEvent::BookmarksChanged`], [`DaemonEvent::PersonalChanged`],
+//!   [`DaemonEvent::HistoryChanged`] and [`DaemonEvent::KeybindingsChanged`]:
+//!   `bookmarks-changed`, `personal-changed`, `history-changed` and
+//!   `keybindings-changed` from a protocol-12 `subscribe` stream, when the
+//!   daemon has `bookmarks-v1`, `profiles-v1`, `history-v1` or `keybindings-v1`.
+//! - [`install_key`] and [`AppConnection`]: the app's install key (cmux-next's
+//!   file and format), handed to a daemon the launcher starts, and a
+//!   connection that proves the app with `client-hello`, so its requests
+//!   have origin `user` (`history.visit.record`, ...).
 //! - [`spaces`]: the spaces of a `list-personal` reply and which spaces show
 //!   a workspace (the membership rule of data-model.md 3.2).
 //! - [`attach`]: the terminal byte attachment seam; [`DaemonAttacher`]
@@ -28,16 +34,20 @@
 //! the event stream) happens on it; the caller's thread never blocks except
 //! in [`DaemonClient::stop`] / `Drop`, which wait for the worker to exit
 //! (bounded by the request and ensure deadlines). While connected to a daemon
-//! with `bookmarks-v1` or `profiles-v1` (and `DaemonConfig::bookmark_events`
-//! or `personal_events`), the worker owns a second thread,
-//! `cmux-daemon-client-subscribe`, that reads the `bookmarks-changed` and
-//! `personal-changed` stream; the worker closes and joins it before it
-//! reports the connection's `Disconnected`.
+//! with `bookmarks-v1`, `profiles-v1`, `history-v1` or `keybindings-v1` (and
+//! `DaemonConfig::bookmark_events`, `personal_events`, `history_events` or
+//! `keybinding_events`), the worker owns a second thread,
+//! `cmux-daemon-client-subscribe`, that reads the `bookmarks-changed`,
+//! `personal-changed`, `history-changed` and `keybindings-changed` stream; the worker closes and joins it before it reports the
+//! connection's `Disconnected`. The worker reads (or creates) the install key
+//! file once, before its first connect.
 //!
 //! The event callback runs **on the worker thread** (or, for
-//! `BookmarksChanged` and `PersonalChanged`, on its subscribe thread), sequentially, never
-//! concurrently, once per [`DaemonEvent`] in order, with a borrow of the
-//! mirror as of that event. The worker holds the mirror lock while the
+//! `BookmarksChanged`, `PersonalChanged`, `HistoryChanged` and
+//! `KeybindingsChanged`, on its
+//! subscribe thread), sequentially, never concurrently, once per
+//! [`DaemonEvent`] in order, with a borrow of the mirror as of that event.
+//! The worker holds the mirror lock while the
 //! callback runs, so the callback must return quickly: post the event to the
 //! UI thread (GPUI executor, Chromium task runner, channel) and return. A
 //! slow callback delays the stream, and a stream that falls 256 items behind
@@ -55,25 +65,30 @@
 //! thread per attachment calls its sink; the attachment itself is
 //! `Send + Sync` and never reads.
 
+mod app_connection;
 pub mod attach;
 pub mod client;
 mod daemon_attach;
+pub mod install_key;
 pub mod launcher;
 pub mod mirror;
 mod mirror_state;
 pub mod reattach;
 pub mod spaces;
 
+pub use app_connection::AppConnection;
 pub use attach::{
     AttachEnd, AttachError, AttachRequest, TerminalAttacher, TerminalAttachment, TerminalByteSink,
 };
 pub use client::{
     BOOKMARKS_CAPABILITY, ConnectionInfo, DEFAULT_SESSION, DaemonClient, DaemonConfig, DaemonEvent,
+    HISTORY_CAPABILITY, KEYBINDINGS_CAPABILITY,
 };
 /// The cmux Rust SDK this crate is built on (re-exported so callers use the
 /// same IDs and snapshot types).
 pub use cmux;
 pub use daemon_attach::{DaemonAttacher, DaemonAttachment};
+pub use install_key::InstallKey;
 pub use mirror::{Applied, Change, Mirror, MirrorChange, MirrorError};
 pub use reattach::{GenerationWait, MirrorWatch, reattach};
 pub use spaces::{DEFAULT_SPACE, PROFILES_CAPABILITY, Space, Spaces, WorkspaceRef};

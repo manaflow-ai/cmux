@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 
 // Creating workspaces and windows. A window exists only while it owns a
@@ -13,10 +14,12 @@ extension WindowManager {
     /// daemon), placed in window `windowID` when given (see `claimNew`).
     /// Returns its id.
     func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil, into windowID: String? = nil,
-                         frame: CGRect? = nil, newTabPage: Bool = false) async -> String? {
+                         frame: CGRect? = nil, newTabPage: Bool = false, inputToken: String? = nil) async -> String? {
         let daemon = daemon ?? services.daemon
+        var spawn = WorkspaceSpawn(cwd: cwd, newTabPage: newTabPage)
+        spawn.inputToken = inputToken
         do {
-            return try await createWorkspace(WorkspaceSpawn(cwd: cwd, newTabPage: newTabPage), on: daemon, into: windowID, frame: frame)
+            return try await createWorkspace(spawn, on: daemon, into: windowID, frame: frame)
         } catch {
             daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -42,9 +45,15 @@ extension WindowManager {
     /// New window with a new workspace. Returns the window id right away;
     /// the window opens once the daemon reports the workspace.
     @discardableResult
-    func newWindow(frame: CGRect? = nil) -> String {
-        let windowID = UUID().uuidString.lowercased()
-        Task { [services] in await createWorkspace(into: windowID, frame: frame, newTabPage: true); withExtendedLifetime(services) {} }
+    /// `holdingKeysFrom`: Cmd-Shift-N's window; keys typed there meanwhile go to the new page (cx-kql5h).
+    func newWindow(frame: CGRect? = nil, holdingKeysFrom keyWindow: NSWindow? = nil) -> String {
+        let windowID = UUID().uuidString.lowercased(), input = services.keyRouter.newTabInputCoordinator
+        // cmux Classic Mode opens a terminal, not a page: no page would take the held keys.
+        let keys = NewTabKind.terminalFirst(services) ? nil : input.beginIncoming(in: keyWindow, followsNewWindow: true)
+        Task { [services] in
+            let made = await createWorkspace(into: windowID, frame: frame, newTabPage: true, inputToken: keys)
+            input.endIncoming(keys, pageMade: made != nil); withExtendedLifetime(services) {}
+        }
         return windowID
     }
 

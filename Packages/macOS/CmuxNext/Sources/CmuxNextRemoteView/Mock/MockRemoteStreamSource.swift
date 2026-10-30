@@ -86,7 +86,6 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     }
 
     public var keyframeRequests: Int { state.withLock { $0.keyframeRequests } }
-    public var encodedFrames: Int { state.withLock { $0.encoded } }
 
     /// Reports a new status (path change, consent, end of session).
     public func setStatus(_ status: RemoteViewStatus) {

@@ -16,8 +16,23 @@ public struct TerminalKeyEquivalent {
     /// asking the menu would swallow the user's Ghostty keybind (nxdog50).
     public static var menuMayClaim: ((NSEvent) -> Bool)?
 
+    /// Whether the dispatcher gave `event` to this terminal for the user's
+    /// own Ghostty keybind (their config binds a chord cmux has a default on,
+    /// or binds a routed action). Then no main-menu item takes a Command
+    /// chord before Ghostty. Ghostty's and cmux's default keybinds never
+    /// count, so Edit > Undo keeps Cmd-Z. An unbind still lets AppKit offer
+    /// the menu after Ghostty declines the key.
+    public static var userKeybindOwns: ((NSEvent) -> Bool)?
+
     /// Notes the path of a traced key (`debug.key`); nil otherwise.
     public static var trace: ((String) -> Void)?
+
+    /// Sends a Command chord (`super+z`) to the terminal's program, encoded by the PTY owner
+    /// with the program's own keyboard modes (the daemon's `send-key`, as the shipping cmux
+    /// sends `super+c` by name). Returns false when the session has no daemon terminal; `fallback`
+    /// runs on the main actor when the daemon refused the key unsent (an older machine daemon).
+    /// The chord travels as a daemon command, not on the attach link that carries typing.
+    public static var sendToProgram: ((TerminalSession, String, _ fallback: @escaping @MainActor () -> Void) -> Bool)?
 
     public init(view: TerminalSurfaceView) {
         self.view = view
@@ -26,9 +41,22 @@ public struct TerminalKeyEquivalent {
     public func perform(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown, view.isFirstResponder, let surface = view.surface else { return false }
 
+        // A TUI that reads the mouse (Claude Code fullscreen, OpenCode, Codex) owns its editing
+        // chords: Cmd-Z / Cmd-Shift-Z undo and redo its input and Cmd-A selects it, so they go to
+        // the program instead of Edit > Undo, Redo and Select All (a shell keeps those). The
+        // user's own Ghostty keybind on the chord still wins.
+        if let chord = Self.programChord(event), view.programCapturesMouse, !(Self.userKeybindOwns?(event) ?? false),
+           let session = view.session, Self.sendToProgram?(session, chord, {}) == true {
+            Self.trace?("terminal: \(chord) to the program")
+            return true
+        }
+
         // App-level Command actions, especially Quit, must win before a
-        // Ghostty binding or an unbound chord can forward text to the PTY.
-        if event.modifierFlags.contains(.command), NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+        // Ghostty binding or an unbound chord can forward text to the PTY,
+        // unless the dispatcher gave this key to the terminal for the user's
+        // own Ghostty keybind: then the menu never takes it first.
+        if event.modifierFlags.contains(.command), !(Self.userKeybindOwns?(event) ?? false),
+           NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return true
         }
 
@@ -95,5 +123,17 @@ public struct TerminalKeyEquivalent {
         ) else { return false }
         view.keyDown(with: rewritten)
         return true
+    }
+
+    /// The program's name for a Command chord a TUI that reads the mouse owns, nil for any other
+    /// key (Cmd-C goes through `TerminalSurfaceView.copy`, Cmd-K through `terminal.clear`).
+    static func programChord(_ event: NSEvent) -> String? {
+        let modifiers = event.modifierFlags.intersection([.shift, .control, .option, .command])
+        switch (event.charactersIgnoringModifiers?.lowercased(), modifiers) {
+        case ("z", [.command]): return "super+z"
+        case ("z", [.command, .shift]): return "super+shift+z"
+        case ("a", [.command]): return "super+a"
+        default: return nil
+        }
     }
 }

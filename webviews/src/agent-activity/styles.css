@@ -1,1 +1,616 @@
-:root { color-scheme: light dark; font: -apple-system, BlinkMacSystemFont, sans-serif; color: #202124; background: #f7f7f8; } * { box-sizing: border-box; } body { margin: 0; } button, input { font: inherit; } button { color: inherit; } .activity { min-height: 100vh; display: flex; flex-direction: column; } nav { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #d9d9dc; } nav strong { font-size: 14px; } nav input { flex: 1; max-width: 280px; border: 1px solid #c9c9cc; border-radius: 6px; padding: 5px 8px; background: transparent; } .layouts { display: flex; gap: 4px; margin-left: auto; } .layouts button { border: 0; border-radius: 5px; padding: 4px 7px; background: transparent; cursor: pointer; } .layouts .active { background: #dfe8ff; } .split { display: grid; grid-template-columns: 270px 1fr; min-height: 0; flex: 1; } aside { border-right: 1px solid #d9d9dc; overflow: auto; } section h3 { display: flex; justify-content: space-between; margin: 12px 12px 5px; font-size: 11px; color: #65666b; text-transform: uppercase; } section h3 small { font-weight: normal; text-transform: none; } .session { width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 8px; text-align: left; padding: 8px 12px; cursor: pointer; } .session.selected { background: #e2e9ff; } .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; } .session-text { display: grid; min-width: 0; flex: 1; } .session-text b, .session-text small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .session-text b { font-size: 12px; } .session-text small { font-size: 10px; color: #777980; } .status { font-size: 10px; color: #777980; } .status.live { color: #1b7f43; } .detail { display: flex; flex-direction: column; min-width: 0; } .detail header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #d9d9dc; } .actions { margin-left: auto; display: flex; gap: 5px; } .actions button { border: 1px solid #c9c9cc; border-radius: 5px; padding: 3px 7px; background: transparent; cursor: pointer; } .preview { display: grid; place-items: center; min-height: 260px; flex: 1; background: #ececef; } .frame { border: 0; background: transparent; cursor: pointer; padding: 4px; min-width: 24px; min-height: 24px; } .frame img { max-width: 100%; max-height: 100%; object-fit: contain; } .preview .frame { width: min(80%, 720px); height: min(70%, 420px); } .scrub { display:flex; justify-content:center; gap:5px; padding:5px; border-top:1px solid #d9d9dc; } .scrub button { border:0; background:transparent; cursor:pointer; padding:3px 8px; } .events { border-top: 1px solid #d9d9dc; max-height: 230px; overflow: auto; } .event { display: flex; justify-content: space-between; padding: 6px 14px; font-size: 11px; } .event.bad { color: #b62929; } .event small { color: #777980; } .timeline { padding: 14px; overflow: auto; } .lane { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #d9d9dc; min-height: 60px; } .lane > .session { width: 260px; } .ticks { display: flex; align-items: center; gap: 5px; overflow: auto; flex: 1; } .ticks .frame { width: 54px; height: 36px; } .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; padding: 16px; overflow: auto; } .tile { display: grid; gap: 6px; text-align: left; border: 1px solid #d9d9dc; border-radius: 8px; background: transparent; padding: 8px; cursor: pointer; } .tile .frame { height: 110px; display: grid; place-items: center; background: #ececef; } .tile small { color: #777980; } .empty { display: grid; place-items: center; align-content: center; gap: 8px; flex: 1; color: #777980; } .empty b { color: inherit; } .error { padding: 14px; color: #b62929; } @media (prefers-color-scheme: dark) { :root { color: #f1f1f3; background: #1f2023; } nav, .detail header, .events, .lane, aside { border-color: #3c3d42; } nav input { border-color: #4c4d52; } .layouts .active, .session.selected { background: #35466e; } .preview, .tile .frame { background: #2a2b2f; } .status, .session-text small, section h3, .event small { color: #aaabb2; } }
+/* The Activity page. Colors come only from the shared web theme (`--cmux-*`, WebTheme.swift, which
+   the host installs at document start and updates on every theme change); the fallbacks are system
+   colors for the plain-browser dev loop. html paints the page background (the theme bootstrap). */
+:root {
+  --activity-line: var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent));
+  --activity-control-line: color-mix(in srgb, var(--cmux-text, CanvasText) 22%, transparent);
+  --activity-text-2: var(--cmux-text-secondary, GrayText);
+  --activity-selected: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
+  --activity-well: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent));
+  --activity-live: var(--cmux-app-success, CanvasText);
+  --activity-error: var(--cmux-app-danger, CanvasText);
+  /* Image sizes, not control sizes: a filmstrip thumbnail's height and the least a fitted
+     screenshot gets in a short pane. */
+  --activity-thumb-height: 48px;
+  --activity-stage-min-height: 220px;
+}
+
+:root {
+  color-scheme: light dark;
+  font-size: var(--text-body);
+  color: var(--cmux-text, CanvasText);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button, input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+.activity {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--activity-line);
+}
+
+nav strong {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+nav input {
+  appearance: none;
+  flex: 1;
+  max-width: 260px;
+  height: 24px;
+  border: 1px solid var(--activity-line);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: var(--activity-well);
+  font-size: var(--text-control);
+  outline: none;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+nav input:focus {
+  border-color: var(--activity-control-line);
+}
+
+/* The layout picker: native radios drawn as segments, as Settings draws them. */
+.segmented {
+  display: inline-flex;
+  gap: 1px;
+  margin: 0 0 0 auto;
+  padding: 1px;
+  min-width: 0;
+  border: 1px solid var(--activity-line);
+  border-radius: 7px;
+}
+
+.segment {
+  position: relative;
+  padding: 1px 10px;
+  border-radius: 5px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.segment input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.segment:hover {
+  background: var(--activity-well);
+}
+
+.segment[data-checked] {
+  background: var(--activity-selected);
+  font-weight: 500;
+}
+
+.segment:focus-within {
+  outline: 2px solid var(--activity-control-line);
+  outline-offset: -1px;
+}
+
+/* The session list gives up width first in a narrow pane (down to 200px, from 46% of the page), so
+   the selected agent's detail keeps room for its title and actions. */
+.split {
+  display: grid;
+  grid-template-columns: clamp(200px, 46%, 270px) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+
+aside {
+  border-right: 1px solid var(--activity-line);
+  overflow: auto;
+}
+
+section h3 {
+  margin: 10px 12px 2px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+  color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.connection {
+  margin: 0 12px 6px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.session {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 4px 12px;
+  cursor: default;
+}
+
+.session.selected {
+  background: var(--activity-selected);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.session-text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-text b, .session-text small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-text b {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 500;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.session-text small {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.status {
+  font-size: var(--text-caption);
+  color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.status.live {
+  color: var(--activity-live);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.detail header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--activity-line);
+}
+
+/* The agent's title keeps one line and ellipsizes; the actions wrap under it when the header runs
+   out of room, never squeezing it to a word per line. */
+.detail header strong {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  margin-left: auto;
+  display: flex;
+  gap: 5px;
+}
+
+.actions button {
+  height: 22px;
+  border: 1px solid var(--activity-control-line);
+  border-radius: 5px;
+  padding: 0 8px;
+  background: transparent;
+  font-size: var(--text-control);
+  cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+/* The frame viewer (viewer.tsx): the screenshot fitted in a well, a bar with Previous, Next, the
+   step that made it, its time and the position, then a filmstrip of every frame. */
+.viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.viewer-stage {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: var(--activity-stage-min-height);
+  padding: 16px;
+  overflow: hidden;
+  background: var(--activity-well);
+}
+
+/* The screenshot as captured: fitted, never cropped. */
+.viewer-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: var(--elevation-2);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.viewer-empty {
+  color: var(--activity-text-2);
+}
+
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--activity-line);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+
+.viewer-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--activity-text-2);
+  cursor: default;
+}
+
+.viewer-button svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.viewer-button:hover:not(:disabled) {
+  background: var(--activity-well);
+  color: var(--cmux-text, CanvasText);
+}
+
+.viewer-button:disabled {
+  opacity: 0.4;
+}
+
+.viewer-button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--activity-control-line);
+  outline-offset: -1px;
+}
+
+.viewer-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.viewer-step b {
+  font-weight: 500;
+}
+
+.viewer-step span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--activity-text-2);
+}
+
+.viewer-step time,
+.viewer-position {
+  color: var(--activity-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-step.bad b {
+  color: var(--activity-error);
+}
+
+.viewer-position {
+  flex: none;
+  padding: 0 4px;
+}
+
+/* Every frame of the session; the shown one carries the accent ring. */
+.filmstrip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: 1px solid var(--activity-line);
+}
+
+.film {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  cursor: default;
+}
+
+.film[aria-current] {
+  outline-color: var(--cmux-accent, currentColor);
+}
+
+.film.bad .thumb {
+  box-shadow: inset 0 0 0 1px var(--activity-error);
+}
+
+.film:focus-visible {
+  outline-color: var(--activity-control-line);
+}
+
+/* A thumbnail keeps its frame's shape before its pixels arrive, so nothing moves when they do. */
+.thumb {
+  display: block;
+  height: var(--activity-thumb-height);
+  aspect-ratio: 16 / 10;
+  max-width: 120px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--activity-well);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.no-frames {
+  color: var(--activity-text-2);
+}
+
+.events {
+  border-top: 1px solid var(--activity-line);
+  max-height: 160px;
+  overflow: auto;
+}
+
+/* A step; one that kept a screenshot is a button that shows it in the viewer. */
+.event {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  cursor: default;
+}
+
+.event[aria-current] {
+  background: var(--activity-selected);
+}
+
+.event-text {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.event-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event.bad {
+  color: var(--activity-error);
+}
+
+.event small {
+  color: var(--activity-text-2);
+}
+
+.timeline {
+  padding: 14px;
+  overflow: auto;
+}
+
+.lane {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--activity-line);
+  min-height: 60px;
+}
+
+.lane > .session {
+  width: 260px;
+}
+
+.ticks {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: auto;
+  flex: 1;
+}
+
+.ticks .film {
+  margin: 8px 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  overflow: auto;
+}
+
+.tile {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  border: 1px solid var(--activity-line);
+  border-radius: 8px;
+  background: transparent;
+  padding: 8px;
+  cursor: default;
+}
+
+.tile-frame {
+  aspect-ratio: 16 / 10;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--activity-well);
+  color: var(--activity-text-2);
+}
+
+.tile-frame .thumb {
+  height: 100%;
+  max-width: 100%;
+  border-radius: 0;
+}
+
+.tile-frame .thumb img {
+  object-fit: contain;
+}
+
+.tile small {
+  color: var(--activity-text-2);
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  flex: 1;
+  padding: 24px;
+  text-align: center;
+  color: var(--activity-text-2);
+}
+
+.empty b {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  color: var(--cmux-text, CanvasText);
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.empty span {
+  max-width: 320px;
+}
+
+.error {
+  padding: 14px;
+  color: var(--activity-error);
+}
+
+/* The viewer over the timeline or grid: the shared dialog on the liquid glass, nearly the page's
+   size, with the session it belongs to on top. */
+.activity-viewer-dialog {
+  inset: 24px;
+  width: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  color: var(--cmux-text, CanvasText);
+  --glass-elevation: var(--elevation-2);
+}
+
+.activity-viewer-dialog .viewer-stage {
+  background: transparent;
+}
+
+.activity-viewer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--activity-line);
+  white-space: nowrap;
+}
+
+.activity-viewer-title strong {
+  font-weight: 600;
+}
+
+.activity-viewer-title span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--activity-text-2);
+}

@@ -1,19 +1,14 @@
 import Foundation
 import WebKit
 
-extension WebKitTab: BrowserBackForwardListing {
-    public func navigationList() -> BrowserNavigationList? {
-        let list = webView.backForwardList
-        guard let current = list.currentItem else { return nil }
-        let back = list.backList
-        let items = back + [current] + list.forwardList
-        return BrowserNavigationList(entries: items.map { BrowserNavigationEntry(url: $0.url, title: $0.title) }, current: back.count)
-    }
-
+/// WebKit's list with the entries saved before a relaunch around it (`WebKitRestoredSessionHost`).
+extension WebKitTab: BrowserBackForwardListing, BrowserSessionRestoring {
+    public func navigationList() -> BrowserNavigationList? { restored.navigationList() }
     @discardableResult
-    public func goToEntry(offset: Int) -> Bool {
-        guard let item = webView.backForwardList.item(at: offset) else { return false }
-        webView.go(to: item)
-        return true
+    public func goToEntry(offset: Int) -> Bool { restored.goToEntry(offset: offset) }
+    public func restoreSession(_ entries: [BrowserSavedEntry], current: Int) { restored.restore(entries, current: current) }
+    public func currentScrollY() async -> Double? { await WebKitRestoredSessionHost(tab: self).currentScrollY() }
+    public func savedSession(measuringScroll: Bool) async -> BrowserSavedSession? {
+        await restored.savedSession(measuringScroll: measuringScroll)
     }
 }

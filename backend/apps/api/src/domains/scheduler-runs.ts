@@ -27,7 +27,10 @@ export const runLimitMs = (body: Body, wallClockSeconds: number | undefined): nu
   if (wallClockSeconds !== undefined) return wallClockSeconds * 1000
   // Agent and code runs may sleep and wait for hours; the 24 h default is the abuse limit (A18).
   if (body.type === "agent_prompt" || body.type === "code") return AGENT_RUN_DEFAULT_MS
-  return body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : 0), 0) + RUN_GRACE_MS
+  // A Chief job's run only hands the prompt to the Chief's conversation (the turn is the Chief's own).
+  if (body.type === "chief") return RUN_GRACE_MS
+  // Sleeps, and every machine or agent step's own timeout (org workflows), plus grace.
+  return body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : s.type === "machine" || s.type === "agent" ? s.timeout_seconds * 1000 : 0), 0) + RUN_GRACE_MS
 }
 
 /** A run's deadline; runs from before deadlines existed fall back to created_at (the body is read only then). */
@@ -83,7 +86,9 @@ export const startRun = (
   state: SchedulerState,
   a: Automation,
   trigger: Run["trigger"],
-  ctx: ReduceContext
+  ctx: ReduceContext,
+  /** Who started it (a person's manual run); otherwise the automation's charged member (cx-ds09i). */
+  startedBy?: string
 ): { state: SchedulerState; run: RunRecord; outbox: Array<OutboxItem> } | { rejected: ReturnType<typeof rateLimited> } => {
   const refused = runPolicyRefusal(state.run_policy)
   if (refused) return { rejected: refused }
@@ -108,6 +113,7 @@ export const startRun = (
     outcome: null,
     dispatched: false,
     body: a.body,
+    charged_user: startedBy ?? state.charged_to?.[a.id] ?? a.created_by,
     // The run's limit: the automation's own budget, else (agent runs) the team default, else the built-in default.
     ...(a.budget.wall_clock_seconds !== undefined
       ? { wall_clock_seconds: a.budget.wall_clock_seconds }

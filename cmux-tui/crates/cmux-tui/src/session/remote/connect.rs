@@ -1,7 +1,10 @@
 //! Connecting a remote session: transports, provider authority, and initialization.
 
 use super::*;
+use crate::session::sidebar_doc::SIDEBAR_DOC_CAPABILITY;
+use cmux_json::JsonSet as _;
 use cmux_tui_core::server::OPEN_DEVICE_KINDS_CAPABILITY;
+use cmux_tui_core::server::PLACEMENT_SHIFT_CAPABILITY;
 
 impl RemoteSession {
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
@@ -81,6 +84,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            api_revision: Mutex::new(None),
             disconnect_state: disconnect::DisconnectCell::default(),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -111,6 +115,7 @@ impl RemoteSession {
             size_states: Mutex::new(HashMap::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
+            sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -129,6 +134,16 @@ impl RemoteSession {
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
+                let Some(session) = reader_session.upgrade() else { break None };
+                let translated = session.translate_incoming_line(&message);
+                zeroize_string(&mut message);
+                let mut message = match translated {
+                    Ok(message) => message,
+                    Err(error) => {
+                        let reason = format!("remote API revision translation failed: {error}");
+                        break Some(reason);
+                    }
+                };
                 let value = match serde_json::from_str::<Value>(&message) {
                     Ok(value) => value,
                     Err(error) => {
@@ -138,7 +153,6 @@ impl RemoteSession {
                     }
                 };
                 zeroize_string(&mut message);
-                let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
             };
             // Connection lost: retain the reason before telling the app to quit.
@@ -152,17 +166,38 @@ impl RemoteSession {
             session.disconnect_transport();
             return Err(error);
         }
+        // The workspace order, when the daemon owns a sidebar document.
+        session.ensure_sidebar_doc();
         Ok(session)
     }
 
     fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
         // Identify the endpoint and register this connection before any optional subscription.
-        let ident = self.request(json!({"cmd": "identify"}))?;
+        // `revisions` asks for the API revision range and the server's update
+        // command; an older server ignores the flag.
+        let ident = self.request(json!({"cmd": "identify", "revisions": true}))?;
         validate_remote_identity(&ident)?;
+        let api_revision = api_revision::RemoteApiRevision::from_identity(&ident)?;
+        self.install_api_revision(api_revision);
         *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
+        // A daemon that reports API revisions learns ours, our release and
+        // how we were installed, so it can translate for us or name our
+        // update command when it refuses (server/api_revision_wire.rs).
+        if ident.get("api_revision").is_some() {
+            use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
+            client_info.set(
+                "api_revision",
+                json!(
+                    self.api_revision()
+                        .unwrap_or_else(|| cmux_tui_core::server::api_revision_range().0)
+                ),
+            );
+            client_info.set("version", json!(DISTRIBUTION_VERSION));
+            client_info.set("install", json!(InstallChannel::current().as_str()));
+        }
         if let Some(hostname) = local_hostname() {
-            client_info["name"] = json!(hostname);
+            client_info.set("name", json!(hostname));
         }
         let mut negotiated = Vec::new();
         if self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY) {
@@ -192,17 +227,27 @@ impl RemoteSession {
             // One cmux-tui install per host, so the host name is also the
             // stable device id that keeps two hosts' priority keys apart.
             let host = local_hostname().unwrap_or_else(|| "cmux-tui".to_string());
-            client_info["device_kind"] = json!("tui");
-            client_info["device_name"] = json!(host);
-            client_info["device_id"] = json!(host);
+            client_info.set("device_kind", json!("tui"));
+            client_info.set("device_name", json!(host));
+            client_info.set("device_id", json!(host));
         }
         // Replays are applied with colors written after them, so the
         // daemon's incomplete sequence must arrive separately.
         if self.supports_capability(TERMINAL_PENDING_SEQUENCE_CAPABILITY) {
             negotiated.push(TERMINAL_PENDING_SEQUENCE_CAPABILITY);
         }
+        // The TUI reads the workspace order from the sidebar document, never
+        // from `workspace_placement` changes: with `placement-shift-v1` the
+        // daemon sends no placement restatement when a new workspace shifts
+        // the others.
+        if self.supports_capability(SIDEBAR_DOC_CAPABILITY) {
+            negotiated.push(SIDEBAR_DOC_CAPABILITY);
+        }
+        if self.supports_capability(PLACEMENT_SHIFT_CAPABILITY) {
+            negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
+        }
         if !negotiated.is_empty() {
-            client_info["capabilities"] = json!(negotiated);
+            client_info.set("capabilities", json!(negotiated));
         }
         self.request(client_info)?;
         if subscribe {

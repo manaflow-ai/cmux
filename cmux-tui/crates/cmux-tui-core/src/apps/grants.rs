@@ -98,7 +98,18 @@ impl ScopeTable {
         if external && grant.sandboxed {
             return Decision::ScopeMissing("the app runs sandboxed: no network");
         }
-        let granted = match scope.as_str() {
+        // A workspace, screen, pane or terminal tab created with a command
+        // runs it, as `workspace.run` does.
+        let launches = matches!(
+            op,
+            "workspace.create"
+                | "screen.create"
+                | "pane.create"
+                | "pane.split"
+                | "tab.create_terminal"
+        ) && (params.get("argv").is_some() || params.get("shell").is_some());
+        let scope = if launches { "workspace:execute" } else { scope.as_str() };
+        let granted = match scope {
             "net:<host>" => grant.scopes.iter().any(|s| s.starts_with("net:")),
             "integration:<provider>" => match params.get("provider").and_then(Value::as_str) {
                 Some(provider) => {
@@ -271,6 +282,65 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_agent_cli_list_admits_only_the_read_grant() {
+        let table = ScopeTable::get();
+        assert_eq!(
+            table.check(
+                "agent_cli.list",
+                &json!({"machine":"machine_owner"}),
+                &grant(&["agent_cli:read"])
+            ),
+            Decision::Allow(OpClass::Read),
+        );
+        for scopes in [vec![], vec!["agent_cli:execute"], vec!["workspace:read"]] {
+            assert!(matches!(
+                table.check("agent_cli.list", &json!({}), &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+    }
+
+    #[test]
+    fn cmux_next_agent_cli_list_denies_preview_and_revoked_grants() {
+        let table = ScopeTable::get();
+        for g in [
+            Grant { preview: true, ..grant(&["agent_cli:read"]) },
+            Grant { revoked: true, ..grant(&["agent_cli:read"]) },
+        ] {
+            assert!(matches!(
+                table.check("agent_cli.list", &json!({}), &g),
+                Decision::ScopeMissing(_),
+            ));
+        }
+    }
+
+    #[test]
+    fn cmux_next_agent_cli_list_does_not_admit_execution_or_refresh_operations() {
+        let g = grant(&["agent_cli:read", "agent_cli:execute"]);
+        for op in
+            ["agent_cli.install", "agent_cli.update", "agent_cli.sign_in", "agent_cli.refresh"]
+        {
+            assert_eq!(ScopeTable::get().check(op, &json!({}), &g), Decision::Unsupported);
+        }
+    }
+
+    #[test]
+    fn cmux_next_memory_search_admits_only_the_memory_read_grant() {
+        let table = ScopeTable::get();
+        let params = json!({"roots":[],"query":"deploy"});
+        assert_eq!(
+            table.check("memory.search", &params, &grant(&["memory:read"])),
+            Decision::Allow(OpClass::Read),
+        );
+        for scopes in [vec![], vec!["document:read"], vec!["agent_cli:read"]] {
+            assert!(matches!(
+                table.check("memory.search", &params, &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+    }
+
+    #[test]
     fn unknown_is_unsupported_and_ungranted_is_scope_missing() {
         let table = ScopeTable::get();
         assert_eq!(table.check("made.up", &json!({}), &grant(&[])), Decision::Unsupported);
@@ -323,6 +393,43 @@ mod tests {
             ),
             Decision::ScopeMissing(_)
         ));
+    }
+
+    #[test]
+    fn workspace_create_with_a_command_needs_the_execute_scope() {
+        let table = ScopeTable::get();
+        let write = grant(&["workspace:write"]);
+        let execute = grant(&["workspace:write", "workspace:execute"]);
+        let plain = json!({ "initial_content": "terminal", "cwd": "/tmp" });
+        assert!(matches!(table.check("workspace.create", &plain, &write), Decision::Allow(_)));
+        for command in [json!({ "argv": ["sh"] }), json!({ "shell": "true" })] {
+            assert!(matches!(
+                table.check("workspace.create", &command, &write),
+                Decision::ScopeMissing(_)
+            ));
+            assert!(matches!(
+                table.check("workspace.create", &command, &execute),
+                Decision::Allow(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn a_terminal_created_with_a_command_needs_the_execute_scope() {
+        let table = ScopeTable::get();
+        let write = grant(&["workspace:write"]);
+        let execute = grant(&["workspace:write", "workspace:execute"]);
+        for op in ["tab.create_terminal", "pane.create", "screen.create", "pane.split"] {
+            let plain = json!({ "pane": "current", "direction": "right" });
+            assert!(matches!(table.check(op, &plain, &write), Decision::Allow(_)), "{op}");
+            for command in [json!({ "argv": ["sh"] }), json!({ "shell": "true" })] {
+                assert!(
+                    matches!(table.check(op, &command, &write), Decision::ScopeMissing(_)),
+                    "{op} ran a command without workspace:execute"
+                );
+                assert!(matches!(table.check(op, &command, &execute), Decision::Allow(_)), "{op}");
+            }
+        }
     }
 
     #[test]

@@ -91,7 +91,8 @@ expect(reuse.status === 403, "a used nonce is refused")
 step("reused challenge nonce refused (403)")
 
 // Wire: subscribe, then an op from the install; expect event -> result -> request-settled with one tx.
-const ws = new WebSocket(`${API.replace("https", "wss")}/v1/wire/user`, ["cmux.wire.v1", `bearer.${jwt}`])
+// The token goes in the Authorization header (Bun's WebSocket accepts headers): invocation logs record every other header (cx-dgsp).
+const ws = new WebSocket(`${API.replace("https", "wss")}/v1/wire/user`, { protocols: ["cmux.wire.v1"], headers: { authorization: `Bearer ${jwt}` } } as unknown as string[])
 const frames: Array<any> = []
 let wake: (() => void) | undefined
 ws.onmessage = (e) => {

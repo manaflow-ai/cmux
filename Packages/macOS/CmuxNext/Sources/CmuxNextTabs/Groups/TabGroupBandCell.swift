@@ -7,16 +7,21 @@ import QuartzCore
 final class TabGroupBandCell {
     let washLayer = CALayer()
     let lineLayer = CALayer()
-    var color: GroupColor { didSet { if oldValue != color { updateColors() } } }
+    var color: GroupTint { didSet { if oldValue != color { updateColors() } } }
     var themeScope: ThemeScope = .app { didSet { updateColors() } }
+    /// The dragged tab set the band's end at the last frame write (`TabStripView.applyGroupFrames`).
+    var endFollowsDrag = false
 
-    init(color: GroupColor) {
+    init(color: GroupTint) {
         self.color = color
         let none: [String: any CAAction] = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull(), "backgroundColor": NSNull()]
         washLayer.actions = none
         lineLayer.actions = none
         washLayer.cornerCurve = .continuous
         lineLayer.cornerCurve = .continuous
+        // Anchored at the leading edge: a move of the start alone keeps the end (`pinsEnd`).
+        washLayer.anchorPoint = .zero
+        lineLayer.anchorPoint = .zero
         washLayer.zPosition = -1
         // Above lifted (dragged) tabs so a dragged group keeps its underline.
         lineLayer.zPosition = 12
@@ -46,8 +51,9 @@ final class TabGroupBandCell {
 
     private func updateColors() {
         themeScope.perform {
-            washLayer.backgroundColor = color.wash.cgColor
-            lineLayer.backgroundColor = color.swatch.cgColor
+            // The group's swatch and its wash, or the custom color, as the sidebar's groups draw it (GroupTint.headerFill).
+            washLayer.backgroundColor = color.headerFill.withAlphaComponent(0.09).cgColor
+            lineLayer.backgroundColor = color.headerFill.cgColor
         }
     }
 }

@@ -10,6 +10,18 @@ public struct ControlPaneInfo: Sendable, Hashable {
     /// `tabs` with kind `page`; targets, counts and Search Tabs read the
     /// daemon's `tabs` only (bd cx-5xsi).
     public var pageTabs: [ControlPageTabInfo] = []
+    /// Browser tabs of other panes this pane's strip also lists (`browser.page.mirror`):
+    /// the pane shows the same live page when it selects one, no copy
+    /// (plans/cmux-next/shared-browser-tabs.md). Their ids are the tabs' own.
+    public var mirroredTabIDs: [String] = []
+    /// The pane's column on its screen, left to right as the window draws
+    /// them (left docks, the scrolling strip, right docks); nil for a pane in
+    /// a top or bottom band. A screen stored as one split tree is column 0.
+    /// `beside_caller` placement reads it (ControlCaller).
+    public var column: Int?
+    /// The edge its column is docked to (`left`, `right`, `top`, `bottom`);
+    /// nil for a scrolling column.
+    public var dock: String?
 
     public init(id: String, handle: String, name: String? = nil, selectedTabID: String? = nil,
                 tabs: [ControlTabInfo] = [], tabGroups: [ControlTabGroupInfo] = []) {
@@ -55,6 +67,9 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var browserProfileID: String?
     /// An agent chat tab's acpmux session (`agent-session-tabs-v1`); nil for other tabs.
     public var agentSessionID: String?
+    /// The agent's own session id in a terminal tab (Claude Code's or Codex's
+    /// session UUID, from its hooks), when known.
+    public var agentHarnessSessionID: String?
     /// A page tab's internal page (`app-store`, `settings`): a store page
     /// tab (`page-tabs-v1`) the daemon lists as a conversation. `snapshot.get`
     /// reports its kind as `page`. Nil for other tabs.

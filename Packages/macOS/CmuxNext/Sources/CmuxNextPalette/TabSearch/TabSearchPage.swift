@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDesign
+public import CoreGraphics
 public import Foundation
 
 /// What Search Tabs reads and does. The App implements it over its mirror
@@ -21,9 +22,16 @@ public protocol TabSearchSource: AnyObject {
     /// One element after each change to the tabs or the closed list, once
     /// both are current (`TabSearchLiveUpdates` re-reads the page).
     func changes() -> AsyncStream<Void>
+    /// The page favicon of a browser entry, nil while it loads or without one (the row
+    /// draws its symbol). A favicon that lands later is a change (``changes()``).
+    func favicon(for entry: TabSearchEntry) -> CGImage?
 }
 
-/// The Search Tabs page (Cmd-Shift-A, action `tab.search`): every tab with
+extension TabSearchSource {
+    public func favicon(for entry: TabSearchEntry) -> CGImage? { nil }
+}
+
+/// The Search Tabs page (action `tab.search`, from Cmd-Shift-P): every tab with
 /// recently closed tabs below. Return focuses and reveals the row's tab or
 /// reopens a closed one; Cmd-W closes the row's tab, or removes a closed
 /// one from the list, and keeps the page open.
@@ -77,6 +85,7 @@ extension PalettePageSpec {
         // Recency from the location trail ranks these rows; palette usage
         // counts would fight it.
         item.frecencyKey = nil
+        if entry.kind == .browser { item.image = source.favicon(for: entry) }
         let tab = ActionTargetRef(kind: .tab, id: id)
         item.actionRefs = entry.isClosed
             ? [PaletteActionRef("history.reopen", arguments: ["id": .string(id)], title: PaletteStrings.tabSearchReopen)]

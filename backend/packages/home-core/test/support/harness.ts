@@ -1,3 +1,4 @@
+import { BUDGET_WINDOW } from "../../src/conversation/budget.ts"
 import { createHash } from "node:crypto"
 import { apply, isSend, targetMessageId } from "../../src/conversation/apply.ts"
 import { create } from "../../src/conversation/create.ts"
@@ -117,6 +118,7 @@ export class CoreHost {
   request(actor: string, key: string, op: Op, extra: Partial<OpRequest> = {}): OpRequest {
     const targetId = targetMessageId(op)
     const replyId = op.kind === "message.send" ? op.reply_to?.message_id : undefined
+    const threadId = op.kind === "message.send" ? op.thread_root : undefined
     return {
       actor,
       idempotency_key: key,
@@ -125,8 +127,9 @@ export class CoreHost {
       new_message_id: `msg_${String(this.nextId).padStart(26, "0")}`,
       target: targetId ? (this.find(targetId) ?? null) : null,
       reply_target: replyId ? (this.find(replyId) ?? null) : null,
+      thread_target: threadId ? (this.find(threadId) ?? null) : null,
       last_message: this.messages.at(-1) ?? null,
-      ...(this.budget ? { recent: [...this.messages].reverse().slice(0, 5) } : {}),
+      ...(this.budget ? { recent: [...this.messages].reverse().slice(0, BUDGET_WINDOW) } : {}),
       ...extra
     }
   }

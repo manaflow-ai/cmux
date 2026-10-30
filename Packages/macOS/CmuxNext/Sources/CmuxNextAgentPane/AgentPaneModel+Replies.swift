@@ -1,13 +1,42 @@
 import Foundation
 
 extension AgentPaneModel {
+    /// The Foundation value of a git reply, parsed off the main actor; nil
+    /// when the bytes are not JSON.
+    @concurrent
+    nonisolated static func parseGitReply(_ data: Data) async -> GitReplyValue? {
+        (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])).map(GitReplyValue.init)
+    }
+
+    /// A parsed JSON value (Foundation containers nobody mutates after the
+    /// parse) handed from the parsing task to the main actor.
+    // crash-allow: a JSONSerialization result (immutable Foundation containers), handed once from the parse task to the main actor.
+    nonisolated struct GitReplyValue: @unchecked Sendable {
+        let value: Any
+    }
+
     /// The page's reply for a failed git read: the failure's code, origin,
     /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
+    static func gitFailure(_ failure: AgentPaneGitFailure, message: String = gitFailedMessage) -> [String: Any] {
         let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
         return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
+            code: failure.code, message: message, details: details,
             retryable: failure.retryable, origin: failure.origin.rawValue)
+    }
+
+    /// The page's reply for a git read or write: its JSON result, else the
+    /// failure under `message`. A result that is not JSON is `native.failed`.
+    /// A git.diff with patches can be many megabytes: parsed off the main actor (cx-9c8m).
+    static func gitReply(message: String, _ run: () async throws -> Data) async -> [String: Any] {
+        do {
+            let data = try await run()
+            guard let value = await parseGitReply(data)?.value else {
+                return gitFailure(.failed, message: message)
+            }
+            return AgentPaneReply.success(value)
+        } catch {
+            return gitFailure(error as? AgentPaneGitFailure ?? .failed, message: message)
+        }
     }
 
     /// The page's reply to a `transport.send`.

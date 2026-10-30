@@ -1,37 +1,11 @@
-import CmuxNextBrowserImport
+public import CmuxNextBrowserImport
 import Foundation
 
 /// User-facing onboarding text (Localizable.xcstrings in this module).
 enum OnboardingStrings {
-    static var windowTitle: String { String(localized: "onboarding.window.title", defaultValue: "Welcome to cmux", bundle: .module) }
-    static var continueButton: String { String(localized: "onboarding.button.continue", defaultValue: "Continue", bundle: .module) }
     static var importButton: String { String(localized: "onboarding.button.import", defaultValue: "Import", bundle: .module) }
     static var skip: String { String(localized: "onboarding.button.skip", defaultValue: "Skip", bundle: .module) }
     static var done: String { String(localized: "onboarding.button.done", defaultValue: "Done", bundle: .module) }
-    static func stepCounter(_ index: Int, _ count: Int) -> String {
-        String(format: String(localized: "onboarding.step.of", defaultValue: "%1$lld of %2$lld", bundle: .module), index, count)
-    }
-
-    static func stepCounter(_ index: Int, _ count: Int, step: OnboardingModel.Step) -> String {
-        let counter = stepCounter(index, count)
-        guard step == .importData else { return counter }
-        return String(format: String(localized: "onboarding.step.importOf", defaultValue: "Import · %@", bundle: .module), counter)
-    }
-
-    // Default browser
-    static var browserTitle: String { String(localized: "onboarding.browser.title2", defaultValue: "Default Browser", bundle: .module) }
-    static var browserSubtitle: String {
-        String(localized: "onboarding.browser.subtitle2", defaultValue: "Open links from other apps in cmux.", bundle: .module)
-    }
-    static func currentBrowser(_ name: String) -> String {
-        String(format: String(localized: "onboarding.browser.current", defaultValue: "Current default: %@", bundle: .module), name)
-    }
-    static var isDefaultBrowser: String { String(localized: "onboarding.browser.isDefault", defaultValue: "cmux is your default browser.", bundle: .module) }
-    static var makeDefaultBrowser: String { String(localized: "onboarding.browser.make", defaultValue: "Make Default Browser", bundle: .module) }
-    static var waiting: String { String(localized: "onboarding.browser.waiting", defaultValue: "Waiting for macOS…", bundle: .module) }
-    static func systemRefused(_ reason: String) -> String {
-        String(format: String(localized: "onboarding.system.refused", defaultValue: "macOS did not make the change: %@", bundle: .module), reason)
-    }
 
     // Import
     static var importTitle: String { String(localized: "onboarding.import.title2", defaultValue: "Import from Browsers", bundle: .module) }
@@ -39,14 +13,13 @@ enum OnboardingStrings {
     static var findBrowsers: String { String(localized: "onboarding.import.findBrowsers", defaultValue: "Find Browsers", bundle: .module) }
     /// Where the browser list goes before Find Browsers ran (as short as "Looking for browsers…").
     static var notSearched: String { String(localized: "onboarding.import.notSearched", defaultValue: "Not looked for yet.", bundle: .module) }
-    static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .module) }
-    static func importing(_ profile: String) -> String {
-        String(format: String(localized: "onboarding.import.progress", defaultValue: "Importing %@…", bundle: .module), profile)
+    /// The way in from the files a browser exports (cx-d0d.65), under the list.
+    static var importFromFiles: String {
+        String(localized: "onboarding.import.fromFiles", defaultValue: "Import from Another Browser…", bundle: .module)
     }
-    static var fullDiskAccessTitle: String { String(localized: "onboarding.import.fda.title", defaultValue: "Safari needs Full Disk Access", bundle: .module) }
+    static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .module) }
     static var fullDiskAccessSubtitle: String { String(localized: "onboarding.import.fda.subtitle", defaultValue: "Needs Full Disk Access", bundle: .module) }
     static var openSystemSettings: String { String(localized: "onboarding.button.openSystemSettings", defaultValue: "Open System Settings", bundle: .module) }
-    static var checkAgain: String { String(localized: "onboarding.import.fda.recheck", defaultValue: "Check Again", bundle: .module) }
 
     static var importWaiting: String { String(localized: "onboarding.import.waiting", defaultValue: "Waiting", bundle: .module) }
     static var importRowFailed: String { String(localized: "onboarding.import.rowFailed", defaultValue: "Couldn’t read", bundle: .module) }
@@ -64,15 +37,6 @@ enum OnboardingStrings {
     static var importWithoutPasswords: String {
         String(localized: "onboarding.button.importWithoutPasswords", defaultValue: "Import Without Passwords", bundle: .module)
     }
-    static var passwordsTitle: String {
-        String(localized: "onboarding.passwords.title", defaultValue: "Bring saved passwords from these profiles?", bundle: .module)
-    }
-    /// `items`: the Keychain item names, each already in quotation marks.
-    static func passwordsKeychain(_ items: String) -> String {
-        String(format: String(localized: "onboarding.passwords.keychain2",
-                              defaultValue: "Import asks you to confirm with Touch ID or your password. Then macOS asks whether cmux may use %@, the Keychain item the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac.",
-                              bundle: .module), items)
-    }
     /// Only Firefox profiles chosen: no Keychain item to allow.
     static var passwordsFirefoxOnly: String {
         String(localized: "onboarding.passwords.firefoxOnly",
@@ -84,25 +48,13 @@ enum OnboardingStrings {
         String(localized: "onboarding.passwords.firefoxPrimary",
                defaultValue: "If a Firefox profile has a primary password, cmux asks for it once and does not keep it.", bundle: .module)
     }
-    /// The consent screen's paragraph: Chromium browsers name the Keychain items macOS asks about
-    /// (`quote` puts them in quotation marks); Firefox keeps its key in the profile.
-    static func passwordsConsent(keychainItems: [String], includesFirefox: Bool, quote: ([String]) -> String) -> String {
-        guard !keychainItems.isEmpty else { return passwordsFirefoxOnly }
-        let keychain = passwordsKeychain(quote(keychainItems))
-        return includesFirefox ? keychain + " " + passwordsFirefoxPrimary : keychain
-    }
     /// macOS shows it as “cmux is trying to …” in the Touch ID sheet.
     static var passwordsAuthReason: String {
         String(localized: "onboarding.passwords.authReason", defaultValue: "import saved passwords from your other browsers", bundle: .module)
     }
     static var passwordsAuthDenied: String {
         String(localized: "onboarding.passwords.authDenied",
-               defaultValue: "Nothing was read: the confirmation didn’t finish. Click Import to try again, or import without passwords.",
-               bundle: .module)
-    }
-    static var passwordsStore: String {
-        String(localized: "onboarding.passwords.store",
-               defaultValue: "They go into cmux’s own encrypted password store, where autofill finds them. Agents never see them, and nothing is read until you click Import.",
+               defaultValue: "Nothing was read: the confirmation didn’t finish. Click Begin Importing to try again, or import without passwords.",
                bundle: .module)
     }
     /// "Already saved with a different password: 2. cmux kept the saved password."
@@ -129,6 +81,20 @@ enum OnboardingStrings {
         String(localized: "onboarding.import.passwordsNotRead",
                defaultValue: "Some passwords weren’t imported: macOS didn’t allow the key, or the file couldn’t be read.", bundle: .module)
     }
+    /// The row menu's first item: the source's own new cmux profile, with its name, color and picture.
+    static var newMatchingProfile: String {
+        String(localized: "onboarding.import.target.new", defaultValue: "New Profile", bundle: .module)
+    }
+    /// The checkbox under the kinds: imported history keeps following the other browser.
+    static var keepHistoryInSync: String {
+        String(localized: "onboarding.import.keepInSync", defaultValue: "Keep history in sync", bundle: .module)
+    }
+    static var keepHistoryInSyncHelp: String {
+        String(localized: "onboarding.import.keepInSync.help",
+               defaultValue: "New pages you visit in these browsers show up in cmux too. Everything stays on this Mac.", bundle: .module)
+    }
+    /// The row menu's accessibility label.
+    static var importInto: String { String(localized: "onboarding.import.target.label", defaultValue: "Import Into", bundle: .module) }
     static func kind(_ kind: ImportDataKind) -> String {
         switch kind {
         case .bookmarks: String(localized: "onboarding.kind.bookmarks", defaultValue: "Bookmarks", bundle: .module)
@@ -137,6 +103,7 @@ enum OnboardingStrings {
         case .openTabs: String(localized: "onboarding.kind.openTabs", defaultValue: "Open Tabs", bundle: .module)
         case .extensions: String(localized: "onboarding.kind.extensions", defaultValue: "Extensions", bundle: .module)
         case .passwords: String(localized: "onboarding.kind.passwords", defaultValue: "Passwords", bundle: .module)
+        case .searchEngines: String(localized: "onboarding.kind.searchEngine", defaultValue: "Search Engine", bundle: .module)
         }
     }
 
@@ -145,20 +112,20 @@ enum OnboardingStrings {
         profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore
             ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
     }
+}
 
-    // Theme
-    static var themeTitle: String { String(localized: "onboarding.theme.title", defaultValue: "Theme", bundle: .module) }
-    static var themeSubtitle: String {
-        String(localized: "onboarding.theme.subtitle", defaultValue: "A Ghostty theme for cmux. Your Ghostty config does not change.", bundle: .module)
+public extension Optional where Wrapped == ImportCounts {
+    /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204"), or (nil) that it failed.
+    func removalText(profile: String) -> String {
+        guard let counts = self else {
+            return String(localized: "onboarding.import.removed.failed", defaultValue: "Couldn’t remove the data imported into \(profile).",
+                          bundle: .module)
+        }
+        let line = ImportCountsText.line(counts)
+        guard !line.isEmpty else {
+            return String(localized: "onboarding.import.removed.none", defaultValue: "Nothing imported into \(profile).", bundle: .module)
+        }
+        return String(localized: "onboarding.import.removed", defaultValue: "Removed from \(profile): \(line). Sign-ins and passwords stay.",
+                      bundle: .module)
     }
-    static var ghosttyTheme: String { String(localized: "onboarding.welcome.ghosttyTheme", defaultValue: "Your Ghostty Theme", bundle: .module) }
-    static var appleSystemTheme: String {
-        String(localized: "onboarding.theme.appleSystem", defaultValue: "Apple System (follows appearance)", bundle: .module)
-    }
-    /// The name a theme choice shows.
-    static func themeName(_ choice: ThemeChoice) -> String { choice.label ?? choice.name ?? ghosttyTheme }
-    static var previewLabel: String { String(localized: "onboarding.preview.label", defaultValue: "Preview of cmux with your choices", bundle: .module) }
-
-    // Accounts
-    static var accountsTitle: String { String(localized: "onboarding.accounts.title2", defaultValue: "Accounts", bundle: .module) }
 }

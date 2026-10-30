@@ -1,6 +1,6 @@
 [package]
 name = "cmux-tui-core"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,13 +11,20 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
+cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
+cmux-holder.workspace = true
+cmux-process.workspace = true
+cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
+cmux-git.workspace = true
+cmux-config.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
 cmux-tui-cloud-conversations.workspace = true
@@ -25,6 +32,8 @@ cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
 cmux-tui-remote-access.workspace = true
 cmux-tui-util.workspace = true
+cmux-kitty-media.workspace = true
+cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
@@ -44,7 +53,9 @@ rusqlite.workspace = true
 parking_lot = { workspace = true, features = ["arc_lock"] }
 fs4.workspace = true
 sha2.workspace = true
+socket2.workspace = true
 quick-xml.workspace = true
+notify.workspace = true
 zeroize.workspace = true
 url.workspace = true
 cmux-app-manifest.workspace = true
@@ -64,6 +75,10 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+# The link share bridge's room socket (agent_session_share_room.rs), the
+# client the cmux-tui binary already links for cmux.wire/1.
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),
@@ -72,10 +87,17 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false, features = 
 uds_windows.workspace = true
 windows-sys = { workspace = true, features = [
     "Wdk_System_Threading",
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
     "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Kernel",
+    "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",
 ] }

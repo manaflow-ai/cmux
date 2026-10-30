@@ -9,7 +9,7 @@ Usage:
   CMUX_TAG=<tag> scripts/cmux-debug-cli.sh <cmux-command> [args...]
 
 Example:
-  CMUX_TAG=codext scripts/cmux-debug-cli.sh list-workspaces
+  CMUX_TAG=codext scripts/cmux-debug-cli.sh workspace list
 EOF
   exit 2
 fi
@@ -47,7 +47,12 @@ sanitize_path() {
 tag_slug="$(sanitize_path "$CMUX_TAG")"
 tag_bundle_id="$(sanitize_bundle "$CMUX_TAG")"
 
-socket_path="/tmp/cmux-debug-${tag_slug}.sock"
+# cmux-next keeps its socket in the user's state folder (a host's /tmp cleaner deleted it under a running
+# app, hq#1870) with a symlink at the old /tmp name; classic tagged builds and older cmux-next use /tmp.
+socket_path="${HOME}/.local/state/cmux/cmux-debug-${tag_slug}.sock"
+if [[ ! -S "$socket_path" ]]; then
+  socket_path="/tmp/cmux-debug-${tag_slug}.sock"
+fi
 if [[ ! -S "$socket_path" ]]; then
   cat >&2 <<EOF
 Tagged cmux socket not found:

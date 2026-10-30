@@ -2,19 +2,18 @@ public import AppKit
 import CmuxNextDesign
 
 /// Small label over a terminal whose link is down: the last screen stays
-/// visible behind it. Hidden while connected. Subtle gray, no accent.
+/// visible behind it. Hidden while connected. The theme's raised surface and
+/// secondary text, no accent.
 final class TerminalStatusBanner: NSView {
-    private let label = NSTextField(labelWithString: "")
+    private let label = ThemedLabel(labelWithString: "")
 
     init() {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 8
-        layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.88).cgColor
-        layer?.borderColor = NSColor(white: 1, alpha: 0.08).cgColor
         layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = NSColor(white: 0.85, alpha: 1)
+        label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -33,30 +32,75 @@ final class TerminalStatusBanner: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeColors()
+    }
+
+    private func applyThemeColors() {
+        performWithTheme {
+            layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            layer?.borderColor = Palette.separator.cgColor
+        }
+    }
+
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil,
-              cause: TerminalHostLossCause? = nil) {
-        guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause) else {
+              cause: TerminalHostLossCause? = nil, stall: TerminalShellStall? = nil) {
+        guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause, stall: stall) else {
+            endReveal()
             isHidden = true
             return
         }
         label.stringValue = text
         setAccessibilityLabel(text)
+        let restoring = status == .restoring && stall == nil
+        if restoring, isHidden { beginReveal() } else if !restoring { endReveal() }
         isHidden = false
+    }
+
+    /// "Restoring…" fades in only after `restoringRevealDelay`, so an attach
+    /// that answers at once (the usual case) never flashes the label.
+    static let restoringRevealDelay: CFTimeInterval = 0.5
+    private static let revealHoldKey = "terminalStatus.restoringHold"
+    private static let revealFadeKey = "terminalStatus.restoringReveal"
+
+    private func beginReveal() {
+        guard let layer else { return }
+        layer.add(Motion.hold("opacity", at: 0), forKey: Self.revealHoldKey)
+        layer.add(Motion.overlays.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
+                  forKey: Self.revealFadeKey)
+    }
+
+    private func endReveal() {
+        layer?.removeAnimation(forKey: Self.revealHoldKey)
+        layer?.removeAnimation(forKey: Self.revealFadeKey)
     }
 
     /// The banner text, or nil while connected. An exited terminal whose
     /// host was lost (`hostLoss`) says so, followed by the owner's recorded
-    /// `cause` when there is one. `strings` defaults to this module's table
-    /// and falls back to English if the bundle is gone.
+    /// `cause` when there is one. A shell the daemon cannot reach (`stall`)
+    /// is named whatever the view's own link says, unless it exited or an
+    /// administrator turned the link off.
+    /// `strings` defaults to this module's table and falls back to English
+    /// if the bundle is gone.
     static func text(
         for status: TerminalConnectionStatus,
         hostLoss: TerminalHostLoss? = nil,
         cause: TerminalHostLossCause? = nil,
+        stall: TerminalShellStall? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
+        if let stall, status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) {
+            return stallText(stall, strings: strings)
+        }
         if case .exited = status, hostLoss != nil, let cause,
            let detail = causeText(cause, strings: strings),
            let lost = text(for: status, hostLoss: hostLoss, strings: strings) {
@@ -65,6 +109,8 @@ final class TerminalStatusBanner: NSView {
         switch status {
         case .connected:
             return nil
+        case .restoring:
+            return strings.text("terminal.link.restoring", defaultValue: "Restoring…")
         case .exited:
             switch hostLoss {
             case .hostEnded:
@@ -99,6 +145,21 @@ final class TerminalStatusBanner: NSView {
             }
             let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"
+        }
+    }
+
+    /// The label of a shell the daemon cannot reach.
+    static func stallText(_ stall: TerminalShellStall, strings: ModuleResourceBundle) -> String {
+        let close = strings.text("terminal.link.stall.closeHint", defaultValue: "Close the tab to end it")
+        switch stall {
+        case .reconnecting:
+            return strings.text("terminal.link.stall.reconnecting", defaultValue: "Reconnecting to the shell…")
+        case .linkLost:
+            let reason = strings.text("terminal.link.stall.linkLost", defaultValue: "Terminal stopped: cmux lost its link to the shell")
+            return "\(reason) · \(close)"
+        case .otherBuild:
+            let reason = strings.text("terminal.link.stall.otherBuild", defaultValue: "Terminal stopped: another cmux build owns its shell")
+            return "\(reason) · \(close)"
         }
     }
 

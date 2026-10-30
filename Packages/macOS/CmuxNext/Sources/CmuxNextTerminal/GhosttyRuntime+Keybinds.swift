@@ -8,8 +8,19 @@ import GhosttyNextKit
 /// Cmd-J J (`terminal.scrollToSelection`). The key router arms the leader
 /// before a terminal sees the key, so a user's Ghostty `super+j` keybind
 /// runs only once the leader chords are unbound in cmux.json.
+///
+/// Like the shipping cmux (plans/cmux-next/terminal-shortcuts.md), these
+/// Ghostty window defaults are unbound so the keys reach the terminal
+/// program: `super+enter=toggle_fullscreen` (cmux's full screen is
+/// Ctrl-Cmd-F), `super+alt+w=close_tab:this` (Cmd-W closes a tab) and
+/// `super+alt+shift+w=close_all_windows`.
 extension GhosttyRuntime {
-    nonisolated static let cmuxDefaultKeybindLines = ["keybind = super+j=unbind"]
+    nonisolated static let cmuxDefaultKeybindLines = [
+        "keybind = super+j=unbind",
+        "keybind = super+enter=unbind",
+        "keybind = super+alt+w=unbind",
+        "keybind = super+alt+shift+w=unbind",
+    ]
 
     /// Loads the defaults into `config`; call before the user's files.
     static func loadKeybindDefaults(into config: ghostty_config_t) {

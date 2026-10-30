@@ -7,6 +7,7 @@ use crate::Actor;
 use crate::mux::*;
 use crate::state::commit::{StateEffects, workspace_identity};
 use crate::state::prelude::*;
+use crate::state::status_meta::OwnerProcess;
 use crate::state::store::{StateChanges, StateCommit, state_upsert, write_workspace_identity};
 use crate::state::values::{fresh_upserts, upserted_value};
 use crate::state::workspace_status_store as status;
@@ -16,11 +17,29 @@ use crate::workspace_registry::WorkspacePresentationUpdate;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "change", rename_all = "snake_case")]
 pub(crate) enum WorkspaceStatusChange {
-    Set { key: String, text: String, icon: Option<String>, color: Option<String> },
-    Clear { key: Option<String> },
-    Progress { value: Option<f64>, label: Option<String> },
+    Set {
+        key: String,
+        text: String,
+        icon: Option<String>,
+        color: Option<String>,
+        /// Loading-indicator fields; skipped when plain, so a plain set
+        /// keeps the fingerprint it had before they existed.
+        #[serde(skip_serializing_if = "crate::state::status_meta::StatusMeta::is_plain_boxed")]
+        meta: Box<crate::state::status_meta::StatusMeta>,
+    },
+    Clear {
+        key: Option<String>,
+    },
+    Progress {
+        value: Option<f64>,
+        label: Option<String>,
+    },
     ProgressClear,
-    Log { level: String, source: Option<String>, text: String },
+    Log {
+        level: String,
+        source: Option<String>,
+        text: String,
+    },
     LogClear,
 }
 
@@ -40,13 +59,26 @@ impl Mux {
             "title": update.title,
             "color": update.color,
             "icon": update.icon,
+            "description": update.description,
+            "task_status": update.task_status,
         });
+        // The raw tree (`list-workspaces`) carries the title, color and icon
+        // but not the notes (description, task status): those reach every
+        // client in the workspace's `extra` on the state feed. A notes-only
+        // update sends no `tree-changed`, which made every delta client
+        // refetch and re-apply the whole tree for one workspace's status
+        // (the app's sidebar churn: ~10 Hz of `--task-status`).
+        let effects = if update.title.is_some() || update.color.is_some() || update.icon.is_some() {
+            StateEffects::PRESENTATION
+        } else {
+            StateEffects::NOTES
+        };
         self.commit_state(
             mutation,
             "workspace.update",
             &fingerprint,
             expected_revision,
-            StateEffects::PRESENTATION,
+            effects,
             |transaction, state| {
                 let resolved =
                     self.resolve_in_state(state, crate::ResourceTarget::Workspace, selectors)?;
@@ -87,15 +119,36 @@ impl Mux {
                 let workspace = public_id.as_str();
                 let now = now_ms();
                 match &change {
-                    WorkspaceStatusChange::Set { key, text, icon, color } => status::set_status(
-                        transaction,
-                        workspace,
-                        key,
-                        text,
-                        icon.as_deref(),
-                        color.as_deref(),
-                        now,
-                    )?,
+                    WorkspaceStatusChange::Set { key, text, icon, color, meta } => {
+                        meta.validate(|id| state.terminal_catalog.contains_key(id))?;
+                        // Checked here, after the replay check, so a retry of
+                        // a committed set returns its stored result.
+                        let owner_process = match meta.owner_pid {
+                            Some(pid) => Some(OwnerProcess::current(pid).ok_or_else(|| {
+                                anyhow::anyhow!("bad request: owner.pid {pid} is not running")
+                            })?),
+                            None => None,
+                        };
+                        status::set_status(
+                            transaction,
+                            workspace,
+                            key,
+                            text,
+                            icon.as_deref(),
+                            color.as_deref(),
+                            now,
+                        )?;
+                        // A process owner is honored only on the machine that accepted it.
+                        crate::state::status_meta::write_meta(
+                            transaction,
+                            workspace,
+                            key,
+                            meta,
+                            owner_process,
+                            self.machine_public_id.as_str(),
+                            now,
+                        )?;
+                    }
                     WorkspaceStatusChange::Clear { key } => {
                         status::clear_status(transaction, workspace, key.as_deref())?;
                     }
@@ -172,6 +225,9 @@ impl Mux {
     /// Close every ephemeral workspace left by an earlier run, and end the
     /// terminals that only it showed. Runs once at daemon start.
     pub(crate) fn close_ephemeral_workspaces(self: &Arc<Self>) -> anyhow::Result<()> {
+        // Owned status entries a previous run left: re-arm their watches and
+        // drop the ones whose TTL passed while the daemon was down.
+        crate::state::status_owners::resume(self);
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             let target = self.with_state(|state| {
@@ -187,8 +243,12 @@ impl Mux {
                         state.screen_of(pane.id).is_some_and(|(owner, _)| owner == index)
                     })
                     .flat_map(|pane| pane.tabs.iter())
-                    .filter_map(|surface| state.surfaces.get(surface))
-                    .filter_map(|runtime| runtime.terminal_public_id().cloned())
+                    // From the topology, not the surfaces: a host still
+                    // adopting on its own thread has no surface yet.
+                    .filter_map(|tab| match state.resource_indexes.content_ids.get(tab) {
+                        Some(ContentPublicId::Terminal(terminal)) => Some(terminal.clone()),
+                        _ => None,
+                    })
                     .collect::<Vec<_>>();
                 Some((workspace.id, terminals))
             });

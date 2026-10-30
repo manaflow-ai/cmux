@@ -1,4 +1,7 @@
+import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -25,12 +28,14 @@ import os
 /// - Geometry follows the latest active client (`TerminalAttachMachine`):
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
-/// - Grid reports go through `ResizeCoordinator` and reach the daemon only
-///   after the view stops resizing.
+/// - Grid reports go through `ResizeCoordinator` and reach the daemon the
+///   next frame, one grid in flight per terminal (a drag reflows live).
 /// - A dropped stream or failed attach leaves the view disconnected (last
-///   screen and a status label) until an event re-attaches it: shown again,
-///   a key press, a click or focus, or the App's ``reconnect()`` (terminal or
-///   connection back). A re-attach after failed ones waits a capped backoff.
+///   screen and a status label). A visible view re-attaches by itself after
+///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach works, offering Retry
+///   after about 90 s; a hidden one waits for an event: shown again, a key press, a click, focus or
+///   Retry, or the App's ``reconnect()``. A restored view says "Restoring…" until its first replay
+///   and, for its first 90 s or so, retries every 2 s at most until then (#23029).
 ///   ``processExited()`` ends it until the daemon reports the terminal
 ///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -43,30 +48,51 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
+    private let creatingInput: CreatingTerminalInput?
+    /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
+    private let probeSurface: UInt64
+    /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
+    private let burstTrace: BurstTrace?
+    /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
+    private let resizes: ResizeCoordinator
+    /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
+    var creatingTerminalID: String? { creatingInput?.terminalID }
 
     /// - Parameter policyBlocked: true while an administrator turned off the
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
-    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil,
-         policyBlocked: @escaping @Sendable () -> Bool = { false },
+    /// `burstTrace`: where the grids this view sends, their echoes and its first output after each echo
+    /// go while the burst bench records (`debug.burst`).
+    /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
+    init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
+         creatingInput: CreatingTerminalInput? = nil,
+         burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+        self.resizes = resizes
+        probeSurface = target.attachment.surface.rawValue
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,
+            // A view with no gate attaches to a terminal that already runs: a restore.
+            restoring: gate == nil,
             opener: { size in
                 var attachment = target.attachment
                 if let gate {
                     guard let resolved = await gate.value() else { throw CancellationError() }
                     attachment = resolved
                 }
+                #if DEBUG
+                try await DebugSlowAttach.shared.beforeAttach(surface: String(surface))
+                #endif
                 return try await TerminalAttachment.attach(endpoint: try await endpoint(), target: attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
-                                                    images: Self.attachImages)
+                                                    images: Self.attachImages,
+                                                    device: await Self.sizingDevice.value)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -76,18 +102,45 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
             cursorDefault: target.cursorDefault,
-            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
+            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } },
+            // Marked where the grid really goes to the PTY: the machine sends nothing for a resize
+            // without a live link, while hidden, or of the size it already holds.
+            onGridSent: burstTrace.map { trace -> TerminalAttachDriver<TerminalAttachment>.GridSent in
+                { size, expectsEcho in
+                    guard trace.isArmed else { return }
+                    trace.gridSent(surface: surface, cols: size.cols, rows: size.rows, expectsEcho: expectsEcho)
+                }
+            }
         )
         self.driver = driver
+        self.creatingInput = creatingInput
+        self.burstTrace = burstTrace
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
-                guard case .status(.disconnected) = event, policyBlocked() else { return event }
-                return .status(.disconnected(.turnedOffByOrganization, reconnecting: false))
+                if let burstTrace, burstTrace.isArmed {
+                    switch event {
+                    case .output: burstTrace.output(surface: surface)
+                    // The daemon applied a grid: its first output after this is at that size.
+                    case .resize(let cols, let rows): burstTrace.gridAnnounced(surface: surface, cols: cols, rows: rows)
+                    default: break
+                    }
+                }
+                switch event {
+                case .status(.disconnected), .status(.restoring):
+                    guard policyBlocked() else { return event }
+                    return .status(.disconnected(.turnedOffByOrganization, reconnecting: false))
+                default:
+                    return event
+                }
             }
         },
                              onCancel: { driver.cancelSteps() })
         driver.start()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The view of a traced new terminal's tab: its session is matched by this IO.
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.watch(io: ObjectIdentifier(self), surface: surface) }
+        #endif
     }
 
     deinit {
@@ -96,10 +149,14 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     // MARK: TerminalIO
 
+    /// The daemon terminal by its surface id, as its attachment names it to the typing probe.
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { probeSurface == 0 ? nil : .terminal(probeSurface) }
+
     /// The daemon's VT core answers DA/DSR, so the surface mirrors only.
     var answersTerminalQueries: Bool { true }
 
     func write(_ data: Data) async {
+        if let creatingInput, await creatingInput.write(data) { return }
         driver.input(data)
     }
 
@@ -107,6 +164,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// or re-attaches a disconnected view.
     func focusGained() async {
         driver.focused()
+    }
+
+    /// Take over from the "Sized for" chip: always a new claim (see `TerminalAttachMachine`).
+    func takeOverSize(setLatest: Bool) async {
+        driver.takeOver(setLatest: setLatest)
     }
 
     /// A click in a disconnected view re-attaches it.
@@ -123,14 +185,37 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         guard cols > 0, rows > 0 else { return }
         let size = CellSize(cols: cols, rows: rows)
-        await MainActor.run { ResizeCoordinator.shared.submit(self, size: size) }
+        await MainActor.run { resizes.submit(self, size: size) }
     }
 
     // MARK: App control
 
+    /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`): a final grid goes now
+    /// (`ResizeCoordinator.submitFinal`), any other the next frame.
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+        guard cols > 0, rows > 0 else { return true }
+        let size = CellSize(cols: cols, rows: rows)
+        if final {
+            resizes.submitFinal(self, size: size, window: window)
+        } else {
+            resizes.submit(self, size: size, window: window)
+        }
+        return true
+    }
+
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
         driver.resize(size)
+    }
+
+    @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
+
+    /// A visible live view holds geometry until another client's grid is
+    /// announced, and a resize it reports claims it back
+    /// (`TerminalAttachMachine`), so the daemon applies and announces it.
+    @MainActor func appliesViewGrid(reporting: Bool) -> Bool {
+        let machine = driver.machine
+        return machine.liveLink != nil && machine.visible && (reporting || machine.claimed)
     }
 
     /// Hidden views release canonical geometry so another client (or the
@@ -157,12 +242,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.processRevived()
     }
 
-    /// Capped backoff before the `failed + 1`th re-attach in a row. Only a
-    /// user or App event starts a re-attach; this only spaces them.
+    /// Backoff before the `failed + 1`th re-attach in a row, 30 s after 8 doublings: spaces the view's own
+    /// retries and the event-started ones after them. A view turned off by its organization stops after it (the caller).
     nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        for _ in 1..<max(1, failed) { _ = backoff.next() }
-        // concurrency-allow: async sleep on the attach task, only before a re-attach an event started after a failed one
+        for _ in 1..<min(max(1, failed), 8) { _ = backoff.next() }
+        // concurrency-allow: async sleep on the attach task, only before a re-attach that follows a failed one
         try await backoff.wait(owner: "terminal.reattach")
     }
 
@@ -170,7 +255,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// keeps running in the daemon.
     @MainActor func close() {
         driver.close()
-        ResizeCoordinator.shared.cancel(self)
+        resizes.cancel(self)
     }
 
     /// Attachment state for diagnostics and tests.
@@ -198,12 +283,25 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .output(let data): .output(data)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
+        case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))
         }
+    }
+
+    /// This Mac in the terminal's shared sizing: views name it, and their attach joins
+    /// `shared-sizing-v1` (size states for "Sized for", and the Mac's name on other devices).
+    /// Read once, off the main actor (MacName).
+    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
+
+    static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
+        TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,
+                         grid: TerminalGridSize(columns: notice.cols, rows: notice.rows),
+                         fixedSize: notice.fixedSize, takeOverSetsLatest: notice.takeOverSetsLatest)
     }
 
     static func connection(_ status: TerminalLinkStatus) -> TerminalConnectionStatus {
         switch status {
         case .connected: .connected
+        case .restoring: .restoring
         case .exited: .exited
         case .disconnected(let reason, let reconnecting): .disconnected(cause(reason), reconnecting: reconnecting)
         }
@@ -243,3 +341,5 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         ))
     }
 }
+
+extension DaemonTerminalIO: ResizeTarget {}

@@ -24,9 +24,17 @@ public nonisolated enum ActionSurfaceExport {
 
     /// One action's row in the checked-in export: the wire form plus what
     /// other clients need to show it without the app (title and its
-    /// localization key, default shortcut and chord).
+    /// localization key, default shortcut and chord, the menu bar menu it
+    /// is in or null).
     public static func catalogObject(_ descriptor: ActionDescriptor, titles: ActionTitleCatalog) -> [String: Any] {
         var row = object(descriptor)
+        // The export names menus by `ActionMenuContext.exportName` (the Space chip's is `space`).
+        var menus: [String] = []
+        for context in descriptor.surfacePlan.contextMenus.map(\.context.exportName) where !menus.contains(context) {
+            menus.append(context)
+        }
+        row["context_menus"] = menus
+        row["main_menu"] = descriptor.mainMenu.map { $0.rawValue as Any } ?? NSNull()
         let entry = titles.entry(for: descriptor)
         row["title"] = entry?.english ?? descriptor.title
         row["title_key"] = entry.map { $0.key as Any } ?? NSNull()
@@ -53,13 +61,13 @@ public nonisolated enum ActionSurfaceExport {
     }
 
     /// The binding table's default entries for `id` beyond its catalog key
-    /// (`KeyBindingDefaults`: browser tab keys, Ctrl-Cmd arrows for pane
-    /// resize, Ctrl-Cmd H/J/K/L for pane focus, list navigation, the palette keys): each entry's keys and its `when` clause
+    /// (`KeyBindingDefaults`: the Chrome tab keys, Ctrl-Cmd arrows for pane
+    /// resize, Ctrl-Cmd J/K for pane focus, list navigation, the palette keys, scoped defaults such
+    /// as Cmd-K outside a terminal): each entry's keys and its `when` clause
     /// (text, or null), in table order, each key sequence once.
     public static func defaultAliases(for id: ActionID) -> [[String: Any]] {
         let entries = KeyBindingDefaults.tabSwitching + KeyBindingDefaults.actionAliases + KeyBindingDefaults.listNavigation
-            + KeyBindingDefaults.homeNavigation
-            + KeyBindingDefaults.paletteKeys
+            + KeyBindingDefaults.paletteKeys + KeyBindingDefaults.scopedDefaults + KeyBindingDefaults.homeChatSwitching
         var seen: [[Shortcut]] = []
         var aliases: [[String: Any]] = []
         for entry in entries where entry.command == id && !seen.contains(entry.keys) {

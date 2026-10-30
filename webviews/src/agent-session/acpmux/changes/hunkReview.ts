@@ -37,6 +37,16 @@ export function hunkAnchor(hunk: DiffHunk, key: string, file: TurnFile, numbered
       };
 }
 
+/// The review keys of every change in `file` the reader can still decide: all its edits' hunks but
+/// read-only ones (a checkpoint hunk with no tool hunk behind it) and those already sent back.
+export function openFileKeys(file: TurnFile, decisions: ReadonlyMap<string, HunkDecision>): string[] {
+  return file.edits
+    .flatMap((edit, editIndex) =>
+      edit.hunks.flatMap((hunk, hunkIndex) => hunk.reviewKeys ?? [hunkKey(file, editIndex, hunkIndex)]),
+    )
+    .filter((key) => decisions.get(key) !== "requested");
+}
+
 /// The rejected hunks not yet sent, each with its key and patch, in file order.
 export function rejectedHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
   return files.flatMap((file) =>

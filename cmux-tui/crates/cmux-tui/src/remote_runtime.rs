@@ -16,7 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use base64::Engine;
-use cmux_remote::admin::serve_admin_with_shutdown;
+use cmux_remote::admin::{MuxBinding, serve_admin_with_mux_binding};
 use cmux_remote::bridge::serve_mux_bridge;
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
@@ -813,12 +813,18 @@ async fn run_client(
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         let socket = socket_preparation.bind()?;
+        // The SSH route behind this socket, so a CLI at a version-skew dead
+        // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
+        let route_record = write_tunnel_route(&local_socket, &route);
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
             let mut socket = socket;
             serve_mux_bridge(bridge_multiplexer, socket.listener(), bridge_shutdown_rx).await;
             let _ = socket.unlink();
+            if let Some(record) = route_record {
+                let _ = fs::remove_file(record);
+            }
         });
         let mut fatal = multiplexer.subscribe_fatal();
         ready
@@ -1148,13 +1154,14 @@ async fn bootstrap_initial_ssh_route(
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
-    let mut config = SshBootstrapConfig::defaults(destination);
+    let mut config = SshBootstrapConfig::defaults(destination, cmux_build_identity::BUILD_IDENTITY);
     config.ssh_binary = ssh.ssh_binary.clone();
     config.port = port;
     config.remote_binary = ssh.remote_binary.clone();
     config.extra_args = ssh.extra_args.clone();
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
+    config.required_capabilities = ssh.required_remote_capabilities();
     let bootstrap = SshBootstrapper::new(config)?;
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
@@ -1485,6 +1492,34 @@ fn route_failure_allows_fallback(error: &ConnectionError) -> bool {
 
 async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
     while !*shutdown.borrow() && shutdown.changed().await.is_ok() {}
+}
+
+/// `<socket>.route`: the SSH route a client runtime's local socket tunnels
+/// to. Only SSH routes are recorded (no credential is in them); the CLI only
+/// prints it, never runs it.
+pub(crate) fn tunnel_route_record(socket: &Path) -> PathBuf {
+    let mut path = socket.as_os_str().to_owned();
+    path.push(".route");
+    PathBuf::from(path)
+}
+
+fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
+    if !route.starts_with("ssh://") {
+        return None;
+    }
+    let record = tunnel_route_record(socket);
+    let _ = fs::remove_file(&record);
+    #[cfg(unix)]
+    {
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file =
+            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
+        file.write_all(route.as_bytes()).ok()?;
+    }
+    #[cfg(not(unix))]
+    fs::write(&record, route).ok()?;
+    Some(record)
 }
 
 async fn wait_for_fatal(fatal: &mut watch::Receiver<Option<String>>) -> String {
@@ -2101,6 +2136,10 @@ async fn run_daemon(
             persist_daemon_lifecycle_fence(&state_dir)?;
             lifecycle_fenced = true;
         }
+        #[cfg(unix)]
+        if lifecycle_fenced {
+            recover_inactive_predecessor_state(&state_dir, &link_socket, &admin_socket).await?;
+        }
         verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
         if !lifecycle_fenced {
             persist_daemon_lifecycle_fence(&state_dir)?;
@@ -2114,6 +2153,10 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
         let workspace = WorkspaceService::new();
+        // The admin proof and service forwarding must use the same resolved
+        // destination, including when the configured path is a symlink.
+        let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
+        let mux_socket = mux_binding.mux_socket.clone();
 
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
         let preliminary_runtime = persist_runtime_info(
@@ -2154,10 +2197,10 @@ async fn run_daemon(
                         daemon.clone(),
                         address,
                         MAX_CARRIER_FRAME_BYTES,
-                        DirectWebSocketOptions {
-                            allow_insecure_non_loopback: options.allow_insecure_non_loopback,
-                            trusted_carrier: options.trusted_carrier_websocket,
-                        },
+                        DirectWebSocketOptions::new(
+                            options.allow_insecure_non_loopback,
+                            options.trusted_carrier_websocket,
+                        ),
                     )
                     .await?,
                 ),
@@ -2289,12 +2332,13 @@ async fn run_daemon(
             // host's filesystem path as the default route for mobile clients.
             push_unique_route(&mut routes, unix_route);
 
-            let admin = serve_admin_with_shutdown(
+            let admin = serve_admin_with_mux_binding(
                 daemon,
                 &admin_socket,
                 routes.clone(),
                 Some(lifecycle_id.clone()),
                 Some(owner_shutdown),
+                Some(mux_binding.clone()),
             )
             .await?;
             let info = DaemonRuntimeInfo {
@@ -2368,6 +2412,88 @@ async fn run_daemon(
         let _ = ready.send(Err(format!("{error:#}")));
     }
     setup
+}
+
+#[cfg(unix)]
+async fn recover_inactive_predecessor_state(
+    state_dir: &Path,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let initial_runtime = read_optional_file(&runtime_path)
+        .context(catalog().remote.snapshot_runtime_for_recovery)?;
+    let initial_outcome = read_optional_file(&outcome_path)
+        .context(catalog().remote.snapshot_finalization_for_recovery)?;
+    let Some(runtime) = initial_runtime
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context(catalog().remote.verify_runtime_for_recovery)?
+    else {
+        return Ok(());
+    };
+    let Some(lifecycle_id) = runtime.lifecycle_id.as_deref().filter(|id| !id.is_empty()) else {
+        // Legacy and malformed lifecycle metadata must continue through the
+        // existing explicit migration/recovery paths.
+        return Ok(());
+    };
+    let outcome = initial_outcome
+        .as_deref()
+        .map(decode_shutdown_outcome)
+        .transpose()
+        .context(catalog().remote.verify_previous_finalization)?;
+    let stale = match outcome {
+        Some(outcome) if outcome.status == DaemonShutdownStatus::Succeeded => {
+            outcome.lifecycle_id != lifecycle_id
+        }
+        Some(_) => false,
+        None => true,
+    };
+    if !stale {
+        return Ok(());
+    }
+
+    // The authorization lease is held by the caller. Probe every socket from
+    // the recorded lifecycle and the current defaults before treating its
+    // evidence as stale; a live predecessor must remain an explicit handoff.
+    verify_recovery_sockets_inactive(
+        Some(&runtime),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+
+    let runtime_snapshot = read_optional_file(&runtime_path)
+        .context(catalog().remote.resnapshot_runtime_for_recovery)?;
+    let outcome_snapshot = read_optional_file(&outcome_path)
+        .context(catalog().remote.resnapshot_finalization_for_recovery)?;
+    if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
+    }
+    let Some(runtime) = runtime_snapshot
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context(catalog().remote.verify_runtime_for_recovery)?
+    else {
+        return Ok(());
+    };
+    if runtime.lifecycle_id.as_deref() != Some(lifecycle_id) {
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
+    }
+    verify_recovery_sockets_inactive(
+        Some(&runtime),
+        link_socket,
+        admin_socket,
+        catalog().remote.failed_finalization_label,
+    )
+    .await?;
+    remove_shutdown_recovery_evidence(state_dir, runtime_snapshot, outcome_snapshot)
+        .context("could not remove stale remote daemon lifecycle evidence")?;
+    Ok(())
 }
 
 async fn load_daemon_auth_during_handoff(
@@ -4170,15 +4296,29 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn daemon_startup_requires_exact_modern_predecessor_authorization_finalization() {
-        for (case, outcome_lifecycle) in [("missing", None), ("stale", Some("different-lifecycle"))]
-        {
+    fn daemon_startup_recovers_inactive_modern_predecessor_state() {
+        for (case, outcome) in [
+            ("missing", None),
+            (
+                "stale",
+                Some(DaemonShutdownOutcome {
+                    version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                    lifecycle_id: "different-lifecycle".into(),
+                    status: DaemonShutdownStatus::Succeeded,
+                }),
+            ),
+        ] {
             let directory = tempfile::tempdir_in("/tmp").unwrap();
             let state_root = directory.path().join("state");
             let session = format!("modern-predecessor-{case}");
             let (state_dir, link_socket, admin_socket) =
                 daemon_paths(&session, Some(&state_root)).unwrap();
             fs::create_dir_all(&state_dir).unwrap();
+            drop(
+                AuthDatabase::load_or_create(state_dir.join("auth"), &session, true)
+                    .expect("could not seed authorization state"),
+            );
+            persist_daemon_lifecycle_fence(&state_dir).unwrap();
             persist_runtime_info(
                 &state_dir,
                 &DaemonRuntimeInfo {
@@ -4195,19 +4335,11 @@ mod tests {
                 },
             )
             .unwrap();
-            if let Some(lifecycle_id) = outcome_lifecycle {
-                persist_shutdown_outcome(
-                    &state_dir,
-                    &DaemonShutdownOutcome {
-                        version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
-                        lifecycle_id: lifecycle_id.into(),
-                        status: DaemonShutdownStatus::Succeeded,
-                    },
-                )
-                .unwrap();
+            if let Some(outcome) = outcome {
+                persist_shutdown_outcome(&state_dir, &outcome).unwrap();
             }
 
-            let result = start_daemon_runtime(
+            let runtime = start_daemon_runtime(
                 directory.path().join("missing-mux.sock"),
                 DaemonRuntimeOptions {
                     session,
@@ -4224,15 +4356,18 @@ mod tests {
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
                 },
+            )
+            .unwrap_or_else(|error| {
+                panic!("{case}: daemon did not recover stale evidence: {error:#}")
+            });
+            runtime.shutdown().unwrap();
+            assert_eq!(
+                load_shutdown_outcome(&state_dir)
+                    .expect("replacement daemon did not finalize authorization")
+                    .status,
+                DaemonShutdownStatus::Succeeded,
+                "{case}: replacement daemon did not publish a successful finalization"
             );
-            let error = match result {
-                Err(error) => error,
-                Ok(runtime) => {
-                    runtime.shutdown().unwrap();
-                    panic!("daemon started with {case} predecessor finalization evidence");
-                }
-            };
-            assert!(error.to_string().contains("authorization finalization"), "{case}: {error:#}");
         }
     }
 
@@ -5704,10 +5839,11 @@ mod tests {
             distribution_version: Some(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into()),
             npm_bootstrap_version: cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
                 .map(str::to_owned),
-            build_identity: Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY.into()),
+            build_identity: Some(cmux_build_identity::BUILD_IDENTITY.into()),
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
             arch: "test".into(),
+            capabilities: Vec::new(),
         };
         write_executable(
             &script,

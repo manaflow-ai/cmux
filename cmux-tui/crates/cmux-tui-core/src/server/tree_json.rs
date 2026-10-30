@@ -8,6 +8,7 @@ use super::raw_tab;
 use super::screen_json;
 use super::workspace_groups_json;
 use crate::SurfaceKind;
+use crate::panic_free::JsonFields;
 use crate::resource::ContentPublicId;
 
 use crate::Mux;
@@ -80,6 +81,13 @@ pub(super) fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
+            // The page a pinned browser tab was pinned on (Back to Pinned Page).
+            let pinned_url = state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .filter(|_| pinned)
+                .and_then(|tab| notifications.presentation.pinned_urls.get(tab.as_str()));
             // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
             // ended, to restart a shell in. After a restart it has no surface,
             // so its name and last title come from the record; a live
@@ -90,7 +98,9 @@ pub(super) fn pane_json(
                 .get(sid)
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()));
-            let relaunch = kept.map(|kept| json!({"cwd": kept.cwd}));
+            let relaunch = kept.map(|kept| {
+                crate::state::kept_tab_store::relaunch_json(kept.cwd.as_deref(), kept.on_show)
+            });
             // R41: a terminal tab with no runtime surface is dead only when
             // its terminal really ended; a host still being adopted, or one
             // this build cannot adopt, keeps running its shell.
@@ -142,6 +152,7 @@ pub(super) fn pane_json(
                 "host_record_version": host_record_version,
                 "group": group_of(sid),
                 "pinned": pinned,
+                "pinned_url": pinned_url,
                 "relaunch": relaunch,
                 "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
                 "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
@@ -176,16 +187,22 @@ pub(super) fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": dead,
+                // OSC 7501: the status the tab shows (TUI tab indicator).
+                "program_status": surface
+                    .and_then(|surface| surface.shown_program_status())
+                    .map(|status| status.wire()),
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
             });
-            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
+            raw_tab::merge_surface_fields(&mut tab, surface, frontend_browser, conversation);
             // `app-screens-v1`: the app (and route) an app tab shows.
             if let Some(app) =
                 content_resource_id.and_then(|id| notifications.presentation.app_tabs.get(id))
             {
-                tab["app"] = app.wire();
+                tab.insert("app", app.wire());
             }
+            let remote = content_resource_id.and_then(|id| notifications.presentation.remote_terminals.get(id));
+            super::remote_terminal_tabs_wire::apply(&mut tab, remote);
             tab
         }).collect::<Vec<_>>(),
     })
@@ -241,6 +258,9 @@ fn workspace_json(
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
+        // `workspace-name-source-v1`: the revision is a decimal string, as on tabs.
+        "name_source": workspace.name_source,
+        "name_revision": workspace.name_revision.to_string(),
         "group": presentation.and_then(|presentation| presentation.group.as_deref()),
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
@@ -272,6 +292,7 @@ fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
         "color": run.group.color,
         "collapsed": run.group.collapsed,
         "saved_id": run.group.saved_id,
+        "icon": run.group.icon,
         "start": run.start,
         "count": run.members.len(),
         "screens": run.members,
@@ -320,7 +341,7 @@ pub(crate) fn tree_entity_json(
         | TreeDeltaKind::WorkspaceClosed
         | TreeDeltaKind::WorkspaceRenamed
         | TreeDeltaKind::WorkspaceMoved
-        | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
+        | TreeDeltaKind::WorkspaceChanged => None,
         TreeDeltaKind::ScreenAdded
         | TreeDeltaKind::ScreenClosed
         | TreeDeltaKind::ScreenRenamed
@@ -361,29 +382,29 @@ pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
         "entity": delta.entity,
     });
     if let Some(screen) = delta.screen {
-        value["screen"] = json!(screen);
+        value.insert("screen", json!(screen));
     }
     if let Some(pane) = delta.pane {
-        value["pane"] = json!(pane);
+        value.insert("pane", json!(pane));
     }
     if let Some(surface) = delta.surface {
-        value["surface"] = json!(surface);
+        value.insert("surface", json!(surface));
     }
     if let Some(index) = delta.index {
-        value["index"] = json!(index);
+        value.insert("index", json!(index));
     }
     if let Some(transaction) = &delta.transaction {
-        value["transaction"] = json!(transaction.as_ref());
+        value.insert("transaction", json!(transaction.as_ref()));
     }
     if let Some(revision) = delta.workspace_revision {
-        value["workspace_revision"] = json!(revision);
+        value.insert("workspace_revision", json!(revision));
         if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value["origin"] = json!(event.origin);
-            value["mutation_id"] = json!(event.mutation_id);
+            value.insert("origin", json!(event.origin));
+            value.insert("mutation_id", json!(event.mutation_id));
         }
         let (registry_id, generation) = mux.registry_identity();
-        value["registry_id"] = json!(registry_id);
-        value["generation"] = json!(generation);
+        value.insert("registry_id", json!(registry_id));
+        value.insert("generation", json!(generation));
     }
     value
 }

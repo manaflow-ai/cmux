@@ -24,7 +24,6 @@ final class BookmarkEditModel {
 /// The bubble's form: undesigned, compact, theme colors only.
 struct BookmarkEditView: View {
     @Bindable var model: BookmarkEditModel
-    @FocusState private var nameFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space4) {
@@ -34,21 +33,14 @@ struct BookmarkEditView: View {
             Grid(alignment: .leading, horizontalSpacing: Metrics.space4, verticalSpacing: Metrics.space3) {
                 GridRow {
                     Text(BookmarkStrings.name).foregroundStyle(model.colors.secondary)
-                    TextField("", text: $model.title)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($nameFocused)
-                        .onSubmit { model.onDone() }
-                        .accessibilityIdentifier("cmux.bookmarks.edit.name")
+                    ThemedField(text: $model.title, focusOnAppear: true, identifier: "cmux.bookmarks.edit.name",
+                                onSubmit: { model.onDone() })
                 }
                 GridRow {
                     Text(BookmarkStrings.folder).foregroundStyle(model.colors.secondary)
-                    Picker("", selection: $model.folder) {
-                        ForEach(model.folders) { choice in
-                            Text(String(repeating: "    ", count: choice.depth) + choice.title).tag(choice.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .accessibilityIdentifier("cmux.bookmarks.edit.folder")
+                    ThemedPicker(selection: $model.folder, choices: model.folders.map {
+                        ThemedPicker.Choice(id: $0.id, title: String(repeating: "    ", count: $0.depth) + $0.title)
+                    }, identifier: "cmux.bookmarks.edit.folder")
                 }
             }
             .font(Font(Typography.body))
@@ -57,14 +49,14 @@ struct BookmarkEditView: View {
                 Spacer(minLength: Metrics.space6)
                 Button(BookmarkStrings.remove) { model.onRemove() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.remove")
-                Button(BookmarkStrings.done) { model.onDone() }
-                    .keyboardShortcut(.defaultAction)
+                CmuxDialogActionButton(BookmarkStrings.done, hint: .return) { model.onDone() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.done")
             }
             .font(Font(Typography.body))
         }
         .padding(Metrics.space5)
         .frame(width: Metrics.paletteWidth * 0.5)
-        .onAppear { nameFocused = true }
+        // The default button in the theme's selection fill, never the system blue (cx-wqn5).
+        .tint(model.colors.selection)
     }
 }

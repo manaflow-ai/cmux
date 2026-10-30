@@ -83,6 +83,8 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
             command: vec!["/bin/cat".into()],
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
@@ -91,6 +93,7 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
+        viewer_size_acks: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -197,6 +200,8 @@ fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: true,
@@ -205,6 +210,7 @@ fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
         control_responses: control_responses.clone(),
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
+        viewer_size_acks: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -358,6 +364,8 @@ fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
@@ -366,6 +374,7 @@ fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
         control_responses: Arc::new(ControlResponses::new()),
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
+        viewer_size_acks: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -476,6 +485,8 @@ fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
             command: vec!["/bin/cat".into()],
             cwd: Some("/tmp".into()),
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         };
         let mut payload = encode_snapshot(&snapshot).unwrap();
         payload.truncate(
@@ -597,6 +608,8 @@ fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
             command: vec!["/bin/sh".into()],
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         };
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = 17;
@@ -866,6 +879,7 @@ fn committed_resize_updates_cached_geometry_when_publication_fails() {
             acknowledge_with_replay,
             targeted_ack,
             response,
+            ..
         } = parser_commands.recv().unwrap()
         else {
             panic!("expected resize command");

@@ -103,7 +103,13 @@ async function measuredStep(
   measures.disconnect();
   const problems = report.error ? [report.error] : report.steps.flatMap((step) => step.problems);
   const interactionMs = report.steps
-    .filter((step) => step.action === "click" || step.action === "key" || step.action === "press-drag")
+    .filter(
+      (step) =>
+        step.action === "click" ||
+        step.action === "context-menu" ||
+        step.action === "key" ||
+        step.action === "press-drag",
+    )
     .map((step) => step.settleMs);
   return {
     stats: {

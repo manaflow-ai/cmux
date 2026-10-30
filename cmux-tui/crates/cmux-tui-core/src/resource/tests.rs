@@ -136,6 +136,26 @@ fn projection_and_pairing_ids_use_the_canonical_prefix_registry() {
 }
 
 #[test]
+fn a_mistyped_id_says_it_is_not_an_id_and_where_ids_come_from() {
+    // A Codex interop proof run dropped the last digit of a terminal id and
+    // got "reserved or ambiguous names must use the name: prefix", then
+    // guessed `terminal_id:`, `id:` and bare hex forms for minutes.
+    let short = format!("term_{}", "6".repeat(31));
+    let error = Selector::parse(&short).unwrap_err();
+    assert_eq!(error.code, "validation.invalid");
+    assert!(error.message.contains(&short), "{}", error.message);
+    assert!(error.message.contains("32 hex"), "{}", error.message);
+    assert!(error.message.contains("cmux terminal list"), "{}", error.message);
+    let upper = format!("ws_{}", "A".repeat(32));
+    let error = Selector::parse(&upper).unwrap_err();
+    assert!(error.message.contains("lowercase"), "{}", error.message);
+    assert!(error.message.contains("cmux workspace list"), "{}", error.message);
+    // A name with an underscore still names the escape.
+    let error = Selector::parse("hello_world").unwrap_err();
+    assert!(error.message.contains("name:"), "{}", error.message);
+}
+
+#[test]
 fn name_escape_selects_reserved_and_id_shaped_names() {
     assert_eq!(Selector::parse("current").unwrap(), Selector::Current);
     assert_eq!(Selector::parse("name:current").unwrap(), Selector::Name("current".into()));
@@ -337,6 +357,7 @@ fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempoten
             params: json!({}),
             idempotency_key: None,
             origin: None,
+            credential: None,
         };
         request.validate().unwrap();
         let mut keyed = request;

@@ -94,11 +94,17 @@ import {
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
+  cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
+  requireCmuxTuiAcpmux,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   devboxDaemonUnit,
+  CMUX_TUI_STATE_IMAGE_PATH,
+  CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
+  CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
   devboxTerminfoInstallCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -116,8 +122,10 @@ import {
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
+  DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
+  devboxTeamKindDefaultCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   emitBakeResult,
@@ -147,6 +155,7 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../services/vms/images/metadataGuard";
+import { machineHealthBakeCommand, machineHealthFiles } from "./cmux-vm-image/machine-health";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -172,6 +181,10 @@ const replaceSlug = hasFlag("--replace-slug");
 const preflight = bakePreflight({ desktop: withDesktop });
 // Resolved before the builder exists so a manifest outage fails the bake for free.
 const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
+// Every Cloud machine ships acpmux (cloud-subagents-DESIGN.md B9): refuse the bake before it
+// creates a VM when the pinned manifest has no acpmux build.
+requireCmuxTuiAcpmux(cmuxTuiSource, cmuxTuiManifestUrl("freestyle"));
+console.log(`acpmux pin: sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…`);
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -293,7 +306,7 @@ try {
   // launch that it is falling back to its bundled copy.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
   );
 
   await step(
@@ -336,10 +349,9 @@ try {
     `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
   );
 
-  // Claude Code machine policy. The first-run answers themselves are seeded
-  // per shell by agent-config.sh from the model-plane env, not baked: the
-  // bake's own login probes would otherwise freeze a seed that predates the
-  // env and ship it in the snapshot.
+  // Claude Code machine policy. Fresh first-run answers are seeded below,
+  // after the final public model-plane env exists; login and team-launch
+  // paths use the same helper for any later fresh config home.
   await step(
     "claude-managed-settings",
     `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
@@ -358,6 +370,11 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
+  // agent-config.sh keeps a caller's model-plane env only on an `owner` record (an absent or
+  // team record is shared). The agent-config and agent-hooks checks below prove
+  // that owner path before /etc/cmux/model-plane.env exists. The bake holds
+  // `owner` through both checks, then writes the `team` boot default.
+  await step("vm-kind-bake-owner", "echo owner > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -377,11 +394,18 @@ try {
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
-  await put("cmux-opencode", "/etc/cmux/opencode", 0o755);
-  await step("opencode-launcher", 'mkdir -p /usr/local/libexec && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real && rm -f /usr/local/bin/opencode && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode');
+  await put("claude-onboarding.py", "/etc/cmux/claude-onboarding.py");
+  // Agent sign-in launchers (Dockerfile parity): /usr/local/bin/<agent> is
+  // /etc/cmux/<agent>, which resolves the team or own-login mode per launch
+  // (agent-auth.sh) and execs /usr/local/libexec/cmux-<agent>-real. The base's
+  // login PATH puts nvm's bin first, so its entries point at the launchers
+  // too; otherwise login shells and execs would bypass them.
+  await put("agent-auth.sh", "/etc/cmux/agent-auth.sh");
+  for (const agent of ["claude", "codex", "opencode"]) await put(`cmux-${agent}`, `/etc/cmux/${agent}`, 0o755);
+  await step("agent-launchers", 'sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && for a in claude codex opencode; do bash -n /etc/cmux/$a && ln -s "$(readlink -f /usr/local/bin/$a)" /usr/local/libexec/cmux-$a-real && test -f /usr/local/libexec/cmux-$a-real && rm -f /usr/local/bin/$a && chmod 755 /etc/cmux/$a && ln -s /etc/cmux/$a /usr/local/bin/$a && ln -sfn /etc/cmux/$a "$nvm_bin/$a" && $a --version >/dev/null || exit 1; done && sudo -n -u ' + WORK_USER + ' env -i HOME=' + WORK_HOME + ' USER=' + WORK_USER + ' TERM=xterm bash -lc \'for a in claude codex opencode; do test "$(readlink -f "$(type -P $a)")" = /etc/cmux/$a || exit 1; done\' && echo agent-launchers-on-login-path');
   await step(
     "agent-config",
-    `bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${rc}`).join(" && ")} && rm -rf /tmp/agent-config-check && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_ /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && node -e 'const j = JSON.parse(require("fs").readFileSync("/tmp/agent-config-check/.claude.json","utf8")); if (!(j.hasCompletedOnboarding === true && j.bypassPermissionsModeAccepted === true && j.projects["/"].hasTrustDialogAccepted === true && Array.isArray(j.customApiKeyResponses.approved) && j.customApiKeyResponses.approved.includes("-vm-edge-placeholder"))) process.exit(1)' && [ "$(stat -c %a /tmp/agent-config-check/.claude.json)" = "600" ] && [ "$(bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER')" = "1:1:1" ] && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && test ! -e ${WORK_HOME}/.codex/config.toml`,
+    `bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${rc}`).join(" && ")} && rm -rf /tmp/agent-config-check && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_ /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && node -e 'const j = JSON.parse(require("fs").readFileSync("/tmp/agent-config-check/.claude.json","utf8")); if (!(j.hasCompletedOnboarding === true && j.bypassPermissionsModeAccepted === true && j.projects["/"].hasTrustDialogAccepted === true && Array.isArray(j.customApiKeyResponses.approved) && j.customApiKeyResponses.approved.includes("-vm-edge-placeholder"))) process.exit(1)' && [ "$(stat -c %a /tmp/agent-config-check/.claude.json)" = "600" ] && [ "$(env HOME=/tmp/agent-config-check bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER')" = "1:1:1" ] && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && test ! -e ${WORK_HOME}/.codex/config.toml`,
   );
 
   // Login banner: pam_motd renders /etc/update-motd.d on SSH logins. The
@@ -532,6 +556,15 @@ try {
       "echo agent-hooks-ok",
     ].join(" && "),
   );
+  // The record every machine boots with (cmux-vm-kind-sync and the create replace it).
+  // It comes after agent-hooks: that step's hook-merge login shell needs the
+  // owner path too (a team record keeps no provider block).
+  // On a team record a login shell keeps none of a caller's model-plane env
+  // (cmux_prepare_shared_machine_model_env).
+  await step(
+    "vm-kind-default",
+    devboxTeamKindDefaultCommand(),
+  );
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
   // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
@@ -543,6 +576,8 @@ try {
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
   const service = devboxDaemonUnit();
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
+  await put("cmux-vm-kind-sync", "/usr/local/bin/cmux-vm-kind-sync", 0o755);
+  await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
   await vm.fs.writeFile(
@@ -588,6 +623,15 @@ try {
   await vm.fs.writeFile(`/etc/systemd/system/${METADATA_GUARD_UNIT}`, metadataGuardUnit(), { mode: 0o644 });
   // Fails unless the work user is refused and root still reads the instance id.
   await step("metadata-guard", `out=$(${metadataGuardEnableCommand(WORK_USER)}) && echo "$out" && echo "$out" | grep -qx user_blocked=yes && echo "$out" | grep -qx root_reads=yes`);
+  // Reserve one GiB inside the existing root disk for cmux-tui's state. The
+  // image is fully allocated before it is mounted, then the daemon's existing
+  // state (including the warm template host) is copied into it. This protects
+  // SQLite/WAL writes when general-purpose files consume the rest of the disk
+  // without changing the VM's provisioned disk size.
+  await step(
+    "cmux-tui-state-reservation",
+    `sh -n ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} && ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} create ${WORK_HOME} ${WORK_USER} && mountpoint -q ${WORK_HOME}/.local/state/cmux-tui && [ "$(stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH})" = ${CMUX_TUI_STATE_RESERVATION_BYTES} ] && printf 'cmux-tui-state-v1\\n' > ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && chmod 0444 ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && echo cmux-tui-state-reservation-ok`,
+  );
   await step(
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
@@ -618,6 +662,17 @@ try {
   // the machine's id equals the recorded bake id, and every per-machine file
   // is wiped except the template terminal's host record.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
+
+  // cmux-machine-health (images/cmux-vm/machine-health), the same install as
+  // the cmux VM image: the script's own `install --no-start` (the 60 s timer
+  // enabled, not started; the guard drop-ins for login sessions, user.slice
+  // and the work user's manager) and one check-only pass, so no fix and no
+  // disk hygiene runs during the bake. Installed after the park, whose
+  // park_housekeeping already ran: the timer stays stopped into the snapshot
+  // and a clone starts it with the other HOUSEKEEPING_TIMERS
+  // (DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).
+  for (const file of machineHealthFiles()) await vm.fs.writeFile(file.path, file.text, { mode: file.mode });
+  await step("machine-health", machineHealthBakeCommand());
 
   await step(
     "ghost-text-smoke",
@@ -656,11 +711,15 @@ try {
   // not with the base's boot as `freestyle-vm`.
   // The interactive bake probes above ran login shells for root and the work
   // user before the model-plane env was baked, so their ~/.claude.json seeds
-  // lack the placeholder key approval. Drop them: each machine's first shell
-  // seeds its own from the env. (The static codex config those shells wrote
+  // lack the placeholder key approval. Replace those bake-owned seeds using
+  // the final public model env, including Claude's isolated team config home.
+  // (The static codex config those shells wrote
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
-  await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
+  await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
+  // After the bake's last shell: the timer is enabled but stopped and the
+  // bake pass's files are gone, so a clone runs no pass until its re-arm.
+  await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
   await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
 } catch (error) {

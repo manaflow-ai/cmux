@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The app-theme (Ghostty config) dynamic colors behind `Palette`, used
 /// outside a scope context. Each resolves against `ThemeSnapshot` whenever
@@ -30,12 +31,24 @@ enum PaletteDynamic {
     static let glassTint = token(\.glassTint)
     static let shadow = token(\.shadow)
     static let textSelection = token(\.textSelection)
+    static let caret = token(\.caret)
     static let attention = token(\.attention)
     static let danger = token(\.danger)
     static let success = token(\.success)
     static let highlight = token(\.highlight)
     static let highlightText = token(\.highlightText)
     static let textOnPrimary = token(\.contentBackground, opaque: true)
+    static let accentFill = token(\.accent, opaque: true)
+    static let litGlyph = token(\.litGlyph)
+    static let onAccent = token(\.onAccent, opaque: true)
+    static let popupSurface = overlayFill()
+
+    /// `Palette.popupSurface` outside a scope: the app theme's opaque overlay fill.
+    private static func overlayFill() -> NSColor {
+        NSColor(name: nil) { _ in
+            ThemeSnapshot.tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor
+        }
+    }
 
     private static func token(_ keyPath: any KeyPath<ThemeTokens, ThemeRGB> & Sendable, opaque: Bool = false) -> NSColor {
         NSColor(name: nil) { _ in

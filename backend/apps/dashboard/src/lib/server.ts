@@ -121,12 +121,15 @@ export type ApiResult<T> = { readonly status: number; readonly body: T }
  * POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401.
  * `team` (cx-5xew) names the team to act in (x-cmux-team); the API checks the membership.
  */
-const postImpl = async <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
+const postImpl = <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => callImpl<T>("POST", path, payload, team)
+
+/** One API call with the cookie's access token (GET sends no body); refreshes once on a missing token or a 401. */
+const callImpl = async <T,>(method: "GET" | "POST" | "PUT", path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
   const send = async (token: string) => {
     const res = await fetch(`${apiUrl()}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...teamHeaders(team) },
-      body: JSON.stringify(payload)
+      method,
+      headers: { ...(method !== "GET" ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...teamHeaders(team) },
+      ...(method !== "GET" ? { body: JSON.stringify(payload) } : {})
     })
     return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
   }
@@ -172,25 +175,44 @@ export const read = createServerFn({ method: "POST" })
   })
 
 /**
- * Token for the live WebSocket panel only. Browsers cannot attach cookies or
- * headers to a cross-origin WebSocket handshake, so the panel needs the access
- * token in the `bearer.<token>` subprotocol. Trade-off: this one response
- * exposes the short-lived (about 10 minute) access token to page script; the
- * refresh token never leaves the HttpOnly cookie. Replace with a
- * channel ticket minted by the API (spec sync-and-transport.md section 5) when
- * it exists.
+ * The credential subprotocol for the live WebSocket panel. Browsers cannot attach cookies or
+ * headers to a cross-origin WebSocket handshake, and Workers invocation logs record every
+ * header but Authorization (cx-dgsp). So this server function mints a single-use ticket
+ * (POST /v1/wire/ticket, 30 s, user socket only) with the cookie's access token, and page script sees only the
+ * ticket, never the token. Without a ticket the panel gets no credential: the legacy
+ * `bearer.<access token>` subprotocol is retired.
  */
-export const wireToken = createServerFn({ method: "POST" }).handler(async (): Promise<{ token: string | null; apiUrl: string }> => {
-    requireSameOrigin()
-  let at = getCookie(ACCESS)
-  if (at) {
-    // Make sure it is still valid for the API before handing it to the socket.
-    const probe = await fetch(`${apiUrl()}/v1/read`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${at}` },
-      body: JSON.stringify({ op: "install.list", params: {} })
-    })
-    if (probe.status === 401) at = undefined
-  }
-  return { token: at ?? (await refreshAccess()) ?? null, apiUrl: apiUrl() }
+export const wireCredential = createServerFn({ method: "POST" }).handler(async (): Promise<{ protocol: string | null; apiUrl: string }> => {
+  requireSameOrigin()
+  // The panel opens /v1/wire/user (hooks.ts useWire); the ticket opens no other socket.
+  const minted = await postImpl<{ ticket?: string }>("/v1/wire/ticket", { scope: "user" })
+  if (minted.status === 200 && typeof minted.body.ticket === "string") return { protocol: `ticket.${minted.body.ticket}`, apiUrl: apiUrl() }
+  return { protocol: null, apiUrl: apiUrl() }
 })
+
+/** GET /v1/billing/summary for the team in the URL: the billing page's one read (paid-plans-DESIGN.md §3). */
+export const billingSummary = createServerFn({ method: "POST" })
+  .validator((d: { team?: string }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    return callImpl<{ ok: boolean; value?: Json; error?: { code: string; message: string } }>("GET", "/v1/billing/summary", null, data.team)
+  })
+
+/** POST /v1/credits/topup: a test-mode payment page for `usd` of credits; the browser opens the answered URL. */
+export const creditsTopup = createServerFn({ method: "POST" })
+  .validator((d: { usd: number; team?: string }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    return callImpl<{ ok: boolean; value?: { url: string }; error?: { code: string; message: string } }>("POST", "/v1/credits/topup", { usd: data.usd }, data.team)
+  })
+
+/** GET or PUT /v1/credits/auto-reload (paid-plans-DESIGN.md §6.3); `settings` absent reads. */
+export const creditsAutoReload = createServerFn({ method: "POST" })
+  .validator((d: { team?: string; settings?: { enabled: boolean; threshold_usd: number; amount_usd: number; monthly_cap_usd: number } }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    if (!data.settings) return callImpl<{ ok: boolean; value?: Json; error?: { code: string; message: string } }>("GET", "/v1/credits/auto-reload", null, data.team)
+    const s = data.settings
+    if (s.amount_usd <= 0 || s.monthly_cap_usd <= 0) return { status: 400, body: { ok: false, error: { code: "validation.invalid", message: "amounts" } } }
+    return callImpl<{ ok: boolean; value?: Json; error?: { code: string; message: string } }>("PUT", "/v1/credits/auto-reload", s, data.team)
+  })

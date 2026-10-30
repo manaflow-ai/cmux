@@ -13,6 +13,7 @@ extension ServerReachService {
         let cli = bundled.flatMap { FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil }
         return ServerReachService(
             machines: services.machines,
+            mainWork: services.mainWork,
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
@@ -27,7 +28,13 @@ extension ServerReachService {
             linkPeers: { await ServerReachService.readLinkPeers(binary: cli) },
             cli: cli,
             linkSetupFile: cli.map { _ in
-                ServerReachPlan.defaultLinkSetupFile(environment: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
+                // The app's own daemon state root (its build's), which
+                // only the daemon gets as CMUX_TUI_STATE_DIR.
+                var environment = ProcessInfo.processInfo.environment
+                if let stateDirectory = services.environment.daemonStateDirectory {
+                    environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path
+                }
+                return ServerReachPlan.defaultLinkSetupFile(environment: environment, home: NSHomeDirectory())
             })
     }
 }

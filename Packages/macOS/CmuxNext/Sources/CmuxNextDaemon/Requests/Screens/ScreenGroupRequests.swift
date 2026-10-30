@@ -38,7 +38,7 @@ public struct ScreenGroupResult: Decodable, Sendable, Equatable {
 public struct CreateScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "create-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var screens: [ScreenID]
     public var name: String?
     public var color: String?
@@ -52,15 +52,29 @@ public struct CreateScreenGroupRequest: DaemonRequest {
 public struct UpdateScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "update-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public var name: String?
     public var color: String?
     public var collapsed: Bool?
-    public init(group: ScreenGroupID, name: String? = nil, color: String? = nil, collapsed: Bool? = nil) {
+    /// `screen-group-icon-v1`: sent only when set; `.clear` sends `null`, which removes it.
+    public var icon: FieldUpdate<String>
+    public init(group: ScreenGroupID, name: String? = nil, color: String? = nil, collapsed: Bool? = nil,
+                icon: FieldUpdate<String> = .unchanged) {
         self.group = group
         self.name = name
         self.color = color
         self.collapsed = collapsed
+        self.icon = icon
+    }
+
+    enum CodingKeys: String, CodingKey { case group, name, color, collapsed, icon }
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(group, forKey: .group)
+        try c.encodeIfPresent(name, forKey: .name)
+        try c.encodeIfPresent(color, forKey: .color)
+        try c.encodeIfPresent(collapsed, forKey: .collapsed)
+        try c.encode(icon, forKey: .icon)
     }
 }

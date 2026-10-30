@@ -1,21 +1,26 @@
 public import AppKit
 import GhosttyNextKit
 
-// IME and marked text. Preedit goes to `ghostty_surface_preedit`, the
-// candidate window is placed from `ghostty_surface_ime_point`, and text
-// committed outside a key event goes to `ghostty_surface_text_input`
-// (ghostty.h:1585-1586, :1656).
+// IME and marked text, exactly as upstream Ghostty's SurfaceView
+// (ghostty-next macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift,
+// NSTextInputClient extension; cx-dd5b4 DESIGN.md rule T1). Preedit goes to
+// `ghostty_surface_preedit`, the candidate window is placed from
+// `ghostty_surface_ime_point`, and all committed text is a key event with the
+// text and no physical key, never a paste (upstream #13817).
 extension TerminalSurfaceView: NSTextInputClient {
     public func hasMarkedText() -> Bool {
         markedText.length > 0
     }
 
+    // The range answers are upstream's (empty NSRange(), not NSNotFound): input
+    // methods are tuned against them, and "better" answers changed what Zhuyin
+    // and Kotoeri do in cmux-classic (#3574).
     public func markedRange() -> NSRange {
-        markedText.length > 0 ? NSRange(location: 0, length: markedText.length) : NSRange(location: NSNotFound, length: 0)
+        markedText.length > 0 ? NSRange(location: 0, length: markedText.length) : NSRange()
     }
 
     public func selectedRange() -> NSRange {
-        TerminalSelection.read(surface)?.range ?? NSRange(location: NSNotFound, length: 0)
+        TerminalSelection.read(surface)?.range ?? NSRange()
     }
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -56,7 +61,7 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func characterIndex(for point: NSPoint) -> Int {
-        NSNotFound
+        0
     }
 
     public func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
@@ -86,29 +91,46 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func insertText(_ string: Any, replacementRange: NSRange) {
-        guard let surface else { return }
+        // Upstream: only text that comes with an event (a key, a click on a
+        // candidate, the emoji picker, dictation).
+        guard surface != nil, NSApp.currentEvent != nil else { return }
         let text: String
         switch string {
-        case let attributed as NSAttributedString: text = attributed.string
-        case let plain as String: text = plain
-        default: return
+        case let attributed as NSAttributedString:
+            text = attributed.string
+        case let plain as NSString:
+            // NSString, not String: bridging to String would turn a lone
+            // surrogate into U+FFFD before it could be joined.
+            text = joiningSurrogates(plain)
+        default:
+            return
         }
-        let hadMarkedText = hasMarkedText()
+        // insertText ends any preedit.
         unmarkText()
 
         if keyTextAccumulator != nil {
             keyTextAccumulator?.append(text)
             return
         }
+        // Outside keyDown: an IME commit on a click or focus change, the emoji
+        // picker, dictation. Typed input, never a paste (upstream #13817).
         guard !text.isEmpty else { return }
-        if hadMarkedText {
-            sendCommittedText(text, action: GHOSTTY_ACTION_PRESS)
-            return
+        sendCommittedText(text, action: GHOSTTY_ACTION_PRESS)
+    }
+
+    /// UnicodeHexInput inserts a pair as two calls; a lone trail is dropped as
+    /// Terminal.app does (upstream #13737).
+    private func joiningSurrogates(_ text: NSString) -> String {
+        if text.length == 1, UTF16.isLeadSurrogate(text.character(at: 0)) {
+            leadSurrogate = text.character(at: 0)
+            return ""
         }
-        // Outside a key event: emoji picker, dictation, services. Typed text,
-        // not a paste (ghostty.h:1585).
-        text.withCString { pointer in
-            ghostty_surface_text_input(surface, pointer, UInt(text.utf8.count))
+        if text.length == 1, UTF16.isTrailSurrogate(text.character(at: 0)) {
+            defer { leadSurrogate = nil }
+            guard let lead = leadSurrogate else { return "" }
+            return String(decoding: [lead, text.character(at: 0)], as: UTF16.self)
         }
+        leadSurrogate = nil
+        return text as String
     }
 }

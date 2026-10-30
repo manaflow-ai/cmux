@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
+import CmuxNextIcons
 import Foundation
 import Observation
 
@@ -15,7 +17,7 @@ final class MachineBrowserPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+    let favicon: NSImage? = NSImage.icon(.browser, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
@@ -23,11 +25,19 @@ final class MachineBrowserPageTab: BrowserTab {
     @ObservationIgnored private let view: MachineBrowserStateView
     @ObservationIgnored private let currentState: @MainActor () -> MachineBrowserState
     @ObservationIgnored private let openLocallyHandler: @MainActor (URL?) -> Void
+    /// Starts the machine's browser (Retry, and once at creation); unset: Retry only rereads the state.
+    @ObservationIgnored var onStart: (@MainActor () -> Void)?
+    /// A start in progress or its failure, over the machine's state.
+    @ObservationIgnored var phase: MachineBrowserState? {
+        didSet { view.show(phase ?? currentState(), queued: queuedURL) }
+    }
     /// The address the person typed (or the record's first page): it opens
     /// when the machine's browser is ready, or here with Open Locally Instead.
     private(set) var queuedURL: URL?
 
     var contentView: NSView { view }
+    /// The message shown (debug socket).
+    var messageText: String { view.messageText }
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, record: MachineBrowserRecord,
          state: @escaping @MainActor () -> MachineBrowserState, openLocally: @escaping @MainActor (URL?) -> Void) {
@@ -47,6 +57,11 @@ final class MachineBrowserPageTab: BrowserTab {
         view.show(state(), queued: record.initialURL)
     }
 
+    private var isStarting: Bool {
+        guard case .starting = phase else { return false }
+        return true
+    }
+
     /// Open Locally Instead (the button, `browser.openLocally`).
     func openLocally() { openLocallyHandler(queuedURL) }
 
@@ -55,11 +70,17 @@ final class MachineBrowserPageTab: BrowserTab {
         guard !MachineBrowserRecord.matches(url) else { return reload() }
         queuedURL = url
         state.url = url
-        view.show(currentState(), queued: url)
+        view.show(phase ?? currentState(), queued: url)
     }
 
-    /// Retry: checks the machine again.
-    func reload() { view.show(currentState(), queued: queuedURL) }
+    /// Retry: checks the machine again and starts its browser when it can.
+    func reload() {
+        if let onStart, !isStarting {
+            onStart()
+        } else {
+            view.show(phase ?? currentState(), queued: queuedURL)
+        }
+    }
     func goBack() {}
     func goForward() {}
     func stop() {}
@@ -71,7 +92,7 @@ final class MachineBrowserPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
-        if visible { reload() }
+        if visible { view.show(phase ?? currentState(), queued: queuedURL) }
     }
 
     func snapshot() async throws -> CGImage {
@@ -81,7 +102,7 @@ final class MachineBrowserPageTab: BrowserTab {
         return image
     }
 
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.unsupported("machine browser") }
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.unsupported("machine browser") }
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }
     func clearFind() {}
     func setZoom(_ zoom: Double) {}
@@ -92,10 +113,10 @@ final class MachineBrowserPageTab: BrowserTab {
 
 /// The not-ready message, the waiting address and the two buttons.
 final class MachineBrowserStateView: NSView {
-    private let message = NSTextField(wrappingLabelWithString: "")
-    private let queued = NSTextField(wrappingLabelWithString: "")
-    let openLocallyButton = NSButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
-    private let retryButton = NSButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
+    private let message = ThemedLabel(wrappingLabelWithString: "")
+    private let queued = ThemedLabel(wrappingLabelWithString: "")
+    let openLocallyButton = ThemedDefaultButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
+    private let retryButton = ThemedBezelButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
     var onOpenLocally: (() -> Void)?
     var onRetry: (() -> Void)?
     /// The message shown (tests, debug).
@@ -106,13 +127,14 @@ final class MachineBrowserStateView: NSView {
         for label in [message, queued] {
             label.alignment = .center
             label.isSelectable = true
+            label.focusRingType = .none
         }
         message.font = .systemFont(ofSize: NSFont.systemFontSize + 1, weight: .medium)
         queued.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        queued.textColor = .secondaryLabelColor
+        queued.ink = .secondary
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)
-        openLocallyButton.keyEquivalent = "\r"
+        openLocallyButton.keyHint = .return
         retryButton.target = self
         retryButton.action = #selector(retryPressed)
         let buttons = NSStackView(views: [retryButton, openLocallyButton])
@@ -162,6 +184,19 @@ nonisolated enum MachineBrowserStrings {
     static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "remote.machineBrowser.notConnected",
                               defaultValue: "%@ is not connected.", table: "Remote", bundle: .module), machine)
+    }
+    static func tooOld(_ machine: String) -> String {
+        String(format: String(localized: "remote.machineBrowser.tooOld",
+                              defaultValue: "cmux-tui on %@ is too old for browser tabs. Update it, then try again.",
+                              table: "Remote", bundle: .module), machine)
+    }
+    static func starting(_ machine: String) -> String {
+        String(format: String(localized: "remote.machineBrowser.starting",
+                              defaultValue: "Starting the browser on %@…", table: "Remote", bundle: .module), machine)
+    }
+    static func failed(_ machine: String, _ reason: String) -> String {
+        String(format: String(localized: "remote.machineBrowser.failed",
+                              defaultValue: "The browser on %1$@ did not start: %2$@", table: "Remote", bundle: .module), machine, reason)
     }
     static func waiting(_ address: String) -> String {
         String(format: String(localized: "remote.machineBrowser.waiting",

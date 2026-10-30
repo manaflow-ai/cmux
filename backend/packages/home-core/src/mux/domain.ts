@@ -62,7 +62,13 @@ const seqOf = (v: unknown): v is number => Number.isSafeInteger(v) && (v as numb
 const REASONS = new Set<WakeReason>(["dm", "mention", "reply", "owner"])
 
 /** The chief itself (agent token) or a system op of a DO. */
-const isChief = (head: MuxHead, p: Principal) => p.kind === "agent" && p.agent !== undefined && p.agent === head.agent
+/**
+ * The chief itself: an agent principal, or the owner's install token minted for this chief (`agent` set; the
+ * Worker mints it only for the owner's active chiefs, user-do.ts redeem). The brain host acks with the latter
+ * (optchat-chief cloud-mux-ack, cx-59n8.17).
+ */
+const isChief = (head: MuxHead, p: Principal) =>
+  p.agent !== undefined && p.agent === head.agent && (p.kind === "agent" || (p.kind === "install" && head.owner_user !== null && p.user === head.owner_user))
 const isOwner = (head: MuxHead, p: Principal) => (p.kind === "session" || p.kind === "install") && p.user !== undefined && p.user === head.owner_user
 
 /**

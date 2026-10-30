@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The content view every window kit window gets (plans/cmux-next/windows.md,
 /// one backdrop rule): the window's one backdrop, the same material and
@@ -12,7 +13,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The window's one material and tint.
     public let backdropView = WindowMaterialView(frame: .zero)
     private let reduceTransparency: @MainActor () -> Bool
-    private var displayOptionsObserver: (any NSObjectProtocol)?
+    private var displayOptionsObserver: MainActorObservation?
 
     public init(content: NSView,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
@@ -28,15 +29,9 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         addSubview(content)
         // queue: .main: the workspace center may post off main; a selector
         // into this main-actor view trapped there.
-        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.repaint() } // main-proof: observer on queue: .main
+        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.repaint()
         }
-    }
-
-    isolated deinit {
-        if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
     }
 
     @available(*, unavailable)
@@ -45,7 +40,8 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The backdrop of `window`'s theme scope and Reduce Transparency.
     public func backdrop(in window: NSWindow) -> WindowBackdrop {
         WindowBackdrop(window.themeScope.tokens, reduceTransparency: reduceTransparency(), art: window.themeScope.backdropArt,
-                       selection: window.themeScope.backdropSelection, tuning: window.themeScope.appearanceTuning)
+                       selection: window.themeScope.backdropSelection, tuning: window.themeScope.appearanceTuning,
+                       tintOpacity: window.themeScope.backdropTintOpacity)
     }
 
     public func paintWindowSurface(of window: NSWindow) {

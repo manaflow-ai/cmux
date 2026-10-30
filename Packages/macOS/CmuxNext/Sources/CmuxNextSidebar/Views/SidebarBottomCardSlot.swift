@@ -3,8 +3,10 @@ import CmuxNextDesign
 
 /// UPDATE-CARD + BOTTOM-LEFT-CARDS K1 + cx-7py7: one card slot directly
 /// above the footer (the spaces dots and the account row below it), under
-/// the R114 card stack: the staged update card first, else the "cmux
-/// Updated!" card, else the shared notice card (the update status or the
+/// the R114 card stack: the staged update card first, else the answer to
+/// something the person just asked for (an update check's notice,
+/// ``SidebarNoticeCard/userAsked``), else the Now Playing
+/// card (cx-ouoxo), else the "cmux Updated!" card, else the shared notice card (the update status or the
 /// "Did you know" tip; the App picks one), never two. They are
 /// the sidebar's own views, not band items, so minimal mode's band fade
 /// never hides them. Without a card the slot takes no room; the footer
@@ -12,20 +14,26 @@ import CmuxNextDesign
 /// may appear and disappear).
 struct SidebarBottomCardSlot {
     let update: SidebarUpdateCardView
-    let updated: SidebarUpdatedCardView
+    let nowPlaying: SidebarNowPlayingCardView
+    let updated: SidebarUpdatedCardHost
     let notice: SidebarNoticeCardView
 
     /// Adds the views to `sidebar` and routes their actions to its model.
     func install(in sidebar: SidebarView) {
         update.onInstall = { [weak sidebar] in sidebar?.model.send(.installUpdate) }
         update.onAutomaticUpdates = { [weak sidebar] on in sidebar?.model.send(.setAutomaticUpdates(on)) }
-        update.onOpenLink = { [weak sidebar] url in sidebar?.model.send(.openUpdateLink(url)) }
-        updated.whatsNewRow.onPress = { [weak sidebar] in sidebar?.model.send(.openWhatsNew) }
-        updated.shareRow.onPress = { [weak sidebar] in sidebar?.model.send(.shareCmux) }
-        updated.closeButton.onPress = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
+        update.onOpenChanges = { [weak sidebar] in sidebar?.model.send(.openUpdateChanges) }
+        update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
+        // The highlights show in the app's one hover card window (one card at a time).
+        update.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
+        nowPlaying.onCommand = { [weak sidebar] command in sidebar?.model.send(.nowPlaying(command)) }
+        nowPlaying.onClose = { [weak sidebar] in sidebar?.model.send(.hideNowPlayingCard) }
+        nowPlaying.menuProvider = { [weak sidebar] in sidebar?.contextMenuProvider?(.nowPlaying) }
+        updated.onDismiss = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
         sidebar.addSubview(update)
+        sidebar.addSubview(nowPlaying)
         sidebar.addSubview(updated)
         sidebar.addSubview(notice)
     }
@@ -33,16 +41,24 @@ struct SidebarBottomCardSlot {
     /// Shows the cards the model holds (the slot picks one).
     func show(_ cards: SidebarBottomCards) {
         update.configure(cards.update)
+        nowPlaying.configure(cards.nowPlaying)
         updated.configure(cards.updated)
         notice.configure(cards.notice)
     }
 
-    private enum Shown { case update, updated, notice }
+    private enum Shown { case update, nowPlaying, updated, notice }
 
-    /// The card that has the slot: update, then updated, then the notice.
+    /// The card that has the slot: a question waiting on the person, then update, then an asked-for notice,
+    /// then Now Playing, then updated, then any other notice.
     private var shown: Shown? {
+        // An agent waiting on the person's answer never hides behind another card.
+        if notice.notice?.awaitsAnswer == true { return .notice }
         if update.card != nil { return .update }
-        if updated.card != nil { return .updated }
+        // "Is it checking?" must never hide behind a song (Lawrence 2026-10-19).
+        if notice.notice?.userAsked == true { return .notice }
+        if nowPlaying.nowPlaying != nil { return .nowPlaying }
+        // The React card's actions go to the App through its page; it shows once it has drawn.
+        if updated.card != nil, updated.height > 0 { return .updated }
         return notice.notice != nil ? .notice : nil
     }
 
@@ -54,7 +70,8 @@ struct SidebarBottomCardSlot {
     var height: CGFloat {
         switch shown {
         case .update: (update.card.map(SidebarUpdateCardView.height(for:)) ?? 0) + 2 * Metrics.space2
-        case .updated: SidebarUpdatedCardView.height + 2 * Metrics.space2
+        case .nowPlaying: (nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0) + 2 * Metrics.space2
+        case .updated: updated.height + 2 * Metrics.space2
         case .notice: (notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case nil: 0
         }
@@ -68,10 +85,17 @@ struct SidebarBottomCardSlot {
         func frame(_ which: Shown, height: CGFloat) -> NSRect {
             shown == which ? NSRect(x: inset, y: bottom - Metrics.space2 - height, width: width, height: height).integral : .zero
         }
-        notice.isHidden = shown != .notice
+        nowPlaying.isHidden = shown != .nowPlaying
+        nowPlaying.frame = frame(.nowPlaying, height: nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0)
         updated.isHidden = shown != .updated
-        update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
-        updated.frame = frame(.updated, height: SidebarUpdatedCardView.height)
-        notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
+        updated.frame = frame(.updated, height: updated.height)
+        // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone.
+        if shown == .update || !update.isLeaving {
+            update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
+        }
+        notice.presence.setShown(shown == .notice)
+        if shown == .notice || !notice.isLeaving {
+            notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
+        }
     }
 }

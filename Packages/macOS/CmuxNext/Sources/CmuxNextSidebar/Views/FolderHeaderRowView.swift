@@ -13,9 +13,9 @@ final class FolderHeaderRowView: SidebarRowView {
     }
 
     func configure(folder: String) {
-        name.stringValue = SidebarFolderTitle.title(folder)
-        name.font = SidebarStyle.headerFont
-        toolTip = folder.isEmpty ? nil : folder
+        name.setString(SidebarFolderTitle.title(folder))
+        name.setFont(SidebarStyle.headerFont)
+        themedToolTip = folder.isEmpty ? nil : folder
         setAccessibilityLabel(name.stringValue)
         needsLayout = true
     }
@@ -24,12 +24,12 @@ final class FolderHeaderRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(name.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading
+        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         name.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
         needsDisplay = true
     }
 
     override func updateLayer() {
-        performWithTheme { name.textColor = Palette.textSecondary }
+        performWithTheme { name.setColor(Palette.textSecondary) }
     }
 }

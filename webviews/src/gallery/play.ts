@@ -8,7 +8,8 @@
 //     frames over 16.7 ms are reported, and a frame over 33 ms fails ONLY from Long Animation
 //     Frames data. rAF timing (headless WebKit on a CPU-only VM: software rendering) measures the
 //     machine, not the page, so it only warns (coordinator 2026-10-07); real WebKit frame timing
-//     comes from the native app on a fleet Mac.
+//     comes from the native app on a fleet Mac. An entry's settle budget (settleMaxMs) gates the
+//     same way: settling waits on frames, so a rAF-timed step over its budget only warns.
 // An entry may loosen a threshold only with a written `reason` (format.ts `checks`).
 //
 // Targets resolve on the real DOM: by role and accessible name, by test id, by text, or by a CSS
@@ -16,6 +17,8 @@
 // (Playwright's trusted mouse and keyboard at the element's page coordinates); elsewhere the stage
 // dispatches DOM events itself. Waiting is on events (DOM mutations, animation and transition ends,
 // frames), never on a fixed time; a wait that never resolves fails at its cap.
+
+import type { MotionController, MotionEvidence } from "./motionEvidence";
 
 export type PlayTarget =
   | { role: string; name?: string | RegExp }
@@ -27,6 +30,8 @@ export type PlayTarget =
 
 export type PlayContext = {
   click(target: PlayTarget): Promise<void>;
+  /** Opens a point-anchored context menu with a trusted right-click in the matrix runner. */
+  contextMenu(target: PlayTarget): Promise<void>;
   hover(target: PlayTarget): Promise<void>;
   focus(target: PlayTarget): Promise<void>;
   /** Moves a scroll container to an absolute offset or one of its edges. */
@@ -48,6 +53,8 @@ export type PlayContext = {
   /** Resolves `target` now (throws when it is not there). */
   find(target: PlayTarget): Element;
   document: Document;
+  /** Start/stop a deterministic frame probe during a play step. */
+  motion: MotionController;
 };
 
 export type Play = (ctx: PlayContext) => Promise<void>;
@@ -75,7 +82,16 @@ export type PopupMeasure = {
 };
 
 /** The interactions whose action-to-settled latency is useful in a gallery report. */
-export type PlayAction = "click" | "key" | "press-drag" | "hover" | "focus" | "type" | "scroll" | "select";
+export type PlayAction =
+  | "click"
+  | "context-menu"
+  | "key"
+  | "press-drag"
+  | "hover"
+  | "focus"
+  | "type"
+  | "scroll"
+  | "select";
 
 export const DEFAULT_CHECKS = {
   anchorMovePx: 0,
@@ -103,7 +119,12 @@ export type StepReport = {
   /** Popup layer problems (judgePopups); absent where the stage measured none. */
   popupProblems?: string[];
 };
-export type PlayReport = { status: "pass" | "warn" | "fail" | "none"; steps: StepReport[]; error?: string };
+export type PlayReport = {
+  status: "pass" | "warn" | "fail" | "none";
+  steps: StepReport[];
+  motion?: MotionEvidence;
+  error?: string;
+};
 
 // ---- Pure rules (unit tested) ----
 
@@ -149,6 +170,29 @@ export function rectDelta(before: Rect | null, after: Rect | null): number {
   );
 }
 
+export type LayoutShiftSourceRects = {
+  previousRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+  currentRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+};
+
+/** True only for shifts caused by fractional layout rounding below half a CSS pixel. */
+export function isSubpixelLayoutShift(sources: LayoutShiftSourceRects[]): boolean {
+  return (
+    sources.length > 0 &&
+    sources.every(({ previousRect, currentRect }) => {
+      if (!previousRect || !currentRect) return false;
+      return (
+        Math.max(
+          Math.abs(previousRect.x - currentRect.x),
+          Math.abs(previousRect.y - currentRect.y),
+          Math.abs(previousRect.width - currentRect.width),
+          Math.abs(previousRect.height - currentRect.height),
+        ) < 0.5
+      );
+    })
+  );
+}
+
 /** A step's verdict under the entry's checks. */
 export function judgeStep(
   measured: Omit<StepReport, "status" | "problems">,
@@ -167,14 +211,21 @@ export function judgeStep(
     problems.push(`${failing.length} frame(s) over ${failMs} ms (longest ${Math.max(...failing).toFixed(1)} ms)`);
   if (measured.layoutShift > shiftMax)
     problems.push(`layout shift ${measured.layoutShift.toFixed(4)} (limit ${shiftMax})`);
-  if (settleMax !== undefined && measured.settleMs > settleMax)
-    problems.push(`settle latency ${measured.settleMs.toFixed(1)} ms (limit ${settleMax} ms)`);
+  // Settling waits on frames, so where rAF times them (a software renderer) its latency measures
+  // the machine as the frame timing does: over the budget it warns there, with the number.
+  const warnings: string[] = [];
+  if (settleMax !== undefined && measured.settleMs > settleMax) {
+    const latency = `settle latency ${measured.settleMs.toFixed(1)} ms (limit ${settleMax} ms`;
+    if (measured.frameSource === "long-animation-frame") problems.push(`${latency})`);
+    else warnings.push(`${latency}; rAF timing, not a gate)`);
+  }
   const popupProblems = checks.popupLayer?.value === false ? [] : (measured.popupProblems ?? []);
   if (checks.popupLayer?.value === true) problems.push(...popupProblems);
-  const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs) || popupProblems.length > 0;
+  else warnings.push(...popupProblems);
+  const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs) || warnings.length > 0;
   return {
     status: problems.length ? "fail" : warn ? "warn" : "pass",
-    problems: problems.length ? problems : popupProblems,
+    problems: problems.length ? problems : warnings,
   };
 }
 
@@ -224,6 +275,13 @@ export function roleOf(element: Element): string | undefined {
   return IMPLICIT_ROLES[element.tagName];
 }
 
+/** The text a screen reader names a node by: aria-hidden parts (check glyphs, icons) do not count. */
+function namedText(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? "";
+  if (node.nodeType !== 1 || (node as Element).getAttribute("aria-hidden") === "true") return "";
+  return [...node.childNodes].map(namedText).join("");
+}
+
 export function accessibleName(element: Element): string {
   const label = element.getAttribute("aria-label");
   if (label) return label.trim();
@@ -231,12 +289,16 @@ export function accessibleName(element: Element): string {
   if (labelledBy) {
     const text = labelledBy
       .split(/\s+/)
-      .map((id) => element.ownerDocument.getElementById(id)?.textContent ?? "")
+      .map((id) => {
+        const labelElement = element.ownerDocument.getElementById(id);
+        return labelElement ? namedText(labelElement) : "";
+      })
       .join(" ")
+      .replace(/\s+/g, " ")
       .trim();
     if (text) return text;
   }
-  const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+  const text = namedText(element).replace(/\s+/g, " ").trim();
   return text || (element.getAttribute("title") ?? element.getAttribute("placeholder") ?? "").trim();
 }
 

@@ -1,13 +1,20 @@
+import Darwin
 import Foundation
+import CmuxNextWakeups
 import os
 import CmuxNextCompat
 
 /// After an update: hand a running acpmux daemon of another build off to the
-/// bundled build (plans/cmux-next/durable-sessions.md section 3). Only a
-/// daemon that runs its agents under agent hosts (`_acpmux/status`
-/// `agentHosts`) is handed off: its SIGTERM detaches every agent and the new
-/// daemon adopts them. An older daemon would end its agents, so it keeps
-/// running until it exits on its own.
+/// bundled build (plans/cmux-next/durable-sessions.md section 3), and one whose
+/// executable was replaced with the app's bundle whatever its build
+/// (``replaced(pid:)``), also mid-turn, with no wait for idle. A daemon that runs
+/// its agents under agent hosts (`_acpmux/status` `agentHosts`) detaches them on
+/// SIGTERM and the new daemon adopts them. One without agent hosts (a build from
+/// before them, or `ACPMUX_AGENT_HOSTS=0`) ends its agents, but keeps its chats on
+/// disk (`store.mode` `local`): the new daemon reads them back and each agent
+/// resumes its chat on its next prompt, a turn running then is cut. Only a daemon
+/// that keeps neither (a memory store without agent hosts) keeps running until it
+/// exits on its own: its chats would be lost (``keepsItsChats(agentHosts:chatsOnDisk:)``).
 nonisolated enum AcpmuxVersionHandoff {
     enum Decision: Equatable, Sendable {
         case keep(String)
@@ -15,7 +22,11 @@ nonisolated enum AcpmuxVersionHandoff {
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
-    /// Bundled builds this app process already handed off to: never twice.
+    /// The handoffs this app process already made, by socket and bundled build: never twice on
+    /// one socket. One key per socket, not per build: two homes (the app's and a Chief home's own
+    /// acpmux) can each run a daemon from one replaced bundle, and with a key per build alone the
+    /// first handoff barred the second, whose chats stayed refused until a relaunch (cosmic-gray,
+    /// 2026-10-25).
     private static let handedOff = Mutex<Set<String>>([])
 
     /// `acpmux 0.1.0 (<build>)` -> `<build>`.
@@ -27,55 +38,140 @@ nonisolated enum AcpmuxVersionHandoff {
         return build.isEmpty ? nil : build
     }
 
-    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool) -> Decision {
+    /// Whether a daemon keeps its chats across a restart: its agents under agent hosts, or its
+    /// chats on disk to resume from. False only for a memory store without agent hosts.
+    static func keepsItsChats(agentHosts: Bool, chatsOnDisk: Bool) -> Bool {
+        agentHosts || chatsOnDisk
+    }
+
+    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool, chatsOnDisk: Bool,
+                       replaced: Bool = false) -> Decision {
+        let keeps = keepsItsChats(agentHosts: agentHosts, chatsOnDisk: chatsOnDisk)
+        if replaced { return keeps ? .restart : .keep("its chats would be lost: a memory store without agent hosts") }
         guard let running else { return .keep("running build unknown") }
         guard let bundled else { return .keep("bundled build unknown") }
         if running == bundled { return .keep("same build") }
-        guard agentHosts else { return .keep("its agents would end: no agent hosts") }
+        guard keeps else { return .keep("its chats would be lost: a memory store without agent hosts") }
         return .restart
     }
 
-    /// The bundled acpmux's build (`<executable> --version`).
-    static func bundledBuild(_ environment: AcpmuxEnvironment) async -> String? {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = environment.executable
-            process.arguments = ["--version"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch { return nil }
-            // concurrency-allow: a detached task off the main thread; `--version` prints one line and exits
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            // concurrency-allow: same detached task; the process has closed its output
-            process.waitUntilExit()
-            return build(fromVersion: String(decoding: data, as: UTF8.self))
-        }.value
+    /// Whether daemon `pid` runs an executable whose file is gone: the app's bundle was replaced
+    /// in place after the daemon started (update-dev-daily.sh renames the old bundle aside and
+    /// deletes it; a reinstall), so it is an earlier install of this app. The server peer check
+    /// refuses it whatever its build, since its executable is not the bundled one, and every chat
+    /// would say acpmux did not start (cx-ame2k). Another install's daemon (another
+    /// copy of the same build, or an older build on `~/.acpmux`) runs a file that still exists.
+    static func replaced(pid: Int32) -> Bool {
+        guard kill(pid, 0) == 0 else { return false }
+        guard let path = executablePath(pid: pid) else { return true }
+        return !FileManager.default.fileExists(atPath: path)
     }
 
-    /// Hands the daemon described by `status` off when it runs another build
-    /// and keeps its agents across a restart. Returns true when it stopped
-    /// that daemon, so the caller starts the bundled one.
+    /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
+    static func executablePath(pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    #if DEBUG
+    /// DEBUG only: whether `environment` runs the `CMUX_NEXT_ACPMUX_BIN` override and the daemon
+    /// at `runningPath` is another binary (the bundled acpmux, or an earlier override). The server
+    /// peer check refuses such a daemon whatever its build, so a swap restarts it like a replaced
+    /// bundle would; comparing builds alone keeps it when both binaries come from one commit.
+    static func swapsOverride(runningPath: String?, override: URL?, executable: URL) -> Bool {
+        guard let override, override == executable, let runningPath else { return false }
+        return URL(fileURLWithPath: runningPath).resolvingSymlinksInPath().path != executable.resolvingSymlinksInPath().path
+    }
+    #endif
+
+    /// The bundled acpmux's build (`<executable> --version`).
+    static func bundledBuild(_ environment: AcpmuxEnvironment) async -> String? {
+        guard let outcome = try? await AsyncProcess().run(ProcessRequest(environment.executable, ["--version"])) else { return nil }
+        return build(fromVersion: outcome.text)
+    }
+
+    /// Hands the daemon described by `status` off when it runs another build or
+    /// a replaced bundle's executable, and keeps its agents across a restart.
+    /// Returns true when it stopped that daemon, so the caller starts the
+    /// bundled one.
     static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
         let bundled = await bundledBuild(environment)
-        guard decide(status.build, bundled, status.agentHosts) == .restart, let bundled, let pid = status.pid else {
+        let isReplaced = runsReplacedExecutable(status, environment: environment, log: true)
+        guard decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
+              let pid = status.pid else {
             return false
         }
-        guard handedOff.withLock({ $0.insert(bundled).inserted }) else { return false }
-        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public); handing off to \(bundled, privacy: .public)")
+        let key = handOffKey(environment, bundled: bundled, pid: pid)
+        // The key is used up and Settings' daemon line marked restarting in one step, so a read
+        // that finds the key used finds the mark too (``AcpmuxDaemonSummary/current(_:)``). The
+        // line says restarting until the lookup that starts the bundled one settles
+        // (AgentPaneHost.findOrStart), or until this handoff fails.
+        let inserted = handedOff.withLock { keys in
+            let inserted = keys.insert(key).inserted
+            if inserted { AcpmuxDaemonSummary.mark(home: environment.home, restarting: true) }
+            return inserted
+        }
+        guard inserted else {
+            logger.error("acpmux \(pid) at \(environment.socketPath, privacy: .public) still runs build \(status.build ?? "?", privacy: .public) after this app handed that socket off to \(bundled ?? "?", privacy: .public) once")
+            return false
+        }
+        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath)
+            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
+            AcpmuxDaemonSummary.mark(home: environment.home, restarting: false)
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
-        return await AgentPaneProcessExit.exitEvent(pid: pid, within: .seconds(15))
+        let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        if !exited { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) }
+        return exited
+    }
+
+    /// What a lookup would do with the daemon `status` describes (Settings' daemon line,
+    /// ``AcpmuxDaemonSummary``): whether it runs a replaced bundle's executable, and whether
+    /// ``handOffIfStale(_:environment:)`` would stop it now. An attached daemon is never
+    /// handed off (a lookup never starts or stops one), nor a socket this launch handed off once.
+    static func handsOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
+                         bundled: String?) -> (replaced: Bool, handsOff: Bool) {
+        let isReplaced = runsReplacedExecutable(status, environment: environment, log: false)
+        guard !environment.isAttached,
+              decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
+              let pid = status.pid else { return (isReplaced, false) }
+        let key = handOffKey(environment, bundled: bundled, pid: pid)
+        return (isReplaced, !handedOff.withLock { $0.contains(key) })
+    }
+
+    /// The once-per-socket key of a handoff (``handedOff``).
+    private static func handOffKey(_ environment: AcpmuxEnvironment, bundled: String?, pid: Int32) -> String {
+        "\(environment.socketPath) \(bundled ?? "pid \(pid)")"
+    }
+
+    /// Whether the daemon `status` describes runs an executable an update replaced, or (DEBUG)
+    /// another binary than the `CMUX_NEXT_ACPMUX_BIN` override.
+    private static func runsReplacedExecutable(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, log: Bool) -> Bool {
+        #if DEBUG
+        let swapped = status.pid.map { swapsOverride(runningPath: executablePath(pid: $0),
+                                                     override: AcpmuxEnvironment.debugExecutableOverride,
+                                                     executable: environment.executable) } ?? false
+        if swapped, log, let pid = status.pid {
+            logger.info("acpmux \(pid) runs another binary than \(AcpmuxEnvironment.executableOverrideKey, privacy: .public) \(environment.executable.path, privacy: .public)")
+        }
+        return swapped || (status.pid.map(Self.replaced(pid:)) ?? false)
+        #else
+        return status.pid.map(Self.replaced(pid:)) ?? false
+        #endif
     }
 }
 
 /// Waits for a process to exit through the kernel's exit event (no polling).
-nonisolated enum AgentPaneProcessExit {
+public nonisolated struct AgentPaneProcessExit: Sendable {
+    public let pid: Int32
+
+    public init(pid: Int32) { self.pid = pid }
+
     private final class Once: Sendable {
         let done = Mutex(false)
         let deadline = Mutex<Task<Void, Never>?>(nil)
@@ -87,8 +183,15 @@ nonisolated enum AgentPaneProcessExit {
         }
     }
 
-    static func exitEvent(pid: Int32, within timeout: Duration) async -> Bool {
-        await withCheckedContinuation { continuation in
+    /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
+    /// `armed` runs once the exit watch is resumed and before the check for an exit that came
+    /// first, so a signal sent there cannot end the process unseen. The watch's registration with
+    /// the kernel may still be in flight then: a caller that must signal only the process it
+    /// found registers its own watch first (``AcpmuxUnresponsiveWatch/signal(_:_:process:)``).
+    /// It returns the answer when there is nothing to wait for (nil: wait).
+    public func event(within timeout: Duration?, armed: () -> Bool? = { nil }) async -> Bool {
+        let pid = self.pid
+        return await withCheckedContinuation { continuation in
             let once = Once()
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)")
             nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
@@ -98,15 +201,21 @@ nonisolated enum AgentPaneProcessExit {
                 once.deadline.withLock { $0?.cancel() }
                 continuation.resume(returning: exited)
             }
-            // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
-            let timer = Task {
-                // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
-                try? await Task.sleep(for: timeout)
-                if !Task.isCancelled { finish(false) }
+            if let timeout {
+                // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
+                let timer = Task {
+                    // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
+                    try? await Task.sleep(for: timeout)
+                    if !Task.isCancelled { finish(false) }
+                }
+                once.deadline.withLock { $0 = timer }
             }
-            once.deadline.withLock { $0 = timer }
             source.setEventHandler { finish(true) }
             source.resume()
+            if let answer = armed() {
+                finish(answer)
+                return
+            }
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
         }
     }

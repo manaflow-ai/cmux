@@ -43,7 +43,6 @@ impl<'de> Deserialize<'de> for TabSnapshot {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             id: TabId,
             pane_id: PaneId,

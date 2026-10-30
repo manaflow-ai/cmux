@@ -3,8 +3,9 @@ import CmuxNextDesign
 import QuartzCore
 
 /// Layer-hosting view under the rows that draws the drag gap as a plain
-/// CALayer (no views), animated with a CA spring. The selection highlight is
-/// not here: each selected row and item paints its own fill in place
+/// CALayer, animated with a CA spring. Group lines are views that move with
+/// the rows (SidebarGroupLineViews, cx-ai79). The selection highlight is not
+/// here: each selected row and item paints its own fill in place
 /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
 final class SidebarDecorationView: NSView {
     private let gap = CALayer()
@@ -27,7 +28,7 @@ final class SidebarDecorationView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -57,7 +58,7 @@ final class SidebarDecorationView: NSView {
         let current = gap.presentation()?.frame ?? gap.frame
         gap.removeAnimation(forKey: "position")
         gap.removeAnimation(forKey: "bounds")
-        Motion.transaction(nil) { gap.frame = current.offsetBy(dx: 0, dy: dy) }
+        Motion.sidebar.transaction(nil) { gap.frame = current.offsetBy(dx: 0, dy: dy) }
     }
 
     /// Shows the drag gap placeholder (nil hides it): springs it to `frame`
@@ -73,18 +74,18 @@ final class SidebarDecorationView: NSView {
             let position = NSValue(point: CGPoint(x: frame.midX, y: frame.midY))
             let bounds = NSValue(rect: CGRect(origin: .zero, size: frame.size))
             if animated && wasVisible && layer.frame != frame {
-                Motion.set(layer, "position", to: position, spring: spring)
-                Motion.set(layer, "bounds", to: bounds, spring: spring)
+                Motion.sidebar.set(layer, "position", to: position, spring: spring)
+                Motion.sidebar.set(layer, "bounds", to: bounds, spring: spring)
             } else {
-                Motion.transaction(nil) { layer.frame = frame }
+                Motion.sidebar.transaction(nil) { layer.frame = frame }
             }
         }
         let opacity: Float = visible ? 1 : 0
         guard layer.opacity != opacity else { return }
         if animated {
-            Motion.set(layer, "opacity", to: opacity, fade: visible ? .fadeIn : .fadeOut)
+            Motion.sidebar.set(layer, "opacity", to: opacity, fade: visible ? .fadeIn : .fadeOut)
         } else {
-            Motion.transaction(nil) { layer.opacity = opacity }
+            Motion.sidebar.transaction(nil) { layer.opacity = opacity }
         }
     }
 }

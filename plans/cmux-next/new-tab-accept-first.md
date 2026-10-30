@@ -1,5 +1,12 @@
 # New tab reply on accept (R81, zero-wait IX2/IX3 for `new-tab`)
 
+Update 2026-10-23 (PL-daemon, approved by the perf lead): the "one durable commit before the
+reply" of stage A and of new-terminal-100x is gone for every request. The registry runs
+`synchronous=NORMAL`; a reply comes after its commits are in the WAL (kept by a daemon crash) and a
+syncer thread flushes the WAL off every lock right after (`workspace_registry/wal_durability.rs`).
+Only a power loss inside that flush can take a reply back, and it also ends the terminal's shell.
+See [terminal-host-model-DESIGN.md](terminal-host-model-DESIGN.md) section 7.
+
 Owner: new tab lead. Design reviewer before code: protocol/daemon owner (coordinator, 2026-10-04).
 Review 2 (2026-10-04, 92557d82cb2): approved; A1 and A2 added below without further review.
 Review 1 (2026-10-04): stage A approved in direction with required changes R1-R6, which this

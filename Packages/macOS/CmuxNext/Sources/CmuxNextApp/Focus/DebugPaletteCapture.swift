@@ -1,18 +1,30 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 import Darwin
 
 /// `debug.palette.capture {path}` (DEBUG builds): writes the open palette
 /// panel to a PNG at `path` from this process (its own window, so no Screen
-/// Recording grant and no focus change). Falls back to drawing the layer
-/// tree on a flat backdrop when the window image is unavailable.
+/// Recording grant and no focus change). Falls back to AppKit drawing the
+/// panel on a flat backdrop when the window server gives no image of it (the
+/// Cmd-Shift-P palette over an inactive app, cx-ytt0): drawing only the layer
+/// tree left the views' content out, a flat gray image. Also answers the palette's `query` and its
+/// `selected` row's title, so a real-key proof checks what Return will run before it presses it.
 enum DebugPaletteCapture {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let path = params["path"]?.stringValue, !path.isEmpty else { return .object(["error": .string("path is required")]) }
-        guard let panel = services.palette.visiblePanel, let view = panel.contentView, let layer = view.layer else {
-            return .object(["error": .string("the palette is not open")])
-        }
+        guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
+        guard case .object(var result) = capture(panel, to: path) else { return capture(panel, to: path) }
+        let model = services.palette.model
+        result["query"] = .string(model.query)
+        result["selected"] = model.selectedItem.map { .string($0.title) } ?? .null
+        return .object(result)
+    }
+
+    /// Writes `panel` to `path`; `windowImage` is the window server's image of a window, if any.
+    static func capture(_ panel: NSWindow, to path: String, windowImage: (CGWindowID) -> CGImage? = windowImage) -> JSONValue {
+        guard let view = panel.contentView else { return .object(["error": .string("the palette is not open")]) }
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         // The composited window (glass included). A process may capture its
@@ -20,6 +32,7 @@ enum DebugPaletteCapture {
         if let image = windowImage(CGWindowID(panel.windowNumber)), image.width > 1 {
             return write(image, to: path, source: "window")
         }
+        guard let drawn = panel.renderSnapshot()?.cgImage else { return .object(["error": .string("no image")]) }
         let size = view.bounds.size
         let scale = panel.backingScaleFactor
         guard let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
@@ -30,15 +43,15 @@ enum DebugPaletteCapture {
         let dark = panel.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         context.setFillColor(dark ? CGColor(gray: 0.17, alpha: 1) : CGColor(gray: 0.93, alpha: 1))
         context.fill(CGRect(origin: .zero, size: size))
-        layer.render(in: context)
+        context.draw(drawn, in: CGRect(origin: .zero, size: size))
         guard let image = context.makeImage() else { return .object(["error": .string("no image")]) }
-        return write(image, to: path, source: "layers")
+        return write(image, to: path, source: "appkit")
     }
 
     /// The window-list capture, resolved at run time: the SDK marks it
     /// unavailable in favor of ScreenCaptureKit, which needs a Screen
     /// Recording grant even for the app's own windows. DEBUG evidence only.
-    private static func windowImage(_ id: CGWindowID) -> CGImage? {
+    nonisolated static func windowImage(_ id: CGWindowID) -> CGImage? {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let capture = unsafeBitCast(symbol, to: Capture.self)

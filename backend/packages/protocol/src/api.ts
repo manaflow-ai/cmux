@@ -1,6 +1,7 @@
 import { Context, Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api"
 import { GrantId, IdempotencyKey, InstallId, Origin, Revision, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /** The authenticated principal of a request. Never read from a request body. */
 export interface CurrentPrincipalShape {
@@ -49,7 +50,7 @@ export class PolicyRefused extends Schema.TaggedError<PolicyRefused>()(
 
 export class BadRequest extends Schema.TaggedError<BadRequest>()(
   "BadRequest",
-  { code: Schema.Literals(["validation.invalid", "selector.not_found", "cloud.machine.not_found", "cloud.machine.not_bound"]), message: Schema.String },
+  { code: Schema.Literals(["validation.invalid", "selector.not_found", "cloud.machine.not_found", "cloud.machine.not_bound", "unknown_message"]), message: Schema.String },
   { httpApiStatus: 400 }
 ) {}
 
@@ -142,13 +143,14 @@ export const TokenResponse = Schema.Struct({
 export class AuthGroup extends HttpApiGroup.make("auth")
   .add(
     HttpApiEndpoint.post("challenge", "/v1/auth/challenge", {
-      payload: Schema.Struct({ user: UserId, install: InstallId }),
+      // A client chooses its token's team here, before signing; existing tokens cannot be retargeted.
+      payload: Schema.Struct({ user: UserId, install: InstallId, team: Schema.optionalKey(TeamId) }),
       success: ChallengeResponse,
       error: [BadRequest, Forbidden]
     }),
     HttpApiEndpoint.post("token", "/v1/auth/token", {
       // `agent`: a chief of this user; the token then acts as that chief (principal.agent), checked on every request.
-      payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String, agent: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/))) }),
+      payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String, agent: Schema.optionalKey(Schema.String.check(isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/))) }),
       success: TokenResponse,
       error: [BadRequest, Forbidden, PolicyRefused, OwnerUnreachable]
     })
@@ -179,5 +181,7 @@ export class CloudApi extends HttpApi.make("cmux-cloud")
   .add(OpsGroup)
   .annotateMerge(OpenApi.annotations({ title: "cmux Cloud API", version: "0.1.0" })) {}
 
-/** Message the install signs for a token (domain-separated per environment). */
-export const challengeMessagePrefix = (environment: string, install: string) => `cmux-auth-v1\n${environment}\n${install}\n`
+/** Validate this expected context before signing the nonce. Omitted team preserves legacy issuance. */
+export const challengeMessagePrefix = (environment: string, install: string, team?: string) => team === undefined
+  ? `cmux-auth-v1\n${environment}\n${install}\n`
+  : `cmux-auth-team-v1\n${environment}\n${install}\n${team}\n`

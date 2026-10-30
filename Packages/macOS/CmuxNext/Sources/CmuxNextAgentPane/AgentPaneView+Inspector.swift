@@ -2,7 +2,7 @@ public import AppKit
 
 // The page's ACP inspector, from the host side: the palette toggles it
 // (`agentPane.toggleInspector`), and its Export saves through a save panel
-// (`pane.saveLog`).
+// (`pane.saveLog`, ``AgentPaneSavePanel``).
 extension AgentPaneView {
     /// Opens the inspector when `open` is true, closes it when false, and
     /// toggles it when nil. A page that has not loaded its bridge yet

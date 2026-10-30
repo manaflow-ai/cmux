@@ -46,6 +46,12 @@ pub(crate) struct ProgramStatusRecord {
     pub(crate) message: Option<String>,
     pub(crate) updated_seq: u64,
     pub(crate) updated_at_ms: u64,
+    /// When the record entered its current state and kind (Unix ms): a
+    /// report that keeps both (a progress or message update) keeps it, so a
+    /// client can say how long a program has worked or waited. Not in the
+    /// terminal-host snapshot codec: a restored record starts at its
+    /// `updated_at_ms`.
+    pub(crate) since_ms: u64,
 }
 
 impl ProgramStatusRecord {
@@ -69,6 +75,7 @@ impl ProgramStatusRecord {
             "msg": self.message,
             "updated_seq": self.updated_seq.to_string(),
             "updated_at_ms": self.updated_at_ms.to_string(),
+            "since_ms": self.since_ms.to_string(),
         })
     }
 }
@@ -114,6 +121,8 @@ pub(crate) struct ProgramStatusRecords {
     /// and output publishers idempotent.
     claimed: Option<u64>,
     last_change: Option<ProgramStatusChange>,
+    /// The `shown` value last handed to frontends.
+    shown_published: Option<ShownProgramStatus>,
 }
 
 impl ProgramStatusRecords {
@@ -156,15 +165,22 @@ impl ProgramStatusRecords {
         self.next_seq += 1;
         let blocked = state == ProgramStatusState::Blocked;
         let shows_progress = blocked || state == ProgramStatusState::Working;
+        let kind = kind.filter(|_| blocked);
+        let since_ms = self
+            .records
+            .get(&id)
+            .filter(|previous| previous.state == state && previous.kind == kind)
+            .map_or(now_ms, |previous| previous.since_ms);
         let record = ProgramStatusRecord {
             state,
-            kind: kind.filter(|_| blocked),
+            kind,
             progress: progress.filter(|value| shows_progress && *value <= 100),
             app: non_empty(shown_text(&app, MAX_TITLE_CHARS)),
             title: non_empty(shown_text(&title, MAX_TITLE_CHARS)),
             message: non_empty(shown_text(&message, MAX_MESSAGE_CHARS)),
             updated_seq: self.next_seq,
             updated_at_ms: now_ms,
+            since_ms,
         };
         let previous = self.records.insert(id.clone(), record);
         self.last_change = self
@@ -286,12 +302,14 @@ impl ProgramStatusRecords {
     ///
     /// The claim is made while holding the records lock. A second publisher
     /// therefore observes the same revision as in flight and does not emit a
-    /// duplicate journal record or notification.
-    pub(crate) fn claim_pending_change(&mut self, running: bool) -> Option<(u64, Value)> {
+    /// duplicate journal record or notification. A revision with no
+    /// explicit change (a daemon adopting a host's records) is still claimed,
+    /// so its terminal upsert publishes, but it carries no hook envelope.
+    pub(crate) fn claim_pending_change(&mut self, running: bool) -> Option<(u64, Option<Value>)> {
         if self.revision == self.published || self.claimed.is_some() {
             return None;
         }
-        let change = self.last_change_json(running)?;
+        let change = self.last_change_json(running);
         let revision = self.revision;
         self.claimed = Some(revision);
         Some((revision, change))
@@ -329,6 +347,143 @@ impl ProgramStatusRecords {
             "records": self.to_json(running).unwrap_or_else(|| Value::Array(Vec::new())),
         }))
     }
+
+    /// What a tab shows for these records: the strongest one that is not
+    /// idle, picked as the app's `ProgramStatusRecord.strongest` does
+    /// (blocked, error, working, done; the newest of equals). `running`
+    /// false hides the records that end with the process.
+    pub(crate) fn shown(&self, running: bool) -> Option<ShownProgramStatus> {
+        self.records
+            .values()
+            .filter(|record| record.state != ProgramStatusState::Idle)
+            .filter(|record| running || !record.is_transient())
+            .max_by_key(|record| (strength(record.state), record.updated_seq))
+            .map(|record| ShownProgramStatus { state: record.state, progress: record.progress })
+    }
+
+    /// The new `shown` value when it differs from the one last handed to
+    /// frontends, marking it handed.
+    pub(crate) fn take_shown_change(
+        &mut self,
+        running: bool,
+    ) -> Option<Option<ShownProgramStatus>> {
+        let shown = self.shown(running);
+        (shown != self.shown_published).then(|| {
+            self.shown_published = shown;
+            shown
+        })
+    }
+
+    /// The records a terminal host hands to the daemon that attaches.
+    pub(crate) fn snapshot(&self) -> ProgramStatusSnapshot {
+        ProgramStatusSnapshot {
+            records: self.records.iter().map(|(id, record)| (id.clone(), record.clone())).collect(),
+            next_seq: self.next_seq,
+        }
+    }
+
+    /// Replaces the records with the host's when a daemon adopts it. It
+    /// raises no alert: a program that started waiting while no daemon was
+    /// attached shows it on its tab, but posts no notification. The host's
+    /// bytes are untrusted, so `apply_report`'s rules and bounds apply again,
+    /// and `next_seq` never goes back.
+    pub(crate) fn restore(&mut self, snapshot: ProgramStatusSnapshot) {
+        let mut records = BTreeMap::new();
+        for (id, record) in snapshot.records {
+            if record.state == ProgramStatusState::Clear {
+                continue;
+            }
+            let blocked = record.state == ProgramStatusState::Blocked;
+            let shows_progress = blocked || record.state == ProgramStatusState::Working;
+            let bounded = |text: Option<String>, limit| {
+                text.and_then(|text| non_empty(shown_text(&text, limit)))
+            };
+            // A host this daemon seeded (a replacement) hands back the same report: keep when
+            // its state began, which the snapshot codec does not carry.
+            let since_ms = self
+                .records
+                .get(&id)
+                .filter(|kept| {
+                    kept.updated_seq == record.updated_seq
+                        && kept.state == record.state
+                        && kept.kind == record.kind
+                })
+                .map_or(record.since_ms, |kept| kept.since_ms);
+            let record = ProgramStatusRecord {
+                since_ms,
+                kind: record.kind.filter(|_| blocked),
+                progress: record.progress.filter(|value| shows_progress && *value <= 100),
+                app: bounded(record.app, MAX_TITLE_CHARS),
+                title: bounded(record.title, MAX_TITLE_CHARS),
+                message: bounded(record.message, MAX_MESSAGE_CHARS),
+                ..record
+            };
+            records.insert(id, record);
+        }
+        let newest = records.values().map(|record| record.updated_seq).max().unwrap_or(0);
+        self.next_seq = self.next_seq.max(snapshot.next_seq).max(newest);
+        self.alerts.clear();
+        if records != self.records {
+            self.records = records;
+            // An adoption is not a program's report: its upsert carries no
+            // hook change envelope, and an older change must not replay.
+            self.last_change = None;
+            self.revision += 1;
+        }
+        // Clients read the restored status from the tree; a later change
+        // (a prompt ending a wait) must still reach them as an event.
+        self.shown_published = self.shown(true);
+    }
+}
+
+/// The one status a terminal's tab shows (`program_status` on a tab in the
+/// tree): its strongest record's state and progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShownProgramStatus {
+    pub state: ProgramStatusState,
+    /// 0 through 100, only while working or blocked.
+    pub progress: Option<u8>,
+}
+
+impl ShownProgramStatus {
+    pub fn wire(&self) -> Value {
+        json!({"state": self.state.as_str(), "progress": self.progress})
+    }
+
+    /// The tree's `program_status` value of a tab, as `wire` writes it.
+    pub fn from_wire(value: &Value) -> Option<Self> {
+        let state = match value.get("state")?.as_str()? {
+            "working" => ProgramStatusState::Working,
+            "blocked" => ProgramStatusState::Blocked,
+            "error" => ProgramStatusState::Error,
+            "done" => ProgramStatusState::Done,
+            _ => return None,
+        };
+        let progress = value
+            .get("progress")
+            .and_then(Value::as_u64)
+            .and_then(|value| u8::try_from(value).ok())
+            .filter(|value| *value <= 100);
+        Some(Self { state, progress })
+    }
+}
+
+fn strength(state: ProgramStatusState) -> u8 {
+    match state {
+        ProgramStatusState::Blocked => 4,
+        ProgramStatusState::Error => 3,
+        ProgramStatusState::Working => 2,
+        ProgramStatusState::Done => 1,
+        ProgramStatusState::Idle | ProgramStatusState::Clear => 0,
+    }
+}
+
+/// A terminal's records as they cross the terminal-host protocol
+/// (`FLAG_PROGRAM_STATUS`), so they outlive the daemon that showed them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProgramStatusSnapshot {
+    pub(crate) records: Vec<(String, ProgramStatusRecord)>,
+    pub(crate) next_seq: u64,
 }
 
 /// The records shared by a terminal's parser callback (inside `vt_write`)
@@ -344,15 +499,6 @@ pub(crate) fn sink(records: SharedProgramStatus) -> ghostty_vt::ProgramStatusFn 
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .apply(event, crate::mux::now_ms());
     })
-}
-
-/// The callback of a terminal host's own parser. The host keeps no records
-/// (the daemon's mirror does), but libghostty answers the `OSC 7501 ; ?`
-/// support query only while a callback is set, and only the authoritative
-/// parser may answer.
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(crate) fn query_only_sink() -> ghostty_vt::ProgramStatusFn {
-    Box::new(|_| {})
 }
 
 fn non_empty(text: String) -> Option<String> {
@@ -371,11 +517,16 @@ pub(crate) fn shown_text(text: &str, limit: usize) -> String {
 /// Bidi controls, zero-width characters, word joiners, invisible operators,
 /// the BOM and interlinear annotation marks (Unicode Cf characters that can
 /// hide or reorder shown text).
-fn is_invisible_format(character: char) -> bool {
+pub(crate) fn is_invisible_format(character: char) -> bool {
     matches!(
         character,
         '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
             | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
             | '\u{180E}'
             | '\u{200B}'..='\u{200F}'
             | '\u{202A}'..='\u{202E}'
@@ -383,6 +534,13 @@ fn is_invisible_format(character: char) -> bool {
             | '\u{2066}'..='\u{206F}'
             | '\u{FEFF}'
             | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
     )
 }
 

@@ -12,12 +12,13 @@ final class FeedPanelController {
 
     private let context: AppActionContext
     private var panel: FeedPanel?
+    private let motion = CornerPanelMotion()
 
     init(context: AppActionContext) {
         self.context = context
     }
 
-    var isShown: Bool { panel?.isVisible ?? false }
+    var isShown: Bool { (panel?.isVisible ?? false) && !motion.isClosing }
 
     func toggle() {
         if isShown { close() } else { show() }
@@ -26,6 +27,7 @@ final class FeedPanelController {
     private func show() {
         guard let window = context.services.windows.active?.window, case let feed = context.services.feed else { return }
         feed.startIfSignedIn()
+        feed.model.place = FeedPlace.lookup(context.services.daemon.store.place)
         let panel = panel ?? makePanel(model: feed.model)
         self.panel = panel
         window.themeScope.adopt(panel)
@@ -38,21 +40,24 @@ final class FeedPanelController {
             window.addChildWindow(panel, ordered: .above)
         }
         panel.onResignKey = { [weak self] in self?.close(restoringKey: false) }
-        panel.orderFront(nil)
+        motion.open(panel)
         panel.makeKey()
     }
 
     func close(restoringKey: Bool = true) {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, isShown else { return }
         panel.onResignKey = nil
         if restoringKey, panel.isKeyWindow, let parent = panel.parent, parent.isVisible { parent.makeKey() }
-        panel.parent?.removeChildWindow(panel)
-        panel.orderOut(nil)
+        motion.close(panel) { [weak panel] in
+            guard let panel else { return }
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+        }
     }
 
     private func makePanel(model: FeedModel) -> FeedPanel {
         let panel = FeedPanel()
-        panel.contentView = FeedHostView(model: model, floating: true)
+        panel.contentView = FeedHostView(model: model, surface: .panel)
         panel.onEscape = { [weak self] in self?.close() }
         return panel
     }

@@ -21,21 +21,42 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
     static let limit = 1024
 
     /// Oldest first.
-    private(set) var keys: [Key] = []
+    private(set) var keys: [Key] = [] {
+        didSet { (keySet, keysPerTerminal) = Self.index(keys) }
+    }
+    /// ``keys`` as a set, and how many keys each terminal has: a look that changes nothing (every
+    /// keystroke in a terminal marks its tab seen) is answered from these in O(the tab's records),
+    /// not O(``limit``). Derived from ``keys`` only.
+    private var keySet: Set<Key> = []
+    private var keysPerTerminal: [String: Int] = [:]
 
     public init() {}
 
     init(keys: [Key]) {
         self.keys = Array(keys.suffix(Self.limit))
+        (keySet, keysPerTerminal) = Self.index(self.keys)
     }
 
+    private static func index(_ keys: [Key]) -> (Set<Key>, [String: Int]) {
+        (Set(keys), keys.reduce(into: [:]) { $0[$1.terminal, default: 0] += 1 })
+    }
+
+    /// Seen keys ``markSeen(_:terminal:)`` read since this value was made: its cost, which tests count (a look
+    /// that changes nothing must read the tab's records, not every key). Not part of the value (`==`, `hash`).
+    private(set) var keysRead = 0
+
+    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.keys == rhs.keys }
+    public func hash(into hasher: inout Hasher) { hasher.combine(keys) }
+
     var count: Int { keys.count }
+
+    /// Whether any key is `terminal`'s, in O(1).
+    public func hasKeys(of terminal: String) -> Bool { keysPerTerminal[terminal, default: 0] > 0 }
 
     /// The records still to show: every record except a seen `done` or `error`.
     public func visible(_ records: [ProgramStatusRecord], terminal: String) -> [ProgramStatusRecord] {
         guard !keys.isEmpty else { return records }
-        let seen = Set(keys)
-        return records.filter { !Self.holdsUntilSeen($0) || !seen.contains(Self.key($0, terminal: terminal)) }
+        return records.filter { !Self.holdsUntilSeen($0) || !keySet.contains(Self.key($0, terminal: terminal)) }
     }
 
     /// Marks the terminal's current `done` and `error` records seen and drops
@@ -45,33 +66,15 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
     public mutating func markSeen(_ records: [ProgramStatusRecord], terminal: String) -> Bool {
         let current = records.filter(Self.holdsUntilSeen).map { Self.key($0, terminal: terminal) }
         let currentSet = Set(current)
+        // Already seen, and no key of a record the terminal no longer has: nothing changes.
+        keysRead += currentSet.count  // the lookups of the check below
+        if currentSet.count == keysPerTerminal[terminal, default: 0], currentSet.isSubset(of: keySet) { return false }
+        keysRead += keys.count  // the rebuild reads every key
         var next = keys.filter { $0.terminal != terminal || currentSet.contains($0) }
         let present = Set(next)
         next.append(contentsOf: current.filter { !present.contains($0) })
         if next.count > Self.limit { next.removeFirst(next.count - Self.limit) }
         guard next != keys else { return false }
-        keys = next
-        return true
-    }
-
-    /// The key of an agent chat's completed turn (acpmux session and turn).
-    static func turnKey(session: String, turn: String) -> Key {
-        Key(terminal: "acp:\(session)", record: turn, updatedSeq: 0)
-    }
-
-    public func isTurnSeen(session: String, turn: String) -> Bool {
-        keys.contains(Self.turnKey(session: session, turn: turn))
-    }
-
-    /// Marks a chat's completed turn seen; the session keeps only its latest
-    /// turn's key. Returns whether the set changed.
-    @discardableResult
-    public mutating func markTurnSeen(session: String, turn: String) -> Bool {
-        let key = Self.turnKey(session: session, turn: turn)
-        guard !keys.contains(key) else { return false }
-        var next = keys.filter { $0.terminal != key.terminal }
-        next.append(key)
-        if next.count > Self.limit { next.removeFirst(next.count - Self.limit) }
         keys = next
         return true
     }
@@ -131,31 +134,11 @@ public final class ProgramStatusSeenStore {
         save()
     }
 
-    public func isTurnSeen(session: String, turn: String) -> Bool {
-        seen.isTurnSeen(session: session, turn: turn)
-    }
-
-    public func markTurnSeen(session: String, turn: String) {
-        var next = seen
-        guard next.markTurnSeen(session: session, turn: turn) else { return }
-        seen = next
-        save()
-    }
-
-    /// The user looked at `tab`: its OSC 7501 `done` and `error` records and,
-    /// for an agent chat, its completed turn are seen.
-    public func markSeen(_ tab: TabModel, turns: AgentTurnStateStore) {
-        if let ref = tab.agentSession, let session = ref.session, case .done(let turn)? = turns.state(for: ref) {
-            markTurnSeen(session: session, turn: turn)
-        }
-        markSeen(tab)
-    }
-
     /// The user looked at `tab`: its `done` and `error` records are seen.
     public func markSeen(_ tab: TabModel) {
         // A tab without records and without saved keys has nothing to clear.
         let terminal = Self.terminal(of: tab)
-        guard !tab.programStatus.isEmpty || seen.keys.contains(where: { $0.terminal == terminal }) else { return }
+        guard !tab.programStatus.isEmpty || seen.hasKeys(of: terminal) else { return }
         markSeen(tab.programStatus, terminal: terminal)
     }
 
@@ -163,4 +146,23 @@ public final class ProgramStatusSeenStore {
         guard let defaults, let data = try? JSONEncoder().encode(seen.keys) else { return }
         defaults.set(data, forKey: Self.defaultsKey)
     }
+}
+
+/// One viewed tab, its OSC 7501 records and whether it holds an unread
+/// notification (NotificationCenterService `viewedFacts`).
+public struct ViewedProgramStatus: Equatable, Sendable {
+    public var tab: String
+    public var records: [ProgramStatusRecord]
+    public var unread: Bool
+    public init(tab: String, records: [ProgramStatusRecord], unread: Bool = false) {
+        (self.tab, self.records, self.unread) = (tab, records, unread)
+    }
+}
+
+/// The viewed tabs' facts and the revision of which tabs are viewed (bumped
+/// when a window's settled focus changes).
+public struct ViewedTabsFacts: Equatable, Sendable {
+    public var revision: UInt64
+    public var tabs: [ViewedProgramStatus]
+    public init(revision: UInt64, tabs: [ViewedProgramStatus]) { (self.revision, self.tabs) = (revision, tabs) }
 }

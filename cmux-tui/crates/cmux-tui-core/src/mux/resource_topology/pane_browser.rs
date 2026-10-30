@@ -85,6 +85,36 @@ impl Mux {
         url: String,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let direction = match dir {
+            SplitDir::Right => "right",
+            SplitDir::Down => "down",
+        };
+        let fields = Map::from_iter([(PANE_BROWSER_URL_FIELD.into(), Value::String(url))]);
+        self.split_browser_pane_with_fields_as(
+            actor,
+            target,
+            direction,
+            viewport_width,
+            fields,
+            size,
+        )
+    }
+
+    /// [`Self::split_browser_pane_as`] toward `direction` (`right`, `down`,
+    /// `left` or `up`) with the `pane.split` fields the caller set: at least
+    /// [`PANE_BROWSER_URL_FIELD`]. A conversation tab's split
+    /// (`conversation-tab-split-v1`) adds its reserved `frontend_browser_id`,
+    /// the client transaction its one `pane-added` carries and the
+    /// caller-minted pane id.
+    pub(crate) fn split_browser_pane_with_fields_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        direction: &str,
+        viewport_width: Option<f32>,
+        mut fields: Map<String, Value>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff =
             self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(width) = viewport_width
@@ -96,14 +126,7 @@ impl Mux {
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
-        let direction = match dir {
-            SplitDir::Right => "right",
-            SplitDir::Down => "down",
-        };
-        let mut fields = Map::from_iter([
-            ("direction".into(), Value::String(direction.into())),
-            (PANE_BROWSER_URL_FIELD.into(), Value::String(url)),
-        ]);
+        fields.insert("direction".into(), Value::String(direction.into()));
         if let Some(width) = viewport_width {
             fields.insert("viewport_width".into(), Value::from(width));
         }
@@ -159,7 +182,7 @@ impl Mux {
             let pending = self.pending_workspace_surface(surface.id);
             return Ok(SpawnedPaneSurface::Browser { surface, _pending: pending });
         }
-        let cwd = cwd.or_else(|| self.pane_cwd(target));
+        let cwd = self.new_terminal_cwd(cwd, Some(target), None);
         let reservation = self.effect_terminal_reservation(
             intent,
             workspace_key,

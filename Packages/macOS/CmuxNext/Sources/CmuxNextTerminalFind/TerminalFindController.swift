@@ -47,6 +47,10 @@ public final class TerminalFindController {
         self.target = target
     }
 
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
+
     /// Shows the bar and, for the user, asks it to take the keyboard with
     /// the query selected.
     ///

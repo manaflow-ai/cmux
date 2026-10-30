@@ -63,6 +63,51 @@ pub(super) fn focus_deltas(
     ))
 }
 
+/// The deltas a focus change from `before` to `after` sends (workspaces,
+/// the focused screens and their active panes, from `focus_deltas`), then
+/// upserts of the `restate` screens it did not send. Screens the change
+/// removes leave `before` first and removed panes are not upserted (their
+/// delete deltas follow); panes in `skip` are left to the caller's deltas.
+pub(in crate::mux) fn focus_change_deltas(
+    state: &State,
+    before: &ResourceTopologySnapshot,
+    after: &ResourceTopologySnapshot,
+    restate: &[ScreenPublicId],
+    skip: &[&PanePublicId],
+) -> anyhow::Result<Vec<Value>> {
+    let live_screen = |id: &ScreenPublicId| after.screens.iter().any(|s| &s.public_id == id);
+    let mut before = before.clone();
+    before.screens.retain(|screen| live_screen(&screen.public_id));
+    for (_, active) in &mut before.active_screens {
+        if active.as_ref().is_some_and(|screen| !live_screen(screen)) {
+            *active = None;
+        }
+    }
+    let previous = before.active_workspace.clone();
+    let focus = focus_deltas(state, &before, after, previous, after.active_workspace.clone())?;
+    let focus = focus.as_array().cloned().unwrap_or_default();
+    let of =
+        |resource: &'static str| focus.iter().filter(move |delta| delta["resource"] == resource);
+    let mut deltas = of("workspace").chain(of("screen")).cloned().collect::<Vec<_>>();
+    for id in restate {
+        if of("screen").any(|delta| delta["id"] == id.as_str()) {
+            continue;
+        }
+        let screen = topology_screen(after, id)?;
+        let active = active_screen(after, &screen.workspace_id);
+        let value = screen_value(screen, after, after.active_workspace.as_ref(), active)?;
+        deltas.push(upsert(0, "screen", id.as_str(), value));
+    }
+    let live_pane = |id: &Value| after.panes.iter().any(|pane| id == pane.public_id.as_str());
+    deltas.extend(
+        of("pane")
+            .filter(|delta| live_pane(&delta["id"]))
+            .filter(|delta| !skip.iter().any(|pane| delta["id"] == pane.as_str()))
+            .cloned(),
+    );
+    Ok(deltas)
+}
+
 pub(super) fn focus_pane_plan(
     mux: &Arc<Mux>,
     state: &mut State,

@@ -6,9 +6,14 @@ public struct ProxyCredential: Sendable, Hashable {
     public var username: String
     public var password: String
 
-    /// `Proxy-Authorization` value Chromium sends for this credential.
-    public var basicAuthorization: String {
-        "Basic " + Data("\(username):\(password)".utf8).base64EncodedString()
+    /// Creates a proxy credential received from an authenticated route owner.
+    ///
+    /// - Parameters:
+    ///   - username: The Basic authentication user name.
+    ///   - password: The Basic authentication password.
+    public init(username: String, password: String) {
+        self.username = username
+        self.password = password
     }
 
     /// `bytes` random bytes as lowercase hex (SecRandomCopyBytes). If that call

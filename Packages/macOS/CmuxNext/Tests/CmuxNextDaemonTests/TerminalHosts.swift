@@ -45,11 +45,20 @@ enum TerminalHosts {
         return pids
     }
 
-    /// Waits for `pids` to exit and returns those still running. Each exit is
+    /// Waits for `pids` to exit and returns those that did not. Each exit is
     /// a kernel event (a process source per pid), so the wait ends at the last
     /// exit; `hangGuard` only bounds a process that never exits. The daemon
     /// replies once each host acknowledged its end; the exit trails by a few
     /// milliseconds.
+    ///
+    /// The exit event is the answer, not a process-state read afterwards: XNU
+    /// posts `NOTE_EXIT` in `proc_exit` before it marks the process `SZOMB`,
+    /// and between the two the exiting host takes its parent's locks. When
+    /// the daemon stops at the same moment (End, `shutdown-daemon
+    /// end_terminals`), that window lasts long enough under load that a
+    /// `sysctl` read right after the last event still showed hosts that had
+    /// already exited as running (QuitSessionsTests and IntegrationTests on
+    /// loaded CI hosts, every failure seconds inside the guard).
     static func awaitExit(_ pids: Set<Int32>, hangGuard: Duration = .seconds(30),
                           clock: any Clock<Duration> = ContinuousClock()) async -> Set<Int32> {
         guard !pids.isEmpty else { return [] }
@@ -63,28 +72,35 @@ enum TerminalHosts {
         defer { for source in sources { source.cancel() } }
         // A pid that ended (or is a zombie) before its source armed sends no event.
         for pid in pids.subtracting(alive(pids)) { sink.yield(pid) }
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                var running = pids
-                for await pid in exits {
-                    running.remove(pid)
-                    if running.isEmpty { return }
-                }
-            }
-            group.addTask { try? await clock.sleep(for: hangGuard) }
-            await group.next()
-            group.cancelAll()
+        // The guard ends the stream; exits already delivered still count.
+        let guardTask = Task {
+            try? await clock.sleep(for: hangGuard)
+            sink.finish()
         }
-        return alive(pids)
+        defer { guardTask.cancel() }
+        var running = pids
+        for await pid in exits {
+            running.remove(pid)
+            if running.isEmpty { break }
+        }
+        return running
     }
 
     /// The subset of `pids` still running (zombies awaiting reaping count as gone).
     static func alive(_ pids: Set<Int32>) -> Set<Int32> {
-        pids.filter { pid in
-            guard kill(pid, 0) == 0 else { return false }
-            var info = proc_bsdinfo()
-            let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
-            return size <= 0 || info.pbi_status != UInt32(SZOMB)
-        }
+        pids.filter(isRunning)
+    }
+
+    /// Whether `pid` is a process that has not exited. An exited host stays
+    /// a zombie until the daemon reaps it, and the daemon reaps on its own
+    /// schedule (later under load). `proc_pidinfo(PROC_PIDTBSDINFO)` fails
+    /// with ESRCH for a zombie, so it cannot tell a zombie from a live
+    /// process; `sysctl(KERN_PROC_PID)` still returns a zombie's `p_stat`.
+    static func isRunning(_ pid: Int32) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return kill(pid, 0) == 0 }
+        return size > 0 && Int32(info.kp_proc.p_stat) != SZOMB
     }
 }

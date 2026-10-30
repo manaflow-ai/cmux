@@ -5,6 +5,10 @@ import Foundation
 enum PinStrings {
     static var pinTab: String { String(localized: "pins.pinTab", defaultValue: "Pin Tab", table: "Handlers", bundle: .module) }
     static var unpinTab: String { String(localized: "pins.unpinTab", defaultValue: "Unpin Tab", table: "Handlers", bundle: .module) }
+    /// Back to Pinned Page on a tab that is not a pinned browser tab with a page (cx-lle.6).
+    static var noPinnedPage: String {
+        String(localized: "pins.noPinnedPage", defaultValue: "This tab has no pinned page to go back to.", table: "Handlers", bundle: .module)
+    }
     static var pinWorkspace: String {
         String(localized: "pins.pinWorkspace", defaultValue: "Pin Workspace", table: "Handlers", bundle: .module)
     }
@@ -16,6 +20,12 @@ enum PinStrings {
     static var addToTop: String { String(localized: "pins.addToTop", defaultValue: "Add to Top", table: "Handlers", bundle: .module) }
     static var removeFromTop: String {
         String(localized: "pins.removeFromTop", defaultValue: "Remove from Top", table: "Handlers", bundle: .module)
+    }
+    static var pinConversation: String {
+        String(localized: "pins.pinConversation", defaultValue: "Pin Conversation", table: "Handlers", bundle: .module)
+    }
+    static var unpinConversation: String {
+        String(localized: "pins.unpinConversation", defaultValue: "Unpin Conversation", table: "Handlers", bundle: .module)
     }
     // The undo toast of each pin change (RECOVERABLE-BY-DEFAULT).
     static var tabPinned: String { String(localized: "pins.toast.tabPinned", defaultValue: "Tab pinned", table: "Handlers", bundle: .module) }

@@ -25,7 +25,7 @@ async fn a_prompt_during_a_slow_session_load_waits_for_the_load() {
     let warmer = {
         let hub = hub.clone();
         let id = id.clone();
-        tokio::spawn(async move { hub.warm_sessions(&[id], 1).await })
+        tokio::spawn(async move { hub.warm_sessions(&[id], 1, false, true).await })
     };
     let load_sent = || {
         hub.events(&id, 0, 10_000)
@@ -82,7 +82,10 @@ async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() 
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("npx.log");
     let bin = dir.join("fake-acp");
-    write_executable(&bin, format!("#!/bin/sh\nexec python3 {fake}\n"));
+    write_executable(
+        &bin,
+        format!("#!/bin/sh\nexec python3 {}\n", crate::daemon_env::sh_quote(fake)),
+    );
     // `npx -y -p PKG -c 'command -v fake-acp'` prints the bin; any other
     // use is a launch through npx.
     let npx = dir.join("npx");
@@ -90,8 +93,9 @@ async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() 
         &npx,
         format!(
             "#!/bin/sh\ncase \" $* \" in *\" -c \"*) echo resolve >> {log}; echo {bin}; exit 0;; esac\necho run >> {log}\nexec python3 {fake}\n",
-            log = log.display(),
-            bin = bin.display(),
+            log = crate::daemon_env::sh_quote(log.display()),
+            bin = crate::daemon_env::sh_quote(bin.display()),
+            fake = crate::daemon_env::sh_quote(fake),
         ),
     );
     let mut agents = BTreeMap::new();
@@ -213,11 +217,12 @@ async fn a_failed_model_probe_is_reported_with_its_reason() {
 }
 
 /// A session's harness that nobody uses exits after the idle period
-/// (measured on the hub's injected clock): no client attached, no turn, no
-/// activity. The session keeps its record and resumes on the next prompt.
-/// An attached session's harness stays.
+/// (measured on the hub's injected clock): no turn, no activity. A client
+/// attached to it does not keep it (`hub/idle.rs`): the attached session's
+/// harness exits too. The session keeps its record and resumes on the next
+/// prompt.
 #[tokio::test]
-async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt() {
+async fn an_idle_session_harness_exits_attached_or_not_and_resumes_on_the_next_prompt() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
@@ -240,27 +245,27 @@ async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt()
     clock.advance(Duration::from_secs(299));
     settle().await;
     assert_eq!(status("idle-gone"), "ready", "stopped before the idle period ended");
+    assert_eq!(status("idle-attached"), "ready", "stopped before the idle period ended");
     clock.advance(Duration::from_secs(2));
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while status("idle-gone") != "idle" {
-        assert!(std::time::Instant::now() < deadline, "the idle harness never exited");
+    while status("idle-gone") != "idle" || status("idle-attached") != "idle" {
+        assert!(std::time::Instant::now() < deadline, "the idle harnesses never exited");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    clock.advance(Duration::from_secs(900));
-    settle().await;
-    assert_eq!(status("idle-attached"), "ready", "an attached session's harness was stopped");
-    // The stopped session resumes on its next prompt.
-    let r = c
-        .request(
-            method::SESSION_PROMPT,
-            json!({"sessionId": ids[0], "prompt": [{"type": "text", "text": "back"}]}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(r["stopReason"], "end_turn");
-    let kinds: Vec<String> =
-        hub.events(&ids[0], 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
-    assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
+    // The stopped sessions resume on their next prompt.
+    for id in &ids {
+        let r = c
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "back"}]}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r["stopReason"], "end_turn");
+        let kinds: Vec<String> =
+            hub.events(id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
+        assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
+    }
 }
 
 /// Shutdown owns every child from its first step: once it stopped the idle
@@ -299,6 +304,7 @@ async fn the_idle_reaper_stops_for_good_when_shutdown_starts() {
 /// rename does not either (the child holds the same inode). A short-lived
 /// `sh` opens, writes, and closes the file in its own process, so no fork of
 /// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
+#[cfg(unix)]
 fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
@@ -480,4 +486,43 @@ async fn a_harness_allowed_later_is_probed_and_its_models_listed() {
     assert!(started.exists(), "the later harness was never probed");
     assert!(listed(&catalog), "the later harness has no probed model list: {catalog}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// cx-m5up: an agent that stays alive but never answers its start fails
+/// the request with a typed deadline instead of holding the session's spawn
+/// lock (and every later request of the session) forever, and the same
+/// session starts normally once the agent answers.
+#[tokio::test]
+async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
+    let gate = std::env::temp_dir().join(format!("acpmux-start-gate-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&gate, b"").unwrap();
+    let env = BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let created = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "gated"}}}),
+        )
+        .await
+        .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    // Stop the agent; the next prompt starts a fresh one that never reads.
+    c.request(method::MUX_KILL, json!({"sessionId": id})).await.unwrap();
+    std::fs::remove_file(&gate).unwrap();
+    // The short budget bounds only the start that never answers. The healthy
+    // starts keep the default: one took 0.3-2.5 s while this binary ran its
+    // tests at once on rbx, past a 1.5 s budget (cx-nx5mb).
+    hub.config.write().await.agent_start_timeout_ms = Some(1_500);
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]});
+    let refused = c
+        .request(method::SESSION_PROMPT, prompt.clone())
+        .await
+        .expect_err("a prompt whose agent never started succeeded");
+    assert!(refused.contains("agent_start did not finish within"), "{refused}");
+    // The agent answers from now on: the same session prompts normally.
+    std::fs::write(&gate, b"").unwrap();
+    hub.config.write().await.agent_start_timeout_ms = None;
+    let answered = c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    assert!(answered["stopReason"].is_string(), "{answered}");
+    let _ = std::fs::remove_file(&gate);
 }

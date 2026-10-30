@@ -48,14 +48,19 @@ public struct ConversationMessage: Codable, Sendable, Hashable, Identifiable {
     public var author: String
     public var parts: [ConversationPart]
     public var replyTo: ConversationPartRef?
+    /// The root message of the thread this message replies in (`thread_root`).
+    /// Nil for a root, and for messages from before threads.
+    public var threadRoot: String?
     /// RFC 3339 UTC with milliseconds.
     public var createdAt: String
     public var editedAt: String?
     public var retractedAt: String?
     public var reactions: [ConversationReaction]
+    /// A thread root's object (title, owner, resolution), conversation-thread-objects-v1.
+    public var thread: ConversationThreadObject?
 
     public init(id: String, conversation: String, seq: UInt64, clientMsgID: String, author: String, parts: [ConversationPart],
-                replyTo: ConversationPartRef? = nil, createdAt: String, editedAt: String? = nil, retractedAt: String? = nil,
+                replyTo: ConversationPartRef? = nil, threadRoot: String? = nil, createdAt: String, editedAt: String? = nil, retractedAt: String? = nil,
                 reactions: [ConversationReaction] = []) {
         self.id = id
         self.conversation = conversation
@@ -64,6 +69,7 @@ public struct ConversationMessage: Codable, Sendable, Hashable, Identifiable {
         self.author = author
         self.parts = parts
         self.replyTo = replyTo
+        self.threadRoot = threadRoot
         self.createdAt = createdAt
         self.editedAt = editedAt
         self.retractedAt = retractedAt
@@ -71,9 +77,10 @@ public struct ConversationMessage: Codable, Sendable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, conversation, seq, author, parts, reactions
+        case id, conversation, seq, author, parts, reactions, thread
         case clientMsgID = "client_msg_id"
         case replyTo = "reply_to"
+        case threadRoot = "thread_root"
         case createdAt = "created_at"
         case editedAt = "edited_at"
         case retractedAt = "retracted_at"
@@ -88,9 +95,11 @@ public struct ConversationMessage: Codable, Sendable, Hashable, Identifiable {
         author = try c.decode(String.self, forKey: .author)
         parts = try c.decode([ConversationPart].self, forKey: .parts)
         replyTo = try c.decodeIfPresent(ConversationPartRef.self, forKey: .replyTo)
+        threadRoot = try c.decodeIfPresent(String.self, forKey: .threadRoot)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         editedAt = try c.decodeIfPresent(String.self, forKey: .editedAt)
         retractedAt = try c.decodeIfPresent(String.self, forKey: .retractedAt)
         reactions = try c.decodeIfPresent([ConversationReaction].self, forKey: .reactions) ?? []
+        thread = try c.decodeIfPresent(ConversationThreadObject.self, forKey: .thread)
     }
 }

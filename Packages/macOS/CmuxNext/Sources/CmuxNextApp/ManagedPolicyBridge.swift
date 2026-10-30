@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextUpdater
 import Observation
@@ -20,7 +21,7 @@ struct ManagedPolicyBridge {
         apply(settings.forcedManagedValuesNow())
         // task-owner: app-lifetime observation of the managed policy; ends with the process
         Task { [weak updater, weak auth] in
-            for await policy in Observations({ settings.managedPolicy }) {
+            for await policy in ObservationStream({ settings.managedPolicy }) {
                 guard updater != nil, auth != nil else { return }
                 apply(policy)
             }

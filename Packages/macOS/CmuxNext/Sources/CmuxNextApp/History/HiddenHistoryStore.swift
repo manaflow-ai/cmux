@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -6,8 +7,10 @@ import Observation
 /// The hides of history the app cannot delete (agent sessions and terminal
 /// commands in the daemons' append-only journals), kept in the home
 /// session's personal projection `history.hidden` (plans/cmux-next/history.md 3).
-/// Loaded on connect and merged with hides made before the load; a
-/// revision conflict merges both documents, so no clear is lost.
+/// Loaded on connect and merged with hides made before the load, which are
+/// saved only after it (a save without a revision would replace the stored
+/// document, cx-bxh0); a revision conflict merges both documents, so no
+/// clear is lost.
 final class HiddenHistoryStore {
     static let subject = "history.hidden"
 
@@ -15,22 +18,33 @@ final class HiddenHistoryStore {
     private(set) var document = HiddenHistory()
     private var revision: UInt64?
     private var loaded = false
+    /// A hide came before the load: the load saves the merge.
+    private var savesAfterLoad = false
     private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
         self.services = services
         let store = services.daemon.store
         observation = Task { [weak self] in
-            for await connected in Observations({ if case .connected = store.connectionState { true } else { false } }) where connected {
+            for await connected in ObservationStream({ if case .connected = store.connectionState { true } else { false } }) where connected {
                 self?.load()
             }
         }
     }
 
-    deinit { observation?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
+    nonisolated deinit {
+        observation?.cancel()
+    }
 
     func change(_ body: (inout HiddenHistory) -> Void) {
         body(&document)
+        guard loaded else {
+            savesAfterLoad = true
+            load() // a failed load would otherwise hold the hide until the next reconnect
+            return
+        }
         save()
     }
 
@@ -45,6 +59,10 @@ final class HiddenHistoryStore {
                 self.loaded = true
                 self.revision = projection.projectionRevision
                 if let stored { self.document = stored.merged(with: self.document) }
+                if self.savesAfterLoad {
+                    self.savesAfterLoad = false
+                    self.save()
+                }
             }
         }
     }

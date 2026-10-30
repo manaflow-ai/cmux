@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
 import {
+  DEVBOX_AWAITING_REBAKE,
+  DEVBOX_SOURCE_PROVABLE_SCHEMA,
   DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
   bakeMetadata,
@@ -14,7 +16,9 @@ import {
   devboxUnifiedSnapshotProblems,
   devboxSourceDigest,
   devboxSourceDriftProblems,
+  devboxDriftAwaitingRebake,
   imageManifestProblems,
+  isAwaitingRebake,
   manifestEntryEpoch,
   manifestEntrySkeleton,
   promoteImageManifestEntry,
@@ -71,7 +75,18 @@ describe("checked-in image manifest", () => {
     // the digest of the files and pins the bake took from this checkout. A
     // pin or template change lands together with its promotion, and a
     // rollback reverts the promotion commit whole (sources included).
-    expect(devboxSourceDriftProblems(readImageManifest())).toEqual([]);
+    // DEVBOX_AWAITING_REBAKE excuses exactly the drifts awaiting their bake.
+    expect(devboxSourceDriftProblems(readImageManifest()).filter((problem) => !devboxDriftAwaitingRebake(problem))).toEqual([]);
+  });
+
+  test("every drift awaiting its rebake is still this checkout's and still unbaked", () => {
+    // Delete the DEVBOX_AWAITING_REBAKE entry with the promotion that bakes
+    // its sources, or when the sources move again (then bake those).
+    const drift = devboxSourceDriftProblems(readImageManifest());
+    for (const pending of DEVBOX_AWAITING_REBAKE) {
+      expect(devboxSourceDigest(pending.layers, readDevboxDockerfile(), pending.schema)).toBe(pending.current);
+      expect(drift.some((problem) => isAwaitingRebake(problem, pending))).toBe(true);
+    }
   });
 });
 
@@ -322,7 +337,8 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     expect(result.upgraded).toEqual(["freestyle-desktop-v1", "freestyle-base-v1"]);
     expect(result.skipped).toEqual([]);
     for (const entry of result.manifest.images) {
-      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_SCHEMA), schema: DEVBOX_SOURCE_SCHEMA });
+      // Up to the formula git can prove: schema 3's payloads only a bake proves.
+      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_PROVABLE_SCHEMA), schema: DEVBOX_SOURCE_PROVABLE_SCHEMA });
     }
     expect(devboxSourceDriftProblems(result.manifest)).toEqual([]);
     // Idempotent: nothing left to upgrade.

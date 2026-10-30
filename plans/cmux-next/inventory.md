@@ -93,7 +93,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | splitDown | Split Down | ⇧⌘D | PKMC | KSS:166, CV:8581, GTV:9283 |
 | newPaneAutoLayout | New Pane (Auto Layout) | ⌃⌘N | PKM | KSS:166, ContentView+PaneResizeCommands:21 |
 | toggleSplitZoom | Toggle Pane Zoom | ⇧⌘↩ | PKC | KSS:166, CV:8614, TIV |
-| equalizeSplits | Equalize Splits | ⌃⇧⌘= | PKM | KSS:170 |
+| equalizeSplits | Equalize Splits | ⌃⌘= (next; classic ⌃⇧⌘=) | PKM | KSS:170 |
 | resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⇧H/L/K/J or ⌃⌘←→↑↓ | PKM | KSS:171-174, RSP:117 |
 | focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ or ⌃⌘H/L/K/J | PK | KSS:159-162 |
 | focusPreviousPane / focusNextPane | Focus Previous / Next Pane | — | PK | KSS:163-164 |
@@ -112,8 +112,9 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| newSurface | New Tab (Terminal) | ⌃⇧⌘T in cmux-next (⌘T is `newTab.sameKind`; #16620) | PKC | KSS:152, CV:7596, TIV |
-| newTab.sameKind (cmux-next) | New Tab: same kind as the focused pane (browser pane: browser tab on its engine; else terminal) | ⌘T | PKMC, CLI `tab new` | user decision 2026-09-30 |
+| newSurface | New Tab (Terminal) | ⌃⇧⌘T in cmux-next (⌘T is `newTab.default`, was `newTab.sameKind`; #16620) | PKC | KSS:152, CV:7596, TIV |
+| newTab.default (cmux-next, was newTab.sameKind) | New Tab: same kind as the focused pane (browser pane: browser tab on its engine; else terminal) | ⌘T | PKMC, CLI `tab new` | user decision 2026-09-30 |
+| newTab.ofKind (cmux-next) | New <Kind> Tab: the selected tab's kind, ignoring `tabs.newTabKind`; the tab menu titles it by kind | none (bindable; Opt-click on the strip's +) | PC | cmuxterm-hq#1829 |
 | newTab.page (cmux-next) | New Tab Page: a field with a Terminal / Browser / Agent switch and recent sessions; the pick replaces the page | none (bindable) | PKC, CLI `tab new-page` | #16620 |
 | openBrowser | New Tab (Browser) | ⇧⌘L | PKC | KSS:202, CV:7605, TIV |
 | closeTab | Close Tab | ⌘W | PKM | KSS:144, CV:7618 |
@@ -207,7 +208,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | palette.newAgentChat | New agent chat | ⌘I | P | ContentView+AgentChatCommandPalette:31 |
 | palette.openTerminalChatView | Open terminal as chat | — | P | :37 |
 | palette.launchClaudeTeams / launchCodexTeams | Claude / Codex Teams | — | P | :88 |
-| palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace} | Fork Conversation To ▸ | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |
+| palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace,NewWindow} | Fork Conversation To ▸ (terminals and agent chats; Right: ⌥⌘Y) | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |
 | palette.computerUse.* | Computer Use Setup / Accessibility / Screen Recording | — | P | ContentView+ComputerUseCommandPalette:5 |
 | (status menu) | Focus Computer Use / Calling Terminal / Stop Using <App> | — | M | ComputerUseMenuBarController:12 |
 
@@ -220,6 +221,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec`; handoff shows the live status and the `cmux cloud open-machine` / `machine-tools` commands for the machine; promoteTemplate takes a snapshot named `template-<id12>-<unix>`, as `cmux vm promote-template` did |
 | cmuxCloud relay: `vm.*`, `vm.domain.*`, `vm.publication.*`, network/tunnel/firewall | Typed host relay operations | Catalog + code mode | P/MCP/CLI | `backend/catalog/cloud-relay-operations.json`; bwrap receives only `/run/cmux-cloud.sock`; merge gated on #16944 Swift test |
 | cloudDomainList / cloudPublicationList | Cloud domain and publication read actions | `vm.domain.list` / `vm.publication.list` relay operations | P/MCP/CLI | `CloudActionCatalog`, `CloudAPIClient`, and `CloudHandlers+Domains`; redacted list routes only |
+| cloudListMachines | List Cloud Machines (read only) | the app's machine list (`MachineRegistry.cloud`, the sidebar's Cloud machines) | P/MCP/CLI | `CloudHandlers+List`; a CLI or agent run answers `loaded`, `machines` (`machine_id`, `target`, `status`, `owner`, `created_at`) and `account.signed_in`; a person's run shows the Cloud sidebar |
 | (cloud tree) | New Terminal, Open, Rename, Kill, Copy Link/Port/ID, Resize ▸ (25) | — | C | CloudTreeOutlineView:624, CloudTreeResizeMenu |
 | cloudDiagnostics | Cloud Diagnostics… | — | M | CmuxHelpCommands:14 |
 | openTeamPicker | Team Picker | ⌥⇧⌘T | PK | KSS:85 |

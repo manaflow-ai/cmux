@@ -70,6 +70,16 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         }
     }
 
+    /// Panes in the order the user sees them: a docked column at its edge,
+    /// whatever its place in `columns` (``visualColumns``). Focus Next Pane,
+    /// Focus Pane 1…9 and Move Tab to Next Pane count in this order.
+    public var visualPanes: [PaneID] {
+        switch self {
+        case let .splits(root): root.panes
+        case .columns: visualColumns.flatMap(\.root.panes)
+        }
+    }
+
     public func contains(_ pane: PaneID) -> Bool {
         switch self {
         case let .splits(root): root.contains(pane)
@@ -180,11 +190,14 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     public var id: ScreenID
     public var name: String
     public var layout: ScreenLayout
+    /// The layout is one zoomed pane; the screen's other panes are hidden, not closed.
+    public var zoomed: Bool
 
-    public init(id: ScreenID, name: String, layout: ScreenLayout) {
+    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false) {
         self.id = id
         self.name = name
         self.layout = layout
+        self.zoomed = zoomed
     }
 
     /// Every screen is a column strip: a screen stored as one split tree is

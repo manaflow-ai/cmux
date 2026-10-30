@@ -4,32 +4,112 @@
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
 :root {
   --ui-popup-radius: 8px;
-  --ui-popup-padding: 4px;
-  --ui-popup-shadow: 0 2px 8px color-mix(in srgb, black 12%, transparent);
-  --ui-row-height: 28px;
+  --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
+  /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
+     native PopupStyle.elevation2) and a hairline edge: one
+     elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. The
+     hairline is a popup's only edge (popup-one-hairline.test.ts); Increase Contrast sets its color
+     (pages/shared/desktop.css). `--ui-popup-drop` is the shadow alone, for a floating bar that
+     draws its own border. */
+  /* The fallback is the same step, for a host that loads this sheet without desktop.css (the
+     gallery shell): an undefined token would drop the whole shadow, rim included. */
+  --ui-popup-drop: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+  --ui-popup-shadow:
+    var(--ui-popup-drop),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+  --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
   --ui-row-radius: 5px;
-  --ui-row-padding-inline: 8px;
-  /* Each surface runs the open only under prefers-reduced-motion: no-preference. */
-  --ui-popup-open: 120ms;
+  --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
+  /* The fade-in a dialog, its backdrop, a tooltip and the find pill take. A popup or menu has none:
+     it opens in one frame (below). The motion scale's steps (pages/shared/desktop.css); the literal
+     is the same step, for a page without it. */
+  --ui-popup-open: var(--cmux-motion-micro, 120ms);
+  /* The close: a fade, in every motion setting (the native fadeOut token). */
+  --ui-popup-close: var(--cmux-motion-quick, 80ms);
 }
 
-@keyframes ui-popup-open {
-  from {
-    opacity: 0;
-    transform: scale(0.97);
-  }
+/* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it
+   clears the composer's; the popup's fill keeps it apart. */
+:root[data-borders="none"] {
+  --ui-popup-edge: transparent;
 }
 
-/* Every popup is an opaque surface on the dropdown layer by default (webviews/src/ui/README.md, "Layers
-   and transparency"). Zero-specificity defaults: a feature's own surface class still wins. A host maps
-   --ui-popup-bg/--ui-popup-fg to its theme (the agent pane: acpmux/styles.css), so a popup that names
-   no surface (a nested submenu, a new menu) is never see-through. */
+/* A popup takes focus when it opens so its keys work; it never draws the engine's `outline: auto`
+   ring, which WebKit paints in the macOS accent (orange when the person picks orange). Its rows show
+   the highlight instead. */
+:where(.ui-popup):focus,
+:where(.ui-popup):focus-visible {
+  outline: none;
+}
+
+/* A popup or menu opens in one frame and fades only as it closes (Leo 2026-10-24: "When you open
+   it up, no animation. When you close it, animation for closing... No fade in ever for any of
+   these."). No open animation, no starting style, no transition into the open state, under every
+   motion setting: Menu, Popover, Select, Combobox, ContextMenu and the agent pane's own menus and
+   popovers (the header's ... menu, the PR and needs-you popovers, the composer's pickers).
+   Panels that slide in from an edge (presence, data-enter), dialogs and tooltips keep their own
+   motion. test/popover-instant-open.test.ts and popover-instant-open-pane.test.ts hold this.
+   It fades out when it closes (POLISH: no flash; a closed menu vanished in one frame): Base UI keeps
+   it mounted while it carries data-ending-style, until the fade ends. */
+:where(.ui-popup) {
+  transition: opacity var(--ui-popup-close) ease-in;
+}
+:where(.ui-popup[data-ending-style]) {
+  opacity: 0;
+}
+
+/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame). */
+:where(.ui-dialog, .ui-backdrop) {
+  transition: opacity var(--ui-popup-open) ease-out;
+}
+:where(.ui-dialog, .ui-backdrop)[data-starting-style],
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  opacity: 0;
+}
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  transition-duration: var(--ui-popup-close);
+}
+
+/* Every popup is the liquid glass (.ui-glass, ui/glass/glass.css: Menu, Popover, ContextMenu,
+   Combobox and the agent pane's own popups add the class) on the dropdown layer by default
+   (webviews/src/ui/README.md, "Layers and transparency"), never opaque: the glass's tint and frost,
+   its rim with the popup's one hairline as its edge, and the shared popup drop. Plain glass is
+   glass too, under the same hairline and drop; only Reduce Transparency makes it the solid popup
+   surface (--surface-popup, pages/shared/desktop.css). A feature's own surface class draws
+   on these tokens and never paints its own fill or shadow. A host maps --ui-popup-fg to its ink
+   (the agent pane: acpmux/styles.css), so a popup that names no surface (a nested submenu, a new
+   menu) still gets the same look. */
 :where(.ui-positioner) {
   z-index: var(--layer-dropdown);
 }
 :where(.ui-popup) {
-  background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));
+  background-color: var(--glass-tint);
   color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
+}
+.ui-popup {
+  --glass-elevation: var(--ui-popup-drop);
+  --glass-edge: var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup);
+}
+
+/* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here
+   too, so a dialog portals above the pane instead of becoming a flow child that pushes its
+   transcript and composer when it opens. */
+:where(.ui-backdrop) {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-overlay);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
+}
+:where(.ui-dialog) {
+  position: fixed;
+  inset-block-start: 12vh;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: min(560px, calc(100vw - 32px));
+  z-index: var(--layer-modal);
+  outline: none;
 }
 
 /* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
@@ -42,7 +122,21 @@
   color: color-mix(in srgb, currentColor 55%, transparent);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+/* A menu's shortcut column and its search field use the type scale where the host loads no ui.css (the
+   agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
+:where(.ui-menu-shortcut) {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+:where(.ui-field) {
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 :where(.ui-separator) {
   height: 1px;
@@ -50,3 +144,133 @@
   border: 0;
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
+
+/* Directional enter and exit (ui/presence.ts, Leo 2026-10-20): a surface comes in from the edge it
+   belongs to and leaves the way it came; an exit is shorter than its entrance. `data-enter` names
+   the edge, `data-presence` the phase. The durations scale the host's motion tokens, which the
+   native gate sets to 0 when the area's animations are off (and :root[data-agent-motion="off"]
+   stops them in the pane). A surface that travels its own size (a side panel) sets
+   --ui-enter-distance: 100%. Under Reduce Motion a panel with presence keeps the fade and drops
+   the travel; an enter-only surface appears at once, as the page's other animations do. */
+:root {
+  --ui-enter-duration: calc(var(--agent-motion-in, 120ms) * 1.25);
+  --ui-exit-duration: calc(var(--agent-motion-out, 80ms) * 1.25);
+  --ui-enter-ease: cubic-bezier(0.2, 0, 0, 1);
+  --ui-exit-ease: cubic-bezier(0.4, 0, 1, 1);
+  --ui-enter-distance: 8px;
+}
+:where([data-presence]) {
+  transition:
+    opacity var(--ui-enter-duration) var(--ui-enter-ease),
+    translate var(--ui-enter-duration) var(--ui-enter-ease);
+}
+:where([data-presence="leaving"]) {
+  transition-duration: var(--ui-exit-duration);
+  transition-timing-function: var(--ui-exit-ease);
+  pointer-events: none;
+}
+:where([data-presence="from"], [data-presence="leaving"]) {
+  opacity: 0;
+  translate: var(--ui-enter-x, 0) var(--ui-enter-y, 0);
+}
+/* Custom properties inherit: each edge sets both axes, and a surface inside another entering one (a
+   new row in a card that slid in) starts from the default distance, not its container's. */
+:where([data-enter] [data-enter]) {
+  --ui-enter-distance: 8px;
+}
+:where([data-enter="right"]) {
+  --ui-enter-x: var(--ui-enter-distance);
+  --ui-enter-y: 0;
+}
+:where([data-enter="left"]) {
+  --ui-enter-x: calc(-1 * var(--ui-enter-distance));
+  --ui-enter-y: 0;
+}
+:where([data-enter="bottom"]) {
+  --ui-enter-x: 0;
+  --ui-enter-y: var(--ui-enter-distance);
+}
+:where([data-enter="top"]) {
+  --ui-enter-x: 0;
+  --ui-enter-y: calc(-1 * var(--ui-enter-distance));
+}
+@media (prefers-reduced-motion: reduce) {
+  :where([data-enter]) {
+    --ui-enter-x: 0;
+    --ui-enter-y: 0;
+  }
+}
+
+/* A surface with `data-enter` and no presence (one that unmounts at once: a notice, a new card, a
+   panel its owner removes) only enters, from the same edge, when it mounts. */
+@keyframes ui-enter {
+  from {
+    opacity: 0;
+    translate: var(--ui-enter-x, 0) var(--ui-enter-y, 0);
+  }
+}
+:where([data-enter]:not([data-presence])) {
+  animation: ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both;
+}
+
+/* Menu rows look the same in every host too (Leo 2026-10-20: Retry's model menu in the agent pane was
+   a raw column in the browser's font, the check run into each name, no insets or hover, because the
+   pane does not load ui.css and that menu named no class of the pane's; the composer model menu's
+   submenu chevrons drew nothing for the same reason). Zero-specificity copies of ui.css's menu rules,
+   so a ui.css host draws exactly what it drew, and a menu, row, check or chevron that names no look of
+   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash. */
+:where(.ui-popup.ui-menu) {
+  padding: var(--ui-popup-padding);
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  outline: none;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+:where(.ui-menu-item) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--ui-row-height);
+  padding: 2px var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
+  outline: none;
+}
+:where(.ui-menu-item[data-highlighted]) {
+  background: var(--ui-row, color-mix(in srgb, currentColor 10%, transparent));
+}
+:where(.ui-menu-check) {
+  display: inline-flex;
+  align-items: center;
+  width: 12px;
+  justify-content: center;
+  line-height: 1;
+}
+:where(.ui-submenu-chevron) {
+  margin-inline-start: auto;
+  width: 6px;
+  height: 6px;
+  border-block-start: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.6;
+}
+:where(.ui-submenu-chevron:dir(rtl)) {
+  transform: rotate(-45deg);
+}
+
+/* Pinned combobox actions live outside the scrolling results. This sheet is loaded by the agent
+   pane as well as ui.css hosts, so the buttons use the same compact menu shape in both. */
+.ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
+.ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
+.ui-combobox-scroll { min-height: 0; }
+.ui-combobox-pinned > button { display: flex; align-items: center; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+.ui-combobox-pinned > button:hover, .ui-combobox-pinned > button:focus-visible { background: var(--ui-row); }
+
+/* A popup that keeps its side and slides along it to stay in the window (openSide.ts "shift": a
+   composer's location menu, which must not open onto the chat) is not held to the room on that
+   side: it may cover its own anchor, so it fits the window less the edge margins. */
+.ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }

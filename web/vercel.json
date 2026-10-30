@@ -16,12 +16,28 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/hexclave-inbox",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/run-attempt-retention",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },
     {
       "path": "/api/cron/vm-alerts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-idle-pause",
+      "schedule": "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-health",
+      "schedule": "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
     },
     {
       "path": "/api/cron/coderouter-alerts",
@@ -48,6 +64,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/account",
+      "schedule": "29 * * * *"
+    },
+    {
       "path": "/api/cron/push-token-revocations",
       "schedule": "37 * * * *"
     },
@@ -62,6 +82,14 @@
     {
       "path": "/api/cron/model-catalog",
       "schedule": "19 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-usage-analytics",
+      "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-metering",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

@@ -20,6 +20,12 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
             String(localized: key, defaultValue: value, table: "BrowserProfileActions", bundle: .module)
         }
         let profile = CatalogArgument.browserProfile
+        var deleteDescriptor = descriptor("browserProfile.delete", text("action.browserProfile.delete", "Delete Browser Profile and Its Data…"),
+                                          "trash", "delete", extra: ["remove", "data"], destructive: true)
+        // Only a person deletes a browser profile (its cookies, sign-ins, passwords and passkeys):
+        // the control socket refuses every CLI, MCP or script run, and a page needs the person's
+        // own click. The daemon refuses `delete-browser-profile` from any connection but the app.
+        deleteDescriptor.isPersonOnly = true
         return [
             descriptor("browserProfile.new", text("action.browserProfile.new", "New Browser Profile…"), "person.crop.circle.badge.plus",
                        "create", extra: ["add", "create"],
@@ -29,15 +35,14 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        extra: ["name"], arguments: [CatalogArgument.nameString.optional]),
             descriptor("browserProfile.setColor", text("action.browserProfile.setColor", "Set Browser Profile Color…"), "paintpalette",
                        "set-color", extra: ["color"], arguments: [CatalogArgument.colorChoice]),
-            descriptor("browserProfile.clearColor", text("action.browserProfile.clearColor", "Clear Browser Profile Color"), "circle.slash",
-                       "clear-color", extra: ["color", "reset"]),
+            descriptor("browserProfile.clearColor", text("action.browserProfile.clearColor", "Remove Browser Profile Color"), "circle.slash",
+                       "clear-color", extra: ["color", "reset", "clear"]),
             descriptor("browserProfile.setIcon", text("action.browserProfile.setIcon", "Set Browser Profile Icon…"), "face.smiling",
                        "set-icon", extra: ["icon", "emoji", "avatar"], arguments: [CatalogArgument.iconString.optional]),
-            descriptor("browserProfile.clearIcon", text("action.browserProfile.clearIcon", "Clear Browser Profile Icon"), "circle.dashed",
-                       "clear-icon", extra: ["icon", "reset"]),
-            descriptor("browserProfile.delete", text("action.browserProfile.delete", "Delete Browser Profile and Its Data…"), "trash",
-                       "delete", extra: ["remove", "data"], destructive: true),
-            descriptor("browserProfile.newTab", text("action.browserProfile.newTab", "New Tab with Browser Profile…"), "plus.square",
+            descriptor("browserProfile.clearIcon", text("action.browserProfile.clearIcon", "Remove Browser Profile Icon"), "circle.dashed",
+                       "clear-icon", extra: ["icon", "reset", "clear"]),
+            deleteDescriptor,
+            descriptor("browserProfile.newTab", text("action.browserProfile.newTab", "New Tab with Browser Profile…"), "person.crop.square",
                        "new-tab", extra: ["tab", "open"], arguments: [profile, CatalogArgument.urlString.optional], targets: [.pane]),
             descriptor("browserProfile.newWindow", text("action.browserProfile.newWindow", "New Window with Browser Profile…"),
                        "macwindow.badge.plus", "new-window", extra: ["window"], arguments: [profile], targets: []),
@@ -49,7 +54,7 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        "person.crop.rectangle", "set-workspace-default", extra: ["workspace", "default"], arguments: [profile],
                        targets: [.workspace]),
             descriptor("browserProfile.clearWorkspaceDefault", text("action.browserProfile.clearWorkspaceDefault", "Clear Workspace Browser Profile"),
-                       "person.crop.rectangle.badge.xmark", "clear-workspace-default", extra: ["workspace", "default", "reset"],
+                       "person.slash", "clear-workspace-default", extra: ["workspace", "default", "reset"],
                        targets: [.workspace]),
             descriptor("browserProfile.setSpaceDefault", text("action.browserProfile.setSpaceDefault", "Set Space Browser Profile…"),
                        "person.2.crop.square.stack", "set-space-default", extra: ["room", "default"], arguments: [profile],
@@ -60,6 +65,19 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        "arrow.right.square", "move-tab", extra: ["tab", "move", "reopen"], arguments: [profile], targets: [.tab]),
             descriptor("browserProfile.duplicateTab", text("action.browserProfile.duplicateTab", "Duplicate Tab into Browser Profile…"),
                        "plus.square.on.square", "duplicate-tab", extra: ["tab", "copy", "duplicate"], arguments: [profile], targets: [.tab]),
+            // cx-d0d.23, Chrome's Clear Browsing Data: the profile's history, cookies and site data,
+            // and cache over a time range the run names (every kind by default).
+            descriptor("browserProfile.clearBrowsingData", text("action.browserProfile.clearBrowsingData", "Clear Browsing Data…"),
+                       "eraser", "clear-browsing-data", extra: ["history", "cache", "privacy", "delete", "clear", "data"],
+                       arguments: [HistoryActionCatalog.historyRange,
+                                   CatalogArgument.clearKind("history", text("argument.browsingData.history", "Browsing History")),
+                                   CatalogArgument.clearKind("cookies", text("argument.browsingData.cookies", "Cookies and Site Data")),
+                                   CatalogArgument.clearKind("cache", text("argument.browsingData.cache", "Cached Images and Files"))],
+                       targets: [.browserProfile], destructive: true),
+            // Everything Import from Browser saved into the profile (pages, bookmarks, tabs), and its Keep in Sync.
+            descriptor("browserProfile.removeImportedData", text("action.browserProfile.removeImportedData", "Remove Imported Browser Data…"),
+                       "tray.and.arrow.down", "remove-imported-data", extra: ["import", "imported", "history", "bookmarks", "privacy", "delete"],
+                       destructive: true),
             descriptor("browserProfile.manageExtensions", text("action.browserProfile.manageExtensions", "Manage Extensions in Browser Profile…"),
                        "puzzlepiece", "manage-extensions", extra: ["extension", "extensions", "addon"], arguments: [profile], targets: []),
         ]
@@ -74,5 +92,10 @@ nonisolated extension CatalogArgument {
         ActionArgument(name: "browserProfile",
                        title: String(localized: "argument.browserProfile", defaultValue: "Browser Profile", table: "BrowserProfileActions", bundle: .module),
                        kind: .target(.browserProfile))
+    }
+
+    /// One kind of browsing data Clear Browsing Data clears (default on).
+    static func clearKind(_ name: String, _ title: String) -> ActionArgument {
+        ActionArgument(name: name, title: title, kind: .bool, isRequired: false)
     }
 }

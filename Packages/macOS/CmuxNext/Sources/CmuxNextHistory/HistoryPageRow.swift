@@ -1,5 +1,6 @@
 import CmuxAgentBrands
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// One entry of the history page.
@@ -48,17 +49,17 @@ struct HistoryPageRow: View {
         if case .agent(let session) = entry.payload {
             AgentBrandMark(agent: session.provider, size: Metrics.iconSize)
         } else {
-            Image(systemName: Self.symbol(entry.kind))
+            Icon(Self.icon(entry.kind), size: Metrics.iconSize)
         }
     }
 
-    static func symbol(_ kind: HistoryEntry.Kind) -> String {
+    static func icon(_ kind: HistoryEntry.Kind) -> IconName {
         switch kind {
-        case .page: "globe"
-        case .location: "location"
-        case .closed: "arrow.uturn.backward"
-        case .command: "terminal"
-        case .agent: "sparkles"
+        case .page: .browser
+        case .location: .location
+        case .closed: .actionUndo
+        case .command: .terminal
+        case .agent: .agentSession
         }
     }
 }

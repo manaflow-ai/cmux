@@ -11,9 +11,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     case hidden
     /// The user asked to check: a spinning ring.
     case checking
-    /// Downloading or unpacking: a progress ring, nil while the size is
-    /// unknown (spinning).
-    case downloading(progress: Double?)
+    /// Starting, downloading or unpacking (``UpdateTransfer``): a progress
+    /// ring, spinning while unmeasured.
+    case downloading(UpdateTransfer)
     /// Found, not downloaded (`updates.downloadAutomatically` off): a click
     /// downloads and installs.
     case available(version: String?)
@@ -26,31 +26,16 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     /// the notice card shows it after the user asked.
     case note(UpdateNote)
 
-    /// An update was found: downloading, downloaded and waiting, or
-    /// installing (the Settings item's badge).
-    public var isUpdateAvailable: Bool {
-        switch self {
-        case .available, .downloading, .ready, .installing: true
-        case .hidden, .checking, .note: false
-        }
-    }
-
-    /// Whether the circle shows.
-    public var showsCircle: Bool {
-        switch self {
-        case .hidden, .note: false
-        case .checking, .available, .downloading, .ready, .installing: true
-        }
-    }
-
     /// The Sparkle flow's phase. `version` names the update a background
     /// check accepted.
     @MainActor
     public init(_ state: UpdateState, version: String?) {
         switch state {
-        case .idle, .permissionRequest, .preparingCheck:
+        case .idle, .permissionRequest:
             self = .hidden
-        case .checking:
+        case .preparingCheck, .checking:
+            // preparingCheck: a check the user asked for waits for the
+            // running Sparkle session (a scheduled or silent one) to end.
             self = .checking
         case .updateAvailable(let available):
             // Only with `updates.downloadAutomatically` off: background
@@ -61,15 +46,15 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
         case .error:
             self = .note(.checkFailed)
         case .startingDownload:
-            self = .downloading(progress: nil)
+            self = .downloading(.starting)
         case .downloading(let downloading):
-            let expected = downloading.expectedLength ?? 0
-            self = .downloading(progress: expected > 0 ? min(1, Double(downloading.progress) / Double(expected)) : nil)
-        case .extracting:
-            self = .downloading(progress: nil)
+            self = .downloading(.downloading(received: downloading.progress, expected: downloading.expectedLength))
+        case .extracting(let extracting):
+            self = .downloading(.preparing(extracting.progress > 0 ? extracting.progress : nil))
         case .installing(let installing):
-            // Sparkle's "Restart to Complete Update" is the staged update.
-            self = installing.isAutoUpdate ? .ready(version: version) : .installing
+            // Sparkle's "Restart to Complete Update" is the staged update, and so is an idle
+            // install the relaunch gate holds: no waiting card, a click relaunches at once.
+            self = installing.isAutoUpdate || installing.relaunchBlockers != nil ? .ready(version: version) : .installing
         }
     }
 
@@ -98,7 +83,7 @@ extension UpdateIndicatorPhase {
         switch self {
         case .hidden: nil
         case .checking: UpdaterStrings.checking
-        case .downloading: UpdaterStrings.downloading
+        case .downloading(let transfer): transfer.stage == .preparing ? UpdaterStrings.preparing : UpdaterStrings.downloading
         case .ready(let version?) where !version.isEmpty: UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
         case .ready, .available(nil): UpdaterStrings.availableNoVersion + "\n" + UpdaterStrings.install
         case .available(let version?): UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
@@ -107,20 +92,18 @@ extension UpdateIndicatorPhase {
         }
     }
 
-    /// The pill beside the circle, or nil when none shows.
-    public var pillText: String? {
-        switch self {
-        case .installing: UpdaterStrings.installing
-        case .note(let note): note.text
-        case .hidden, .checking, .available, .downloading, .ready: nil
-        }
+    /// A downloaded update waits for Restart to Update (the menu bar menu offers it).
+    public var isReady: Bool {
+        if case .ready = self { return true }
+        return false
     }
 
     /// Whether the ring spins: work with no measured progress.
     public var spins: Bool {
         switch self {
-        case .checking, .installing, .downloading(progress: nil): true
-        case .hidden, .available, .downloading, .ready, .note: false
+        case .checking, .installing: true
+        case .downloading(let transfer): transfer.fraction == nil
+        case .hidden, .available, .ready, .note: false
         }
     }
 

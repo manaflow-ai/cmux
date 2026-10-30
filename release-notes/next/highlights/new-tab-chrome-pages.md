@@ -1,4 +1,5 @@
-title: Open Chrome pages from the New Tab field
+title: Open Chrome pages from the New Tab field and the address bar
+category: new
 action: newTab.page | Try it
 
-Type `chrome://extensions`, `chrome://settings`, `about:version` or a `chrome-extension://` address in the New Tab field and it opens in a Chromium tab instead of a web search. Agents and scripts still cannot open Chromium's own pages, such as the password manager.
+Type a `chrome://` or `about:` address in the New Tab field or the address bar to open it in a Chromium tab instead of searching for it. Where cmux has its own page, such as `chrome://history`, that page opens.

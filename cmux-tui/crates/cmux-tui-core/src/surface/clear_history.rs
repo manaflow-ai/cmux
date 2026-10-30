@@ -35,6 +35,23 @@ impl Surface {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<(), ClearHistoryFailure> {
+        self.clear_history_in_terminal(fallback_key)?;
+        // What the person cleared must not come back from disk: the output
+        // store drops this terminal's stored output and rewrites its
+        // snapshot at once.
+        if let Some(pty) = self.as_pty()
+            && let (Some(terminal_id), Some(mux)) =
+                (pty.terminal_public_id.as_ref(), pty.mux.upgrade())
+        {
+            mux.output_store.history_cleared(terminal_id);
+        }
+        Ok(())
+    }
+
+    fn clear_history_in_terminal(
+        &self,
+        fallback_key: Option<&KeyInput>,
+    ) -> Result<(), ClearHistoryFailure> {
         let Some(pty) = self.as_pty() else {
             return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                 "browser surface does not have a VT terminal"
@@ -44,7 +61,7 @@ impl Surface {
         // releasing it: the surface's reader delivers that acknowledgement,
         // and after a reconnect it takes the runtime lock before it reads
         // the new stream.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let pending = match &*pty.runtime.lock().unwrap() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
@@ -127,6 +144,23 @@ impl Surface {
                 && let Some(mux) = pty.mux.upgrade()
             {
                 mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
+            }
+            // What the person cleared never comes back: the journal records
+            // the clear, and a holder gets the cleared screen as the
+            // prologue a restarted daemon starts from (its older snapshot
+            // still held the history).
+            if let Some(mux) = pty.mux.upgrade() {
+                pty.journal_clear_gap(&mux);
+            }
+            #[cfg(unix)]
+            {
+                let holder = match &*pty.runtime.lock().unwrap() {
+                    PtyRuntime::Local { holder, .. } => holder.clone(),
+                    _ => None,
+                };
+                if let Some(holder) = holder {
+                    holder.resnapshot();
+                }
             }
             pty.mark_output_dirty();
             return Ok(());

@@ -71,7 +71,10 @@ final class DialogBroker {
         case .textInput(let message, let defaultText): ("prompt", message, defaultText ?? "")
         // Permission and HTTP credential prompts stay the person's: an agent
         // never answers them (credentials, plans/cmux-next/passwords.md).
-        case .permission, .credentials: nil
+        // Nor is another app opened for an agent, nor a password saved, nor
+        // an email's verification code read or filled, nor a page's
+        // "Leave site?" answered (unsaved work is the person's).
+        case .permission, .credentials, .openExternalApp, .savePassword, .verificationOffer, .beforeUnload: nil
         }
     }
 }

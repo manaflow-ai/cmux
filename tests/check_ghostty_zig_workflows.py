@@ -276,7 +276,23 @@ def _command_name(target: str) -> str:
     return target.rsplit("/", 1)[-1]
 
 
+INIT_SUBMODULE_SCRIPT = "init-submodule.sh"
+INIT_SUBMODULE_PATHS = {
+    "scripts/ci/init-submodule.sh",
+    "./scripts/ci/init-submodule.sh",
+}
+
+
 def _is_ghostty_init(words: list[str]) -> bool:
+    # scripts/ci/init-submodule.sh runs `git submodule update --init --depth 1`
+    # with bounded retries, directly or through bash.
+    script_words = words[1:] if words and _command_name(words[0]) == "bash" else words
+    if (
+        len(script_words) == 2
+        and script_words[0] in INIT_SUBMODULE_PATHS
+        and script_words[1] in GHOSTTY_SUBMODULES
+    ):
+        return True
     return (
         len(words) >= 4
         and _command_name(words[0]) == "git"
@@ -437,7 +453,8 @@ def _run_events(
     script: str, step_line: int, *, failure_propagates: bool = True,
 ) -> tuple[list[RunEvent], str | None]:
     if not any(name in script for name in CONSUMER_NAMES) and (
-        "git submodule" not in script or "ghostty" not in script
+        ("git submodule" not in script and INIT_SUBMODULE_SCRIPT not in script)
+        or "ghostty" not in script
     ):
         return [], None
 
@@ -445,6 +462,10 @@ def _run_events(
     try:
         roots = bashlex.parse(normalized)
     except (bashlex.errors.ParsingError, NotImplementedError) as error:
+        # A step that names no Zig consumer can only add an init. Skipping it can
+        # report a consumer as uninitialized, never hide one, so it is not a failure.
+        if not any(name in script for name in CONSUMER_NAMES):
+            return [], None
         return [], str(error)
 
     analyzer = _ExecutionAnalyzer(normalized, step_line)
@@ -493,7 +514,12 @@ def _setup_zig_failures(
         return [], False
 
     failures: list[str] = []
-    init_events = [(index, event) for index, event in events if event.kind == "init"]
+    # One init step: a step that checks out both Ghostty sources (ghostty, ghostty-next) is one init.
+    init_steps: dict[int, RunEvent] = {}
+    for index, event in events:
+        if event.kind == "init":
+            init_steps.setdefault(index, event)
+    init_events = sorted(init_steps.items())
     resolver_steps = [
         (index, step)
         for index, step in enumerate(job.steps)

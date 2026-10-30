@@ -11,7 +11,7 @@
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  padding: 18px 18px 0;
+  padding: 18px var(--page-edge) 0;
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -53,8 +53,12 @@
   cursor: default;
 }
 
-.history-menu-button:hover {
+.history-menu-button:hover:not(:disabled) {
   background: var(--page-hover);
+}
+
+.history-menu-button:disabled {
+  color: var(--page-text-3);
 }
 
 .history-search {
@@ -74,6 +78,15 @@
 
 .history-search::placeholder {
   color: var(--page-text-3);
+}
+
+.history-error {
+  flex: none;
+  margin: 0;
+  padding: 8px var(--page-edge);
+  border-bottom: 1px solid var(--page-separator);
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
 }
 
 /* Narrow panes wrap the filters onto a second row; none is ever hidden. */
@@ -103,7 +116,8 @@
 .history-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 10px 18px;
+  /* Rows pad their hover pill by 8 px: their text starts on the page edge. */
+  padding: 4px calc(var(--page-edge) - 8px) 18px;
   outline: none;
 }
 
@@ -183,4 +197,3 @@
   padding: 24px;
   text-align: center;
 }
-

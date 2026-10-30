@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextWakeups
 
 /// The content of a window that shows a New Cloud Workspace before its
@@ -17,15 +19,15 @@ final class CloudMachineProgressView: NSView {
 
     let creation: CloudMachineCreation
     private let actions: Actions
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let elapsedLabel = NSTextField(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let elapsedLabel = ChromeLabel(labelWithString: "")
     private let stepsStack = NSStackView()
-    private var stepRows: [(icon: NSImageView, label: NSTextField)] = []
+    private var stepRows: [(icon: NSImageView, label: ChromeLabel)] = []
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let typingLabel = NSTextField(wrappingLabelWithString: "")
-    private let retryButton = NSButton()
-    private let copyButton = NSButton()
-    private let dismissButton = NSButton()
+    private let typingLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let retryButton = ThemedDefaultButton()
+    private let copyButton = ThemedBezelButton()
+    private let dismissButton = ThemedBezelButton()
     private let buttons = NSStackView()
     private var observation: Task<Void, Never>?
     private let ticker: DemandTimer
@@ -48,7 +50,7 @@ final class CloudMachineProgressView: NSView {
         for step in CloudMachineStage.steps {
             let icon = NSImageView()
             icon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
-            let label = NSTextField(labelWithString: CloudStrings.stage(step))
+            let label = ChromeLabel(labelWithString: CloudStrings.stage(step))
             label.font = Typography.body
             let row = NSStackView(views: [icon, label])
             row.orientation = .horizontal
@@ -59,6 +61,7 @@ final class CloudMachineProgressView: NSView {
         detailLabel.font = Typography.body
         detailLabel.alignment = .center
         detailLabel.isSelectable = true
+        detailLabel.focusRingType = .none
         detailLabel.maximumNumberOfLines = 8
         typingLabel.font = Typography.caption
         typingLabel.alignment = .center
@@ -72,7 +75,7 @@ final class CloudMachineProgressView: NSView {
             button.action = action
             buttons.addArrangedSubview(button)
         }
-        retryButton.keyEquivalent = "\r"
+        retryButton.keyHint = .return
         buttons.orientation = .horizontal
         buttons.spacing = Metrics.space2
         let stack = NSStackView(views: [titleLabel, elapsedLabel, stepsStack, detailLabel, buttons, typingLabel])
@@ -115,7 +118,7 @@ final class CloudMachineProgressView: NSView {
         guard window != nil else { return }
         let creation = creation
         observation = Task { [weak self] in
-            for await _ in Observations({ (creation.stage, creation.machineTitle, creation.workspaceID) }) {
+            for await _ in ObservationStream({ (creation.stage, creation.machineTitle, creation.workspaceID) }) {
                 self?.render()
             }
         }
@@ -137,10 +140,23 @@ final class CloudMachineProgressView: NSView {
         }
     }
 
+    /// In a window and not hidden (a parked workspace stays in its window): only then it ticks.
+    private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        ticker.cancel()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if isShown, !creation.stage.isFinished, !ticker.isScheduled { tick() }
+    }
+
     /// The elapsed line, once a second while the creation runs.
     private func tick() {
         renderElapsed()
-        guard window != nil, !creation.stage.isFinished else { return }
+        guard isShown, !creation.stage.isFinished else { return }
         ticker.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.tick() }
     }
 
@@ -154,12 +170,12 @@ final class CloudMachineProgressView: NSView {
         let current = stage.stepIndex ?? lastReached
         performWithTheme {
             for (index, row) in stepRows.enumerated() {
-                let (symbol, tint): (String, NSColor) =
-                    if stage.failure != nil, index == current { ("xmark.octagon.fill", Palette.danger) }
-                    else if index < current || stage == .ready { ("checkmark.circle.fill", Palette.success) }
-                    else if index == current { ("circle.dotted.circle", Palette.accent) }
-                    else { ("circle", Palette.textTertiary) }
-                row.icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                let (icon, tint): (IconName, NSColor) =
+                    if stage.failure != nil, index == current { (.statusError, Palette.danger) }
+                    else if index < current || stage == .ready { (.statusComplete, Palette.success) }
+                    else if index == current { (.statusInprogress, Palette.accent) }
+                    else { (.stateIdle, Palette.textTertiary) }
+                row.icon.image = NSImage.icon(icon, size: 16)
                 row.icon.contentTintColor = tint
                 row.label.textColor = index <= current ? Palette.textPrimary : Palette.textTertiary
                 row.label.font = index == current ? Typography.bodyEmphasized : Typography.body
@@ -171,10 +187,13 @@ final class CloudMachineProgressView: NSView {
             lastReached = current
             detailLabel.stringValue = CloudStrings.stageNext(stage)
         }
-        buttons.isHidden = stage.failure == nil
-        typingLabel.isHidden = stage.failure != nil
+        // Paused is not a failure: one click on Resume starts the machine.
+        buttons.isHidden = stage.failure == nil && !stage.isPaused
+        copyButton.isHidden = stage.isPaused
+        retryButton.title = stage.isPaused ? CloudStrings.resume : CloudStrings.retry
+        typingLabel.isHidden = stage.failure != nil || stage.isPaused
         renderElapsed()
-        if stage.isFinished { ticker.cancel() } else if window != nil, !ticker.isScheduled { tick() }
+        if stage.isFinished { ticker.cancel() } else if isShown, !ticker.isScheduled { tick() }
         setAccessibilityLabel([titleLabel.stringValue, CloudStrings.stage(stage), detailLabel.stringValue].joined(separator: ". "))
     }
 
@@ -189,5 +208,6 @@ final class CloudMachineProgressView: NSView {
 
     var titleText: String { titleLabel.stringValue }
     var detailText: String { detailLabel.stringValue }
-    var showsFailureButtons: Bool { !buttons.isHidden }
+    var primaryButtonTitle: String { retryButton.title }
+    var showsButtons: Bool { !buttons.isHidden }
 }

@@ -26,8 +26,11 @@ Sanitizer: `cmux-tui-core` `presentation_store/svg_icon.rs` (static shapes, grad
 paths, masks, text; ids prefixed `cmux-icon-`, `url()` only to an id of the same icon; no DOCTYPE,
 href, style, script, animation or `foreignObject`). Rendering contract: frontends draw an SVG icon
 as an isolated image (`<img>`, a data or blob URL, a native image) at a frontend-chosen size, never
-inlined into a DOM. The picker's SVG tab stays off until the asset store calls
-`validate_presentation_icon_asset` on put.
+inlined into a DOM. The asset store (`icon-assets-v1`: `put-blob`, `get-blob`;
+`personal_store/blobs.rs`) runs every SVG through `validate_presentation_icon_asset` on put, and
+the fields that take assets (workspace, screen, room, browser profile and workspace status icons)
+require the named asset to exist in the setter's transaction; other icon fields still refuse
+asset references. The picker's Image and SVG tabs can now store through `put-blob`.
 
 ## 2. One picker
 
@@ -62,9 +65,10 @@ D = daemon-owned, A = app-owned.
 | Screen, workspace and tab groups | D | no | candidate |
 | Sidebar sections and items | A (layout doc) | no | per sidebar-sections.md 10 |
 | Tabs | derived | no | candidate (per-tab override) |
-| Bookmark folders | D | no | candidate |
+| Bookmark folders | D | yes (daemon, `bookmark-icon-v1`) | done in daemon (`update-bookmark {icon}`); app picker and renderer missing |
 | cmux.json actions and buttons | A (config) | symbol or image path | accept the wire string |
 | Home conversation reactions | D | emoji | same picker |
+| Machines in the sidebar (session registry records) | D | yes (daemon, `session-icon-v1`) | done in daemon (`set-session-icon {session_id, icon}`; `put-session` keeps it); app picker and renderer missing |
 | Cloud machines, servers | per record | no | candidate |
 | App manifests | package author | own field | out of scope |
 | Agent personas, layouts, snippets | none yet | no record | blocked on an owner |

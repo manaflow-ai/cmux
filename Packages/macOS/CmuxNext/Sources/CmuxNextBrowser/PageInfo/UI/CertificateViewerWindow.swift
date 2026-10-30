@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// fields, field value, Export).
 final class CertificateViewerWindow: PageInfoWindow {
     private let chain: [PageInfoCertificate]
-    private let tabs = NSSegmentedControl()
+    private let tabs = ThemedSegmentedControl()
     private let container = NSView()
     private var selected = 0
 

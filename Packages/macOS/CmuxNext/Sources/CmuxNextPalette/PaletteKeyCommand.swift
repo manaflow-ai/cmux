@@ -46,10 +46,26 @@ public struct PaletteActionsMenuState {
     public var filter: String = ""
     public var selectedIndex: Int = 0
 
-    /// Commands matching `filter`, in menu order.
+    /// Commands matching `filter`, in menu order: each word of the filter
+    /// is a case- and accent-insensitive subsequence of the title ("cp lnk"
+    /// finds Copy Link).
     public var visibleCommands: [PaletteCommand] {
-        let query = filter.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return commands }
-        return commands.filter { FuzzyMatch.score(query, in: $0.title) != nil }
+        let words = filter.split(whereSeparator: \.isWhitespace).map { Self.fold($0) }
+        guard !words.isEmpty else { return commands }
+        return commands.filter { command in
+            let title = Self.fold(command.title)
+            return words.allSatisfy { word in
+                var rest = title[...]
+                return word.allSatisfy { char in
+                    guard let at = rest.firstIndex(of: char) else { return false }
+                    rest = rest[rest.index(after: at)...]
+                    return true
+                }
+            }
+        }
+    }
+
+    private static func fold(_ text: some StringProtocol) -> String {
+        String(text).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 }

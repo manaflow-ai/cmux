@@ -10,7 +10,7 @@ Cmd-Shift-P opens a floating glass panel over the window. Sources: `Packages/mac
 
 ## Layout
 
-Width paletteWidth (640/720). Search field height 44/52, search font 16/18 regular with a magnifier glyph; separator rules above and below the list; 10 visible rows of 32/40; list inset 4; footer row 32/40 with "Commands", "Run Command ↩", "Actions ⌘K". Panel radius panelCornerRadius (10/12, continuous); row radius itemCornerRadius (circular arcs: rows are `NSBezierPath(roundedRect:)`); horizontal padding 12. Keycaps: at least iconSize+4 square, padding 4 each side of the text, radius itemCornerRadius-2 (circular arcs), 2 apart, fill hoverFill, text shortcut (SF Mono) textSecondary. Section headers: header style, textSecondary, height sidebarHeaderHeight. Source `PaletteLayout.swift:9-37 (PaletteLayout)`.
+Width paletteWidth (640/720). Search field height 44/52, search font 16/18 regular with a magnifier glyph; separator rules above and below the list; 10 visible rows of 28/40; list inset 4; footer row 28/40 with "Commands", "Run Command ↩", "Actions ⌘K". Panel radius panelCornerRadius (10/12, continuous); row radius itemCornerRadius (circular arcs: rows are `NSBezierPath(roundedRect:)`); horizontal padding 12. Keycaps: at least iconSize+4 square, padding 4 each side of the text, radius itemCornerRadius-2 (circular arcs), 2 apart, fill hoverFill, text shortcut (SF Mono) textSecondary. Section headers: header style, textSecondary, height sidebarHeaderHeight. Source `PaletteLayout.swift:9-37 (PaletteLayout)`.
 
 ## States
 

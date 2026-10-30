@@ -1,0 +1,109 @@
+{
+  "$comment": "HAND-EDITED source of the Settings sections, in sidebar order (cx-d5b5d). id is the section's stable name (the `section` of every row and of `cmux settings open --section`), title {key: string catalog key, text: English}, symbol the macOS SF Symbol of the sidebar row. scripts/cmux-next/gen-settings-sources.py writes the Swift SettingsSection enum from it.",
+  "sections": [
+    {
+      "id": "general",
+      "title": {
+        "key": "settings.section.general",
+        "text": "General"
+      },
+      "symbol": "gearshape"
+    },
+    {
+      "id": "appearance",
+      "title": {
+        "key": "settings.section.appearance",
+        "text": "Appearance"
+      },
+      "symbol": "paintbrush"
+    },
+    {
+      "id": "terminal",
+      "title": {
+        "key": "settings.section.terminal",
+        "text": "Terminal"
+      },
+      "symbol": "terminal"
+    },
+    {
+      "id": "editor",
+      "title": {
+        "key": "settings.section.editor",
+        "text": "Code Editor"
+      },
+      "symbol": "chevron.left.forwardslash.chevron.right"
+    },
+    {
+      "id": "browser",
+      "title": {
+        "key": "settings.section.browser",
+        "text": "Browser"
+      },
+      "symbol": "globe"
+    },
+    {
+      "id": "home",
+      "title": {
+        "key": "settings.section.home",
+        "text": "Home"
+      },
+      "symbol": "house"
+    },
+    {
+      "id": "keyboard",
+      "title": {
+        "key": "settings.section.keyboard",
+        "text": "Keyboard"
+      },
+      "symbol": "keyboard"
+    },
+    {
+      "id": "notifications",
+      "title": {
+        "key": "settings.section.notifications",
+        "text": "Notifications"
+      },
+      "symbol": "bell"
+    },
+    {
+      "id": "accounts",
+      "title": {
+        "key": "settings.section.accounts",
+        "text": "Accounts"
+      },
+      "symbol": "person.crop.circle"
+    },
+    {
+      "id": "rooms",
+      "title": {
+        "key": "settings.section.rooms",
+        "text": "Spaces & Profiles"
+      },
+      "symbol": "square.stack"
+    },
+    {
+      "id": "machines",
+      "title": {
+        "key": "settings.section.machines",
+        "text": "Machines"
+      },
+      "symbol": "server.rack"
+    },
+    {
+      "id": "advanced",
+      "title": {
+        "key": "settings.section.advanced",
+        "text": "Advanced"
+      },
+      "symbol": "curlybraces"
+    },
+    {
+      "id": "development",
+      "title": {
+        "key": "settings.section.development",
+        "text": "Development"
+      },
+      "symbol": "hammer"
+    }
+  ]
+}

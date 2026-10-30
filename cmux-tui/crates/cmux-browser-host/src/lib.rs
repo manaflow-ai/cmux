@@ -32,15 +32,20 @@ pub mod headless_configure;
 #[cfg(unix)]
 pub mod headless_linger;
 #[cfg(unix)]
+mod headless_policy;
+#[cfg(unix)]
 pub mod headless_routes;
 #[cfg(unix)]
 pub mod headless_source;
+#[cfg(unix)]
+pub mod history_link;
 pub mod host;
 pub mod idle_exit;
 pub mod lease;
 pub mod locality;
 pub mod observe;
 pub mod policy;
+pub mod policy_proxy;
 pub mod private_data_log;
 pub mod protocol;
 pub mod provider;

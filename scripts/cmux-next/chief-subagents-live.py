@@ -24,6 +24,7 @@ daemon and stops the tag's cmux-tui session; leftovers of this tag's bundle
 are ended by exact PID.
 
 Usage: chief-subagents-live.py --tag <tag> --app PATH --debug-cli PATH --derived-data DIR [--out DIR] [--only a,b]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, re, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 
@@ -39,9 +40,16 @@ parser.add_argument("--keep", action="store_true")
 parser.add_argument("--cloud", action="store_true", help="also prove a server brain's subagent (staging pairing, cleaned up)")
 parser.add_argument("--creds", default="", help="the cloud flow signs the app in with this credentials file (never read here)")
 parser.add_argument("--account", default="lawrence@manaflow.ai")
+parser.add_argument("--no-home-workarounds", action="store_true",
+                    help="no Home cache removal and no resend after 90 s: a lost first send fails its row (cx-ebm.55 fix)")
 parser.add_argument("--cli-first", action="store_true",
                     help="before the app: `cmux chief -p` (no app) spawns a subagent; the app must then show its live chat")
 opts = parser.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-subagents-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG = opts.tag
 APP = opts.app
@@ -53,6 +61,17 @@ MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
 OPTCHAT = os.path.join(MUX_HOME, "optchat")
 ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-subagents-{TAG}-")
+
+
+def fnv1a32(text):
+    """optchat-chief `paths::home_id`: FNV-1a 32 of the home's path, 8 lowercase hex digits."""
+    h = 0x811C9DC5
+    for b in text.encode():
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
+HOME_ID = fnv1a32(MUX_HOME)
 WORK = os.path.join(SCRATCH, "work")
 FRAMES = os.path.join(opts.out, "frames")
 os.makedirs(FRAMES, exist_ok=True)
@@ -155,6 +174,12 @@ def tagged(*args):
 
 
 def workspaces():
+    """Every workspace the app shows, on every machine row (the Chief's owner daemon included):
+    the app's topology (`snapshot.get`). `workspace list` names only the app's own session."""
+    return ((rpc("snapshot.get") or {}).get("topology") or {}).get("workspaces", []) or app_workspaces()
+
+
+def app_workspaces():
     value = tagged("workspace", "list")
     if isinstance(value, dict):
         value = value.get("value", value)
@@ -292,8 +317,19 @@ def ask(text, wait_reply=True):
         if not (isinstance(reply, dict) and reply.get("ok")):
             return f"(drive {action} failed: {reply})"
     # Its index + 1 (index 0 is a found message, and wait() takes only a truthy value).
-    found = wait(lambda: next((i + 1 for i, m in enumerate(log_items()) if i >= before and m["kind"] == "user"
-                               and text[:40] in m["text"]), None), opts.turn_timeout)
+    def logged():
+        return next((i + 1 for i, m in enumerate(log_items()) if i >= before and m["kind"] == "user"
+                     and text[:40] in m["text"]), None)
+    found = wait(logged, opts.turn_timeout if opts.no_home_workarounds else 90)
+    if found is None and opts.no_home_workarounds:
+        print(f"home send lost: {text[:60]!r} not logged ({json.dumps(rpc('debug.home') or {})[:400]})", flush=True)
+    elif found is None:
+        # A send before Home's owner connection took it stays a draft: show Home and send again.
+        print(f"ask: not logged after 90 s ({json.dumps(rpc('debug.home') or {})[:300]}); sending again", flush=True)
+        show_home()
+        for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
+            rpc("debug.home.drive", {"action": action, **extra})
+        found = wait(logged, opts.turn_timeout)
     mine = None if found is None else found - 1
     if mine is None:
         return "(my message never reached the Chief's log)"
@@ -426,6 +462,27 @@ def flow(fn):
 
 
 @flow
+def subagent_task_only_on_empty_chat():
+    """cx-qqs1: a subagent spawned while the Chief's chat is empty gets only its task (no view to
+    give), and its pane shows exactly the task, with no "Your task:" label. Run it first, on a new
+    Chief home (`--only`), so the chat is empty."""
+    task = "Reply with only the word empty-probe."
+    empty = not log_items()
+    answer = spawn([task])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if ws:
+        focus_workspace(ws.get("id"), f"empty-{ids[0]}")
+    state = wait(lambda: (lambda st: st if st.get("transcript") else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or {}
+    first = next((r.get("text") for r in state.get("transcript") or [] if r.get("kind") == "user"), None)
+    row("empty-chat subagent gets only its task", "the chat was empty; the pane's first message is exactly the task",
+        f"empty chat={empty}; first message {first!r}", empty and first == task)
+    show_home()
+
+
+@flow
 def parallel_three():
     """3 parallel subagents on a real task; the Chief combines their reports."""
     for name, n in (("alpha", 3), ("beta", 5), ("gamma", 7)):
@@ -441,6 +498,11 @@ def parallel_three():
         row("3 workspaces with live agent panes", "the Chief spawns 3 subagents", f"no Chief turn: {reply}", False)
         return
     spawned = wait(lambda: [i for i, s in subs().items() if s.get("session_id")] if len(subs()) >= 3 else None, 120) or []
+    # hq-6d 2026-10-09 (parity timing): a spawn in a turn starts its subagents at once with the
+    # turn's view; it never waits for the compactor to summarize the turn's own tool call.
+    waits = [e.get("settle_ms") for e in trace() if e.get("ev") == "spawn"]
+    row("spawn starts its subagents at once", "the spawn tool waits under 1.5 s before its subagents start",
+        f"spawn waits (ms) {waits}", bool(waits) and all((w or 0) < 1500 for w in waits))
     # The Chief answers a user message while they run: asked first, inside their `sleep 90`
     # (the pane checks below take minutes, so asked after them nothing ran any more).
     running = wait(lambda: [i for i, s in subs().items() if s.get("status") == "running"] or None, 120) or []
@@ -450,6 +512,12 @@ def parallel_three():
     new = wait(lambda: [w for w in workspaces() if w.get("id") not in start and re.match(r"a\d+ · ", ws_name(w))]
                if len([w for w in workspaces() if re.match(r"a\d+ · ", ws_name(w))]) >= 3 else None, 120) or []
     tabs = [w for w in new if agent_tab(w.get("id"))]
+    # hq-6d 2026-10-09: subagent workspaces always live in the Chief's owner daemon (its machine
+    # row, server-host_chief<home id>), also when the app started the Chief, so they outlive the app.
+    rows = {w.get("id"): str(w.get("machine") or "") for w in ((rpc("snapshot.get") or {}).get("topology") or {}).get("workspaces", [])}
+    machines = [rows.get(w.get("id"), "") for w in new]
+    row("subagent workspaces in the Chief's owner daemon", "each subagent workspace is on the Chief row",
+        f"machines {machines}", len(machines) >= 3 and all(m.startswith("server-host_chief") for m in machines))
     # Each pane must show its subagent's own chat: the chat text the pane renders names its file.
     shown = []
     for w in new[:3]:
@@ -599,6 +667,233 @@ def restart_mid_run():
 
 
 @flow
+def subagent_link_opens_its_chat():
+    """Lawrence 2026-10-09: "you need to be able to link to a subagent so I can just click here to
+    get to it". The Chief names its new subagent as a link, Home renders it as a link, and a click
+    (Home's own click path) shows that subagent's workspace with its chat tab."""
+    reply = ask(f"Use spawn to start exactly one subagent with cwd {WORK} whose task is: reply with only the "
+                "word link-probe. Then tell me its name, written as its link from the spawn answer.")
+    print("chief:", reply[:300], flush=True)
+    sub = wait(lambda: next((i for i, v in subs().items() if v.get("session_id") and "link-probe" in (v.get("title") or "")), None), 120)
+    session = (subs().get(sub) or {}).get("session_id")
+    show_home()
+    snapshot("link-home")
+    # This subagent's own link (earlier replies link other subagents).
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
+    print("link click:", json.dumps(clicked)[:300], flush=True)
+    state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("link-opened")
+    url = clicked.get("url") or ""
+    row("subagent link opens its chat", "Home shows the subagent as a link; a click shows its workspace and chat",
+        f"sub {sub}; model wrote a link={'](cmux://chief/' in reply}; clicked {url[:90]!r}; pane session {state.get('sessionId')} "
+        f"(want {session}); task in pane={'link-probe' in pane_text(state)}",
+        # The model writes the plain id (the memory keeps no URL); the posted reply carries the
+        # link (link_subagents), so the click on this subagent's own link is the proof.
+        bool(session) and url.endswith("/session/" + session)
+        and state.get("sessionId") == session and "link-probe" in pane_text(state))
+    show_home()
+
+
+@flow
+def subagent_mentions_are_links():
+    """Lawrence 2026-10-10: "it should be able to link to subagents in general too". A later Chief
+    reply that names its subagents, with no link written by the model, shows each one as a link;
+    a click on a2's opens a2's workspace and chat."""
+    answer = spawn(["Reply with only the word mention-one.", "Reply with only the word mention-two."])
+    ids = ids_in(answer)
+    print("spawn:", json.dumps(answer)[:400], flush=True)
+    wait_done(ids, 300)
+    reply = ask(f"In one plain sentence with no links and no markdown, say what {' and '.join(ids)} did.")
+    if reply.startswith("(my message"):  # the composer was not shown yet after the last flow's tab
+        reply = ask(f"In one plain sentence with no links and no markdown, say what {' and '.join(ids)} did.")
+    print("chief:", reply[:300], flush=True)
+    second = ids[1] if len(ids) > 1 else None
+    session = (subs().get(second) or {}).get("session_id") if second else None
+    last = next((m["text"] for m in reversed(log_items()) if m["kind"] == "talk"), "")
+    show_home()
+    snapshot("mentions-home")
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": "cmux://chief/"} if not session else
+                  {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
+    print("mention click:", json.dumps(clicked)[:300], flush=True)
+    state = wait(lambda: (lambda st: st if session and st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("mentions-opened")
+    row("subagent mentions are links", "the reply names a2 as a link; a click opens a2's workspace and chat",
+        f"ids {ids}; model wrote a link={'](cmux://' in last}; clicked {(clicked.get('url') or '')[:90]!r}; "
+        f"pane session {state.get('sessionId')} (want {session})",
+        bool(session) and (clicked.get("url") or "").endswith(f"/session/{session}")
+        and state.get("sessionId") == session and "mention-two" in pane_text(state))
+    show_home()
+
+
+def pane_grid(pane):
+    """The terminal pane's viewport text and grid (`debug.surfaces`): cell size and grid origin in
+    window points from the top-left, as `debug.mouse` takes them."""
+    report = rpc("debug.surfaces", {"text": True}) or {}
+    for window in report.get("windows", []):
+        for p in window.get("panes", []):
+            if p.get("pane") == pane:
+                return p.get("text") or "", p.get("grid")
+    return "", None
+
+
+@flow
+def cli_osc8_link_opens_the_subagent():
+    """Lawrence 2026-10-10: a Cmd-click on a subagent's name in any terminal opens it. `cmux chief
+    -p` in a cmux terminal spawns a subagent and prints its name as an OSC 8 hyperlink; a REAL
+    Cmd-click (`debug.mouse`) on that cell goes through Ghostty's own hyperlink hit path and the
+    app's link.open, and shows the subagent's workspace and chat."""
+    os.makedirs(WORK, exist_ok=True)
+    def terminals():
+        return [p for w in (rpc("debug.surfaces") or {}).get("windows", []) for p in w.get("panes", [])
+                if p.get("kind") == "terminal" and p.get("selected_tab")]
+    before = {p.get("pane") for p in terminals()}
+    made = rpc("action.run", {"action": "newTab"})  # New Workspace: one terminal pane
+    print("new workspace:", json.dumps(made)[:200], flush=True)
+    # The new workspace may not be the shown one (Home is): show its terminal tab (`tab.focus`).
+    ws_id = ((made or {}).get("created") or [None])[0]
+    def terminal_tab():
+        found = []
+        def walk(node):
+            if isinstance(node, dict):
+                if isinstance(node.get("id"), str) and "surface" in node and node.get("kind") in ("terminal", "pty"):
+                    found.append(node["id"])
+                for v in node.values():
+                    walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    walk(v)
+        text = app_ws(ws_id) if ws_id else ""
+        walk(json.loads(text) if text else {})
+        return found[0] if found else None
+    tab = wait(terminal_tab, 30)
+    print("terminal tab:", tab, json.dumps(rpc("tab.focus", {"tab": tab}) if tab else {})[:160], flush=True)
+    term = wait(lambda: next((p for p in terminals() if p.get("pane") not in before), None), 60)
+    if not term:
+        row("terminal OSC 8 link opens the subagent", "a new workspace's terminal", f"made {json.dumps(made)[:120]}; terminals {len(terminals())}", False)
+        return
+    prompt = (f"Use spawn to start exactly one subagent with cwd {WORK} whose task is: reply with only the word "
+              "osc8-probe. Then name it in one short sentence.")
+    command = f"CMUX_NEXT_CHIEF_ISOLATED=1 CMUX_TAG={TAG} {CLI!r} chief -p {json.dumps(prompt)}\r"
+    sent = rpc("action.run", {"action": "terminal.sendText", "target": f"tab:{term['selected_tab']}", "args": {"text": command}})
+    print("send-text:", json.dumps(sent)[:200], flush=True)
+    sub = wait(lambda: next((i for i, v in subs().items() if v.get("session_id") and "osc8-probe" in (v.get("title") or "")), None), 300)
+    session = (subs().get(sub) or {}).get("session_id")
+    # The reply printed: the id's label in the viewport, after the command line.
+    def label_cell():
+        text, grid = pane_grid(term["pane"])
+        lines = text.split("\n")
+        for r in range(len(lines) - 1, -1, -1):
+            m = re.search(rf"(?<![\w/]){sub}(?!\w)", lines[r]) if sub else None
+            if m and "chief -p" not in lines[r] and grid:
+                return r, m.start(), grid, text
+        return None
+    found = wait(label_cell, 300)
+    snapshot("osc8-terminal")
+    if not (session and found):
+        row("terminal OSC 8 link opens the subagent", "the reply names the subagent in the terminal",
+            f"sub {sub}; session {session}; grid {pane_grid(term['pane'])[1]}", False)
+        return
+    r, c, grid, text = found
+    # The viewport text is logical lines; the grid wraps each at its column count.
+    cols = max(1, int((grid["frame_width"] - 2 * (grid["origin_x"] - grid["frame_x"])) // grid["cell_width"]))
+    lines = text.split("\n")
+    r = sum(max(1, -(-len(line) // cols)) for line in lines[:r]) + c // cols
+    c = c % cols
+    x = grid["origin_x"] + (c + 0.5) * grid["cell_width"]
+    y = grid["origin_y"] + (r + 0.5) * grid["cell_height"]
+    clicked = rpc("debug.mouse", {"window": grid["window"], "x": x, "y": y, "action": "click", "modifiers": ["cmd"]})
+    print("cmd-click:", json.dumps(clicked)[:200], f"cell r{r} c{c}", flush=True)
+    state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    topo = (rpc("snapshot.get") or {}).get("topology") or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
+    snapshot("osc8-opened")
+    json.dump({"sub": sub, "session": session, "cell": [r, c], "grid": grid, "click": clicked, "chat_state": state,
+               "topology": topo, "viewport": text}, open(os.path.join(opts.out, "osc8-proof.json"), "w"), indent=1)
+    shown = {w.get("workspace") for w in topo.get("windows", [])}
+    opened = [w.get("name") or "" for w in topo.get("workspaces", []) if w.get("id") in shown]
+    row("terminal OSC 8 link opens the subagent", "a Cmd-click on the subagent's name in the terminal shows its workspace and chat",
+        f"sub {sub} at r{r} c{c}; window shows {opened}; pane session {state.get('sessionId')} (want {session})",
+        state.get("sessionId") == session and any(n.lstrip("✓ ").startswith(f"{sub} ") for n in opened))
+    show_home()
+
+
+@flow
+def subagent_context_is_collapsed():
+    """hq-6d item 23 (cx-ebm.56): a subagent's first message (the Chief's view, then its task)
+    shows as one collapsed line, "Context from the Chief (N lines)", and the task as the message;
+    the disclosure opens the view. The session keeps the full text."""
+    answer = spawn(["Reply with only the word context-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if not ws:
+        row("subagent context collapsed", "a subagent workspace", f"answer {json.dumps(answer)[:160]}", False)
+        return
+    focus_workspace(ws.get("id"), f"context-{ids[0]}-collapsed")
+    zoomed = tools({"tool": "zoom", "id": ids[0]}).get("text", "")
+    # The disclosure's summary ("Context from the Chief (N lines)"), clicked as a user does.
+    opened = rpc("debug.agent_pane", {"action": "click", "selector": ".cv-user__context > summary"}) or {}
+    time.sleep(2)  # test harness: let the disclosure open
+    snapshot(f"context-{ids[0]}-expanded")
+    row("subagent context collapsed", "one collapsed \"Context from the Chief\" line opens the view; the task is the message",
+        f"disclosure {json.dumps(opened)[:160]}; zoom keeps the task={'Your task' in zoomed}",
+        bool(opened.get("clicked")) and "Your task" in zoomed)
+    show_home()
+
+
+@flow
+def group_move_stays_in_its_row():
+    """A workspace group holds workspaces of one machine row (hq-6d 2026-10-09). A drag refuses a
+    Chief-row subagent workspace into a This Mac group; the palette/CLI move (moveWorkspaceToGroup,
+    `cmux workspace-group add-workspace`) refuses it with the same rule, and writes nothing."""
+    answer = spawn(["Reply with only the word group-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+
+    def topo():
+        return (rpc("snapshot.get") or {}).get("topology") or {}
+    chief = wait(lambda: next((w for w in topo().get("workspaces", []) if ids
+                               and str(w.get("machine") or "").startswith("server-host_chief")
+                               and (w.get("name") or "").lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
+    local = next((w for w in topo().get("workspaces", [])
+                  if not str(w.get("machine") or "").startswith("server-host_chief")), None)
+    if not (chief and local):
+        row("group move stays in its row", "a Chief-row and a This Mac workspace", f"chief {chief}; local {local}", False)
+        return
+    made = rpc("action.run", {"action": "newWorkspaceGroup", "target": f"workspace:{local['id']}", "args": {"name": "row-probe"}})
+    group = wait(lambda: next((g.get("id") for g in topo().get("workspace_groups", []) if g.get("name") == "row-probe"), None), 30)
+    moved = rpc("action.run", {"action": "moveWorkspaceToGroup", "target": f"workspace:{chief['id']}",
+                               "args": {"group": f"workspace-group:{group}"}}) if group else {"error": "no group"}
+    time.sleep(3)  # test harness: a write that went through would show now
+    after = next((w for w in topo().get("workspaces", []) if w.get("id") == chief["id"]), {})
+    snapshot("group-move-refused")
+    refused = isinstance(moved, dict) and bool(moved.get("error"))
+    row("group move stays in its row", "the move is refused with a reason; the Chief workspace stays out of the group",
+        f"group {group} (made {json.dumps(made)[:80]}); move {json.dumps(moved)[:160]}; group after {after.get('group')}",
+        bool(group) and refused and after.get("group") != group)
+
+
+@flow
+def harness_follows_chief():
+    """Subagents run on the Chief's harness: claude, then codex."""
+    seen = {}
+    for harness in ("codex", "claude-sr"):
+        set_ = engine(harness=harness)
+        reply = ask(f"Use spawn to start one subagent with cwd {WORK} that replies with only the word {harness}-ok.")
+        last = [e for e in trace() if e.get("ev") == "subagent.start"][-1:]
+        seen[harness] = (last[0].get("harness"), last[0].get("harness_profile")) if last else None
+        print("chief:", reply[:200], "engine:", json.dumps(set_)[:200], flush=True)
+    ok = all(v and harness.split("-")[0] in (v[0] or "") + (v[1] or "") for harness, v in seen.items())
+    row("subagents use the Chief's harness", "codex turn -> codex subagent; claude turn -> claude subagent",
+        f"{seen}", ok)
+
+
+@flow
 def stale_tab_never_shows_another_session():
     """P1 2026-10-09: a subagent tab whose session is gone, while the Chief home's acpmux has a
     new session of the same name, says "This chat isn't available" and never shows that session:
@@ -651,18 +946,45 @@ def stale_tab_never_shows_another_session():
 
 
 @flow
-def harness_follows_chief():
-    """Subagents run on the Chief's harness: claude, then codex."""
-    seen = {}
-    for harness in ("codex", "claude-sr"):
-        set_ = engine(harness=harness)
-        reply = ask(f"Use spawn to start one subagent with cwd {WORK} that replies with only the word {harness}-ok.")
-        last = [e for e in trace() if e.get("ev") == "subagent.start"][-1:]
-        seen[harness] = (last[0].get("harness"), last[0].get("harness_profile")) if last else None
-        print("chief:", reply[:200], "engine:", json.dumps(set_)[:200], flush=True)
-    ok = all(v and harness.split("-")[0] in (v[0] or "") + (v[1] or "") for harness, v in seen.items())
-    row("subagents use the Chief's harness", "codex turn -> codex subagent; claude turn -> claude subagent",
-        f"{seen}", ok)
+def relaunch_keep_sessions_keeps_the_chief():
+    """cx-ebm.54 (P1 2026-10-10): opening a subagent tab, then Quit Keep Sessions and a relaunch, keep
+    the Chief home's acpmux, the Chief host and the subagent's session: the host never logs
+    "acpmux daemon ended", the restored tab shows the same session, the Chief answers, and a new
+    spawn works (no connection refused)."""
+    log_from = len(host_log())
+    answer = spawn(["Reply with only the word keep-probe."], cwd=WORK)
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    session = subs().get(ids[0], {}).get("session_id") if ids else None
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if not (session and ws):
+        row("relaunch keeps the Chief", "a subagent with a session and a workspace", f"answer {json.dumps(answer)[:200]}; ws {ws}", False)
+        return
+    # The first open of a subagent tab in this launch (the first handoff in the bug).
+    focus_workspace(ws.get("id"), f"keep-{ids[0]}-before")
+    before = rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    rpc("action.run", {"action": "quitKeepSessions"}, timeout=10)
+    try:
+        app.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
+    launch_app()
+    show_home()
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None), 120)
+    if ws:
+        focus_workspace(ws.get("id"), f"keep-{ids[0]}-restored")
+    after = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 60) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    reply = ask("Reply with only the word keep-pong.")
+    again = spawn(["Reply with only the word keep-probe-2."], cwd=WORK)
+    log = host_log()[log_from:]
+    ended = [line for line in log.splitlines() if "acpmux daemon ended" in line or "the host stops" in line]
+    row("relaunch keeps the Chief", "the host lives; the restored tab shows its session; the Chief answers; a new spawn works",
+        f"session {session}; before {before.get('sessionId')}; after {after.get('sessionId')} missing {after.get('missingSession')}; "
+        f"reply {reply[:60]!r}; spawn again {json.dumps(again)[:120]}; host ended {ended[:2]}",
+        not ended and before.get("sessionId") == session and after.get("sessionId") == session
+        and not after.get("missingSession") and "keep-pong" in reply.lower() and bool(ids_in(again)))
+    show_home()
 
 
 def unix_call(path, request, timeout=30):
@@ -740,7 +1062,9 @@ def cloud_chief():
         start([os.path.join(bins, "optchat-chief"), "cloud", "pair", "--install", install_file, "--api-base",
                "https://cloud-api-staging.cmux.dev", "--name", name, "--wait-chief", "900"], {}, "pair.log")
         code = wait(lambda: (re.search(r"pairing code: (\S+)", open(pair_log).read()) or [None, None])[1], 120)
-        approved = rpc("action.run", {"action": "server.addServer", "args": {"code": code, "name": name, "chief": False},
+        words = wait(lambda: (re.search(r"check words:\s+(.+)", open(pair_log).read()) or [None, None])[1], 120)
+        approved = rpc("action.run", {"action": "server.addServer",
+                                      "args": {"code": code, "words": (words or "").strip(), "name": name, "chief": False},
                                       "wait": True}, timeout=120)
         paired = wait(lambda: re.search(r"paired: host (\S+) \(install (\S+)\)", open(pair_log).read()), 180)
         host, install = (paired.group(1), paired.group(2)) if paired else (None, None)
@@ -809,7 +1133,7 @@ def cloud_chief():
                     p.wait(timeout=20)
                 except subprocess.TimeoutExpired:
                     p.kill()
-        subprocess.run([os.path.join(bins, "acpmux"), "daemon", "shutdown"], env={**base, **acp}, capture_output=True, timeout=30)
+        subprocess.run([os.path.join(bins, "acpmux"), "daemon", "shutdown", "--end-agents"], env={**base, **acp}, capture_output=True, timeout=30)
         shutil.copytree(os.path.join(brain, "logs"), os.path.join(opts.out, "brain-logs"), dirs_exist_ok=True)
         try:
             shutil.copy(os.path.join(mux, "host.log"), os.path.join(opts.out, "brain-host.log"))
@@ -889,9 +1213,8 @@ def cleanup():
             app.wait(timeout=20)
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
-    acpmux("daemon", "shutdown", timeout=30)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    acpmux("daemon", "shutdown", "--end-agents", timeout=30)
+    stop_sessions()
     for _ in range(2):
         ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
         for line in ps.splitlines():
@@ -903,6 +1226,17 @@ def cleanup():
                 except OSError:
                     pass
         time.sleep(3)  # test harness: let them exit
+
+
+def stop_sessions():
+    """Stops this tag's app session and its Chief owner session (`cmux-chief-<home id>`) by exact
+    name. A Chief owner left by an earlier run of the same tag kept its conversation after the
+    home was deleted, and the new Chief host never saw a Home message (cx-ebm.55 class)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    for session in (f"cmux-app-{TAG}", f"cmux-chief-{HOME_ID}"):
+        out = subprocess.run([CLI, "server", "stop", "--session", session, "--end-terminals"],
+                             env=env, capture_output=True, text=True, timeout=30)
+        print(f"server stop {session}: exit {out.returncode} {(out.stdout + out.stderr).strip()[:160]}", flush=True)
 
 
 def make_video():
@@ -919,6 +1253,14 @@ def make_video():
 def main():
     if os.path.exists(SOCKET):
         sys.exit(f"{SOCKET} exists: another {TAG} app runs; pick a fresh tag")
+    stop_sessions()  # an earlier run's Chief owner of this tag must not answer this run's Home
+    # The app's Home cache of this Chief home (`cmux-home/cmux-chief-<home id>/home.json`) keeps
+    # an earlier run's conversation: the run deletes the home, the new host makes a new
+    # conversation, and Home sent to the old one (no turn ever came; cx-ebm.55).
+    cache = os.path.expanduser(f"~/Library/Caches/cmux-home/cmux-chief-{HOME_ID}")
+    if os.path.isdir(cache) and not opts.no_home_workarounds:
+        print(f"removing the stale Home cache {cache}", flush=True)
+        shutil.rmtree(cache)
     os.makedirs(WORK, exist_ok=True)
     config = os.path.join(SCRATCH, "cmux.json")
     open(config, "w").write("{}")

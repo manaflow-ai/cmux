@@ -187,6 +187,11 @@ STRUCTURAL_SCOPES = frozenset({"workspace", "screen", "pane", "tab"})
 # outcome is journaled. A daemon restart must never guess that repeating one is
 # safe. Keep this set explicit so a future catalog edit cannot silently promise
 # exactly-once delivery for an effect that cmux cannot prove completed.
+# Optional `risk` of a transported operation: what it can affect beyond its
+# class. The app platform derives a permission scope from it.
+OPERATION_RISKS = frozenset(
+    {"read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"}
+)
 EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
     {
         "browser.activate",
@@ -228,6 +233,7 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "workspace.close",
         "workspace.create",
         "workspace.layout.apply",
+        "workspace.open_url",
         "workspace.run",
     }
 )
@@ -352,6 +358,57 @@ def _json_object(path: Path, diagnostics: list[Diagnostic]) -> Mapping[str, obje
         )
         return None
     return value
+
+
+def _blank_rust_comments(text: str) -> str:
+    """`text` with Rust `//` and (nested) `/* */` comments replaced by spaces,
+    newlines kept, so offsets and lines still match `text`. String, raw string,
+    byte and char literals are copied as they are."""
+    out = list(text)
+    i, n = 0, len(text)
+
+    def blank(a: int, b: int) -> None:
+        for k in range(a, b):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            blank(i, j)
+            i = j
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            blank(i, j)
+            i = j
+        elif raw := re.match(r'b?r(#*)"', text[i : i + 300]):
+            if i and (text[i - 1].isalnum() or text[i - 1] == "_"):
+                i += 1
+                continue
+            close = '"' + raw.group(1)
+            j = text.find(close, i + raw.end())
+            i = n if j < 0 else j + len(close)
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            i = j + 1
+        elif c == "'":
+            # A char literal ('a', '\n', '\u{1F600}'); otherwise a lifetime.
+            char = re.match(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'", text[i : i + 16])
+            i += char.end() if char else 1
+        else:
+            i += 1
+    return "".join(out)
 
 
 def _balanced_body(text: str, marker: re.Pattern[str]) -> tuple[str, int] | None:
@@ -576,8 +633,11 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
             )
         )
 
+    # Comments blanked to spaces (same offsets): a commented-out row or a
+    # `];` in a comment is not code.
+    code = _blank_rust_comments(text)
     selector = _balanced_body(
-        text,
+        code,
         re.compile(r"\bfn\s+is_registered_public_id\s*\([^)]*\)[^{]*\{"),
     )
     if selector is None:
@@ -586,9 +646,25 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
         )
     else:
         body, body_offset = selector
-        selector_prefixes = set(re.findall(r'"([a-z][a-z0-9_]*)"', body))
-        missing = set(EXPECTED_PREFIXES) - selector_prefixes
-        stale = selector_prefixes - set(EXPECTED_PREFIXES)
+        # The selector's own literals are prefixes, and when it looks prefixes
+        # up in the `PUBLIC_ID_PREFIXES` table (rows of (prefix, CLI scope)),
+        # so is the first string of each row.
+        found: dict[str, int] = {}
+        for match in re.finditer(r'"([a-z][a-z0-9_]*)"', body):
+            found.setdefault(match.group(1), body_offset + match.start())
+        if re.search(r"\bPUBLIC_ID_PREFIXES\b", body):
+            table = re.search(
+                r"\bconst\s+PUBLIC_ID_PREFIXES\s*:[^=]*=\s*&\[(.*?)\];", code, re.DOTALL
+            )
+            if table is None:
+                diagnostics.append(
+                    Diagnostic(path, 1, 1, "boundary.prefix", "missing PUBLIC_ID_PREFIXES table")
+                )
+                return set(actual.values())
+            for match in re.finditer(r'\(\s*"([a-z][a-z0-9_]*)"\s*,', table.group(1)):
+                found.setdefault(match.group(1), table.start(1) + match.start(1) - 1)
+        missing = set(EXPECTED_PREFIXES) - set(found)
+        stale = set(found) - set(EXPECTED_PREFIXES)
         for prefix in sorted(missing):
             line, column = _line_column(text, body_offset)
             diagnostics.append(
@@ -601,12 +677,11 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
                 )
             )
         for prefix in sorted(stale):
-            relative = body.find(f'"{prefix}"')
             diagnostics.append(
                 _diagnostic_at(
                     path,
                     text,
-                    body_offset + max(relative, 0),
+                    found[prefix],
                     "boundary.prefix",
                     f"selector ID registry has unregistered prefix {prefix!r}",
                 )
@@ -704,14 +779,20 @@ def _runtime_operation_classes(
 
     variants, _ = enum_registry("ResourceOperation")
     local_variants, _ = enum_registry("LocalOperation")
-    class_method = _balanced_body(
-        text,
-        re.compile(
-            r"\bimpl\s+ResourceOperation\s*\{.*?"
-            r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
-            re.DOTALL,
-        ),
+    class_re = re.compile(
+        r"\bimpl\s+ResourceOperation\s*\{.*?"
+        r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
+        re.DOTALL,
     )
+    # The class table lives in resource.rs or in its own module, resource/class.rs.
+    class_path, class_text = path, text
+    class_method = _balanced_body(text, class_re)
+    module = path.with_suffix("") / "class.rs"
+    if class_method is None and module.is_file():
+        module_text = _read(module, diagnostics)
+        if module_text is not None:
+            class_path, class_text = module, module_text
+            class_method = _balanced_body(module_text, class_re)
     if class_method is None:
         diagnostics.append(
             Diagnostic(path, 1, 1, "boundary.operation-class", "missing ResourceOperation::class")
@@ -731,8 +812,8 @@ def _runtime_operation_classes(
         if wire_class not in TRANSPORT_OPERATION_CLASSES:
             diagnostics.append(
                 _diagnostic_at(
-                    path,
-                    text,
+                    class_path,
+                    class_text,
                     body_offset + branch.start("class"),
                     "boundary.operation-class",
                     f"unsupported runtime operation class {wire_class!r}",
@@ -744,8 +825,8 @@ def _runtime_operation_classes(
             if operation is None:
                 diagnostics.append(
                     _diagnostic_at(
-                        path,
-                        text,
+                        class_path,
+                        class_text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"class registry references unknown ResourceOperation::{variant}",
@@ -755,8 +836,8 @@ def _runtime_operation_classes(
             if variant in assigned_variants:
                 diagnostics.append(
                     _diagnostic_at(
-                        path,
-                        text,
+                        class_path,
+                        class_text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"ResourceOperation::{variant} has more than one class",
@@ -768,8 +849,8 @@ def _runtime_operation_classes(
     if "OperationClass::Mutation" not in body:
         diagnostics.append(
             _diagnostic_at(
-                path,
-                text,
+                class_path,
+                class_text,
                 body_offset,
                 "boundary.operation-class",
                 "ResourceOperation::class must have a Mutation fallback",
@@ -1054,6 +1135,27 @@ def _validate_catalog_type(
                 # frontend projection (OWNERSHIP-PRINCIPLES window records).
                 "types.WindowRecordSnapshot.fields.record",
                 "operations.window_record.put.params.fields.record",
+                # Settings values are data the settings schema describes, not
+                # the catalog (plans/cmux-next/settings-react.md section 2).
+                "operations.settings.set.params.fields.value",
+                "operations.settings.schema.result",
+                "operations.settings.list.result.items",
+                "operations.settings.get.result",
+                "operations.settings.snapshot.result",
+                "errors.settings.invalid.details.fields.accepted",
+                "errors.settings.invalid.details.fields.value",
+                # Browser devices are Chrome DevTools' JSONV1 device objects,
+                # verbatim, so a Chrome custom-device export reads unchanged
+                # and Chrome's new keys survive (browser-devices-v1, cx-ocbf3).
+                "operations.browser.devices.add_custom.params.fields.device",
+                "operations.browser.tab.emulate.params.fields.custom",
+                "types.BrowserDeviceAddResult.fields.device",
+                "types.BrowserDeviceList.fields.chrome",
+                "types.BrowserDeviceList.fields.devices.items",
+                # A keybinding's args are the command's own object, passed
+                # through unchanged (keybindings.json, cx-9ce.17).
+                "types.KeybindingEntry.fields.args.value.values",
+                "operations.keybindings.set.params.fields.args.values",
                 # Sidebar layout sections and items: the reducer validates
                 # them, and a newer app's values and keys must survive a
                 # round trip (sidebar-sections.md L5), which a closed
@@ -1061,6 +1163,26 @@ def _validate_catalog_type(
                 "types.SidebarLayoutSnapshot.fields.sections.items",
                 "types.SidebarLayoutOpSectionAdd.fields.section",
                 "types.SidebarLayoutOpItemAdd.fields.item",
+                # The sidebar document (sidebar-doc-v1): sections, items,
+                # targets, patches and ops are the reducer's own objects
+                # (cmux-layout-reducer sidebar_doc), validated there, and a
+                # newer app's keys must survive a round trip.
+                "types.SidebarSectionSnapshot.fields.kind",
+                "types.SidebarItemSnapshot.fields.body",
+                "types.SidebarDocMutation.fields.inverse.items",
+                "operations.sidebar.adopt.params.fields.refs.items",
+                "operations.sidebar.adopt.params.fields.to",
+                "operations.sidebar.apply.params.fields.ops.items",
+                "operations.sidebar.group.create.params.fields.to",
+                "operations.sidebar.group.update.params.fields.patch",
+                "operations.sidebar.item.add.params.fields.item",
+                "operations.sidebar.item.add.params.fields.to",
+                "operations.sidebar.item.update.params.fields.patch",
+                "operations.sidebar.move.params.fields.to",
+                "operations.sidebar.section.add.params.fields.place",
+                "operations.sidebar.section.add.params.fields.section",
+                "operations.sidebar.section.move.params.fields.place",
+                "operations.sidebar.section.update.params.fields.patch",
                 # Conversation message parts and reactions: the conversation
                 # reducer (cmux-conversation) validates them, and a newer
                 # app's part kinds (questions, attachments, work cards) must
@@ -1542,10 +1664,18 @@ def _operation_catalog(
             _catalog_diagnostic(diagnostics, path, text, f"{operation} descriptor must be an object")
             continue
         required = {"class", "idempotency", "target", "ancestors", "params", "result", "errors"}
-        allowed = required | {"stream", "constraints"}
+        allowed = required | {"stream", "constraints", "risk"}
         if not required <= set(descriptor) or set(descriptor) - allowed:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation} descriptor has a schema hole", operation
+            )
+        if "risk" in descriptor and descriptor["risk"] not in OPERATION_RISKS:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} has invalid risk {descriptor['risk']!r}",
+                operation,
             )
         operation_class = descriptor.get("class")
         classes[operation] = str(operation_class)
@@ -1929,7 +2059,32 @@ def _operation_catalog(
         if (
             not isinstance(create_fields, dict)
             or set(create_fields)
-            != {"name", "initial_content", "correlation_key", "expected_revision", "ephemeral"}
+            != {
+                "name",
+                "initial_content",
+                "correlation_key",
+                "expected_revision",
+                "ephemeral",
+                "cwd",
+                "argv",
+                "shell",
+                "focus",
+            }
+            or create_fields.get("focus", {}).get("required") is not False
+            or create_fields.get("focus", {}).get("type")
+            != {"kind": "primitive", "name": "boolean"}
+            or create_fields.get("cwd", {}).get("required") is not False
+            or create_fields.get("cwd", {}).get("type") != {"kind": "primitive", "name": "string"}
+            or create_fields.get("argv", {}).get("required") is not False
+            or create_fields.get("argv", {}).get("type")
+            != {
+                "kind": "array",
+                "items": {"kind": "primitive", "name": "string"},
+                "min_items": 1,
+            }
+            or create_fields.get("shell", {}).get("required") is not False
+            or create_fields.get("shell", {}).get("type")
+            != {"kind": "primitive", "name": "string", "min_length": 1}
             or create_fields.get("ephemeral", {}).get("required") is not False
             or create_fields.get("ephemeral", {}).get("type")
             != {"kind": "primitive", "name": "boolean"}
@@ -1948,7 +2103,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 
@@ -2037,19 +2192,26 @@ def _operation_catalog(
     for operation in ("workspace.rename",):
         if operation not in operations:
             continue
-        name_field = (
-            operations.get(operation, {}).get("params", {}).get("fields", {}).get("name")
+        params = operations.get(operation, {}).get("params", {})
+        fields = params.get("fields", {})
+        name_field = fields.get("name")
+        # A release (hq#1957) keeps the current name, so only it may omit one.
+        release = fields.get("release")
+        name_optional_for_release = (
+            isinstance(release, dict)
+            and release.get("type") == {"kind": "primitive", "name": "boolean"}
+            and "name is required unless release is true." in params.get("constraints", [])
         )
         if (
             not isinstance(name_field, dict)
-            or name_field.get("required") is not True
+            or name_field.get("required") is not (not name_optional_for_release)
             or name_field.get("type") != {"kind": "primitive", "name": "string"}
         ):
             _catalog_diagnostic(
                 diagnostics,
                 path,
                 text,
-                f"{operation} name must be a required unrestricted string",
+                f"{operation} name must be an unrestricted string, required unless a release",
                 operation,
             )
     nullable_name = {
@@ -2388,7 +2550,7 @@ def _operation_catalog(
                 "value": {"kind": "resource_id", "resource": "pane"},
             }
             or set(types.get("LayoutColumn", {}).get("fields", {}))
-            != {"column_id", "width", "root", "dock"}
+            != {"column_id", "width", "root", "dock", "rows"}
             or screen_layout != {"kind": "ref", "name": "LayoutDocument"}
             or (
                 "screen.create" in operations
@@ -2419,12 +2581,20 @@ def _operation_catalog(
             "deleted",
             "recoverable",
             "extra",
+            "platform",
+            "capabilities",
         }
         if (
             set(machine_fields) != expected_machine_fields
             or machine_fields.get("name", {}).get("required") is not True
             or machine_fields.get("origin", {}).get("type", {}).get("values")
-            != ["local"]
+            != ["local", "cloud", "ssh", "server"]
+            or machine_fields.get("platform") != {"required": False, "type": {"kind": "nullable", "value": {"kind": "ref", "name": "MachinePlatform"}}}
+            or machine_fields.get("capabilities") != {"required": False, "type": {"kind": "array", "items": {"kind": "primitive", "name": "string"}}}
+            or types.get("MachinePlatform") != {
+                "kind": "object", "extra": False,
+                "fields": {key: {"required": False, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}} for key in ("os", "arch")},
+            }
             or machine_fields.get("status", {}).get("type", {}).get("values")
             != ["running", "connecting", "sleeping", "stopped", "unavailable"]
         ):
@@ -2432,7 +2602,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "MachineSnapshot must describe only the endpoint's local machine",
+                "MachineSnapshot must keep the native owner and bounded remote catalog metadata contract",
                 "MachineSnapshot",
             )
 
@@ -2470,9 +2640,14 @@ def _operation_catalog(
     if "StreamEnd" in types:
         stream_end_fields = types.get("StreamEnd", {}).get("fields", {})
         stream_error_fields = types.get("StreamError", {}).get("fields", {})
-        resource_source = path.parent.parent / "crates/cmux-tui-core/src/resource.rs"
-        resource_text = (
-            resource_source.read_text(encoding="utf-8") if resource_source.exists() else ""
+        # The stream envelopes live in resource/envelope.rs (moved out of resource.rs).
+        resource_text = "".join(
+            source.read_text(encoding="utf-8")
+            for source in (
+                path.parent.parent / "crates/cmux-tui-core/src/resource.rs",
+                path.parent.parent / "crates/cmux-tui-core/src/resource/envelope.rs",
+            )
+            if source.exists()
         )
         if (
             stream_end_fields.get("error", {}).get("type")

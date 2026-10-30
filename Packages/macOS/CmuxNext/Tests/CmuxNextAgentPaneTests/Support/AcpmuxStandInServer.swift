@@ -1,6 +1,6 @@
 import Foundation
 import Network
-import Synchronization
+import CmuxNextCompat
 
 /// A loopback WebSocket server that stands in for acpmux in the transport tests. Per connection it
 /// records the upgrade's `Authorization` and `Origin` headers and every frame, answers every

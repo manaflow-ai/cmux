@@ -2,9 +2,8 @@ public import Foundation
 
 /// The certificate warning page's controls (`LoadErrorView`: Go Back and
 /// Proceed) as registry actions, so the keyboard, the palette and
-/// `action.run` take the buttons' path. Enabled only while a WebKit tab
-/// shows the warning page; Chromium shows its own interstitial, whose
-/// buttons are in the page (Back still works there through browserBack).
+/// `action.run` take the buttons' path. Enabled only while the tab shows
+/// the warning page, in either engine.
 public nonisolated enum CertificateWarningCommand: String, CaseIterable, Hashable, Sendable {
     case proceed
     case goBack
@@ -31,9 +30,8 @@ extension CertificateWarningCommand {
     @MainActor
     public func unavailableReason(on tab: (any BrowserTab)?) -> String? {
         guard let tab else { return Strings.certificateWarningNotShown }
-        // Chromium's interstitial is its own page, not cmux's LoadErrorView.
-        guard tab.engineKind == .webkit, tab is any BrowserCertificateBypassing else { return Strings.certificateWarningChromium }
-        guard let error = tab.state.loadError, error.isCertificateError, error.failingURL?.host() != nil else {
+        guard tab is any BrowserCertificateBypassing, let error = tab.state.loadError, error.isCertificateError,
+              !error.engineShowsPage, error.failingURL?.host() != nil else {
             return Strings.certificateWarningNotShown
         }
         return nil

@@ -66,9 +66,10 @@ kills the machine's terminal.
 
 `cmux notify` run inside a machine reaches the user's Mac as data: the daemon records
 it and the Mac shows it on the pane displaying the terminal it ran in. `--title`,
-`--subtitle` and `--body` are supported; `--desktop` is validated as `true|false` and
-otherwise ignored; `--reply` is refused because a reply would type into a terminal
-across the link.
+`--subtitle` and `--body` are supported. `--desktop false` asks the Mac for no banner,
+and `--reply` for a banner whose Reply text the Mac types into this terminal over the
+link. Against a guest daemon too old for either, the CLI drops the flag and posts a
+plain banner.
 
 ## Arrange the view from inside the machine
 

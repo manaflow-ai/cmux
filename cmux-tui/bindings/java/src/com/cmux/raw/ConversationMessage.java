@@ -11,6 +11,8 @@ import java.util.Objects;
 
 
 public final class ConversationMessage implements WireValue {
+    private final Field<List<String>> answers;
+    private final Field<List<String>> answersPending;
     private final String author;
     private final String clientMsgId;
     private final String conversation;
@@ -22,8 +24,12 @@ public final class ConversationMessage implements WireValue {
     private final Field<ConversationPartRef> replyTo;
     private final Field<String> retractedAt;
     private final UInt64 seq;
+    private final Field<ConversationThreadState> thread;
+    private final Field<String> threadRoot;
 
     private ConversationMessage(Builder builder) {
+        this.answers = builder.answers.map(value -> List.copyOf(value));
+        this.answersPending = builder.answersPending.map(value -> List.copyOf(value));
         if (!builder.authorSet) throw new IllegalArgumentException("author is required");
         this.author = Wire.nonNull(builder.author, "author");
         if (!builder.clientMsgIdSet) throw new IllegalArgumentException("client_msg_id is required");
@@ -43,10 +49,14 @@ public final class ConversationMessage implements WireValue {
         this.retractedAt = builder.retractedAt;
         if (!builder.seqSet) throw new IllegalArgumentException("seq is required");
         this.seq = Wire.nonNull(builder.seq, "seq");
+        this.thread = builder.thread;
+        this.threadRoot = builder.threadRoot;
     }
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<List<String>> answers() { return answers; }
+    public Field<List<String>> answersPending() { return answersPending; }
     public String author() { return author; }
     public String clientMsgId() { return clientMsgId; }
     public String conversation() { return conversation; }
@@ -58,10 +68,20 @@ public final class ConversationMessage implements WireValue {
     public Field<ConversationPartRef> replyTo() { return replyTo; }
     public Field<String> retractedAt() { return retractedAt; }
     public UInt64 seq() { return seq; }
+    public Field<ConversationThreadState> thread() { return thread; }
+    public Field<String> threadRoot() { return threadRoot; }
 
     public static ConversationMessage fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConversationMessage");
         Builder builder = builder();
+        Object rawAnswers = Wire.optional(object, "answers");
+        if (!Wire.isMissing(rawAnswers)) {
+            builder.answers(Wire.array(rawAnswers, "ConversationMessage.answers", item -> Wire.string(item, "ConversationMessage.answers item")));
+        }
+        Object rawAnswersPending = Wire.optional(object, "answers_pending");
+        if (!Wire.isMissing(rawAnswersPending)) {
+            builder.answersPending(Wire.array(rawAnswersPending, "ConversationMessage.answers_pending", item -> Wire.string(item, "ConversationMessage.answers_pending item")));
+        }
         Object rawAuthor = Wire.required(object, "author");
         builder.author(Wire.string(rawAuthor, "ConversationMessage.author"));
         Object rawClientMsgId = Wire.required(object, "client_msg_id");
@@ -90,12 +110,22 @@ public final class ConversationMessage implements WireValue {
         }
         Object rawSeq = Wire.required(object, "seq");
         builder.seq(Wire.uint64(rawSeq, "ConversationMessage.seq"));
+        Object rawThread = Wire.optional(object, "thread");
+        if (!Wire.isMissing(rawThread)) {
+            builder.thread(ConversationThreadState.fromWire(rawThread));
+        }
+        Object rawThreadRoot = Wire.optional(object, "thread_root");
+        if (!Wire.isMissing(rawThreadRoot)) {
+            builder.threadRoot(Wire.string(rawThreadRoot, "ConversationMessage.thread_root"));
+        }
         return builder.build();
     }
 
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "answers", answers);
+        Wire.put(object, "answers_pending", answersPending);
         Wire.put(object, "author", author);
         Wire.put(object, "client_msg_id", clientMsgId);
         Wire.put(object, "conversation", conversation);
@@ -107,22 +137,26 @@ public final class ConversationMessage implements WireValue {
         Wire.put(object, "reply_to", replyTo);
         Wire.put(object, "retracted_at", retractedAt);
         Wire.put(object, "seq", seq);
+        Wire.put(object, "thread", thread);
+        Wire.put(object, "thread_root", threadRoot);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ConversationMessage that)) return false;
-        return Objects.equals(author, that.author) && Objects.equals(clientMsgId, that.clientMsgId) && Objects.equals(conversation, that.conversation) && Objects.equals(createdAt, that.createdAt) && Objects.equals(editedAt, that.editedAt) && Objects.equals(id, that.id) && Objects.equals(parts, that.parts) && Objects.equals(reactions, that.reactions) && Objects.equals(replyTo, that.replyTo) && Objects.equals(retractedAt, that.retractedAt) && Objects.equals(seq, that.seq);
+        return Objects.equals(answers, that.answers) && Objects.equals(answersPending, that.answersPending) && Objects.equals(author, that.author) && Objects.equals(clientMsgId, that.clientMsgId) && Objects.equals(conversation, that.conversation) && Objects.equals(createdAt, that.createdAt) && Objects.equals(editedAt, that.editedAt) && Objects.equals(id, that.id) && Objects.equals(parts, that.parts) && Objects.equals(reactions, that.reactions) && Objects.equals(replyTo, that.replyTo) && Objects.equals(retractedAt, that.retractedAt) && Objects.equals(seq, that.seq) && Objects.equals(thread, that.thread) && Objects.equals(threadRoot, that.threadRoot);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(author, clientMsgId, conversation, createdAt, editedAt, id, parts, reactions, replyTo, retractedAt, seq); }
+    public int hashCode() { return Objects.hash(answers, answersPending, author, clientMsgId, conversation, createdAt, editedAt, id, parts, reactions, replyTo, retractedAt, seq, thread, threadRoot); }
 
     @Override
     public String toString() { return "ConversationMessage" + toWire(); }
 
     public static final class Builder {
+        private Field<List<String>> answers = Field.omitted();
+        private Field<List<String>> answersPending = Field.omitted();
         private String author;
         private boolean authorSet;
         private String clientMsgId;
@@ -142,7 +176,17 @@ public final class ConversationMessage implements WireValue {
         private Field<String> retractedAt = Field.omitted();
         private UInt64 seq;
         private boolean seqSet;
+        private Field<ConversationThreadState> thread = Field.omitted();
+        private Field<String> threadRoot = Field.omitted();
 
+        public Builder answers(List<String> value) {
+            this.answers = Field.of(value);
+            return this;
+        }
+        public Builder answersPending(List<String> value) {
+            this.answersPending = Field.of(value);
+            return this;
+        }
         public Builder author(String value) {
             this.author = value;
             this.authorSet = true;
@@ -193,6 +237,14 @@ public final class ConversationMessage implements WireValue {
         public Builder seq(UInt64 value) {
             this.seq = value;
             this.seqSet = true;
+            return this;
+        }
+        public Builder thread(ConversationThreadState value) {
+            this.thread = Field.of(value);
+            return this;
+        }
+        public Builder threadRoot(String value) {
+            this.threadRoot = Field.of(value);
             return this;
         }
         public ConversationMessage build() { return new ConversationMessage(this); }

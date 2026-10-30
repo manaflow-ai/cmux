@@ -4,29 +4,20 @@ public import AppKit
 @MainActor
 public protocol CmuxToastHosting: AnyObject {
     /// `windowGone` runs if the window closes while the toast shows.
-    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, windowGone: @escaping () -> Void)
+    /// `appearing` false shows it in place at once (it takes a shown toast's slot).
+    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void)
     func move(_ toast: CmuxToastView, to slot: Int)
-    func hide(_ toast: CmuxToastView)
+    /// `animated` false removes it at once (a newer toast took its place).
+    func hide(_ toast: CmuxToastView, animated: Bool)
 }
 
 /// Toasts on the R84 `WindowOverlayHost` (`.toast` kind): above every page,
 /// taking clicks only on the toast itself.
 @MainActor
-public final class CmuxToastOverlayHost: CmuxToastHosting {
+public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring {
     private var handles: [ObjectIdentifier: (handle: OverlayHandle, window: NSWindow, view: CmuxToastView, slot: Int)] = [:]
-    private var avoidanceObserver: (any NSObjectProtocol)?
 
-    public init() {
-        avoidanceObserver = NotificationCenter.default.addObserver(forName: .cmuxToastAvoidanceDidChange, object: nil,
-                                                                   queue: .main) { [weak self] _ in
-            // task-owner: one hop to the main actor; moves this host's toasts once
-            Task { @MainActor in self?.reanchor(in: nil) }
-        }
-    }
-
-    isolated deinit {
-        if let avoidanceObserver { NotificationCenter.default.removeObserver(avoidanceObserver) }
-    }
+    public init() {}
 
     /// The overlay places a toast 24 pt above the anchor's bottom, centered.
     static let overlayLift: CGFloat = 24
@@ -44,14 +35,17 @@ public final class CmuxToastOverlayHost: CmuxToastHosting {
                            floor: Self.floor(width: toast.frame.width, in: bounds, window: window))
     }
 
-    /// Moves every toast in `window` (all windows when nil) clear of the avoided views.
-    private func reanchor(in window: NSWindow?) {
-        for entry in handles.values where window == nil || entry.window === window {
-            entry.handle.update(anchor: anchor(for: entry.view, slot: entry.slot, in: entry.window))
+    /// Moves every toast in `window` clear of the avoided views, sliding from where it is drawn
+    /// as a restack does (``CmuxToastAvoidance/avoidanceChanged(in:)`` calls it for its window).
+    func reanchor(in window: NSWindow) {
+        for entry in handles.values where entry.window === window {
+            CmuxToastMotion.move(entry.view) {
+                entry.handle.update(anchor: anchor(for: entry.view, slot: entry.slot, in: entry.window))
+            }
         }
     }
 
-    public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, windowGone: @escaping () -> Void) {
+    public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
         toast.layoutSubtreeIfNeeded()
         let size = toast.fittingSize
         toast.translatesAutoresizingMaskIntoConstraints = true
@@ -61,46 +55,28 @@ public final class CmuxToastOverlayHost: CmuxToastHosting {
         let handle = WindowOverlayHost.host(for: window).present(toast, options: options)
         handle.onDismiss = windowGone
         handles[ObjectIdentifier(toast)] = (handle, window, toast, slot)
+        // This window's avoided views now move this host's toasts there (and no other window's).
+        CmuxToastAvoidance.register(self, in: window)
+        if appearing { CmuxToastMotion.appear(toast) }
     }
 
     public func move(_ toast: CmuxToastView, to slot: Int) {
         guard var entry = handles[ObjectIdentifier(toast)] else { return }
         entry.slot = slot
         handles[ObjectIdentifier(toast)] = entry
-        entry.handle.update(anchor: anchor(for: toast, slot: slot, in: entry.window))
+        CmuxToastMotion.move(toast) { entry.handle.update(anchor: anchor(for: toast, slot: slot, in: entry.window)) }
     }
 
-    public func hide(_ toast: CmuxToastView) {
-        guard let (handle, _, _, _) = handles.removeValue(forKey: ObjectIdentifier(toast)) else { return }
+    public func hide(_ toast: CmuxToastView, animated: Bool) {
+        guard let (handle, window, _, _) = handles.removeValue(forKey: ObjectIdentifier(toast)) else { return }
         handle.onDismiss = nil
-        handle.dismiss()
-    }
-}
-
-/// Keeps toasts off screen (tests, headless automation) and records their
-/// slots; `closeWindow()` acts as if the window closed.
-@MainActor
-public final class CmuxToastHeadlessHost: CmuxToastHosting {
-    private var shown: [(view: CmuxToastView, slot: Int, gone: () -> Void)] = []
-
-    public init() {}
-
-    /// The toasts showing, bottom slot first.
-    public var slots: [CmuxToast] { shown.sorted { $0.slot < $1.slot }.map(\.view.toast) }
-
-    public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, windowGone: @escaping () -> Void) {
-        shown.append((toast, slot, windowGone))
-    }
-
-    public func move(_ toast: CmuxToastView, to slot: Int) {
-        if let index = shown.firstIndex(where: { $0.view === toast }) { shown[index].slot = slot }
-    }
-
-    public func hide(_ toast: CmuxToastView) {
-        shown.removeAll { $0.view === toast }
-    }
-
-    public func closeWindow() {
-        shown.first?.gone()
+        // Its last toast in the window gone, this host stops moving toasts there (a closed window
+        // ends its toasts through here too, via `windowGone`).
+        if !handles.values.contains(where: { $0.window === window }) {
+            CmuxToastAvoidance.unregister(self, from: window)
+        }
+        // While it fades, the page under it gets the next click.
+        handle.stopTakingMouse()
+        CmuxToastMotion.disappear(toast, animated: animated) { handle.dismiss() }
     }
 }

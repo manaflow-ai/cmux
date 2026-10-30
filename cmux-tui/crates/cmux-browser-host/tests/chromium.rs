@@ -78,6 +78,25 @@ fn serve() -> u16 {
                         })
                         .unwrap_or_default()
                 };
+                // HTTP Basic sign-in (realm "parity"; user `user`, password `pass`).
+                if path == "/basic" {
+                    let mut stream = stream;
+                    let (status, extra, body) = if header("authorization") == "Basic dXNlcjpwYXNz" {
+                        ("200 OK", "", "<!doctype html><p id=r>signed in</p>")
+                    } else {
+                        (
+                            "401 Unauthorized",
+                            "WWW-Authenticate: Basic realm=\"parity\"\r\n",
+                            "<!doctype html><p id=r>denied</p>",
+                        )
+                    };
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\n{extra}Content-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    return;
+                }
                 // One hop to the other loopback origin (host fetch redirects).
                 if path == "/redirect" {
                     let mut stream = stream;
@@ -142,6 +161,10 @@ fn serve() -> u16 {
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
                     "/clicks" => files::clicks_page(),
+                    "/editing" => editing::editing_page(),
+                    "/opener" => popups::opener_page(),
+                    "/rerender" => press::rerender_page(),
+                    "/popup" => popups::popup_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
@@ -550,6 +573,7 @@ fn a_headless_session_lists_no_start_tab() {
             locality: Default::default(),
         },
         label: "start-tab".into(),
+        terminal: None,
         profile: cmux_browser_host::host::AGENT_PROFILE.into(),
     };
     let driver = engines.driver("headless", Arc::new(|_| {}), &session).expect("headless driver");
@@ -1120,6 +1144,7 @@ fn headless_tabs_list_has_the_protocol_shape() {
         on_behalf_of: None,
         origin: "cli".into(),
         label: String::new(),
+        terminal: None,
         implicit_session: false,
         engine: "headless".into(),
     };
@@ -1273,6 +1298,22 @@ use files::files_page;
 #[path = "chromium/clipboard.rs"]
 mod clipboard;
 
+// macOS editing and formatting shortcuts on every platform (classic parity).
+#[path = "chromium/editing.rs"]
+mod editing;
+
+// window.open popups with and without an opener (classic parity).
+#[path = "chromium/popups.rs"]
+mod popups;
+
+// The press target check and clicks on re-rendering targets (classic parity).
+#[path = "chromium/press.rs"]
+mod press;
+
+// HTTP sign-ins go to the person (classic parity).
+#[path = "chromium/http_auth.rs"]
+mod http_auth;
+
 // HTML5 drag and drop (input.drag, parity 05).
 #[path = "chromium/drag.rs"]
 mod drag;
@@ -1296,3 +1337,7 @@ mod cookie_backups;
 // EGRESS-ISOLATED on a real Chromium (cx-d0d.7).
 #[path = "chromium/egress_isolated.rs"]
 mod egress_isolated;
+
+// BR-R3: a WebSocket reaches only hosts the domain policy allows (cx-d0d.79).
+#[path = "chromium/websocket_policy.rs"]
+mod websocket_policy;

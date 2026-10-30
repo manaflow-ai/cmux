@@ -10,6 +10,7 @@
 #include <set>
 
 #include "include/cef_application_mac.h"
+#include "include/cef_parser.h"
 #include "include/wrapper/cef_library_loader.h"
 #include "shim_internal.h"
 
@@ -23,6 +24,11 @@ ForkApi& fork_api() {
 Host& host() {
   static Host h;
   return h;
+}
+
+bool& stopping() {
+  static bool value = false;
+  return value;
 }
 
 void Emit(int kind, int browser_id, int request, int64_t a, int64_t b,
@@ -58,20 +64,99 @@ bool TakeHostClose(int browser_id) {
   return host_closes().erase(browser_id) > 0;
 }
 
-static bool g_extension_developer_mode = false;
-static cef_color_t g_background_color = 0;
-
-cef_color_t BackgroundColor() {
-  return g_background_color;
+bool IsHostClose(int browser_id) {
+  return host_closes().count(browser_id) > 0;
 }
+
+namespace {
+
+struct BeforeUnloadQuestion {
+  int browser_id;
+  CefRefPtr<CefJSDialogCallback> callback;
+};
+
+std::map<int, BeforeUnloadQuestion>& before_unload_questions() {
+  static std::map<int, BeforeUnloadQuestion> map;
+  return map;
+}
+
+// Removes the browser's questions and returns their callbacks.
+std::vector<CefRefPtr<CefJSDialogCallback>> TakeBeforeUnload(int browser_id) {
+  std::vector<CefRefPtr<CefJSDialogCallback>> taken;
+  auto& map = before_unload_questions();
+  for (auto it = map.begin(); it != map.end();) {
+    if (it->second.browser_id == browser_id) {
+      taken.push_back(it->second.callback);
+      it = map.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return taken;
+}
+
+}  // namespace
+
+int StoreBeforeUnloadCallback(int browser_id, CefRefPtr<CefJSDialogCallback> callback) {
+  static int next = 1;
+  int token = next++;
+  before_unload_questions()[token] = {browser_id, callback};
+  return token;
+}
+
+bool AnswerBeforeUnload(int browser_id, bool accept) {
+  // Taken first: Continue can re-enter the dialog handler (OnResetDialogState).
+  std::vector<CefRefPtr<CefJSDialogCallback>> callbacks = TakeBeforeUnload(browser_id);
+  for (auto& callback : callbacks) callback->Continue(accept, CefString());
+  return !callbacks.empty();
+}
+
+bool DropBeforeUnload(int browser_id) {
+  return !TakeBeforeUnload(browser_id).empty();
+}
+
+static bool g_extension_developer_mode = false;
 // accept_language_list from cmux_shim_initialize, for every request context.
 static std::string g_accept_languages;
+// browser.searchEngine as Chromium template URL data (JSON); empty keeps
+// Chromium's own default search provider. Set by cmux_shim_set_default_search.
+static std::string g_default_search_json;
 
 namespace {
 
 std::set<std::string>& initialized_contexts() {
   static std::set<std::string> set;
   return set;
+}
+
+// Makes g_default_search_json the profile's default search provider, or
+// resets the preference to Chromium's own default when it is empty.
+void ApplyDefaultSearch(CefRefPtr<CefRequestContext> context) {
+  static const char kPref[] = "default_search_provider_data.template_url_data";
+  if (!context || !context->CanSetPreference(kPref)) return;
+  CefRefPtr<CefValue> value;  // null restores the default
+  if (!g_default_search_json.empty()) {
+    value = CefParseJSON(g_default_search_json, JSON_PARSER_RFC);
+    if (!value || value->GetType() != VTYPE_DICTIONARY) return;
+  }
+  CefString error;
+  context->SetPreference(kPref, value, error);
+}
+
+// Turns off Chromium's download bubble that opens by itself when a download
+// ends ("partial view"; download_bubble_ui_controller.cc returns no rows for
+// it while this preference is false, and the bubble then never shows). It
+// anchors to a toolbar cmux never shows, so it opened over the page; the
+// App's Downloads popup opens under its own toolbar button instead
+// (BrowserDownloadsPopup). The full bubble opens only from Chromium's
+// toolbar button, which cmux has none of.
+void DisableDownloadBubble(CefRefPtr<CefRequestContext> context) {
+  static const char kPref[] = "download_bubble.partial_view_enabled";
+  if (!context || !context->CanSetPreference(kPref)) return;
+  CefRefPtr<CefValue> value = CefValue::Create();
+  value->SetBool(false);
+  CefString error;
+  context->SetPreference(kPref, value, error);
 }
 
 // Applies per-profile preferences once the profile is loaded.
@@ -88,7 +173,10 @@ class ContextHandler : public CefRequestContextHandler {
     }
     // Remote localhost: before any browser of this context navigates.
     ApplyContextProxy(context, cache_path_);
+    ApplyDefaultSearch(context);
+    DisableDownloadBubble(context);
     initialized_contexts().insert(cache_path_);
+    WatchBookmarks(cache_path_);
   }
 
  private:
@@ -142,6 +230,7 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
 
 void ReleaseRequestContext(const std::string& key) {
   ForgetPreferenceWatches(key);
+  ForgetBookmarkWatch(key);
   request_contexts().erase(key);
   initialized_contexts().erase(key);
   ForgetContextProxy(key);
@@ -213,6 +302,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_navigation_state, "cmux_tab_navigation_state");
   CMUX_BIND(tab_restore_navigation, "cmux_tab_restore_navigation");
   CMUX_BIND(browser_set_background_color, "cmux_browser_set_background_color");
+  CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
+  CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
+  CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -223,6 +315,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_popup_windows_enabled, "cmux_set_popup_windows_enabled");
   CMUX_BIND(popup_window_bounds, "cmux_popup_window_bounds");
   CMUX_BIND(popup_window_attach, "cmux_popup_window_attach");
+  CMUX_BIND(devtools_inspected_bounds, "cmux_devtools_inspected_bounds");
   CMUX_BIND(side_panel_watch, "cmux_side_panel_watch");
   CMUX_BIND(side_panel_state, "cmux_side_panel_state");
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
@@ -234,6 +327,22 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(password_set_username, "cmux_password_set_username");
   CMUX_BIND(password_reveal, "cmux_password_reveal");
   CMUX_BIND(password_export, "cmux_password_export");
+  CMUX_BIND(password_import_v2, "cmux_password_import_v2");
+  CMUX_BIND(password_import_replace, "cmux_password_import_replace");
+  CMUX_BIND(set_password_prompt_handler, "cmux_set_password_prompt_handler");
+  CMUX_BIND(password_prompt_answer, "cmux_password_prompt_answer");
+  CMUX_BIND(set_password_generation_enabled, "cmux_set_password_generation_enabled");
+  CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
+  CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
+  CMUX_BIND(browser_set_detached_hosting, "cmux_browser_set_detached_hosting");
+  CMUX_BIND(browser_set_embedder_active, "cmux_browser_set_embedder_active");
+  CMUX_BIND(post_user_input_task, "cmux_post_user_input_task");
+  CMUX_BIND(browser_send_wheel, "cmux_browser_send_wheel");
+  CMUX_BIND(browser_text_input_watch, "cmux_browser_text_input_watch");
+  CMUX_BIND(browser_accessibility_token, "cmux_browser_accessibility_token");
+  CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
+  CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
+  CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
 #undef CMUX_BIND
 }
 
@@ -242,15 +351,6 @@ static void BindForkApi(const char* framework_binary) {
 // Chromium requires NSApp to implement CefAppProtocol before CefInitialize.
 // The app's NSApplication subclass (CmuxApplication) conforms statically and
 // maintains the sendEvent flag itself; the shim only checks.
-
-std::set<int>& own_background_browsers() {
-  static std::set<int> set;
-  return set;
-}
-
-void ForgetOwnBackground(int browser_id) {
-  own_background_browsers().erase(browser_id);
-}
 
 }  // namespace cmux_shim
 
@@ -286,24 +386,18 @@ void cmux_shim_set_extension_developer_mode(int enabled) {
   g_extension_developer_mode = enabled != 0;
 }
 
-void cmux_shim_set_background_color(unsigned int argb) {
-  const bool changed = g_background_color != static_cast<cef_color_t>(argb);
-  g_background_color = static_cast<cef_color_t>(argb);
-  // Fork API 12: live tabs still on the theme color follow a theme change;
-  // tabs past their first real page keep their own (white) background.
-  if (changed && argb && fork_api().browser_set_background_color) {
-    for (auto& [id, browser] : browsers()) {
-      if (own_background_browsers().count(id)) continue;
-      fork_api().browser_set_background_color(id, argb);
-    }
+void cmux_shim_set_default_search(const char* template_url_json) {
+  g_default_search_json = template_url_json ? template_url_json : "";
+  for (const auto& entry : request_contexts()) {
+    if (initialized_contexts().count(entry.first)) ApplyDefaultSearch(entry.second);
   }
 }
 
-int cmux_shim_browser_set_background_color(int browser_id, unsigned int argb) {
-  if (!fork_api().browser_set_background_color) return 0;
-  own_background_browsers().insert(browser_id);
-  fork_api().browser_set_background_color(browser_id, argb);
-  return 1;
+// Read once by cmux_shim_initialize (CefSettings.chrome_policy_id).
+static std::string g_chrome_policy_id;
+
+void cmux_shim_set_chrome_policy_id(const char* policy_id) {
+  g_chrome_policy_id = policy_id ? policy_id : "";
 }
 
 int cmux_shim_fork_api_version(void) {
@@ -317,6 +411,25 @@ int cmux_shim_prepare_application(void) {
                  [app respondsToSelector:@selector(setHandlingSendEvent:)]
              ? 1
              : 0;
+}
+
+// Chromium's page window (NativeWidgetMacNSWindow) re-encodes its restorable state after every
+// key, order or frame change (invalidateRestorableState -> saveRestorableState ->
+// reallySaveRestorableState -> -encodeRestorableStateWithCoder:), for Chrome's own session restore
+// (OnWindowStateRestorationDataChanged). Each encode asks the WindowServer for the window's Space
+// name, a synchronous round trip on the main thread; in cmux it ran after every pane focus move
+// across Chromium panes (a515). CEF never restores these windows and cmux restores its own, so the
+// encode becomes a no-op. A CEF without that private method keeps its behavior.
+static void StopChromiumWindowRestorationData() {
+  Class window_class = NSClassFromString(@"NativeWidgetMacNSWindow");
+  SEL selector = NSSelectorFromString(@"reallySaveRestorableState");
+  Method method = window_class ? class_getInstanceMethod(window_class, selector) : nullptr;
+  if (!method) {
+    return;
+  }
+  IMP no_op = imp_implementationWithBlock(^(id) {
+  });
+  class_replaceMethod(window_class, selector, no_op, method_getTypeEncoding(method));
 }
 
 int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,
@@ -347,7 +460,10 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   if (locale && *locale) {
     CefString(&settings.locale) = locale;
   }
-  settings.background_color = g_background_color;
+  if (!g_chrome_policy_id.empty()) {
+    CefString(&settings.chrome_policy_id) = g_chrome_policy_id;
+  }
+  settings.background_color = BackgroundColor();
   g_accept_languages = accept_languages ? accept_languages : "";
   if (!g_accept_languages.empty()) {
     CefString(&settings.accept_language_list) = g_accept_languages;
@@ -358,7 +474,11 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
     switches.emplace_back(*it);
   }
   CefMainArgs args(0, nullptr);
-  return CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr) ? 1 : 0;
+  if (!CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr)) {
+    return 0;
+  }
+  StopChromiumWindowRestorationData();
+  return 1;
 }
 
 void cmux_shim_do_work(void) {
@@ -366,12 +486,25 @@ void cmux_shim_do_work(void) {
 }
 
 void cmux_shim_close_all(void) {
+  stopping() = true;
   // Copy: CloseBrowser can re-enter OnBeforeClose synchronously.
   auto all = browsers();
   for (auto& [id, browser] : all) {
     MarkHostClose(id);
+    // Quit never asks: a question already showing is answered Leave.
+    AnswerBeforeUnload(id, true);
     browser->GetHost()->CloseBrowser(true);
   }
+}
+
+int cmux_shim_before_unload_reply(int token, int accept) {
+  auto& map = before_unload_questions();
+  auto it = map.find(token);
+  if (it == map.end()) return 0;
+  CefRefPtr<CefJSDialogCallback> callback = it->second.callback;
+  map.erase(it);
+  callback->Continue(accept != 0, CefString());
+  return 1;
 }
 
 int cmux_shim_live_browser_count(void) {
@@ -395,12 +528,15 @@ void cmux_shim_shutdown(void) {
   if (fork_api().set_omnibox_suggestions_handler) {
     fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
   }
+  RemovePasswordPromptHandler();
   host() = Host();
   // Preference observer registrations go before their contexts.
   ReleasePreferenceWatches();
+  ReleaseBookmarkWatches();
   request_contexts().clear();
   // Download callbacks hold Chromium objects: release them first.
   ForgetDownloads();
+  ForgetPermissionPrompts();
   CefShutdown();
 }
 

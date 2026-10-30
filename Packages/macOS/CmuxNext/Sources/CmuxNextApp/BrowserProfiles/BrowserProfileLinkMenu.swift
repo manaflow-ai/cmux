@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextIcons
 
 /// "Open Link in Browser Profile ▸" in a page's or a terminal's context
 /// menu: one item per profile, each running `browserProfile.openLink` (the
@@ -14,21 +16,67 @@ enum BrowserProfileLinkMenu {
         let profiles = services.browserProfiles.ordered
         guard let link, link.scheme == "http" || link.scheme == "https", profiles.count > 1, let title = services.registry.descriptor(for: "browserProfile.openLink")?.title else { return [] }
         let submenu = NSMenu()
-        for record in profiles {
-            let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
-            let target = ActionMenuClosure { [weak services] in
-                services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
-                    target: target,
-                    arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
-            }
-            item.target = target
-            item.action = #selector(ActionMenuClosure.run)
-            item.representedObject = target
+        // Personal browser profiles live in the local daemon, which stores their asset icons.
+        let asset = { [weak services] (icon: String?) in
+            IconAssetImages.shared.menuImage(icon, owner: services?.machines.local, side: 16)
+        }
+        for item in profileItems(profiles, asset: asset, run: { [weak services] record in
+            services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
+                target: target,
+                arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
+        }) {
             submenu.addItem(item)
         }
         let parent = NSMenuItem(title: title.hasSuffix("…") ? String(title.dropLast()) : title, action: nil, keyEquivalent: "")
         parent.submenu = submenu
         return [parent, .separator()]
+    }
+
+    /// One item per profile, titled by its name. Its icon (an emoji, an SF Symbol name, or a
+    /// stored image or SVG that `asset` draws) is the item's image and a profile without one gets
+    /// an empty image of the same size, so every name starts in the same column.
+    static func profileItems(_ profiles: [BrowserProfileRecord], asset: (String?) -> NSImage? = { _ in nil },
+                             run: @escaping @MainActor (BrowserProfileRecord) -> Void) -> [NSMenuItem] {
+        profiles.map { record in
+            let item = NSMenuItem(title: record.name, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
+            let target = ActionMenuClosure { run(record) }
+            item.target = target
+            item.representedObject = target
+            item.image = asset(record.icon) ?? iconImage(record.icon)
+            return item
+        }
+    }
+
+    /// `icon` in a 16 pt square: a symbol as the menu tints it, an emoji centered in its own
+    /// colors, or the empty square (also for a stored asset not read yet).
+    private static func iconImage(_ icon: String?) -> NSImage {
+        let size = NSSize(width: 16, height: 16)
+        switch IconValue(wire: icon) {
+        case .symbol(let name) where NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil:
+            guard let symbol = NSImage.menuSymbol(name) else { return NSImage(size: size) }
+            // The symbol keeps its own size, so it sits centered in the square (scaled down only if
+            // it is larger), and the square stays a template the menu tints like the title.
+            let framed = NSImage(size: size, flipped: false) { rect in
+                let natural = symbol.size
+                let fit = min(1, rect.width / max(natural.width, 1), rect.height / max(natural.height, 1))
+                let drawn = NSSize(width: natural.width * fit, height: natural.height * fit)
+                symbol.draw(in: NSRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2,
+                                       width: drawn.width, height: drawn.height))
+                return true
+            }
+            framed.isTemplate = true
+            return framed
+        case .emoji(let emoji):
+            return NSImage(size: size, flipped: false) { rect in
+                // 12 pt: a color emoji's glyph runs past its point size.
+                let text = NSAttributedString(string: emoji, attributes: [.font: Typography.system(size: 12)])
+                let drawn = text.size()
+                text.draw(at: NSPoint(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2))
+                return true
+            }
+        default:
+            return NSImage(size: size)
+        }
     }
 }
 

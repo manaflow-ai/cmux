@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 /// The header as a real macOS 26 titlebar: a unified NSToolbar whose items
 /// AppKit renders in Liquid Glass (the avatar, centered; the video button,
@@ -26,7 +27,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             avatarHolder?.shift = contentLeading / 2
         }
     }
-    // cmux: built on first use in init, never an IUO (crash program).
+    // built on first use in init, never an IUO.
     private let pillHolder = PassThroughView()
     private(set) lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
     /// The accessory spans the window, or (macOS 26 with a sidebar item) only the detail
@@ -57,17 +58,17 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         toolbar.showsBaselineSeparator = false
         toolbar.centeredItemIdentifiers = [Self.avatarID]
 
-        if #available(macOS 26, *) { // cmux: macOS 14 has no glass bezel
+        if #available(macOS 26, *) {
             pill.bezelStyle = .glass
             pill.borderShape = .capsule
-        } else {
+        } else { // macOS 14 and 15 have no glass bezel
             pill.bezelStyle = .push
         }
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
         pill.image = HeaderBar.pillImageMode ? nil : HeaderBar.chevronImage()
         pill.imageHugsTitle = true
-        pill.font = .systemFont(ofSize: 13, weight: .bold)
+        pill.font = HomeFonts.system(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
         let holder = pillHolder
@@ -100,7 +101,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let accessoryHeight: CGFloat = 28
     static func flag(_ name: String, _ fallback: CGFloat) -> CGFloat {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: name).flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? fallback // cmux: no index math
+        return a.firstIndex(of: name).flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? fallback // no index math
     }
     /// The pill's title and chevron sit 1 pt right of AppKit's centering in
     /// Messages (ink x 262-360.5 pt against 261-359.5).
@@ -114,7 +115,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let chevronCompact = flag("--chev-compact", 1) != 0
     static func chevronImage() -> NSImage? {
         guard let sym = NSImage(systemSymbolName: chevronCompact ? "chevron.compact.right" : "chevron.right", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chevronPoint, weight: [NSFont.Weight.light, .regular, .medium, .semibold, .bold][checked: CrashGuard.int(chevronWeight)] ?? .bold) /* cmux: an out-of-range flag is bold, not a trap */
+          .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chevronPoint, weight: [NSFont.Weight.light, .regular, .medium, .semibold, .bold][checked: CrashGuard.int(chevronWeight)] ?? .bold) /* an out-of-range flag is bold, not a trap */
                 .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(white: chevronWhite, alpha: 1)]))) else { return nil }
         if chevronPad == 0 { return sym }
         let size = NSSize(width: sym.size.width + chevronPad, height: sym.size.height)
@@ -127,7 +128,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let avatarTop = flag("--avatar-top", 8)
     static let pillLift: CGFloat = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--pill-lift").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? -12 // cmux
+        return a.firstIndex(of: "--pill-lift").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? -12
     }()
 
     /// Messages' pill width: 77.75 pt for "Instinct", plus the title's extra width.
@@ -139,7 +140,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     /// Draws the pill's title and chevron at the measured places (rect: the pill's bounds,
     /// flipped).
     static func drawPillContent(_ title: String, in rect: NSRect) {
-        let font = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let font = HomeFonts.system(ofSize: 13, weight: .bold)
         // Messages' title is opaque (255 levels in dark mode; labelColor is 85 % white).
         let ink = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black }
         let s = NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: ink])
@@ -151,7 +152,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         }
     }
     static func pillWidth(_ title: String) -> CGFloat {
-        let bold = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let bold = HomeFonts.system(ofSize: 13, weight: .bold)
         return TextDraw.width(title, font: bold) + 77.75 - TextDraw.width("Instinct", font: bold)
     }
     private var widthConstraint: NSLayoutConstraint? { pill.constraints.first { $0.firstAttribute == .width } }
@@ -276,21 +277,45 @@ private final class AvatarHolder: NSView {
     /// resize keeps the disc over the pill (with a sidebar, a disc with a fixed left margin
     /// stayed where it was while the pill moved).
     private let lane = AvatarLane(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+    /// The disc's shadow, under the disc in the same superview (AvatarShadow).
+    private let shadowView = AvatarShadowView(frame: .zero)
     init(image: NSImage) {
         super.init(frame: NSRect(x: 0, y: 0, width: 40, height: 38))
         imageView.wantsLayer = true
         imageView.layer?.contents = image
         imageView.layer?.contentsGravity = .resize
         imageView.setAccessibilityElement(false)
+        shadowView.wantsLayer = true
+        shadowView.layer?.contentsGravity = .resize
+        shadowView.setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError() }
-    deinit { imageView.removeFromSuperview(); lane.removeFromSuperview() }
+    deinit { imageView.removeFromSuperview(); shadowView.removeFromSuperview(); lane.removeFromSuperview() }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         place()
     }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateShadow()
+    }
+    /// The shadow image at the window's scale.
+    private func updateShadow() {
+        let scale = window?.backingScaleFactor ?? 2
+        shadowView.layer?.contentsScale = scale
+        shadowView.layer?.contents = AvatarShadow.image(scale: scale)
+    }
+    /// The shadow view goes under the disc in the disc's superview, its frame around the disc's.
+    private func addShadow(below disc: NSRect, in parent: NSView) {
+        let m = AvatarShadow.margin
+        shadowView.frame = disc.insetBy(dx: -m, dy: -m)
+        shadowView.autoresizingMask = imageView.autoresizingMask
+        parent.addSubview(shadowView, positioned: .below, relativeTo: imageView)
+        updateShadow()
+    }
     private func place() {
         imageView.removeFromSuperview()
+        shadowView.removeFromSuperview()
         lane.removeFromSuperview()
         guard window != nil else { return }
         var v = superview
@@ -299,6 +324,7 @@ private final class AvatarHolder: NSView {
             imageView.frame = NSRect(x: 0, y: (bounds.height - 40) / 2, width: 40, height: 40)
             imageView.autoresizingMask = []
             addSubview(imageView)
+            addShadow(below: imageView.frame, in: self)
             return
         }
         let b = bar.bounds
@@ -311,8 +337,55 @@ private final class AvatarHolder: NSView {
         imageView.frame = NSRect(x: (lane.bounds.width - 40) / 2, y: 0, width: 40, height: 40)
         imageView.autoresizingMask = [.minXMargin, .maxXMargin]
         lane.addSubview(imageView)
+        addShadow(below: imageView.frame, in: lane)
         bar.addSubview(lane)
     }
+}
+
+/// The avatar disc's shadow: Messages' disc darkens what is under it, mostly downward, onto the
+/// name pill (macOS 27, deactivate-activate tp1200ms and tp0000ms: right under the disc's bottom
+/// edge the pill is 0.80 of ours, 0.87 2 pt lower, 0.95 at 5 pt, 0.98 at 7 pt; beside the disc
+/// about 0.98, above it 1.00). Fitted: a black disc of the avatar's size, 3 pt down, Gaussian
+/// sigma 3 pt, opacity 0.233. Drawn as an image (CIImage's Gaussian takes sigma; a layer shadow's
+/// radius-to-sigma mapping is undocumented) and cached per scale.
+@MainActor
+enum AvatarShadow {
+    /// macOS 27 only (no macOS 26 Messages header reference; ComposeMetrics.macOS26).
+    static let opacity = HeaderBar.flag("--avatar-shadow-opacity", ComposeMetrics.macOS26 ? 0 : 0.233)
+    static let drop = HeaderBar.flag("--avatar-shadow-drop", 3)
+    static let sigma = HeaderBar.flag("--avatar-shadow-sigma", 3)
+    /// The image's margin around the 40 pt disc: the drop plus 3 sigma.
+    static var margin: CGFloat { (drop + 3 * sigma).rounded(.up) }
+    private static var cache: [CGFloat: CGImage] = [:]
+
+    /// The shadow at `scale` (device pixels per point): (40 + 2 margin) pt square, the disc's frame
+    /// inset by -margin; nil if the bitmap cannot be made (no shadow, as before).
+    static func image(scale: CGFloat) -> CGImage? {
+        if let c = cache[scale] { return c }
+        guard opacity > 0, scale > 0, sigma >= 0 else { return nil }
+        let side = 40 + 2 * margin
+        let n = max(1, CrashGuard.int((side * scale).rounded(), in: 1...4096))
+        // The dropped disc, black at the shadow's opacity (CG: bottom-left origin, so the drop is -y).
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.setFillColor(NSColor(white: 0, alpha: opacity).cgColor)
+        ctx.fillEllipse(in: CGRect(x: margin, y: margin - drop, width: 40, height: 40))
+        guard let disc = ctx.makeImage() else { return nil }
+        // Gaussian of `sigma` pt (CIImage's blur takes the standard deviation, in device pixels here).
+        let extent = CGRect(x: 0, y: 0, width: n, height: n)
+        let blurred = CIImage(cgImage: disc).clampedToExtent().applyingGaussianBlur(sigma: Double(sigma * scale)).cropped(to: extent)
+        guard let img = CIContext(options: [.workingColorSpace: space, .outputColorSpace: space]).createCGImage(blurred, from: extent) else { return nil }
+        cache[scale] = img
+        return img
+    }
+}
+
+/// The avatar's shadow view: never takes the mouse (it reaches past the disc; the holder or the
+/// titlebar under it keeps its clicks).
+private final class AvatarShadowView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// The avatar's lane: never takes the mouse (the titlebar under it keeps its clicks and

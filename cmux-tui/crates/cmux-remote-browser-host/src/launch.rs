@@ -7,8 +7,10 @@
 //! and the host quits. No polling and no process scanning: the pipe is the
 //! signal.
 
+use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::time::{Duration, Instant};
 
 use cmux_rd_proto::control::Control;
@@ -80,9 +82,10 @@ pub enum Admission {
     Refused(String),
 }
 
-/// How long a viewer has to send its hello, in total. The host admits one
-/// caller at a time, so a caller that sends nothing or trickles bytes must
-/// not hold it long; the app's viewer sends its hello at once.
+/// How long a viewer has to send its hello, in total. A caller that sends
+/// nothing or trickles bytes holds one of [`MAX_PENDING_HELLOS`] admissions
+/// until then (or until newer callers push it out); the app's viewer sends
+/// its hello at once.
 pub const HELLO_DEADLINE: Duration = Duration::from_secs(3);
 
 /// One viewer's admission on the rd stream carrier, before the host sends a
@@ -144,6 +147,86 @@ pub fn admit_within(
             write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
             Ok(Admission::Refused(format!("refused: {reason}")))
         }
+    }
+}
+
+/// A viewer [`accept_viewers`] admitted: its stream, its hello and the bytes
+/// it sent after the hello.
+pub struct Admitted {
+    pub stream: TcpStream,
+    pub hello: Control,
+    pub deframer: StreamDeframer,
+}
+
+/// How many callers may wait for their hello at once. A caller past the cap
+/// closes the oldest waiting one, so callers that never send a hello cannot
+/// keep the app's viewer (which sends its hello at once) out by filling it.
+pub const MAX_PENDING_HELLOS: usize = 32;
+
+/// The `--serve` accept loop: admits each caller on `listener` on its own
+/// thread ([`admit_within`] with `deadline`) and runs `session` for each
+/// admitted viewer, one at a time, on the calling thread. A caller that
+/// never sends a hello holds only its own admission, never the viewer slot,
+/// so the app's viewer is admitted while it waits.
+pub fn accept_viewers(
+    listener: TcpListener,
+    secret: Option<String>,
+    deadline: Duration,
+    mut session: impl FnMut(Admitted),
+) {
+    let (admitted, viewers) = mpsc::channel::<Admitted>();
+    let pending: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
+    let secret: Option<Arc<str>> = secret.map(Arc::from);
+    std::thread::spawn(move || {
+        for (id, conn) in (0u64..).zip(listener.incoming()) {
+            // A failed accept or a peer that reset before setsockopt ends
+            // only that connection, never the listener.
+            let mut stream = match conn {
+                Ok(conn) => conn,
+                Err(e) => {
+                    eprintln!("serve: accept failed: {e}");
+                    continue;
+                }
+            };
+            let waiting = match stream.set_nodelay(true).and_then(|()| stream.try_clone()) {
+                Ok(waiting) => waiting,
+                Err(e) => {
+                    eprintln!("serve: connection dropped: {e}");
+                    continue;
+                }
+            };
+            {
+                let mut pending = pending.lock().unwrap_or_else(PoisonError::into_inner);
+                if pending.len() >= MAX_PENDING_HELLOS
+                    && let Some((_, oldest)) = pending.pop_front()
+                {
+                    // Its admission reads end of file and refuses it.
+                    let _ = oldest.shutdown(Shutdown::Both);
+                }
+                pending.push_back((id, waiting));
+            }
+            let (waiters, secret, admitted) = (pending.clone(), secret.clone(), admitted.clone());
+            let admission = move || {
+                let outcome = admit_within(&mut stream, secret.as_deref(), deadline);
+                waiters.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
+                match outcome {
+                    Ok(Admission::Admitted { hello, deframer }) => {
+                        let _ = admitted.send(Admitted { stream, hello, deframer });
+                    }
+                    Ok(Admission::Refused(reason)) => eprintln!("serve: session ended: {reason}"),
+                    Err(e) => eprintln!("serve: session failed: {e}"),
+                }
+            };
+            if let Err(e) = std::thread::Builder::new().spawn(admission) {
+                // The closure (and its stream) is dropped; the slot it took
+                // in `pending` closes with it.
+                eprintln!("serve: connection dropped: {e}");
+                pending.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
+            }
+        }
+    });
+    for viewer in viewers {
+        session(viewer);
     }
 }
 

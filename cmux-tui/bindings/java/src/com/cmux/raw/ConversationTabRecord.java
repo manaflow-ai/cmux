@@ -19,12 +19,15 @@ public final class ConversationTabRecord implements WireValue {
     private final Field<String> owner;
     /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
     private final Field<String> page;
+    /** What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page. */
+    private final Field<String> route;
 
     private ConversationTabRecord(Builder builder) {
         this.agentSession = builder.agentSession;
         this.conversation = builder.conversation;
         this.owner = builder.owner;
         this.page = builder.page;
+        this.route = builder.route;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -33,6 +36,7 @@ public final class ConversationTabRecord implements WireValue {
     public Field<String> conversation() { return conversation; }
     public Field<String> owner() { return owner; }
     public Field<String> page() { return page; }
+    public Field<String> route() { return route; }
 
     public static ConversationTabRecord fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConversationTabRecord");
@@ -53,6 +57,10 @@ public final class ConversationTabRecord implements WireValue {
         if (!Wire.isMissing(rawPage)) {
             builder.page(Wire.string(rawPage, "ConversationTabRecord.page"));
         }
+        Object rawRoute = Wire.optional(object, "route");
+        if (!Wire.isMissing(rawRoute)) {
+            builder.route(Wire.string(rawRoute, "ConversationTabRecord.route"));
+        }
         return builder.build();
     }
 
@@ -63,17 +71,18 @@ public final class ConversationTabRecord implements WireValue {
         Wire.put(object, "conversation", conversation);
         Wire.put(object, "owner", owner);
         Wire.put(object, "page", page);
+        Wire.put(object, "route", route);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ConversationTabRecord that)) return false;
-        return Objects.equals(agentSession, that.agentSession) && Objects.equals(conversation, that.conversation) && Objects.equals(owner, that.owner) && Objects.equals(page, that.page);
+        return Objects.equals(agentSession, that.agentSession) && Objects.equals(conversation, that.conversation) && Objects.equals(owner, that.owner) && Objects.equals(page, that.page) && Objects.equals(route, that.route);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agentSession, conversation, owner, page); }
+    public int hashCode() { return Objects.hash(agentSession, conversation, owner, page, route); }
 
     @Override
     public String toString() { return "ConversationTabRecord" + toWire(); }
@@ -83,6 +92,7 @@ public final class ConversationTabRecord implements WireValue {
         private Field<String> conversation = Field.omitted();
         private Field<String> owner = Field.omitted();
         private Field<String> page = Field.omitted();
+        private Field<String> route = Field.omitted();
 
         public Builder agentSession(AgentSessionSource value) {
             this.agentSession = Field.of(value);
@@ -98,6 +108,10 @@ public final class ConversationTabRecord implements WireValue {
         }
         public Builder page(String value) {
             this.page = Field.of(value);
+            return this;
+        }
+        public Builder route(String value) {
+            this.route = Field.of(value);
             return this;
         }
         public ConversationTabRecord build() { return new ConversationTabRecord(this); }

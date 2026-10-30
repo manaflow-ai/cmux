@@ -59,6 +59,15 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var processExit: BrowserProcessExit?
     /// The page stopped handling input ("Page unresponsive").
     public var isUnresponsive: Bool
+    /// What the page plays (`BrowserMediaState+Scripts`); nil when nothing.
+    public var media: BrowserMediaState?
+    /// The tab is muted (`BrowserAudioMuting`); kept across navigations.
+    public var isAudioMuted = false
+    /// A load ended in this tab (finished, stopped or failed): any later load is one the page or
+    /// the user started, never the tab's own opening load.
+    public var hasEndedLoad = false
+    /// Where the shown page last said its scrolling settled (``BrowserScrollReport``); nil until it scrolls.
+    public var scrollReport: BrowserScrollReport?
 
     public init(
         url: URL? = nil,
@@ -73,7 +82,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         security: BrowserSecurityState = .none,
         activeNavigation: BrowserNavigationID? = nil,
         processExit: BrowserProcessExit? = nil,
-        isUnresponsive: Bool = false
+        isUnresponsive: Bool = false,
+        media: BrowserMediaState? = nil
     ) {
         self.url = url
         self.title = title
@@ -88,6 +98,7 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         self.activeNavigation = activeNavigation
         self.processExit = processExit
         self.isUnresponsive = isUnresponsive
+        self.media = media
     }
 
     public var isLoading: Bool {
@@ -95,6 +106,19 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         case .provisional, .committed: true
         case .idle, .finished, .failed: false
         }
+    }
+
+    /// Whether the toolbar shows this load (Stop, the progress line): a new tab's opening load of
+    /// the New Tab page is quiet, like Chromium's, so its chrome is settled on its first frame. A
+    /// later load shows even while the address still reads the New Tab page: one the page starts
+    /// (a tile, a link) names no address until it commits.
+    public var showsLoad: Bool { isLoading && (hasEndedLoad || !BrowserNewTabPage.isNewTabPage(url)) }
+
+    /// The request is out and no response committed yet (Chromium's waiting throbber state).
+    /// cmux draws it with the same clockwise spinner as loading.
+    public var isWaiting: Bool {
+        if case .provisional = phase { return true }
+        return false
     }
 
     public var loadError: BrowserLoadError? {

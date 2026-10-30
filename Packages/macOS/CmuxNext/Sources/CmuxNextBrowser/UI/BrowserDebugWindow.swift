@@ -27,30 +27,6 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
     private var evaluatedURL: URL?
     private var openExtension = ProcessInfo.processInfo.environment["CMUX_NEXT_DEBUG_BROWSER_OPEN_EXTENSION"] == "1"
 
-    /// Opens the window when `CMUX_NEXT_DEBUG_BROWSER` is set. Returns the
-    /// failure text when the engine cannot create a tab.
-    @discardableResult
-    public static func showIfRequested(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        guard let engineName = environment["CMUX_NEXT_DEBUG_BROWSER"], !engineName.isEmpty else { return nil }
-        let url = environment["CMUX_NEXT_DEBUG_BROWSER_URL"].flatMap(URL.init(string:)) ?? URL(string: "https://example.com") ?? URL(fileURLWithPath: "/dev/null")
-        let report = environment["CMUX_NEXT_DEBUG_BROWSER_REPORT"].map { URL(filePath: $0) }
-        let configuration = BrowserTabConfiguration(initialURL: url, pane: BrowserPaneID(rawValue: "debug-window"))
-        do {
-            let tab: any BrowserTab = if engineName == "cef" {
-                try CEFEngine().makeCEFTab(configuration)
-            } else {
-                try WebKitEngine().makeWebKitTab(configuration)
-            }
-            let debugWindow = BrowserDebugWindow(tab: tab, report: report, activate: environment["CMUX_NEXT_NO_ACTIVATE"] != "1")
-            open.append(debugWindow)
-            return nil
-        } catch {
-            let message = String(describing: error)
-            writeReport(["error": message], to: report)
-            return message
-        }
-    }
-
     private let contextMenus = BrowserContextMenuBuilder.shared
 
     private init(tab: any BrowserTab, report: URL?, activate: Bool) {
@@ -90,7 +66,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             tabs.append(child)
             chrome.tab = child
             observe()
-        case .unhandledEscape, .unhandledKey, .resizePopup:
+        case .unhandledEscape, .unhandledKey, .resizePopup, .verificationPageWaiting, .designMode, .protectedMediaUnavailable:
             break
         case .takeFocus:
             chrome.perform(.focusAddressBar)
@@ -99,7 +75,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         case .close:
             tabs.removeAll { $0 === tab }
             if let next = tabs.last { chrome.tab = next; observe() } else { window.close() }
-        case .download:
+        case .download, .webNotification:
             break
         case .activate:
             chrome.tab = tab
@@ -134,7 +110,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             evaluatedURL = url
             Task { [weak self] in
                 let result: String
-                do { result = String(describing: try await tab.evaluate(script)) } catch { result = "error: \(error)" }
+                do { result = String(describing: try await tab.evaluate(script, world: .page, gesture: .agent)) } catch { result = "error: \(error)" }
                 self?.evalResult = result
                 self?.report()
             }

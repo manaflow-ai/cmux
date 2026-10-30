@@ -22,6 +22,7 @@ import type { VMProvider } from "../services/vms/drivers/types";
 import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
+import { runChild } from "./helpers/run-child";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
@@ -38,12 +39,14 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const networkData = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
   const creates: unknown[] = [];
   const execs: string[] = [];
+  const execUsers: Array<string | undefined> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
   let guestCliProbeSeen = false;
   const vm = {
-    exec: async ({ command }: { command: string }) => {
+    exec: async ({ command, linuxUser }: { command: string; linuxUser?: string }) => {
       execs.push(command);
+      execUsers.push(linuxUser);
       const statusCode = command.includes("sha256sum") && !guestCliProbeSeen
         ? (guestCliProbeSeen = true, input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
@@ -73,7 +76,7 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
       ref: () => vm,
     },
   } as unknown as Freestyle;
-  return { client, creates, execs, writes, deletes };
+  return { client, creates, execs, execUsers, writes, deletes };
 }
 
 function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
@@ -90,20 +93,94 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("legacy attach and public SSH remain unavailable", () => {
-    // SSH is an explicit legacy attach verb. It must not become the default
-    // transport advertised for cmux-tui machines.
+  test("legacy attach stays unavailable and SSH is never advertised as a transport", () => {
+    // SSH is an explicit verb backed by a scoped provider identity. It must not
+    // become the default transport advertised for cmux-tui machines.
     const provider: VMProvider = new FreestyleProvider();
     expect(provider.openAttach).toBeUndefined();
-    expect(provider.openSSH).toBeUndefined();
-    expect(provider.revokeSSHIdentity).toBeUndefined();
+    expect(typeof provider.openSSH).toBe("function");
+    expect(typeof provider.revokeSSHIdentity).toBe("function");
+    expect(provider.attachTransports).toEqual(["cmux-remote"]);
   });
+
 
   test("fork is not implemented, so the capability resolves false", () => {
     // vmCapabilitiesFor() derives `fork` from the method's existence; a machine
     // menu must not offer a verb the driver cannot serve.
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
+  });
+});
+
+test("Freestyle enrollment approval sends one valid complete shell command", async () => {
+  const commands: string[] = [];
+  const vm = {
+    exec: async ({ command }: { command: string }) => {
+      commands.push(command);
+      const syntax = await runChild("/bin/sh", ["-n", "-c", command]);
+      expect(syntax.status).toBe(0);
+      return { statusCode: 0, stdout: '{"fingerprint":"device-fingerprint"}', stderr: "" };
+    },
+  };
+  const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+  const result = await providerWith({ client }).approveCmuxRemoteEnrollment(VM_ID, "inv_wait");
+  expect(result).toMatchObject({ approved: true, deviceFingerprint: "device-fingerprint" });
+  expect(commands).toHaveLength(1);
+});
+
+describe("Freestyle fork readiness", () => {
+  // The fork readiness error is stored on the row and alerted on, so it names
+  // the stalled stage from the guest's fixed vocabulary and nothing else; the
+  // guest's log lines go only to the server log.
+  const forkClient = (stderr: string | Error) => {
+    const deletes: string[] = [];
+    const exec = async () => {
+      if (stderr instanceof Error) throw stderr;
+      return { statusCode: 1, stdout: "", stderr };
+    };
+    return {
+      deletes,
+      client: {
+        vms: {
+          create: async () => ({
+            vmId: VM_ID,
+            data: {},
+            vm: { exec, delete: async () => { deletes.push(VM_ID); } },
+          }),
+        },
+      } as unknown as Freestyle,
+    };
+  };
+
+  test("names the stalled stage without guest log text", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=unbound supervisor=active\ncmux-tui: /home/cmux/private-path refused\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unbound supervisor=active)");
+    expect((error as Error).message).not.toContain("private-path");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("a stage outside the fixed set reads as unknown", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=leaked-token supervisor=active\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("leaked-token");
+  });
+
+  test("a readiness exec that never answered reads as exec-unavailable and the clone is deleted", async () => {
+    const fake = forkClient(new Error("exec transport failed"));
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=exec-unavailable)");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("does not echo an unrecognized guest answer into the error", async () => {
+    const fake = forkClient("something else entirely: stage=$(rm -rf /)\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("rm -rf");
   });
 });
 
@@ -405,7 +482,15 @@ describe("Freestyle platform contract", () => {
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
     expect(fake.execs).toEqual(["echo hi"]);
+    expect(fake.execUsers).toEqual([undefined]);
     expect(fake.writes).toHaveLength(0);
+  });
+
+  test("cmux's own guest maintenance through exec can still ask for root", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const result = await providerWith(fake).exec(VM_ID, "true", { timeoutMs: 5_000, asRoot: true });
+    expect(result.exitCode).toBe(0);
+    expect(fake.execUsers).toEqual(["root"]);
   });
 
   test("exec does not repair an absent guest CLI during a command", async () => {
@@ -414,6 +499,7 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(0);
     expect(fake.execs).toEqual(["cmux self --json"]);
+    expect(fake.execUsers).toEqual([undefined]);
   });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {
@@ -421,6 +507,36 @@ describe("Freestyle platform contract", () => {
     expect(normalizeFreestyleExecTimeout(-5)).toBe(30_000);
     expect(normalizeFreestyleExecTimeout(10 * 60 * 1000)).toBe(300_000);
     expect(normalizeFreestyleExecTimeout(12_345)).toBe(12_345);
+  });
+
+  // A command that outlives its timeout and whose kill reports no exit comes
+  // back from Freestyle as 409 VM_NON_RESPONSIVE ("exec produced no exit
+  // within 35s") even though the machine answers the next exec at once. That
+  // is the command's timeout, the same outcome the guest reports as a null
+  // status, not a provider outage (production 2026-10-07, vm-96e008...).
+  const execFailing = (err: unknown) => ({
+    client: {
+      vms: { ref: () => ({ exec: async () => { throw err; } }) },
+    } as unknown as Freestyle,
+  });
+
+  test("an exec the provider saw no exit for reads as a command timeout (124)", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: exec produced no exit within 35s; the guest likely stopped mid-command",
+    }));
+    const result = await providerWith(fake).exec(VM_ID, "sleep 999", { timeoutMs: 30_000 });
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did not exit within 30s");
+  });
+
+  test("other non-responsive answers stay provider errors", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: read_file stream: early eof",
+    }));
+    await expect(providerWith(fake).exec(VM_ID, "true", { timeoutMs: 30_000 })).rejects.toBeInstanceOf(ProviderError);
   });
 
   test("stopped VMs read as paused (start() recovers them), not destroyed", () => {
@@ -610,7 +726,13 @@ describe("FreestyleProvider create with edge rules", () => {
       // explicitly pauses or destroys it. The explicit -1 also overrides a
       // provider/account default that would otherwise idle-pause the VM.
       idleTimeoutSeconds: -1,
+      automaticRestart: true,
     });
+  });
+
+  test("does not expose hard restart without a supported provider contract", () => {
+    const provider: VMProvider = providerWith(fakeFreestyle({ probeExit: 0 }));
+    expect(provider.restart).toBeUndefined();
   });
 
   test("passes the rule inline and returns a snapshot-v2 machine without guest setup", async () => {
@@ -667,12 +789,25 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  test("names the owning customer on create and restore, and omits a malformed id", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "team-owner" });
+    await providerWith(fake).restore("snap-1", { customerId: "user_owner-2" });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "not a customer id" });
+    await providerWith(fake).create({ image: "sh-devbox" });
+    expect(fake.creates[0]).toMatchObject({ customer: { customerId: "team-owner" } });
+    expect(fake.creates[1]).toMatchObject({ customer: { customerId: "user_owner-2" } });
+    expect(fake.creates[2]).not.toHaveProperty("customer");
+    expect(fake.creates[3]).not.toHaveProperty("customer");
+  });
+
   test("restore passes the rule inline without guest setup", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
+      automaticRestart: true,
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
@@ -806,15 +941,22 @@ describe("Freestyle attach route source", () => {
 });
 
 describe("Freestyle client configuration", () => {
-  test("every guest exec is pinned to root", () => {
-    // The 0.2 API's linuxUser default is uid 1000, not root. The devbox image
-    // ships such a user, so an unpinned exec would silently move the daemon,
-    // its install, and the model-plane write off the root layout.
+  test("driver maintenance execs stay pinned to root", () => {
+    // Public vm exec intentionally uses the provider's uid-1000 default so it
+    // lands in the same home as Cloud terminals. Driver maintenance must keep
+    // its explicit root pin so installs and probes retain their privileged
+    // layout.
     const execCalls = driverSource.match(/\.exec\(\{[\s\S]*?\}\)/g) ?? [];
     expect(execCalls.length).toBeGreaterThan(0);
-    for (const call of execCalls) {
+    for (const call of execCalls.filter((call) => !call.includes("command, timeoutMs }"))) {
       expect(call).toContain("linuxUser");
     }
+  });
+
+  test("public vm exec leaves the guest user to the provider default", () => {
+    expect(driverSource).toContain(
+      "const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });",
+    );
   });
 
   test("the driver talks to the SDK's default public edge unless overridden", () => {
@@ -828,7 +970,7 @@ describe("Freestyle client configuration", () => {
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
   });
 });
 
@@ -837,18 +979,124 @@ describe("Freestyle client configuration", () => {
 // the platform and nothing public is opened. noVNC on 6901 has no auth of
 // its own, so a machine outside a private network gets no URL at all.
 describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
-  test("uses persisted network metadata without a guest probe or healing", async () => {
+  const invitationUri = (id: string): string => `cmux://enroll/${Buffer.from(JSON.stringify({
+    version: 1,
+    id,
+    secret: "secret",
+    daemon_public_key: "public-key",
+    daemon_fingerprint: "daemon-fingerprint",
+    daemon_name: "cloud",
+    expires_at_unix: 2_000_000_000,
+    route_hints: [],
+    approval_required: true,
+  })).toString("base64url")}`;
+
+  test("uses the machine's persisted auth mode and decodes the real enrollment invitation id", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
     const commands: string[] = [];
+    const uri = invitationUri("inv_real_id");
     const vm = {
-      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+      exec: async ({ command }: { command: string }) => {
+        commands.push(command);
+        return {
+          statusCode: 0,
+          stdout: JSON.stringify({ uri }),
+          stderr: "",
+        };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "client-grant",
+          networkIpv4: "10.4.0.7",
+          networkIpv6: "fd00:4::7",
+        },
+      });
+      expect(endpoint).toMatchObject({
+        route: "ws://10.4.0.7:1337/v1/link",
+        trustedCarrier: false,
+        invitation: { uri, invitationId: "inv_real_id", expiresAtUnix: 2_000_000_000 },
+      });
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toContain("remote enroll create");
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
+  test("an enrolled fingerprint uses the cryptographic grant without another guest exec", async () => {
+    const vm = {
+      exec: async () => { throw new Error("an enrolled attach must not exec in the guest"); },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
     const provider = new FreestyleProvider({ client: () => client });
     const endpoint = await provider.openCmuxRemote(VM_ID, {
-      providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
+      deviceFingerprint: "device-fingerprint",
+      providerMetadata: {
+        cmuxTuiContract: "snapshot-v2",
+        cmuxRemoteAuth: "client-grant",
+        networkIpv4: "10.4.0.7",
+      },
     });
-    expect(endpoint).toMatchObject({ route: "ws://10.4.0.7:1337/v1/link", trustedCarrier: true });
-    expect(commands).toEqual([]);
+    expect(endpoint.trustedCarrier).toBe(false);
+    expect(endpoint.invitation).toBeUndefined();
+  });
+
+  test("grant rollout enrolls new clients on trusted images without locking out released clients", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const uri = invitationUri("inv_compat_id");
+    const vm = {
+      exec: async () => ({ statusCode: 0, stdout: JSON.stringify({ uri }), stderr: "" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint).toMatchObject({
+        trustedCarrier: true,
+        invitation: { invitationId: "inv_compat_id" },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
+  test("a trusted image remains attachable when optional invitation minting is unavailable", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const vm = {
+      exec: async () => ({ statusCode: 1, stdout: "", stderr: "old daemon has no enrollment command" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint.trustedCarrier).toBe(true);
+      expect(endpoint.invitation).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
   });
 
   // Cloud has not shipped a row from before snapshot-v2, so there is nothing
@@ -879,7 +1127,7 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
   const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
 
   /** A fake SDK client for one machine: `data()` answers `input.data`, the desktop heal exec exits `input.healExit`. */
-  function portFake(input: { readonly data: unknown; readonly healExit?: number }) {
+  function portFake(input: { readonly data: unknown; readonly healExit?: number; readonly desktopTransport?: "novnc" | "screen" }) {
     const execs: string[] = [];
     const vm = {
       data: async () => input.data,
@@ -890,7 +1138,10 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
       },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
-    return { provider: new FreestyleProvider({ client: () => client }), execs };
+    const provider = input.desktopTransport === undefined
+      ? new FreestyleProvider({ client: () => client })
+      : new FreestyleProvider({ client: () => client, desktopTransport: input.desktopTransport });
+    return { provider, execs };
   }
 
   test("address: private v4, then private v6, never public (the desktop has no auth of its own)", () => {
@@ -935,6 +1186,30 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
     } finally {
       setSystemTime();
     }
+  });
+
+  test("with the screen transport, the desktop is the cmux-screen signaling port and the heal probes it", async () => {
+    // Default-off migration step M1 (plans/cmux-next/remote-desktop-DESIGN.md).
+    expect(freestyleDesktopHealCommand("novnc")).toBe(freestyleDesktopHealCommand());
+    expect(freestyleDesktopHealCommand("screen")).toBe(
+      "[ -x /usr/local/bin/start-vnc.sh ] || exit 3; if [ -d /run/systemd/system ]; then systemctl start cmux-desktop || exit 1; fi; ss -tln 2>/dev/null | grep -q ':4180 '",
+    );
+    expect(freestylePortUrls(PRIVATE, VM_ID, 4180, "screen")).toEqual({
+      url: "ws://10.4.0.7:4180/",
+      openUrl: "cmux://remote-view?host=10.4.0.7&target=display%3A1&mode=view&via=screen",
+    });
+    // Under the screen transport 6901 is an ordinary port again.
+    expect(freestylePortUrls(PRIVATE, VM_ID, DEVBOX_DESKTOP_NOVNC_PORT, "screen").openUrl).toBe("http://10.4.0.7:6901/");
+
+    const fake = portFake({ data: PRIVATE, desktopTransport: "screen" });
+    const endpoint = await fake.provider.openPort(VM_ID, 4180);
+    expect(endpoint.url).toBe("ws://10.4.0.7:4180/");
+    expect(endpoint.openUrl).toBe("cmux://remote-view?host=10.4.0.7&target=display%3A1&mode=view&via=screen");
+    expect(fake.execs).toEqual([freestyleDesktopHealCommand("screen")]);
+    // An explicit noVNC transport behaves exactly like the default.
+    const novnc = portFake({ data: PRIVATE, desktopTransport: "novnc" });
+    expect((await novnc.provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT)).openUrl).toBe("http://10.4.0.7:6901/vnc.html?path=websockify");
+    expect(novnc.execs).toEqual([freestyleDesktopHealCommand()]);
   });
 
   test("openPort for a dev server port runs no guest command at all", async () => {
@@ -982,5 +1257,107 @@ describe("Go provider runtime ceiling", () => {
     const provider = new FreestyleProvider({ client: () => client });
     await expect(provider.setRuntimeBudget(VM_ID, 1800)).rejects.toThrow("setRuntimeBudget");
     expect(updated).toBe(false);
+  });
+});
+
+// A fake of the SDK's identity namespace: identities, their VM grants and tokens.
+function fakeIdentities(options: { readonly failGrant?: boolean; readonly deleteStatus?: number } = {}) {
+  const identities = new Map<string, { grants: Array<{ vmId: string; allowedLinuxUsers: string[] | null | undefined }>; tokens: string[] }>();
+  const deleted: string[] = [];
+  let next = 0;
+  const handle = (identityId: string) => ({
+    permissions: {
+      vm: {
+        grant: async ({ vmId, allowedLinuxUsers }: { vmId: string; allowedLinuxUsers?: string[] | null }) => {
+          if (options.failGrant) throw new FreestyleApiError(500, { code: "INTERNAL", message: "grant failed" });
+          identities.get(identityId)?.grants.push({ vmId, allowedLinuxUsers });
+          return {};
+        },
+      },
+    },
+    tokens: {
+      create: async () => {
+        const token = `fs-token-${identityId}`;
+        identities.get(identityId)?.tokens.push(token);
+        return { id: `tok-${identityId}`, token };
+      },
+    },
+    delete: async () => {
+      identities.delete(identityId);
+      deleted.push(identityId);
+    },
+  });
+  const client = {
+    identities: {
+      create: async () => {
+        const identityId = `ident-${++next}`;
+        identities.set(identityId, { grants: [], tokens: [] });
+        return { identity: handle(identityId), identityId, data: { id: identityId, managed: false } };
+      },
+      delete: async (identityId: string) => {
+        if (options.deleteStatus !== undefined) throw new FreestyleApiError(options.deleteStatus, { code: "X", message: "delete failed" });
+        if (!identities.has(identityId)) throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "no identity" });
+        identities.delete(identityId);
+        deleted.push(identityId);
+      },
+    },
+  } as unknown as Freestyle;
+  return { client, identities, deleted };
+}
+
+describe("FreestyleProvider scoped SSH identities", () => {
+  test("openSSH mints an identity granted only this VM as the work user, with one token", async () => {
+    const fake = fakeIdentities();
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    const endpoint = await provider.openSSH(VM_ID);
+    expect(endpoint).toMatchObject({
+      transport: "ssh",
+      host: "beta-ssh.freestyle.sh",
+      port: 22,
+      username: `${VM_ID}+cmux`,
+      credential: { kind: "password", value: "fs-token-ident-1" },
+      identityHandle: "ident-1",
+    });
+    expect(fake.identities.get("ident-1")?.grants).toEqual([{ vmId: VM_ID, allowedLinuxUsers: ["cmux"] }]);
+  });
+
+  test("a failed grant deletes the identity it just made", async () => {
+    const fake = fakeIdentities({ failGrant: true });
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    await expect(provider.openSSH(VM_ID)).rejects.toBeInstanceOf(ProviderError);
+    expect(fake.identities.size).toBe(0);
+    expect(fake.deleted).toEqual(["ident-1"]);
+  });
+
+  test("revokeSSHIdentity deletes the identity, and is a no-op for unknown or blank handles", async () => {
+    const fake = fakeIdentities();
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    const endpoint = await provider.openSSH(VM_ID);
+    await provider.revokeSSHIdentity(endpoint.identityHandle);
+    expect(fake.identities.size).toBe(0);
+    await provider.revokeSSHIdentity(endpoint.identityHandle);
+    await provider.revokeSSHIdentity("  ");
+    expect(fake.deleted).toEqual(["ident-1"]);
+  });
+
+  test("revokeSSHIdentity surfaces a provider outage so cleanup retries", async () => {
+    const fake = fakeIdentities({ deleteStatus: 503 });
+    const provider = new FreestyleProvider({ client: () => fake.client });
+    await expect(provider.revokeSSHIdentity("ident-9")).rejects.toBeInstanceOf(ProviderError);
+  });
+});
+
+describe("strict destroy", () => {
+  const providerWith = (error: FreestyleApiError) => new FreestyleProvider({
+    client: () => ({ vms: { ref: () => ({ delete: async () => { throw error; } }) } } as unknown as Freestyle),
+  });
+
+  test("only Freestyle's own NOT_FOUND counts as gone; any other 404 is an error", async () => {
+    const notFound = new FreestyleApiError(404, { code: "NOT_FOUND", message: "no such vm" });
+    const route = new FreestyleApiError(404, { code: "ROUTE_NOT_FOUND", message: "no route" });
+    await expect(providerWith(notFound).destroy("vm-1", undefined, { strict: true })).resolves.toBeUndefined();
+    await expect(providerWith(route).destroy("vm-1", undefined, { strict: true })).rejects.toBeInstanceOf(ProviderError);
+    // Without strict the existing idempotent behavior holds.
+    await expect(providerWith(route).destroy("vm-1")).resolves.toBeUndefined();
   });
 });

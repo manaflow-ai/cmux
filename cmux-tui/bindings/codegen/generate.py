@@ -189,6 +189,13 @@ def main(argv: list[str] | None = None) -> int:
     verb = "wrote" if mode == "write" else "checked"
     for language in completed:
         print(f"{verb} {language}")
+    # The page clients' copy of spec/page-router.json (page-router.md).
+    if arguments.bindings_root == DEFAULT_BINDINGS_ROOT and not arguments.language:
+        if __package__ in {None, ""}:
+            from codegen import page_router
+        else:
+            from . import page_router
+        return page_router.main([f"--{mode}"])
     return 0
 
 

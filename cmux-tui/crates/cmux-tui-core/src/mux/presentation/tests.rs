@@ -147,6 +147,7 @@ fn cmux_next_workspace_metadata_survives_restart_and_emits_workspace_changed() {
         title: Some(Some("Release train".into())),
         pinned: Some(true),
         marked_unread: Some(true),
+        ..Default::default()
     };
     let result = mux
         .set_workspace_metadata(
@@ -267,6 +268,54 @@ fn cmux_next_pinned_tabs_sort_first_and_survive_restart() {
     let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap().clone();
     assert_eq!(tabs[0]["pinned"], true);
     assert_eq!(tabs[1]["pinned"], false);
+}
+
+/// cx-lle.6: a pinned browser tab keeps the page it was pinned on (Chrome's pinned tabs), so
+/// Back to Pinned Page and a restore can return to it after the tab browsed away.
+#[test]
+fn cmux_next_pinned_browser_tab_keeps_its_pinned_url() {
+    let session = PresentationTestSession::new("pinned-url");
+    let mux = session.open();
+    let terminal = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+    let record = FrontendBrowserRecord {
+        engine: "webkit".into(),
+        url: "https://mail.example.com/".into(),
+        title: None,
+        favicon_url: None,
+        profile_id: None,
+        owner: None,
+    };
+    let browser = mux.new_frontend_browser_tab(Some(pane), record, None).unwrap().id;
+    assert!(tab_json(&mux, browser)["pinned_url"].is_null(), "an unpinned tab has no pinned page");
+
+    mux.set_tab_pinned(browser, true).unwrap();
+    let inbox = "https://mail.example.com/inbox/42";
+    mux.update_frontend_browser_tab(browser, Some(inbox.into()), None, None).unwrap();
+    let pinned = tab_json(&mux, browser);
+    assert_eq!(pinned["url"], inbox);
+    assert_eq!(pinned["pinned_url"], "https://mail.example.com/", "the page it was pinned on");
+    // Pinning again does not move the pinned page to where the tab is now.
+    mux.set_tab_pinned(browser, true).unwrap();
+    assert_eq!(tab_json(&mux, browser)["pinned_url"], "https://mail.example.com/");
+    // A terminal tab has no page to pin.
+    mux.set_tab_pinned(terminal, true).unwrap();
+    assert!(tab_json(&mux, terminal)["pinned_url"].is_null());
+    let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&browser].clone());
+    drop(mux);
+
+    // It survives a daemon restart.
+    let mux = session.open();
+    let restored = mux
+        .with_state(|state| state.resource_indexes.tabs.get(&tab_id).copied())
+        .expect("pinned browser tab restored");
+    assert_eq!(tab_json(&mux, restored)["pinned_url"], "https://mail.example.com/");
+
+    // Unpinning forgets it; pinning again takes the page the tab shows now.
+    mux.set_tab_pinned(restored, false).unwrap();
+    assert!(tab_json(&mux, restored)["pinned_url"].is_null());
+    mux.set_tab_pinned(restored, true).unwrap();
+    assert_eq!(tab_json(&mux, restored)["pinned_url"], inbox);
 }
 
 #[test]

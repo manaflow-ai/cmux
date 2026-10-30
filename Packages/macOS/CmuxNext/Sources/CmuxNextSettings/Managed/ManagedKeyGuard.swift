@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A write to a key an MDM profile or the team policy manages.
 public nonisolated struct SettingManaged: Error, Sendable, CustomStringConvertible, Equatable {

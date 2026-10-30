@@ -21,15 +21,32 @@ final class AppContainer {
     /// Account changes apply in order (sign-in, sign-out, switch).
     private var accountChanges: Task<Void, Never>?
     let feedResponder: FeedNotificationResponder
+    /// Feed answers and other owner ops as this install.
+    let ops: any CloudOpsSending
+    /// Signs an approve answer with this phone's presence key (cx-aocz); nil
+    /// without an API origin.
+    let approveSigner: (any FeedApproveSigning)?
     private let notificationDelegate: NotificationDelegate
     private(set) var home: HomeStore?
-    private var homeAccount: String?
+    /// Which chat server Home uses (Settings > Chat Server), persisted.
+    let chatServers = HomeChatServerStore(defaults: .standard)
+    /// The wire source behind `home`, shut down when Home is rebuilt.
+    private var homeSource: WireHomeSource?
+    /// DEBUG previews, the gallery and UI tests keep the mock owner.
+    private let homeUsesMock: Bool
+    /// Action Button / Siri / Shortcuts Chief calls (ios-action-button-DESIGN.md).
+    private(set) lazy var chiefCall = ChiefCallLauncher(store: { [weak self] in self?.home },
+                                                         notesRoot: ChiefCallLauncher.defaultNotesRoot())
+    /// The account and server `home` was built for.
+    private var homeKey: String?
     /// Set while the API Worker refuses this app version (enterprise P17,
     /// `client.too_old`); Home shows it as an update-required banner.
     private(set) var updateRequired: HomeUpdateRequired? {
         didSet { if updateRequired != oldValue { onUpdateRequiredChange?(updateRequired) } }
     }
     var onUpdateRequiredChange: ((HomeUpdateRequired?) -> Void)?
+    /// Dials Home's sockets again when the app comes to the foreground.
+    private var foregroundObserver: (any NSObjectProtocol)?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let composition = MobileAuthComposition(
@@ -38,6 +55,11 @@ final class AppContainer {
         )
         auth = StackAuthGate(composition: composition)
         devOptions = DevOptions(environment: environment)
+        #if DEBUG
+        homeUsesMock = ["CMUX_IOS_HOME_PREVIEW", "CMUX_IOS_GALLERY", "CMUX_IOS_HOME_MOCK"].contains { environment[$0] == "1" }
+        #else
+        homeUsesMock = false
+        #endif
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
@@ -46,10 +68,20 @@ final class AppContainer {
         }
         identity = madeIdentity
         let ops: any CloudOpsSending
+        let reader: CloudReadClient?
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
+            reader = CloudReadClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
         } else {
             ops = DisabledCloudOps()
+            reader = nil
+        }
+        self.ops = ops
+        if let madeIdentity, let reader {
+            approveSigner = FeedApproveSigner(installIdentity: madeIdentity, reader: reader,
+                                              bundleID: Bundle.main.bundleIdentifier ?? "")
+        } else {
+            approveSigner = nil
         }
         #if DEBUG
         let environment: CloudOp.APNsEnvironment = .development
@@ -57,7 +89,7 @@ final class AppContainer {
         let environment: CloudOp.APNsEnvironment = .production
         #endif
         push = PushRegistration(ops: ops, topic: Bundle.main.bundleIdentifier ?? "", environment: environment)
-        feedResponder = FeedNotificationResponder(ops: ops)
+        feedResponder = FeedNotificationResponder(ops: ops, reader: reader)
         notificationDelegate = NotificationDelegate(responder: feedResponder)
         UNUserNotificationCenter.current().delegate = notificationDelegate
         // A banner answer can arrive before auth restores (background launch):
@@ -81,6 +113,16 @@ final class AppContainer {
                 Logger(subsystem: "dev.cmux.ios", category: "identity").error("install revoke failed")
             }
         }
+        // Back in the foreground: a socket waiting out its backoff dials now.
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let source = self?.homeSource else { return }
+                // task-owner: one reconnect nudge; ends at once
+                Task { await source.reconnectNow() }
+            }
+        }
         feedResponder.openItem = { item in
             // The feed list is not on iPhone yet; Home stays in front.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
@@ -101,17 +143,57 @@ final class AppContainer {
         return url
     }
 
-    /// The Home store for the signed-in account. Home talks only to a
-    /// `HomeSource`; until the Home messaging backend lands this is the mock
-    /// owner (plans/cmux-next/ios-rewrite.md, step 5).
+    /// The Home store for the signed-in account on the chosen chat server:
+    /// the cmux cloud (Stack Bearer, `CMUXCloudAPIBaseURL`) or a self-hosted
+    /// server on the tailnet (no Authorization; the Tailscale app carries it).
+    /// Previews, the gallery and UI tests use the mock owner.
     func homeStore(for account: SignedInAccount) -> HomeStore {
-        if let home, homeAccount == account.userID { return home }
-        home?.stop()
-        homeAccount = account.userID
-        let store = HomeStore(source: MockHomeSource())
+        let server = homeUsesMock ? HomeChatServer.hosted : chatServers.load()
+        let key = "\(account.userID)|\(server)"
+        if let home, homeKey == key { return home }
+        dropHome()
+        homeKey = key
+        let store = HomeStore(source: makeHomeSource(server: server, account: account))
         store.start()
         home = store
         return store
+    }
+
+    /// Saves a new chat server choice; the next `homeStore(for:)` builds Home on it.
+    func setChatServer(_ server: HomeChatServer) {
+        chatServers.save(server)
+    }
+
+    private func makeHomeSource(server: HomeChatServer, account: SignedInAccount) -> any HomeSource {
+        guard !homeUsesMock else { return MockHomeSource() }
+        let source: WireHomeSource
+        switch server {
+        case .hosted:
+            // No API origin configured: fail closed with the mock, never a fallback origin.
+            guard let base = Self.cloudAPIBaseURL() else { return MockHomeSource() }
+            let coordinator = auth.coordinator
+            let bearer = StackHomeBearer { forceRefresh in
+                if forceRefresh { return try await coordinator.forceRefreshAccessToken() }
+                return try await coordinator.accessToken()
+            }
+            source = WireHomeSource(baseURL: base, auth: .stack(bearer), displayName: account.displayName)
+        case .selfHosted(let url):
+            source = WireHomeSource(baseURL: url, auth: .tailscale, displayName: account.displayName)
+        }
+        homeSource = source
+        return source
+    }
+
+    /// Stops Home and closes its sockets.
+    private func dropHome() {
+        home?.stop()
+        home = nil
+        homeKey = nil
+        if let old = homeSource {
+            // task-owner: one shutdown; ends with it
+            Task { await old.shutdown() }
+        }
+        homeSource = nil
     }
 
     /// Signing out drops the account's Home mirror.
@@ -143,9 +225,8 @@ final class AppContainer {
             await push.signOut(of: user)
             await identity?.signedOut(of: user)
         }
-        home?.stop()
-        home = nil
-        homeAccount = nil
+        chiefCall.signedOut()
+        dropHome()
     }
 
     var apiBaseURL: String { auth.composition.config.apiBaseURL }

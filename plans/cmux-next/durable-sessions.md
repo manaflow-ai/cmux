@@ -9,7 +9,7 @@ which makes this plan a precondition), cmux-tui/spec/terminal-host.md, docs/clou
 
 ## 1. Today's truth
 
-Processes on a Mac: the app; the cmux-tui daemon (`cmux-tui --headless --session cmux-app[-tag]`),
+Processes on a Mac: the app; the cmux-tui daemon (`cmux-tui --headless --session cmux-app[-tag|-channel]`),
 started by `server ensure`, which spawns it with `setsid` and exits (`cmux-tui/src/local_owner.rs:447-520`);
 one `__terminal-host` process per PTY, spawned by the daemon with `setsid`
 (`cmux-tui-core/src/terminal_host_runtime.rs:1955-1981`); acpmux (`acpmux daemon run --ready-fd 3`),
@@ -24,12 +24,12 @@ stdio pipes in their own process group (`acpmux/src/agent.rs:136-152`).
 | Daemon restart (SIGTERM, `shutdown-daemon`, crash, SIGKILL) | survive: hosts outlive the daemon; the new daemon re-adopts them from `terminal-hosts-<token>/*.json` records (`mux.rs:3518-3780`); tested by `terminal_host_survives_sigkill_and_is_adopted_with_io_and_size`, `fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host`, `terminal_host_survives_daemon_process_group_hangup` | n/a (acpmux is a separate process) |
 | acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | survive under agent hosts (default on): the daemon detaches every host and the next daemon adopts it; `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything) ends them and records the turn in progress as `turn_result {status: cancelled, detail: quit}` (`hub/shutdown.rs`). With `ACPMUX_AGENT_HOSTS=0`: LOST, as before |
 | acpmux crash (SIGKILL) | n/a | survive under agent hosts: the host keeps every unacknowledged entry and the next daemon resumes after the last logged `hseq`. With `ACPMUX_AGENT_HOSTS=0`: LOST |
-| acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts (memory only) are gone; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
+| acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts come back from the log in order (each `queued` record carries the prompt; `hub/queue.rs` `restore_queues`) and run after any adopted turn; a resend of one waits for that run; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
 
 What survives an agent restart is the transcript (`$ACPMUX_HOME/sessions/<id>/session.json` +
 `events/NNNNNN.ndjson`) and the harness's own resume. What is lost: the turn in flight (tool calls
 mid-run, background shells under the harness process group, streamed output not yet produced),
-pending permission prompts, queued prompts, and the Claude stdio translator state (pending ACP
+pending permission prompts, and the Claude stdio translator state (pending ACP
 request map, control-request map: `claude_stdio/mod.rs:147-165`).
 
 Gaps on the PTY side (it is the model, but not complete):
@@ -135,8 +135,9 @@ replayed spool:
   the `permission_request` payload (`agentRequestId`, additive).
 - Other agent-to-client requests with no logged answer (fs reads and writes) are handled again as if
   they just arrived; a write asks permission again.
-- Queue: prompts that waited behind the turn in the old daemon were never sent to the agent; their
-  clients resend them (`_meta.acpmux.resend`, which already looks in the log). Not rebuilt (A3).
+- Queue: prompts that waited behind the turn in the old daemon were never sent to the agent. The
+  new daemon rebuilds the queue from the log and runs it after the recovered turn; a client resend
+  (`_meta.acpmux.resend`) waits for that run.
 - Status: `running` while the recovered turn runs, `waiting` while a recovered prompt is open, else
   `ready`; never forced to `idle` for an adopted agent.
 
@@ -255,11 +256,12 @@ tree pushes):
   `{kind: "host_lost", reason, detail}` | `{kind: "launch_failed", detail}`. `reason` is one of
   `missing_record, incarnation_mismatch, dead_before_adoption, died_during_adoption,
   died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended,
-  restart_exhausted, restart_failed, other`. The last two come from the respawn supervisor
+  owner_gone, restart_exhausted, restart_failed, other`. `owner_gone` is a host that ended its
+  shell after the orphan grace with no owner, or on a `SIGTERM` while orphaned (cx-3ryj). The last two come from the respawn supervisor
   (cx-6so.49): a placed terminal lost with its host respawns after a bounded backoff (0, 2, 10,
   30, 60 s; five attempts per 10 min), and ends as `restart_exhausted` once they are used, or
   `restart_failed` when a respawn launch fails. The owner start respawns committed respawnable
-  losses an earlier owner never ran (also `session_shutdown`).
+  losses an earlier owner never ran (also `session_shutdown` and `owner_gone`).
   Terminals with a runtime use its end; surfaceless ones use their durable receipt.
 - Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;
   unknown future values decode as nil / `.other`.
@@ -270,8 +272,12 @@ The banner text and the "Restart Shell Here" / "Close" actions belong to the tab
 lost: <reason words>", `unadoptable` "Running under an older cmux; close to end it", `reconnecting`
 "Reconnecting…", `failed` "Lost connection to the terminal" with Reconnect.
 
-Not covered yet: the `surface-exited` event carries no `end` (clients read it from the next tree);
-`failed` has no daemon-side retry trigger beyond a new adoption.
+The `surface-exited` event carries the terminal's typed `end` as the tab JSON shows it, taken
+when the exit detaches its views (which leaves no tab to read it from), so a client shows the
+reason at once. It is null only where no end is known (a sidebar plugin's surface). A `failed` link is retried by the daemon:
+past the reconnect budget (16 failures, about 12 s) the terminal reads `failed`, and its reader
+keeps retrying the host every 2 s, doubling to 60 s. A host that answers makes it `running`
+again; a dead host ends it with its typed end. A close or shutdown stops the retry within 250 ms.
 
 No common protocol version: a host closes an owner hello without HostHello when it shares no
 version with this build (a newer build's host after a rollback). A host of this build closes it the

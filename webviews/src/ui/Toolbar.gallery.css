@@ -1,0 +1,85 @@
+.toolbar-gallery-stage {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 220px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.toolbar-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.toolbar-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-content);
+  font-weight: 600;
+}
+
+.toolbar-gallery {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 14%, transparent));
+  border-radius: 8px;
+  background: var(--cmux-elevated-background, Canvas);
+}
+
+.toolbar-gallery .ui-toolbar-group {
+  gap: 2px;
+}
+
+.toolbar-gallery .ui-toolbar-button {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.toolbar-gallery .ui-toolbar-button[disabled] {
+  opacity: 0.4;
+}
+
+.toolbar-gallery .ui-toolbar-button[aria-current="true"] {
+  background: var(--cmux-selection, color-mix(in srgb, CanvasText 11%, transparent));
+}
+
+.toolbar-gallery .ui-toggle-group {
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: color-mix(in srgb, CanvasText 5%, transparent);
+}
+
+.toolbar-gallery .ui-toggle[data-pressed] {
+  background: var(--cmux-selection, color-mix(in srgb, CanvasText 12%, transparent));
+  font-weight: 600;
+}
+
+.toolbar-gallery .ui-toggle {
+  min-width: 52px;
+}
+
+.toolbar-gallery .ui-separator {
+  height: 20px;
+  margin: 0 3px;
+}
+
+.toolbar-gallery-receipt {
+  min-height: 18px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}

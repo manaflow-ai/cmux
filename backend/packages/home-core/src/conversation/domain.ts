@@ -10,12 +10,15 @@ import { formatRfc3339Millis } from "./ids.ts"
 import { IMPORT_OPS, reduceImport } from "./import.ts"
 import { mentionsOf, type UnreadCounts } from "./fanout.ts"
 import { commitOutbox, createOutbox } from "./outbox.ts"
+import { focusOf, isLarge, namedBy, needsPromotion, promote, recordOf, settle, viewHead } from "./large.ts"
+import { closedGrant, closeLostGrants, grantExpired, TABLE_GRANT, TABLE_GRANTHASH } from "./grants.ts"
 import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, type ParticipantPolicy } from "./policy.ts"
-import type { OpRequest } from "./request.ts"
-import { SYSTEM_ACTOR, type ConversationHead, type ConversationKind, type Invite, type Message, type Op, type Participant } from "./types.ts"
+import type { Commit, OpRequest } from "./request.ts"
+import { SYSTEM_ACTOR, type ClosedGrant, type ConversationHead, type ConversationKind, type Grant, type Invite, type Message, type Op, type Participant } from "./types.ts"
 import { currentParticipant, safeDisplayName } from "./validate.ts"
+import { NOT_REACHABLE } from "./reach.ts"
 import { reduceSweep, SWEEP_OP } from "./sweep.ts"
-import { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
+import { inviteWrites, msgKey, TABLE_BAN, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export { actorOf } from "./policy.ts"
 
@@ -30,6 +33,7 @@ export { actorOf } from "./policy.ts"
  * - `inv`: key = invite id, row = Invite (every invite, also closed ones).
  * - `invhash`: key = token hash, row = { invite_id }.
  * - `attref`: key = `<hash>:<message id>`, row = { hash, message_id, seq } (private; attachments.ts).
+ * - `ban`: key = participant id, row = { by, at }; a person removed with `ban` (roles.ts), private.
  * - `consent`: key = author id, row = { at }; a DM author's private consent marker (consent.ts),
  *   never deleted by retention.
  *
@@ -42,7 +46,7 @@ export { actorOf } from "./policy.ts"
  * which the Domain hashes. A token hash seen in an event or row is useless,
  * and a proof appears only in the accept event, after its single use.
  */
-export { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
+export { inviteWrites, msgKey, TABLE_BAN, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export type ConversationState = ConversationHead | null
 export type ConversationParams = Readonly<Record<string, unknown>>
@@ -145,13 +149,19 @@ const prepare = (
   ctx: ReduceContext,
   actor: string,
   options: ConversationDomainOptions
-): { op: Op; trusted?: boolean } | string => {
+): { op: Op; trusted?: boolean; banned?: boolean } | string => {
   // Params never name the actor or the op kind.
   const { actor: _actor, kind: _kind, proof, ...rest } = params as Record<string, unknown>
+  // A banned person never comes back through an invite either.
+  if ((op === "invite.accept" || op === "invite.accept_verified") && rowsOf(ctx).get(TABLE_BAN, actor)) return "banned"
+  if (op === "invite.accept_verified") {
+    return { op: { kind: "invite.accept_verified", display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
+  }
   if (op === "invite.accept") {
     if (typeof proof !== "string" || proof.length === 0 || proof.length > 256) return "unknown_invite"
     return { op: { kind: "invite.accept", token_hash: hashInviteSecret(proof), display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
   }
+  if (op === "grant.create" && typeof rest.token_hash === "string" && rowsOf(ctx).get(TABLE_GRANTHASH, rest.token_hash)) return "duplicate_invite"
   if (op === "invite.create") {
     if (typeof rest.invite_id === "string" && rowsOf(ctx).get(TABLE_INV, rest.invite_id)) return "duplicate_invite"
     if (typeof rest.token_hash === "string" && rowsOf(ctx).get(TABLE_INVHASH, rest.token_hash)) return "duplicate_invite"
@@ -160,11 +170,18 @@ const prepare = (
     // The caller's own membership first (the same code apply gives), so a non-member's refusal
     // never depends on the target: no probe of who is or was in the conversation.
     if (!currentParticipant(head, actor)) return "not_participant"
+    // In a Chief's conversation only its owner adds people: refused before the reach facts, so a
+    // teammate learns nothing about who they could reach.
+    if (head.kind === "chief" && currentParticipant(head, actor)?.role !== "owner") return "forbidden"
     const participant = rest.participant
     if (typeof participant !== "object" || participant === null) return "invalid_participant"
     const decision = (options.participantPolicy ?? defaultParticipantPolicy)(ctx.principal, participant as Participant, head)
     if (!decision.ok) return decision.code
-    return { op: { kind: "participants.add", participant: stampParticipant(participant as Participant, decision) }, trusted: true }
+    // A Chief's conversation is shared only inside a team (cmux#25569): a connection alone is not enough.
+    if (head.kind === "chief" && !sharesTeam(ctx.principal, participant as Participant)) return NOT_REACHABLE
+    const role = rest.role === undefined ? {} : { role: rest.role as Participant["role"] & string }
+    const banned = typeof (participant as Participant).id === "string" && rowsOf(ctx).get(TABLE_BAN, (participant as Participant).id) !== undefined
+    return { op: { kind: "participants.add", participant: stampParticipant(participant as Participant, decision), ...role } as Op, trusted: true, banned }
   }
   if (op === "message.send" && typeof rest.client_msg_id === "string") {
     // The owner and the client's own intent preview pass the key; mirror replay does not.
@@ -173,6 +190,10 @@ const prepare = (
   }
   return { op: { ...rest, kind: op } as unknown as Op }
 }
+
+/** The Worker found that the caller and this person are members of one team (reach.ts `shared_team`). */
+const sharesTeam = (principal: Principal, participant: Participant): boolean =>
+  participant.kind !== "human" || principal.home_reach?.some((reach) => reach.user === participant.id && reach.shared_team && reach.blocked !== true) === true
 
 /** Unread and mentions of `user` after `cursor`, from the message rows (at most UNREAD_RECOUNT_LIMIT). */
 const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts => {
@@ -186,6 +207,10 @@ const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts =>
   return { unread, mentions }
 }
 
+/** The lowest message seq `user` may see: with history_visible since_join, its join (ConversationDO.floor). */
+const historyFloor = (head: ConversationHead, user: string): number =>
+  head.settings?.history_visible === "since_join" ? (currentParticipant(head, user)?.joined_seq ?? 0) : 0
+
 /**
  * Counts per human before this commit, for fanOut: the stored row, or a recount from the read
  * cursor when there is none (a conversation older than the table). A cursor moved back recounts.
@@ -195,10 +220,7 @@ const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts =>
  * below the user's join (the same floor reads, search and snapshots use).
  */
 export const unreadFloor = (head: ConversationHead, user: string): number => {
-  const cursor = head.read_cursors[user] ?? 0
-  if (head.settings?.history_visible !== "since_join") return cursor
-  const joined = head.participants.find((p) => p.id === user && p.left_at === undefined)?.joined_seq ?? 0
-  return Math.max(cursor, joined)
+  return Math.max(head.read_cursors[user] ?? 0, historyFloor(head, user))
 }
 
 const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op, rows: RowReader): Record<string, UnreadCounts> => {
@@ -210,9 +232,61 @@ const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op,
     const stored = wasMember(user) ? rows.get<UnreadCounts>(TABLE_UNREAD, user)?.row : undefined
     counts[user] = stored ?? recount(rows, user, unreadFloor(wasMember(user) ? before : after, user))
   }
-  if (op.kind === "read_cursor.set") for (const user of humans) if (after.read_cursors[user] !== before.read_cursors[user]) counts[user] = recount(rows, user, unreadFloor(after, user))
+  // A moved cursor recounts: read_cursor.set, and a send, which moves the sender's cursor.
+  for (const user of humans) if (after.read_cursors[user] !== before.read_cursors[user]) counts[user] = recount(rows, user, unreadFloor(after, user))
   return counts
 }
+
+/**
+ * Link grant upkeep after a commit (grants.ts): a new grant's hash row, a redeemed grant's use
+ * (closed when used up), a revoked one, and the grants whose makers this commit removed or
+ * demoted. Closed grants leave the head for a `grant` row.
+ */
+const withGrantUpkeep = (state: ConversationHead, commit: Commit, op: Op, opActor: string, redeemed: Grant | undefined, now: string, writes: Array<RowWrite>): Commit => {
+  const before = state.grants ?? []
+  let grants = commit.head.grants ?? []
+  if (before.length === 0 && grants.length === 0) return commit
+  const closed: Array<ClosedGrant> = []
+  if (op.kind === "grant.create") writes.push({ table: TABLE_GRANTHASH, op: "upsert", key: op.token_hash, n: null, row: { grant_id: op.grant_id } })
+  if (op.kind === "grant.revoke") for (const grant of before) if (!grants.some((g) => g.id === grant.id) && grant.id === op.grant_id) closed.push(closedGrant(grant, "revoked", now, opActor))
+  if (redeemed) {
+    const used = { ...redeemed, uses: redeemed.uses + 1 }
+    grants = grants.flatMap((grant) => (grant.id !== used.id ? [grant] : used.uses >= used.max_uses ? (closed.push(closedGrant(used, "used", now)), []) : [used]))
+  }
+  const target = (op as { participant?: unknown }).participant
+  const makers = new Set([opActor, ...(typeof target === "string" ? [target] : [])])
+  const { open, lost } = closeLostGrants(grants, makers, (id) => commit.head.participants.find((p) => p.id === id))
+  for (const grant of lost) closed.push(closedGrant(grant, "issuer_lost_rights", now, opActor))
+  for (const grant of closed) writes.push({ table: TABLE_GRANT, op: "upsert", key: grant.id, n: null, row: grant })
+  const { grants: _old, ...rest } = commit.head
+  return { ...commit, head: open.length > 0 ? { ...rest, grants: open } : rest }
+}
+
+/** The open invite an invite op names in the head (its address is a member row the view loads). */
+const inviteNamed = (head: ConversationHead, op: Op): Invite | undefined => {
+  const id = op.kind === "invite.revoke" || op.kind === "invite.approve_join" || op.kind === "invite.delivery.report" ? op.invite_id : undefined
+  const hash = op.kind === "invite.accept" ? op.token_hash : undefined
+  return head.invites?.find((invite) => invite.id === id || (hash !== undefined && invite.token_hash === hash))
+}
+
+/**
+ * Counts before the commit for the people a large-group commit bumps (large.ts focusOf), each
+ * recounted from its cursor: at most UNREAD_RECOUNT_LIMIT messages per named person, never a
+ * pass over every member.
+ */
+const focusCounts = (before: ConversationHead, after: ConversationHead, request: OpRequest, commit: Commit, rows: RowReader): Record<string, UnreadCounts> => {
+  const counts: Record<string, UnreadCounts> = {}
+  for (const user of focusOf(request, commit.message)) {
+    const wasMember = before.participants.some((p) => p.id === user && p.left_at === undefined)
+    const record = (wasMember ? before : after).participants.find((p) => p.id === user)
+    if (record?.kind !== "human") continue
+    counts[user] = recount(rows, user, unreadFloor(after.read_cursors[user] !== before.read_cursors[user] || !wasMember ? after : before, user))
+  }
+  return counts
+}
+
+/** Ops a person who is not (yet) a participant may send: an invite redeemed, a delivery report or rename from the system, a request dismissed, the retention sweep. */
+const STRANGER_OPS: ReadonlySet<string> = new Set(["invite.accept", "invite.accept_verified", "invite.delivery.report", "chief.rename", "request.dismiss", SWEEP_OP])
 
 const reduceConversation = (
   options: ConversationDomainOptions,
@@ -226,33 +300,75 @@ const reduceConversation = (
   if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (!state) return refuse("unknown_conversation")
+  // A caller who never belonged learns nothing: the answer of an id that does not exist (tenant-isolation-DESIGN.md 5.1).
+  // Someone who left keeps `not_participant`; the ops below are the ones a stranger may legitimately send.
+  if (!recordOf(state, rowsOf(ctx), actor) && !STRANGER_OPS.has(op)) return refuse("unknown_conversation")
   // Inside the wrapped reduce: a retention batch that deletes msgkey rows leaves the DM's consent markers (consent.ts).
   if (op === SWEEP_OP) return reduceSweep(state, ctx, actor)
   const prepared = prepare(state, op, params, ctx, actor, options)
   if (typeof prepared === "string") return refuse(prepared)
-  const coreOp = prepared.op
+  let coreOp = prepared.op
+  // The actor the reducer sees: the caller, or for a link grant the member who made it (grants.ts).
+  let opActor = actor
+  let trusted = prepared.trusted ?? null
+  let redeemed: Grant | undefined
+  if (coreOp.kind === "invite.accept") {
+    const ref = rowsOf(ctx).get<{ grant_id: string }>(TABLE_GRANTHASH, coreOp.token_hash)?.row
+    if (ref) {
+      // A link grant: the caller joins with the link's role, added by the link's maker.
+      const grant = (state.grants ?? []).find((candidate) => candidate.id === ref.grant_id)
+      if (!grant) return refuse("unknown_invite")
+      if (grantExpired(grant, formatRfc3339Millis(ctx.now))) return refuse("invite_expired")
+      if (ctx.principal.agent !== undefined || !actor.startsWith("user_")) return refuse("forbidden")
+      redeemed = grant
+      opActor = grant.issuer
+      trusted = true
+      coreOp = { kind: "participants.add", participant: { id: actor, kind: "human", display_name: coreOp.display_name }, role: grant.role }
+    }
+  }
   const loaded = loadInvite(state, ctx, coreOp)
-  const head: ConversationHead = loaded ? { ...state, invites: [...(state.invites ?? []), loaded] } : state
   const messageId = targetMessageId(coreOp)
+  const targetRow = messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null)
+  const lastMessage = rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null
+  // A large group runs the op on a view head: the roster plus the member rows it names (large.ts).
+  const invite = loaded ?? inviteNamed(state, coreOp)
+  const maker = coreOp.kind === "grant.revoke" ? (state.grants ?? []).find((grant) => grant.id === (coreOp as { grant_id: string }).grant_id)?.issuer : undefined
+  const base = isLarge(state) ? viewHead(state, rowsOf(ctx), namedBy(coreOp, opActor, [lastMessage, targetRow], [invite?.address, maker])) : state
+  const head: ConversationHead = loaded ? { ...base, invites: [...(base.invites ?? []), loaded] } : base
   const replyId = coreOp.kind === "message.send" ? coreOp.reply_to?.message_id : undefined
-  const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.addressIdsFor
+  const threadId = coreOp.kind === "message.send" && typeof coreOp.thread_root === "string" ? coreOp.thread_root : undefined
+  const floor = historyFloor(head, actor)
+  const visible = (row: Message | null): Message | null => (row && row.seq > floor ? row : null)
+  const threadRow = threadId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, threadId)?.row ?? null)
+  const verified = (op === "invite.accept" || op === "invite.accept_verified") && ctx.principal.email_verified === true && options.addressIdsFor
   const request: OpRequest = {
-    actor,
+    actor: opActor,
     // The engine's ledger owns idempotency; `msgkey` keeps (author, client_msg_id) unique.
     idempotency_key: coreOp.kind === "message.send" ? coreOp.client_msg_id : "",
     op: coreOp,
     now: formatRfc3339Millis(ctx.now),
     new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
-    target: messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null),
-    reply_target: replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null),
+    // A thread root below the actor's history floor is refused like a missing one (the thread
+    // read's rule), so thread.update never probes or changes hidden history.
+    target: coreOp.kind === "thread.update" ? visible(targetRow) : targetRow,
+    // A reply target or thread root below the actor's history floor (since_join) is not visible
+    // to it: refused like a missing one, so a send never probes hidden history.
+    reply_target: visible(replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null)),
+    thread_target: visible(threadRow),
     // The loop guard lives in the head (O(1)); only the newest message is read, for summaries.
-    last_message: rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null,
+    last_message: lastMessage,
     actor_addresses: verified ? options.addressIdsFor!(ctx.principal) : null,
-    trusted_participant: prepared.trusted ?? null
+    trusted_participant: trusted,
+    banned: prepared.banned ?? null
   }
   const result = apply(head, request)
   if (!result.ok) return refuse(result.code)
-  const { commit } = result
+  let { commit } = result
+  // A thread root derived from the parent (a reply to a thread reply that names no thread_root) must be
+  // visible to the sender, like a named one: a root below its history floor is refused, never joined.
+  if (coreOp.kind === "message.send" && threadId === undefined && commit.message?.thread_root !== undefined) {
+    if (!visible(rowsOf(ctx).get<Message>(TABLE_MSG, commit.message.thread_root)?.row ?? null)) return refuse("invalid_thread_root")
+  }
   const writes: Array<RowWrite> = []
   if (commit.message && MESSAGE_PART_OPS.has(coreOp.kind)) {
     // The author's own view: an uploader of the hash, or a referencing message above their floor.
@@ -269,9 +385,32 @@ const reduceConversation = (
     }
   }
   writes.push(...inviteWrites(head.invites ?? [], commit.head.invites ?? []))
-  const next: ConversationHead = commit.head.invites ? { ...commit.head, invites: commit.head.invites.filter(isOpen) } : commit.head
-  const counts = unreadBefore(head, commit.head, coreOp, rowsOf(ctx))
-  const outbox = commitOutbox(head, request, commit, counts)
+  if (coreOp.kind === "participants.remove" && coreOp.ban === true) {
+    writes.push({ table: TABLE_BAN, op: "upsert", key: coreOp.participant, n: null, row: { by: actor, at: request.now } })
+  }
+  if (coreOp.kind === "participants.unban") writes.push({ table: TABLE_BAN, op: "delete", key: coreOp.participant })
+  commit = withGrantUpkeep(state, commit, coreOp, opActor, redeemed, request.now, writes)
+  // The head to store, and the commit the outbox describes (a large group's counts and tier).
+  let stored: ConversationHead = commit.head
+  let described: Commit = commit
+  let everyone = false
+  if (isLarge(state)) {
+    const settled = settle(state, head, commit.head, rowsOf(ctx))
+    writes.push(...settled.writes)
+    stored = settled.head
+    const { member_count, human_count, state: lifecycle } = settled.head
+    described = { ...commit, head: { ...commit.head, member_count, human_count, ...(lifecycle === undefined ? {} : { state: lifecycle }) } }
+  } else if (needsPromotion(commit.head)) {
+    // Once, in the commit that crosses INLINE_MAX: every member's inbox learns the group is large.
+    const promoted = promote(commit.head)
+    writes.push(...promoted.writes)
+    stored = promoted.head
+    described = { ...commit, head: { ...commit.head, tier: "large", member_count: promoted.head.member_count, human_count: promoted.head.human_count } }
+    everyone = true
+  }
+  const next: ConversationHead = stored.invites ? { ...stored, invites: stored.invites.filter(isOpen) } : stored
+  const counts = isLarge(state) ? focusCounts(head, described.head, request, commit, rowsOf(ctx)) : unreadBefore(head, commit.head, coreOp, rowsOf(ctx))
+  const outbox = commitOutbox(head, request, described, counts, everyone)
   // The counts each bump carries become the stored counts (the next commit starts from them).
   for (const item of outbox) {
     const p = item.payload as { user?: string; unread?: number; mentions?: number }

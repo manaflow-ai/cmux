@@ -9,6 +9,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case select(WorkspaceID)
     /// Activate a tab listed beneath a workspace.
     case selectTab(workspace: WorkspaceID, tab: TabID)
+    /// Close a tab listed beneath a workspace (a middle-click on its row): the App runs Close Tab on it alone, so
+    /// Reopen Closed brings it back. No local change; the store drops the row.
+    case closeTab(workspace: WorkspaceID, tab: TabID)
     /// Move a listed tab into another workspace.
     case moveTab(TabID, from: WorkspaceID, to: WorkspaceID)
     /// Move workspaces, in tree order, to a position. Covers reorder, moving
@@ -21,13 +24,17 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Create a group holding the given workspaces. The UI mints the id.
     /// The group forms where `anchor` is (a row dropped onto another forms
     /// it at the target row), else at the first workspace in tree order.
-    /// `collapsed` restores a group folded (undo of Ungroup).
-    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false)
+    /// `collapsed` restores a group folded (undo of Ungroup). `index`, a
+    /// section node index counted without the joining workspaces, places it
+    /// instead (`Int.max`: last); New Workspace in New Group forms it at its
+    /// final slot that way, never at the new row's slot first (cx-f6i7).
+    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false,
+                     index: Int? = nil)
     case renameGroup(GroupID, String)
     /// The group's name editor closed (commit or cancel). The App removes a
     /// group made with no member that is still empty (cx-rcby). No local change.
     case groupEditorEnded(GroupID)
-    case setGroupColor(GroupID, GroupColor)
+    case setGroupColor(GroupID, GroupTint)
     /// Dissolve a group, leaving its workspaces in place.
     case ungroup(GroupID)
     /// Pin (save) or unpin a group.
@@ -48,6 +55,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setColor([WorkspaceID], GroupColor?)
     case setIcon([WorkspaceID], WorkspaceIcon)
     case setPinned([WorkspaceID], Bool)
+    /// The row's speaker was clicked: mute the workspace's tabs that play
+    /// sound, or unmute its muted tabs (`SidebarWorkspaceAudio`). No local change.
+    case toggleWorkspaceAudio(WorkspaceID)
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
@@ -57,16 +67,24 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case newProfile
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
+    /// Open a space in a new window (a dot dragged out of the window; spaces-overhaul-DESIGN.md rule 4).
+    case openProfileInNewWindow(ProfileKey)
     /// Run an item of a pinned section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
     /// The update card's button: install the staged update and relaunch
     /// (`SidebarModel.updateCard`).
     case installUpdate
-    /// The update card's Automatic Updates checkbox.
+    /// The sidebar footer's Update Available button: download the found update (it then asks before
+    /// relaunching on the update card).
+    case downloadUpdate
+    /// The update card's Automatic Updates switch.
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
+    /// The update card's "See all changes": the What's New page for the
+    /// staged update (cx-7rone).
+    case openUpdateChanges
     /// A notice card button (`SidebarModel.noticeCard`): the card's id and
     /// the action's id (a tip's Try It, an update's Update).
     case noticeAction(card: String, action: String)
@@ -74,10 +92,13 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dismissNotice(String)
     /// The "cmux Updated!" card's "See What's New" row (`updates.whatsNew`).
     case openWhatsNew
-    /// The "cmux Updated!" card's "Share cmux" row (`app.shareCmux`).
-    case shareCmux
     /// The "cmux Updated!" card's x: this version is seen.
     case dismissUpdated
+    /// A Now Playing card control (cx-ouoxo), for the App's Now Playing source.
+    case nowPlaying(SidebarNowPlayingCommand)
+    /// The Now Playing card's x (u2437): the App runs `nowPlaying.hideCard`, which hides the card
+    /// until other media starts.
+    case hideNowPlayingCard
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top
@@ -86,4 +107,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dropOnLayoutSection([WorkspaceID], section: LayoutSectionID, index: Int)
     /// Collapse or expand a titled section (client view state).
     case toggleLayoutSection(LayoutSectionID)
+    /// Edit mode's Add Items: the App opens App Store Features (its Sidebar cards; the Sidebar filter comes with #22903).
+    case addItems
 }

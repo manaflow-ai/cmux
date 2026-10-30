@@ -1,5 +1,6 @@
 import CmuxNextPages
 import AppKit
+import CmuxNextBrowser
 import CmuxNextSettings
 import CmuxNextTerminal
 
@@ -37,6 +38,14 @@ enum SurfaceDiagnosticsReport {
                    let page = view.content as? PageWebView {
                     object["phase"] = .string(page.hasPainted ? "painted" : "loading")
                 }
+                #if DEBUG || CMUX_BENCH_HOOKS
+                // A web page tab's current address (the live engine's, else the tab record's), so a script can tell
+                // which page a pane shows.
+                if case .browser(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    let address = entry.tab.state.url?.absoluteString ?? row.pane.selectedTab?.url
+                    object["url"] = address.map(JSONValue.string) ?? .null
+                }
+                #endif
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
                     object["link"] = .string(Self.linkName(entry.session.model.connection))
@@ -46,7 +55,15 @@ enum SurfaceDiagnosticsReport {
                     object["local_history_mismatch"] = JSONValue(diagnostics.localHistoryMismatches)
                     object["local_snapshots"] = JSONValue(diagnostics.localSnapshots)
                     object["skipped_images"] = JSONValue(diagnostics.skippedImages)
+                    object["last_frame_holds"] = JSONValue(diagnostics.lastFrameHolds)
+                    object["frame_held"] = .bool(diagnostics.holdingFrame)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
+                    #if DEBUG || CMUX_BENCH_HOOKS
+                    if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
+                    // The font zoom the terminal draws at, as a scale of the configured
+                    // `font-size` (1 at that size); its tab record saves it (cx-mzuqi).
+                    object["font_scale"] = .number(TerminalFontScale(entry.session.surfaceView).current ?? 1)
+                    #endif
                 }
                 if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     // A remote-terminal tab whose session is away (data-model.md 1.4).
@@ -68,14 +85,36 @@ enum SurfaceDiagnosticsReport {
             "invariant_violations": JSONValue(services.surfaceInvariant.violations),
             "invariant_checks": JSONValue(services.surfaceInvariant.checks),
             "warm_terminal_capacity": JSONValue(services.cache.warmBudget.terminalCapacity),
+            "last_frames": .object(services.cache.lastFrames.report.mapValues { JSONValue($0) }),
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
+            "hibernated_workspaces": JSONValue(services.workspaceHibernation.hibernated.count),
+            "workspaces_hibernated_total": JSONValue(services.workspaceHibernation.hibernatedCount),
+            "workspace_pages": .object((services.cache.hibernation?.workspacePageOutcomes ?? [:]).mapValues { JSONValue($0) }),
             "hibernation": hibernation(services),
         ]
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The terminal's grid in window points from the top-left (`debug.mouse`'s coordinates):
+    /// cell size, the first cell's corner and the view's frame, and the window for `debug.mouse`.
+    private static func grid(_ view: TerminalSurfaceView, window controller: WindowController) -> JSONValue? {
+        guard let window = view.window, let metrics = view.debugGridMetrics() else { return nil }
+        let frame = view.convert(view.bounds, to: nil)
+        let topLeft = InputJournal.topLeftPoint(NSPoint(x: frame.minX, y: frame.maxY), in: window, relativeTo: window)
+        return [
+            "window": .string(controller.state.id),
+            "cell_width": .number(metrics.cellWidth), "cell_height": .number(metrics.cellHeight),
+            "origin_x": .number(topLeft.x + metrics.paddingLeft), "origin_y": .number(topLeft.y + metrics.paddingTop),
+            "frame_x": .number(topLeft.x), "frame_y": .number(topLeft.y),
+            "frame_width": .number(frame.width), "frame_height": .number(frame.height),
+        ]
+    }
+    #endif
+
     private static func linkName(_ status: TerminalConnectionStatus) -> String {
         switch status {
         case .connected: "connected"
+        case .restoring: "restoring"
         case .exited: "exited"
         case .disconnected(let cause, let reconnecting): "disconnected:\(cause)\(reconnecting ? ":reconnecting" : "")"
         }
@@ -90,7 +129,18 @@ enum SurfaceDiagnosticsReport {
             "hibernated": .array(services.cache.dormantTabs.ids.sorted().map(JSONValue.string)),
             "hibernated_total": JSONValue(hibernation.hibernatedCount),
             "restored_total": JSONValue(hibernation.restoredCount),
+            "frozen": .array(hibernation.frozen.sorted().map(JSONValue.string)),
+            // Each live page's lifecycle phase (workspace hibernation discards only `mountedHidden` ones).
+            "page_phases": .object(Dictionary(uniqueKeysWithValues: services.cache.browsers.keys.map { ($0, JSONValue.string(services.cache.phase(of: $0).rawValue)) })),
+            "neighbor_radius": JSONValue(hibernation.neighborRadius),
+            "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
+            "prewarmed_total": JSONValue(hibernation.prewarmedCount),
+            "cold_shows_total": JSONValue(hibernation.coldShows),
+            "uncovered_wakes_total": JSONValue(hibernation.uncoveredWakes),
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
+            "snapshots": JSONValue(hibernation.snapshots.count),
+            "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),
+            "wakes": hibernation.wakeLog.json,
         ]
     }
 }

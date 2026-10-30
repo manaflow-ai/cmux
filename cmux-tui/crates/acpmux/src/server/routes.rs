@@ -1,7 +1,7 @@
 //! `_acpmux/route/list|show|add|edit|remove|restore|test`,
 //! `_acpmux/route/default.set` and `_acpmux/chat/route.set` (ROUTES R1-R3):
-//! the app's Settings, palette, chat menu and MCP tools, and `cmux route …`,
-//! manage routes through the daemon. The store is `crate::routes`.
+//! the app's chat menu and the Cloud hand's gateway manage routes through the
+//! daemon. The store is `crate::routes`.
 //!
 //! Who may call them: `add`, `edit`, `remove` and `restore` change where a
 //! harness sends prompts and which secret it sends, so only the unix socket
@@ -33,6 +33,7 @@ fn params_of(file: &routes::RouteFile) -> Value {
         ("openai_base_url", "openaiBaseUrl"),
         ("health_url", "healthUrl"),
         ("auto_fallback", "autoFallback"),
+        ("account_home", "accountHome"),
     ] {
         if let Some(x) = obj.remove(from) {
             obj.insert(to.into(), x);
@@ -75,22 +76,36 @@ pub(super) async fn handle(
         method::MUX_ROUTE_LIST => {
             let (list, problems) = routes::load(dir.as_deref());
             let bindings = routes::bindings(&state);
-            let active = match text("sessionId") {
+            // With a session: its family, and which routes serve it (the
+            // composer's Account menu lists only those).
+            let (active, family) = match text("sessionId") {
                 Some(key) => {
                     let s = hub.resolve(key)?;
                     let meta = s.meta();
                     let family = hub.config.read().await.family(&meta.harness).unwrap_or_default();
                     let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-                    routes::bound_route(&bindings, &s.id, workspace, &family)
-                        .map(|(id, scope)| json!({"routeId": id, "scope": scope}))
+                    let active = routes::bound_route(&bindings, &s.id, workspace, &family)
+                        .map(|(id, scope)| json!({"routeId": id, "scope": scope}));
+                    (active, Some(family))
                 }
-                None => None,
+                None => (None, None),
             };
+            let views = list
+                .iter()
+                .map(|route| {
+                    let mut view = route.view();
+                    if let (Some(family), Some(obj)) = (&family, view.as_object_mut()) {
+                        obj.insert("serves".into(), json!(route.serves(family)));
+                    }
+                    view
+                })
+                .collect::<Vec<_>>();
             Ok(json!({
-                "routes": list.iter().map(routes::Route::view).collect::<Vec<_>>(),
+                "routes": views,
                 "problems": problems,
                 "bindings": bindings,
                 "active": active,
+                "family": family,
                 "kinds": routes::RouteKind::ALL.iter().map(|k| k.as_str()).collect::<Vec<_>>(),
             }))
         }

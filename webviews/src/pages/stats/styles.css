@@ -1,0 +1,258 @@
+/* The Stats page: tiles, a week-column heatmap (a row of days for a week or a month), hour bars
+   and per-agent rows on the shared page backdrop (pageBase.css). Heat and bars are the accent at
+   rising strength. */
+.stats {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+
+.stats-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stats-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.stats-private,
+.stats-muted,
+.stats-day-label,
+.stats-tile-label,
+.stats-tile-detail {
+  color: var(--page-text-3);
+}
+
+.stats-private {
+  margin: 2px 0 0;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.stats-ranges {
+  display: flex;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--page-hover);
+}
+
+.stats-range {
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 10px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.stats-range.is-selected {
+  background: var(--page-elevated);
+  color: var(--page-text);
+}
+
+.stats-message {
+  margin: 12px 0;
+}
+
+.stats-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.stats-tile {
+  padding: 10px 12px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+}
+
+.stats-tile-label,
+.stats-tile-detail {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.stats-tile-detail {
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-tile-value {
+  margin-top: 2px;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+
+.stats-section {
+  margin-top: 24px;
+}
+
+.stats-section-title {
+  margin: 0 0 8px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+/* Seven rows, one per weekday; the grid flows down each week's column. */
+.stats-heatmap {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-flow: column;
+  grid-auto-columns: 12px;
+  gap: 3px;
+  overflow-x: auto;
+}
+
+.stats-heat {
+  border-radius: 3px;
+  background: var(--page-hover);
+}
+
+/* A week or a month: one row of days across the width on the hour bars' 2px gap, each over its
+   label (the weekday, or the date every seventh day). */
+.stats-days {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
+.stats-day {
+  min-width: 0;
+}
+
+.stats-day > .stats-heat {
+  height: 24px;
+  border-radius: 2px;
+}
+
+/* Centered under its day even where a date is wider than a month's narrow column. */
+.stats-day-label {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.stats-heat.is-padding {
+  background: transparent;
+}
+.stats-heat-1 {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 25%, transparent);
+}
+.stats-heat-2 {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent);
+}
+.stats-heat-3 {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 70%, transparent);
+}
+.stats-heat-4 {
+  background: var(--cmux-accent, var(--page-text));
+}
+
+.stats-hours {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  align-items: end;
+  gap: 2px;
+  height: 64px;
+}
+
+.stats-hour {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--page-hover);
+}
+
+.stats-hour-bar,
+.stats-harness-bar {
+  display: block;
+  width: 100%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 70%, transparent);
+}
+
+.stats-harnesses {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stats-harness {
+  display: grid;
+  grid-template-columns: minmax(90px, 140px) 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+}
+
+.stats-harness-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-harness-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--page-hover);
+  overflow: hidden;
+}
+
+.stats-harness-bar {
+  height: 100%;
+}
+
+.stats-harness-value {
+  min-width: 4ch;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-outcomes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+
+.stats-outcome dt {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.stats-outcome dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}

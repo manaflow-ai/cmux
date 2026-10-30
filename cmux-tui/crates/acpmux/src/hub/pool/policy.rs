@@ -1,6 +1,9 @@
 //! The session pool's policy, apart from processes. Per cwd at most two
 //! entries are wanted: the harness used before the current one (`LastUsed`)
-//! and the one the pane hints at (`Hinted`). An entry no role wants is
+//! and the one the pane hints at (`Hinted`). Across folders a harness keeps
+//! at most `hinted_per_harness` hinted entries (default 1, the newest hint
+//! wins): typing in new chats in several folders never leaves a warm agent
+//! per folder. A hint can be released (`release`). An entry no role wants is
 //! evicted, an idle entry expires at its deadline, the whole pool stays
 //! under an RSS cap (the oldest entry goes first), and an entry whose key
 //! changed is discarded, never served. A remote-origin key is never pooled
@@ -66,6 +69,8 @@ struct Entry<T> {
     key: PoolKey,
     last_used: bool,
     hinted: bool,
+    /// When the newest hint for this key came (the per-harness cap keeps the newest).
+    hinted_at: Duration,
     slot: Slot<T>,
     deadline: Duration,
     /// When the entry became ready (eviction order under the RSS cap).
@@ -115,6 +120,8 @@ pub struct Pool<T> {
     entries: Vec<Entry<T>>,
     idle: Duration,
     next_generation: u64,
+    /// Most hinted entries one harness keeps across folders (at least 1).
+    hinted_per_harness: usize,
 }
 
 /// How one entry looks, for status replies and tests.
@@ -129,11 +136,16 @@ pub struct EntryView {
 
 impl<T> Pool<T> {
     pub fn new(idle: Duration) -> Self {
-        Self { entries: Vec::new(), idle, next_generation: 1 }
+        Self { entries: Vec::new(), idle, next_generation: 1, hinted_per_harness: 1 }
     }
 
     pub fn set_idle(&mut self, idle: Duration) {
         self.idle = idle;
+    }
+
+    /// Most hinted entries one harness keeps across folders (`pool.hintedPerHarness`); 0 counts as 1.
+    pub fn set_hinted_per_harness(&mut self, n: usize) {
+        self.hinted_per_harness = n.max(1);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -164,8 +176,16 @@ impl<T> Pool<T> {
         for e in self.entries.iter_mut().filter(|e| e.key.cwd == key.cwd) {
             match role {
                 Role::LastUsed => e.last_used = e.key == key,
-                Role::Hinted => e.hinted = e.key == key,
+                Role::Hinted => {
+                    e.hinted = e.key == key;
+                    if e.hinted {
+                        e.hinted_at = now;
+                    }
+                }
             }
+        }
+        if role == Role::Hinted {
+            self.cap_hinted(&key);
         }
         let idle = self.idle;
         let start = match self.entries.iter_mut().find(|e| e.key == key) {
@@ -186,6 +206,7 @@ impl<T> Pool<T> {
                 self.entries.push(Entry {
                     last_used: role == Role::LastUsed,
                     hinted: role == Role::Hinted,
+                    hinted_at: now,
                     key,
                     slot: Slot::Warming(generation),
                     deadline: now + idle,
@@ -197,6 +218,46 @@ impl<T> Pool<T> {
         };
         evicted.extend(self.drop_unwanted());
         Wanted { start, evicted }
+    }
+
+    /// `key` was just hinted: other folders' hinted entries of its harness beyond the cap lose
+    /// their hint, the oldest hint first (an entry no other role wants is then dropped).
+    fn cap_hinted(&mut self, key: &PoolKey) {
+        let mut others: Vec<(Duration, usize)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                e.hinted
+                    && e.key.cwd != key.cwd
+                    && e.key.origin == key.origin
+                    && e.key.harness == key.harness
+            })
+            .map(|(i, e)| (e.hinted_at, i))
+            .collect();
+        // Newest first; `key` itself holds one of the harness's places.
+        others.sort_by_key(|e| std::cmp::Reverse(e.0));
+        for (_, i) in others.into_iter().skip(self.hinted_per_harness - 1) {
+            if let Some(entry) = self.entries.get_mut(i) {
+                entry.hinted = false;
+            }
+        }
+    }
+
+    /// Take back the hint on `cwd`'s entries (only `harness`'s when given): the person cleared
+    /// the prompt or closed the new chat. Returns how many entries lost their hint, and the
+    /// sessions no role wants any more, to end.
+    pub fn release(&mut self, cwd: &std::path::Path, harness: Option<&str>) -> (usize, Vec<T>) {
+        let mut released = 0;
+        for e in self
+            .entries
+            .iter_mut()
+            .filter(|e| e.hinted && e.key.cwd == cwd && harness.is_none_or(|h| e.key.harness == h))
+        {
+            e.hinted = false;
+            released += 1;
+        }
+        (released, self.drop_unwanted())
     }
 
     fn drop_unwanted(&mut self) -> Vec<T> {
@@ -357,6 +418,14 @@ impl<T> Pool<T> {
             .map(|e| e.settled.subscribe())
     }
 
+    /// Remove the ready session `pick` chooses; its key stays wanted but holds nothing.
+    pub fn remove_ready(&mut self, pick: impl Fn(&T) -> bool) -> Option<T> {
+        let e = self.entries.iter_mut().find(|e| matches!(&e.slot, Slot::Ready(t) if pick(t)))?;
+        let Slot::Ready(t) = std::mem::replace(&mut e.slot, Slot::Empty) else { return None };
+        e.settle();
+        Some(t)
+    }
+
     /// Empty the pool (config reload, shutdown); returns every ready session.
     pub fn clear(&mut self) -> Vec<T> {
         let mut out = Vec::new();
@@ -388,219 +457,5 @@ impl<T> Pool<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const IDLE: Duration = Duration::from_secs(600);
-    const T0: Duration = Duration::ZERO;
-
-    fn key(harness: &str) -> PoolKey {
-        key_in("/work", harness)
-    }
-
-    fn key_in(cwd: &str, harness: &str) -> PoolKey {
-        PoolKey {
-            origin: Origin::Local,
-            cwd: cwd.into(),
-            harness: harness.into(),
-            preset: None,
-            args: vec![harness.into()],
-            system_prompt_sha256: None,
-            auth: "auth-a".into(),
-            account: Some("acct-1".into()),
-        }
-    }
-
-    fn ready(
-        pool: &mut Pool<&'static str>,
-        k: &PoolKey,
-        role: Role,
-        now: Duration,
-        name: &'static str,
-    ) {
-        let w = pool.want(role, k.clone(), now);
-        let generation = w.start.expect("a start");
-        assert!(pool.complete(k, generation, name, now).is_none());
-    }
-
-    fn states(pool: &Pool<&'static str>) -> Vec<(String, String, bool, bool, &'static str)> {
-        pool.view()
-            .into_iter()
-            .map(|v| {
-                (v.key.cwd.display().to_string(), v.key.harness, v.last_used, v.hinted, v.state)
-            })
-            .collect()
-    }
-
-    #[test]
-    fn per_cwd_only_the_last_used_and_the_hinted_harness_stay() {
-        let mut pool = Pool::new(IDLE);
-        ready(&mut pool, &key("claude"), Role::LastUsed, T0, "claude#1");
-        ready(&mut pool, &key("codex"), Role::Hinted, T0, "codex#1");
-        // Another cwd has its own two roles.
-        ready(&mut pool, &key_in("/other", "opencode"), Role::Hinted, T0, "other#1");
-        // Hovering a third harness in /work moves the hint: codex goes.
-        let w = pool.want(Role::Hinted, key("opencode"), T0);
-        assert!(w.start.is_some());
-        assert_eq!(w.evicted, vec!["codex#1"]);
-        assert_eq!(
-            states(&pool),
-            vec![
-                ("/work".into(), "claude".into(), true, false, "ready"),
-                ("/other".into(), "opencode".into(), false, true, "ready"),
-                ("/work".into(), "opencode".into(), false, true, "warming"),
-            ]
-        );
-        // Hinting the last-used harness keeps one entry with both roles, and
-        // the abandoned hinted start is handed back when it completes.
-        let w = pool.want(Role::Hinted, key("claude"), T0);
-        assert!(w.start.is_none() && w.evicted.is_empty());
-        assert_eq!(
-            pool.view().iter().filter(|v| v.key.cwd == std::path::Path::new("/work")).count(),
-            1
-        );
-        assert_eq!(pool.complete(&key("opencode"), 4, "opencode#1", T0), Some("opencode#1"));
-        // Never more than two entries in one cwd.
-        for h in ["a", "b", "c", "d"] {
-            pool.want(Role::Hinted, key(h), T0);
-            assert!(
-                pool.view().iter().filter(|v| v.key.cwd == std::path::Path::new("/work")).count()
-                    <= 2
-            );
-        }
-    }
-
-    #[test]
-    fn a_repeated_hint_is_single_flight() {
-        let mut pool: Pool<&'static str> = Pool::new(IDLE);
-        let first = pool.want(Role::Hinted, key("codex"), T0);
-        let again = pool.want(Role::Hinted, key("codex"), Duration::from_secs(1));
-        assert!(first.start.is_some());
-        assert!(again.start.is_none(), "a second hint while warming starts nothing");
-        assert_eq!(pool.view()[0].deadline, Duration::from_secs(1) + IDLE);
-    }
-
-    #[test]
-    fn an_idle_entry_expires_at_its_deadline_and_a_hint_pushes_it() {
-        let mut pool = Pool::new(IDLE);
-        ready(&mut pool, &key("codex"), Role::Hinted, T0, "codex#1");
-        assert_eq!(pool.next_deadline(), Some(IDLE));
-        pool.want(Role::Hinted, key("codex"), Duration::from_secs(300));
-        assert!(pool.expire(IDLE).is_empty());
-        assert_eq!(pool.expire(Duration::from_secs(900)), vec!["codex#1"]);
-        assert!(pool.is_empty());
-        assert_eq!(pool.next_deadline(), None);
-    }
-
-    #[test]
-    fn the_rss_cap_evicts_the_oldest_ready_entry_first() {
-        let mut pool = Pool::new(IDLE);
-        let mb = |t: &&'static str| -> u64 {
-            match *t {
-                "claude#1" => 400,
-                "codex#1" => 300,
-                "other#1" => 500,
-                _ => 0,
-            }
-        };
-        ready(&mut pool, &key("claude"), Role::LastUsed, Duration::from_secs(1), "claude#1");
-        ready(&mut pool, &key("codex"), Role::Hinted, Duration::from_secs(2), "codex#1");
-        assert!(pool.enforce_cap(1024, mb).is_empty(), "700 MB fits under 1 GB");
-        ready(&mut pool, &key_in("/other", "x"), Role::Hinted, Duration::from_secs(3), "other#1");
-        // 1200 MB: the oldest (claude, ready at 1 s) goes; 800 MB is left.
-        assert_eq!(pool.enforce_cap(1024, mb), vec!["claude#1"]);
-        assert_eq!(pool.enforce_cap(700, mb), vec!["codex#1"]);
-        assert_eq!(pool.enforce_cap(0, mb), vec!["other#1"]);
-        assert!(pool.is_empty());
-    }
-
-    #[test]
-    fn take_serves_a_ready_session_once_and_waits_on_a_warming_one() {
-        let mut pool = Pool::new(IDLE);
-        let w = pool.want(Role::LastUsed, key("codex"), T0);
-        let Take::Warming(mut settled) = pool.take(&key("codex")) else {
-            panic!("expected warming")
-        };
-        assert!(pool.complete(&key("codex"), w.start.unwrap(), "codex#1", T0).is_none());
-        assert!(settled.has_changed().unwrap());
-        settled.mark_unchanged();
-        assert!(matches!(pool.take(&key("codex")), Take::Ready("codex#1")));
-        assert!(matches!(pool.take(&key("codex")), Take::Miss));
-        // The key stays wanted: wanting it again (refill) starts a new one.
-        assert!(pool.want(Role::LastUsed, key("codex"), T0).start.is_some());
-    }
-
-    #[test]
-    fn every_key_part_that_changed_discards_the_entry_and_never_reuses_it() {
-        type Change = fn(&mut PoolKey);
-        let changes: [(&str, Change); 6] = [
-            ("args", |k| k.args.push("--tools".into())),
-            ("system prompt sha256", |k| k.system_prompt_sha256 = Some("ab".into())),
-            ("auth", |k| k.auth = "auth-b".into()),
-            ("account", |k| k.account = Some("acct-2".into())),
-            ("account logout", |k| k.account = None),
-            ("args order", |k| k.args.insert(0, "--x".into())),
-        ];
-        for (what, change) in changes {
-            let mut pool = Pool::new(IDLE);
-            ready(&mut pool, &key("claude"), Role::LastUsed, T0, "old");
-            let mut changed = key("claude");
-            change(&mut changed);
-            assert!(
-                matches!(pool.take(&changed), Take::Discard(Some("old"))),
-                "{what}: the old entry is handed back for ending"
-            );
-            assert!(pool.is_empty(), "{what}: nothing stays");
-            assert!(matches!(pool.take(&key("claude")), Take::Miss), "{what}: never reused");
-            // Wanting the changed key discards the old entry too.
-            let mut pool = Pool::new(IDLE);
-            ready(&mut pool, &key("claude"), Role::LastUsed, T0, "old");
-            let w = pool.want(Role::LastUsed, changed.clone(), T0);
-            assert_eq!(w.evicted, vec!["old"], "{what}");
-            assert!(w.start.is_some(), "{what}");
-        }
-        // Harness, preset and cwd name another slot: a plain miss.
-        let mut pool = Pool::new(IDLE);
-        ready(&mut pool, &key("claude"), Role::LastUsed, T0, "claude");
-        let mut preset = key("claude");
-        preset.preset = Some("review".into());
-        assert!(matches!(pool.take(&preset), Take::Miss));
-        assert!(matches!(pool.take(&key_in("/elsewhere", "claude")), Take::Miss));
-        assert!(matches!(pool.take(&key("codex")), Take::Miss));
-        assert!(matches!(pool.take(&key("claude")), Take::Ready("claude")));
-    }
-
-    #[test]
-    fn a_taken_session_nobody_used_comes_back_only_under_its_own_key() {
-        let mut pool = Pool::new(IDLE);
-        ready(&mut pool, &key("codex"), Role::LastUsed, T0, "codex#1");
-        let Take::Ready(t) = pool.take(&key("codex")) else { panic!("expected ready") };
-        assert_eq!(pool.restore(&key("codex"), t, T0), None);
-        assert!(matches!(pool.take(&key("codex")), Take::Ready("codex#1")));
-        // The key changed meanwhile: the slot now wants another key.
-        let mut changed = key("codex");
-        changed.auth = "auth-b".into();
-        pool.want(Role::LastUsed, changed, T0);
-        assert_eq!(pool.restore(&key("codex"), "codex#1", T0), Some("codex#1"));
-        // The entry was evicted or expired: nothing to come back to.
-        let mut pool: Pool<&'static str> = Pool::new(IDLE);
-        assert_eq!(pool.restore(&key("codex"), "codex#1", T0), Some("codex#1"));
-        // The entry was refilled meanwhile: the spare one ends.
-        ready(&mut pool, &key("codex"), Role::LastUsed, T0, "codex#2");
-        assert_eq!(pool.restore(&key("codex"), "codex#1", T0), Some("codex#1"));
-    }
-
-    #[test]
-    fn a_remote_origin_key_is_never_pooled_or_served() {
-        let mut pool = Pool::new(IDLE);
-        let mut remote = key("claude");
-        remote.origin = Origin::Remote;
-        let w = pool.want(Role::Hinted, remote.clone(), T0);
-        assert!(w.start.is_none() && w.evicted.is_empty());
-        assert!(pool.is_empty());
-        ready(&mut pool, &key("claude"), Role::LastUsed, T0, "local");
-        assert!(matches!(pool.take(&remote), Take::Miss));
-        // The local entry is untouched by the remote request.
-        assert!(matches!(pool.take(&key("claude")), Take::Ready("local")));
-    }
-}
+#[path = "policy_tests.rs"]
+mod tests;

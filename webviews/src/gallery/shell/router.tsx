@@ -14,16 +14,27 @@ import {
 import { readCompare, writeCompare, type CompareState } from "../compare";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
+import { readOptions, writeOptions } from "../options";
 import { readyEntries } from "../entryStore";
-import { entryStore } from "../registry";
+import { getEntryStore } from "../registry";
+import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./browseModel";
 
 export const VIEWS = ["variant", "variants", "locales", "themes", "compare", "browse"] as const;
 export type View = (typeof VIEWS)[number];
+/** The source gallery's stable landing state. A bare `/gallery/` must never be a blank shell. */
+const DEFAULT_ENTRY = "agent-pane.composer";
 /**
  * The controls, the view, the compare view's state (compare.ts; written only in that view), and
  * the edited tunables (experiments/tunable.ts; web only, so not in env.ts's shared contract).
  */
-export type ShellSearch = GalleryEnv & { view: View; compare: CompareState; tune: string };
+export type ShellSearch = GalleryEnv & {
+  view: View;
+  compare: CompareState;
+  tune: string;
+  /** The entry's changed options (options.ts `opts`). */
+  opts: string;
+  browse: BrowseState;
+};
 
 /** Search params as flat strings, the way the stage frames and the matrix read them. */
 function parseSearch(text: string): Record<string, unknown> {
@@ -35,7 +46,9 @@ function stringifySearch(search: Record<string, unknown>): string {
     Object.entries(search).flatMap(([key, value]) =>
       key === "compare" && value && typeof value === "object"
         ? [...writeCompare(value as CompareState)]
-        : [[key, typeof value === "string" ? value : String(value)]],
+        : key === "browse"
+          ? []
+          : [[key, typeof value === "string" ? value : String(value)]],
     ),
   );
   const params = writeEnv(readEnv(new URLSearchParams(flat)));
@@ -45,6 +58,9 @@ function stringifySearch(search: Record<string, unknown>): string {
   if (view === "compare") writeCompare(readCompare(new URLSearchParams(flat)), params);
   const tune = writeTunes(readTunes(flat.tune ?? ""));
   if (tune) params.set("tune", tune);
+  const opts = writeOptions(readOptions(flat.opts ?? ""));
+  if (opts) params.set("opts", opts);
+  writeBrowse((search.browse as BrowseState | undefined) ?? DEFAULT_BROWSE, params);
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -59,12 +75,19 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
     raw.compare && typeof raw.compare === "object"
       ? readCompare(writeCompare(raw.compare as CompareState))
       : readCompare(params);
-  return { ...readEnv(params), view, compare, tune: writeTunes(readTunes(strings.tune ?? "")) };
+  return {
+    ...readEnv(params),
+    view,
+    compare,
+    tune: writeTunes(readTunes(strings.tune ?? "")),
+    opts: writeOptions(readOptions(strings.opts ?? "")),
+    browse: readBrowse(params),
+  };
 }
 
 /** The entry's first variant, once every entry file has loaded or failed (each loads on its own). */
 async function firstVariant(entryId: string): Promise<string | undefined> {
-  const entry = readyEntries(await entryStore.settled()).find((candidate) => candidate.id === entryId);
+  const entry = await getEntryStore().waitFor(entryId);
   return entry ? Object.keys(entry.variants)[0] : undefined;
 }
 
@@ -74,11 +97,23 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     getParentRoute: () => rootRoute,
     path: "/",
     validateSearch: validateShellSearch,
+    // The bare URL is the link people paste into browsers and chat. Redirect it to a real,
+    // source-backed composer state after only that entry is ready; leaving the index as an empty
+    // Outlet made a cold tab look like a broken white page until a deep link or reload arrived.
+    // If the Composer entry failed to load or was renamed, fall back to the first ready entry.
     beforeLoad: async ({ search }) => {
-      const entry = readyEntries(await entryStore.settled())[0];
-      if (entry)
+      let entryId = DEFAULT_ENTRY;
+      let variant = await firstVariant(DEFAULT_ENTRY);
+      if (!variant) {
+        const entry = readyEntries(await getEntryStore().settled())[0];
+        if (entry) {
+          entryId = entry.id;
+          variant = Object.keys(entry.variants)[0];
+        }
+      }
+      if (variant)
         throw redirect({
-          href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(Object.keys(entry.variants)[0]!)}${stringifySearch(search)}`,
+          href: `/${encodeURIComponent(entryId)}/${encodeURIComponent(variant)}${stringifySearch(search)}`,
         });
     },
     component: Outlet,
@@ -103,7 +138,14 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     component: Outlet,
   });
   const routeTree = rootRoute.addChildren([indexRoute, entryRoute, variantRoute]);
-  const router = createRouter({ history: history ?? createHashHistory(), routeTree, parseSearch, stringifySearch });
+  const router = createRouter({
+    history: history ?? createHashHistory(),
+    routeTree,
+    parseSearch,
+    stringifySearch,
+    // Every cmux router preloads a link's route on intent (hover or keyboard focus).
+    defaultPreload: "intent",
+  });
   return { router, variantRoute };
 }
 

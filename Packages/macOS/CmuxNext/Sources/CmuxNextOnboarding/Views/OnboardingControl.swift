@@ -5,11 +5,10 @@ import CmuxNextDesign
 enum OnboardingControl {
     static func button(_ title: String, prominent: Bool = false, target: AnyObject?, action: Selector) -> NSButton {
         if prominent { return OnboardingAccentButton(title: title, target: target, action: action) }
-        let button = NSButton(title: title, target: target, action: action)
+        let button = ThemedBezelButton(title: title, target: target, action: action)
         button.translatesAutoresizingMaskIntoConstraints = false
-        if prominent { button.useGlassBezel() } else { button.bezelStyle = .push }
+        button.bezelStyle = .push
         button.controlSize = .large
-        button.bezelColor = prominent ? Palette.selectionFill : nil
         return button
     }
 

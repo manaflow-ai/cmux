@@ -7,6 +7,7 @@ nonisolated enum SidebarSectionSettingsSchema {
         let sidebar = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         let share = SettingNumber(SidebarSectionsPreferences.shareRange, step: 0.05, unit: .fraction)
         return [
+            SidebarSurfaceSetting.descriptor(group: sidebar),
             SettingDescriptor(
                 SidebarBorderSetting.borderPath, section: .appearance, group: sidebar,
                 title: SettingsText.keyed("settings.sidebar.border", "Border"),
@@ -59,12 +60,23 @@ nonisolated enum SidebarSectionSettingsSchema {
             ),
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.showChatsDescriptor(group: sidebar),
+            SidebarSectionsSetting.sessionTreeDescriptor(group: sidebar),
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
+            SidebarSectionsSetting.minimalDescriptor(group: sidebar),
+            SidebarSectionsSetting.styleDescriptor(group: sidebar),
+            SidebarSectionsSetting.densityDescriptor(group: sidebar),
+            SidebarSectionsSetting.detailedStatusIconsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showTimestampsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showColorsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showLocalMachineDescriptor(group: sidebar),
+            SidebarSectionsSetting.groupHeaderMemberCountDescriptor(group: sidebar),
+            SidebarSectionsSetting.groupHeaderUnreadCountDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
             SidebarSectionsSetting.tipsDescriptor(group: sidebar),
+        ] + SidebarPriorityViewSetting.descriptors(group: sidebar) + [
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
             ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
             ChromePlacementSetting.spacesVisibilityDescriptor(group: sidebar),
-        ] + SidebarNavigationSetting.descriptors(group: sidebar)
+        ] + [CommandDigitsSetting.descriptor(group: sidebar)] + SidebarNavigationSetting.descriptors(group: sidebar)
     }
 }

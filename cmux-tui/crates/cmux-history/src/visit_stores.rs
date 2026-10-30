@@ -83,6 +83,12 @@ impl VisitStores {
         Ok(format!("page:{profile}:{id}"))
     }
 
+    /// Copies the visits of another log file of the same schema into
+    /// `profile`'s log (see [`VisitStore::import`]).
+    pub fn import(&mut self, profile: &str, other: &Path) -> Result<usize, HistoryError> {
+        self.store(profile)?.import(other)
+    }
+
     /// Sets the title of `url`'s newest visit in `profile`.
     pub fn update_title(
         &mut self,
@@ -90,6 +96,9 @@ impl VisitStores {
         url: &str,
         title: &str,
     ) -> Result<usize, HistoryError> {
+        if !self.known(profile)? {
+            return Ok(0);
+        }
         self.store(profile)?.update_title(url, title)
     }
 
@@ -99,6 +108,9 @@ impl VisitStores {
         profile: &str,
         limit: usize,
     ) -> Result<Vec<VisitSummary>, HistoryError> {
+        if !self.known(profile)? {
+            return Ok(Vec::new());
+        }
         self.store(profile)?.summaries(limit)
     }
 
@@ -128,10 +140,38 @@ impl VisitStores {
     /// other ids are ignored. Returns how many visits went.
     pub fn remove_ids<S: AsRef<str>>(&mut self, ids: &[S]) -> Result<Removal, HistoryError> {
         let backup = new_restore_id()?;
+        let known = self.profiles()?;
         let mut removed = 0;
         for id in ids {
-            if let Some((profile, visit)) = parse_page_id(id.as_ref()) {
+            if let Some((profile, visit)) = parse_page_id(id.as_ref())
+                && known.iter().any(|name| name == profile)
+            {
                 removed += self.store(profile)?.remove_visit(visit, &backup)?;
+            }
+        }
+        Ok(removal(removed, backup))
+    }
+
+    /// Removes every visit of exactly `url` in `profile` (the omnibox's
+    /// Remove suggestion). A profile with no log removes nothing and
+    /// creates no file.
+    pub fn remove_url(&mut self, profile: &str, url: &str) -> Result<Removal, HistoryError> {
+        self.remove_urls(&[url], Some(profile))
+    }
+
+    /// Removes every visit of exactly one of `urls`, in `profile` or
+    /// (`None`) every profile, as one removal with one restore id.
+    pub fn remove_urls<S: AsRef<str>>(
+        &mut self,
+        urls: &[S],
+        profile: Option<&str>,
+    ) -> Result<Removal, HistoryError> {
+        let backup = new_restore_id()?;
+        let mut removed = 0;
+        for profile in self.targets(profile)? {
+            let store = self.store(&profile)?;
+            for url in urls {
+                removed += store.remove_url(url.as_ref(), &backup)?;
             }
         }
         Ok(removal(removed, backup))
@@ -195,9 +235,16 @@ impl VisitStores {
         Ok(removed)
     }
 
+    /// Whether `profile` has a log on disk or open. Reads and removals of
+    /// an unknown profile answer nothing and create no file.
+    fn known(&self, profile: &str) -> Result<bool, HistoryError> {
+        Ok(self.open.contains_key(profile) || self.profiles()?.iter().any(|name| name == profile))
+    }
+
     fn targets(&self, profile: Option<&str>) -> Result<Vec<String>, HistoryError> {
         match profile {
-            Some(profile) => Ok(vec![profile.to_owned()]),
+            Some(profile) if self.known(profile)? => Ok(vec![profile.to_owned()]),
+            Some(_) => Ok(Vec::new()),
             None => self.profiles(),
         }
     }

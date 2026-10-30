@@ -189,18 +189,20 @@ abandoned launch read as host losses after a restart: the tab stays dead, the sa
 of principle 3. A separate provenance table keyed by the receipt revision is the path if
 that ever matters.
 
-Restart of a host-lost tab (user decision 2026-10-02): a dead tab shows one-click
-Restart (same cwd and command); the setting `terminal.restartLostTerminals` (default
-false) restarts automatically. Ownership: the store owns the decision and the record; the
-client only shows the action. The op is `tab.restart {tab, idempotency_key}`: the session
-host starts a new terminal with the dead terminal's cwd and argv (from its registry
-record), and the store swaps the tab's terminal reference in the same commit (the tab id,
-placement, name, pin and group stay; the dead terminal is tombstoned). A second restart
-with the same key replays; a restart of a tab that is not dead is a typed reject. The
-automatic policy is a setting the app sends as an op field on reconnect
-(`tab.restart` per dead tab with a key derived from the dead terminal id), never a store
-read of client config. Surfaces: the dead-tab overlay button, tab right-click, palette
-action `tab.restart`, and `cmux tab <id> restart`.
+Restart of a dead tab (user decision 2026-10-02; design revised 2026-10-09, cx-7e7b): the
+owner respawns a host-lost placed terminal by itself under the SAME terminal id
+(cx-6so.49 L2, `mux/terminal_respawn.rs`, a supervisor with bounded backoff). A tab L2
+leaves dead (`restart_exhausted` or `restart_failed`, a loss reason that never respawns, a process end the tab
+kept under `on_exit` keep, a keep-layout tab) shows one-click Restart. The op is
+`restart-tab {surface}` (`tab-restart-v1`, Unix owners): it runs the L2 worker for the
+same terminal id, so the tab id, placement, name, pin, group and every reference to the
+terminal stay, and the new shell starts below the previous screen and the marker line.
+An explicit request has no backoff and resets the supervisor's attempt count. A tab whose terminal runs, launches or already restarts is the typed reject
+`tab-not-dead`. There is no automatic-restart setting and no reducer or FFI change; the
+superseded design (a new terminal id and a `terminal.restartLostTerminals` setting,
+orphan branch feat-cmux-next-tab-restart-4) did not land. Surfaces, one shared action
+`tab.restart`: the dead-tab overlay button, tab right-click, the palette, and
+`cmux tab <id> restart`.
 
 The app deletes `EmptyWorkspaceRepair`, `EmptiedWorkspaceCause`, the `isDead` membership
 pruning and `claimClosing`; the window rule (a window exists only while it holds a

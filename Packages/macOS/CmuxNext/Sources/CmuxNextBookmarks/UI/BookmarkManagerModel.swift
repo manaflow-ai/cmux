@@ -1,4 +1,6 @@
+public import AppKit
 public import Foundation
+public import CoreGraphics
 public import Observation
 
 /// What the `cmux://bookmarks` page needs from the App: one browser
@@ -11,13 +13,20 @@ public protocol BookmarkManagerSource: AnyObject {
     @discardableResult func apply(_ operation: BookmarkOperation) -> Bool
     func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition)
     func openAll(in folder: String)
-    /// Asks for an HTML file and imports it (host panel).
-    func importHTML()
-    /// Lists the browsers on this Mac and imports the profiles the person picks.
-    func importFromBrowser()
-    /// Asks where to save and writes the HTML export (host panel).
-    func exportHTML()
+    /// The more (⋮) button's menu: the registered bookmark actions (add to `folder`, import,
+    /// export) on this page's profile, the same rows the palette and menu bar run.
+    func moreMenu(folder: String) -> NSMenu?
     func copy(_ text: String)
+    /// A bookmark's site icon, or a folder's own emoji or stored icon (`bookmark-icon-v1`);
+    /// nil without one or while it loads (the row draws the generic icon, or a folder's
+    /// symbol icon). The host reads observable state, so the row redraws when it lands.
+    func favicon(for node: BookmarkNode) -> CGImage?
+    /// Folders take an icon here (the host's bookmarks owner serves `bookmark-icon-v1`).
+    var canSetFolderIcons: Bool { get }
+    /// Opens the icon picker for folder `node` (the host's Set Icon action).
+    func setIcon(of node: BookmarkNode)
+    /// Removes folder `node`'s icon (the host's Remove Icon action).
+    func removeIcon(of node: BookmarkNode)
 }
 
 /// The page's state: selected folder, search text, selection, editor.
@@ -77,14 +86,15 @@ public final class BookmarkManagerModel {
         }
     }
 
+    /// Where an add goes: the shown folder, or the bar while searching.
+    public var addFolder: String { isSearching ? BookmarkRoot.bar.rawValue : folder }
+
     public func startAddBookmark() {
-        editor = BookmarkEditorState(mode: .addBookmark, title: "", url: "", folder: isSearching ? BookmarkRoot.bar.rawValue : folder,
-                                     isFolder: false)
+        editor = BookmarkEditorState(mode: .addBookmark, title: "", url: "", folder: addFolder, isFolder: false)
     }
 
     public func startAddFolder() {
-        editor = BookmarkEditorState(mode: .addFolder, title: BookmarkStrings.newFolder, url: "",
-                                     folder: isSearching ? BookmarkRoot.bar.rawValue : folder, isFolder: true)
+        editor = BookmarkEditorState(mode: .addFolder, title: BookmarkStrings.newFolder, url: "", folder: addFolder, isFolder: true)
     }
 
     public func startEdit(_ node: BookmarkNode) {

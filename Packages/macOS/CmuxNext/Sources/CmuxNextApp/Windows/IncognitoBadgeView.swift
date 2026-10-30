@@ -7,7 +7,7 @@ import CmuxNextIcons
 /// color). In the top row a press on it never moves the window.
 final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: WindowStrings.incognitoBadge)
+    private let label = ChromeLabel(labelWithString: WindowStrings.incognitoBadge)
 
     /// The glyph drawn (tests).
     var glyph: NSImage? { icon.image }
@@ -30,7 +30,7 @@ final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        toolTip = WindowStrings.incognitoHelp
+        themedToolTip = WindowStrings.incognitoHelp
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel(WindowStrings.incognitoHelp)

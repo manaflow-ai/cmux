@@ -12,8 +12,12 @@ public nonisolated struct KeyBindingIssue: Hashable, Sendable {
         /// More than ``KeyBindingTable/maxSequenceLength`` keys.
         case tooManyKeys
         case noKeys
-        /// Only Command and Control chords reach the key dispatcher.
+        /// Only Command and Control chords reach the key dispatcher (a
+        /// first key with Option but neither).
         case firstKeyNeedsCommandOrControl
+        /// A bare first key (no Command, Control or Option) binds only under
+        /// a `when` that requires a bare-key page and no text field (``WhenClause/allowsBareKeys``).
+        case bareKeyNeedsBareKeyContext
     }
 
     public var source: KeyBinding.Source
@@ -89,7 +93,10 @@ public struct KeyBindingLoader {
     public func validated(_ entry: KeyBinding) -> Result<KeyBinding, KeyBindingIssue.Kind> {
         guard let first = entry.keys.first else { return .failure(.noKeys) }
         guard entry.keys.count <= KeyBindingTable.maxSequenceLength else { return .failure(.tooManyKeys) }
-        guard !first.modifiers.isDisjoint(with: [.command, .control]) else { return .failure(.firstKeyNeedsCommandOrControl) }
+        if first.modifiers.isDisjoint(with: [.command, .control]) {
+            guard first.isBare else { return .failure(.firstKeyNeedsCommandOrControl) }
+            guard entry.when?.allowsBareKeys == true else { return .failure(.bareKeyNeedsBareKeyContext) }
+        }
         let id = registry.canonicalID(for: entry.command)
         var binding = entry
         binding.command = id

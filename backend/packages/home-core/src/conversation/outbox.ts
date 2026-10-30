@@ -1,6 +1,6 @@
 import { summary } from "./create.ts"
 import type { OutboxItem } from "./engine-types.ts"
-import { fanOut, type FanOut, type UnreadCounts } from "./fanout.ts"
+import { fanOut, rowKind, type FanOut, type UnreadCounts } from "./fanout.ts"
 import type { Commit, OpRequest } from "./request.ts"
 import type { ConversationHead, Invite, Participant } from "./types.ts"
 
@@ -20,7 +20,7 @@ export const conversationProjection = (head: ConversationHead, lastAt: string) =
   created_at: head.created_at,
   last_seq: head.last_seq,
   last_at: lastAt,
-  participant_count: head.participants.filter((participant) => participant.left_at === undefined).length,
+  participant_count: head.tier === "large" ? (head.member_count ?? 0) : head.participants.filter((participant) => participant.left_at === undefined).length,
   state: head.state ?? "active"
 })
 
@@ -129,8 +129,8 @@ export const projectionItems = (before: ConversationHead | null, commit: Commit,
 }
 
 /** Every outbox item of one commit: fan-out first, then projections. */
-export const commitOutbox = (before: ConversationHead, request: OpRequest, commit: Commit, counts?: Readonly<Record<string, UnreadCounts>>): Array<OutboxItem> => {
-  const fan = fanOut({ before, request, commit, ...(counts ? { counts } : {}) })
+export const commitOutbox = (before: ConversationHead, request: OpRequest, commit: Commit, counts?: Readonly<Record<string, UnreadCounts>>, everyone = false): Array<OutboxItem> => {
+  const fan = fanOut({ before, request, commit, ...(counts ? { counts } : {}), ...(everyone ? { everyone } : {}) })
   const lastAt = fan.bumps[0]?.last_at ?? lastAtOf(commit, request)
   const inviter = commit.head.participants.find((participant) => participant.id === request.actor)?.display_name
   return [...fanOutItems(fan, inviter, commit.head.kind), ...projectionItems(before, commit, fan, request.now, lastAt)]
@@ -145,7 +145,7 @@ export const createOutbox = (head: ConversationHead): Array<OutboxItem> => {
         user: participant.id,
         conversation: head.id,
         rev: head.rev,
-        kind: head.kind ?? "group",
+        kind: rowKind(head, participant.id),
         title: head.title,
         last_seq: 0,
         last_at: head.created_at,

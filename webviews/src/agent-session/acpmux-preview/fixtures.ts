@@ -304,6 +304,7 @@ function sessionListSnapshot(): AcpmuxSnapshot {
       cwd: web,
       status: "waiting",
       pendingPermissions: 1,
+      indicator: "input",
       updatedAt: minutes(1),
     },
     {
@@ -313,6 +314,7 @@ function sessionListSnapshot(): AcpmuxSnapshot {
       title: "Port the sidebar",
       cwd: web,
       status: "running",
+      indicator: "working",
       updatedAt: minutes(3),
     },
     {
@@ -323,6 +325,7 @@ function sessionListSnapshot(): AcpmuxSnapshot {
       cwd: web,
       status: "idle",
       unread: true,
+      indicator: "done",
       updatedAt: minutes(9),
     },
     ...Array.from({ length: 6 }, (_, index) => ({
@@ -341,6 +344,7 @@ function sessionListSnapshot(): AcpmuxSnapshot {
       title: "Draft notes",
       cwd: "/Users/preview/src/app",
       status: "disconnected",
+      indicator: "lost",
       updatedAt: minutes(20),
     },
     {

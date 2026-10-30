@@ -6,8 +6,8 @@ use super::*;
 
 impl Mux {
     /// The caller's name, else the default `workspace-N`.
-    pub(super) fn moved_tab_workspace_name(name: Option<&str>, state: &State) -> String {
-        name.map_or_else(|| Self::default_workspace_name(state), str::to_owned)
+    pub(super) fn moved_tab_workspace_name(&self, name: Option<&str>, state: &State) -> String {
+        name.map_or_else(|| self.default_workspace_name(state), str::to_owned)
     }
 }
 

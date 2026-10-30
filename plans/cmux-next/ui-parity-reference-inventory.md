@@ -23,8 +23,8 @@ Local checkout: `/Users/leoli/Projects/cmux-app-screenshots`.
 This is the visual archive. Its `gallery/media/` captures and `references/` folders contain historical
 cmux, Codex, Claude, ChatGPT, T3, and Zeron references. Use them to name a concrete mismatch and to
 build a before/after capture. They do not define current behavior, spacing tokens, or accessibility.
-The repository's current `main` tip is `939ab21` (the checkout may contain local archival changes;
-inspect its worktree before using a file as evidence).
+The remote `main` tip observed on 2026-10-11 is `86cfc154fb21` (the checkout may contain local
+archival changes; inspect its worktree before using a file as evidence).
 
 ### `manaflow-ai/cmux-gallery`
 
@@ -32,7 +32,8 @@ Local checkout: `/Users/leoli/Projects/cmux-gallery`.
 
 This is the hosting and measurement surface for the real gallery in cmux. It owns preview routing,
 build retention, matrix indexes, screenshot comparison, and latency-result joins. The
-`measure/matrix-before-after` branch currently carries the repeatable matrix comparison tooling.
+`measure/matrix-before-after` branch currently carries the repeatable matrix comparison tooling;
+its tip observed on 2026-10-11 is `3fe4939257c0`.
 The gallery source itself remains in the cmux repository, so UI changes belong in cmux and are served
 through a branch preview or matrix run here.
 
@@ -42,8 +43,8 @@ reference images in `cmux-app-screenshots` and link them from the entry or its r
 
 ### `manaflow-ai/messageslab`
 
-Remote source: <https://github.com/manaflow-ai/messageslab> (current remote tip observed as
-`3a84159`). There is no local checkout under `/Users/leoli/Projects` at this time.
+Remote source: <https://github.com/manaflow-ai/messageslab> (remote `main` tip observed on
+2026-10-11 as `85126b42facf`). There is no local checkout under `/Users/leoli/Projects` at this time.
 
 Treat this as a message/transcript interaction reference and API/design source. Copy no markup or
 state model into cmux without mapping it to the cmux pane bridge and gallery fixture contract first.
@@ -53,7 +54,9 @@ state model into cmux without mapping it to the cmux pane bridge and gallery fix
 Local checkout: `/Users/leoli/Projects/idlesse`.
 
 This is a reference for a media-library contact sheet: dense visual scanning, static/image-sequence
-previews, variant selection, and deliberate before/after evidence. Relevant notes live under
+previews, variant selection, and deliberate before/after evidence. The local checkout is currently
+on `codex/library-navigation-polish` at `609331d42abc`; use that branch identity when citing a
+reference. Relevant notes live under
 `docs/library-visual-review.md`, `docs/library.md`, `docs/scene-preview.md`, and
 `docs/performance-2026-09-08.md`. Its Swift/media implementation is not a cmux dependency.
 
@@ -65,9 +68,9 @@ previews, variant selection, and deliberate before/after evidence. Relevant note
    cards, and reduced-motion behavior. Evidence: real pane fixtures, gallery variants, and matrix
    action-settle rows.
 3. **Gallery scanning**: Browse is a contact sheet over real stages. It must support title/surface
-   filtering, static versus motion filtering, and controlled variant cycling without changing the
-   URL identity of the opened entry. Evidence: `gallery-browse.test.ts` and the narrow-shell layout
-   lane.
+   filtering, static versus motion filtering, an all-variants contact sheet, and controlled variant
+   cycling without changing the URL identity of the opened entry. Evidence: `gallery-browse.test.ts`
+   and the narrow-shell layout lane.
 4. **Reference-grade comparison**: when a mismatch is visual or temporal, add a typed experiment arm
    or a named fixture variant, then publish a matrix before/after run. Do not make a screenshot-only
    claim about latency.

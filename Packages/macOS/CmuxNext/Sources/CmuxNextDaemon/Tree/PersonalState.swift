@@ -61,9 +61,13 @@ public struct SessionRecord: Sendable, Hashable, Decodable, Identifiable {
     public var capabilities: [String]
     /// Its shared groups and order were copied into personal rows.
     public var migrated: Bool
+    /// The machine's icon (`session-icon-v1`): an emoji, an SF Symbol name or
+    /// a stored asset of the home daemon; nil for none (and on older daemons).
+    /// Set only by `set-session-icon`.
+    public var icon: String?
 
     public init(id: String, machineName: String? = nil, sessionName: String? = nil, transport: JSONValue? = nil,
-                lastSeenMs: UInt64? = nil, capabilities: [String] = [], migrated: Bool = false) {
+                lastSeenMs: UInt64? = nil, capabilities: [String] = [], migrated: Bool = false, icon: String? = nil) {
         self.id = id
         self.machineName = machineName
         self.sessionName = sessionName
@@ -71,10 +75,11 @@ public struct SessionRecord: Sendable, Hashable, Decodable, Identifiable {
         self.lastSeenMs = lastSeenMs
         self.capabilities = capabilities
         self.migrated = migrated
+        self.icon = icon
     }
 
     enum CodingKeys: String, CodingKey {
-        case transport, capabilities, migrated
+        case transport, capabilities, migrated, icon
         case id = "session_id"
         case machineName = "machine_name"
         case sessionName = "session_name"
@@ -90,5 +95,6 @@ public struct SessionRecord: Sendable, Hashable, Decodable, Identifiable {
         lastSeenMs = try c.decodeIfPresent(UInt64.self, forKey: .lastSeenMs)
         capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []
         migrated = try c.decodeIfPresent(Bool.self, forKey: .migrated) ?? false
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
     }
 }

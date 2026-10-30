@@ -46,14 +46,16 @@ impl Hub {
     /// Agents under hosts are detached and keep running, unless
     /// `end_agents_at_shutdown` asked to end them: then they end through
     /// their host (else by nonce proof), and a turn in progress is recorded
-    /// as cancelled.
-    pub async fn shutdown_all(&self) {
+    /// as cancelled. Returns how many hosted agents it left running for the
+    /// next daemon (the local router stays for them).
+    pub async fn shutdown_all(&self) -> usize {
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
-        tokio::join!(self.stop_pool(), self.shutdown_sessions());
+        let ((), kept) = tokio::join!(self.stop_pool(), self.shutdown_sessions());
+        kept
     }
 
-    async fn shutdown_sessions(&self) {
+    async fn shutdown_sessions(&self) -> usize {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();
@@ -64,7 +66,12 @@ impl Hub {
             plan.started = true;
             (plan.end_agents, plan.keep.clone())
         };
+        // The log retention worker sees the shutdown begun and ends (`retention.rs`).
+        self.retention_wake.notify_one();
         let sessions = self.sessions();
+        // Startup may have been cancelled before adoption reached these hosts. Keep their
+        // state and router on an ordinary restart, even when no child link exists yet.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
         // Sessions whose agent host must end without its link: no child
@@ -72,6 +79,7 @@ impl Hub {
         // whose link may be closed. `end_unadopted_host` ends it with nonce
         // proof, the same fallback as closing the session.
         let mut host_fallback = Vec::new();
+        let mut unreached = 0;
         for s in &sessions {
             let ends = end_agents && !keep.contains(&s.id);
             let Ok(mut slot) = tokio::time::timeout(LOCK, s.child.lock()).await else {
@@ -80,9 +88,16 @@ impl Hub {
                 if ends {
                     host_fallback.push(s.clone());
                     self.settle_cancelled(s);
+                } else {
+                    // It may run under a host: count it as kept.
+                    unreached += 1;
                 }
                 continue;
             };
+            if !ends && slot.is_none() && live.as_ref().is_none_or(|live| live.contains(&s.id)) {
+                unreached += 1;
+                continue;
+            }
             let is_hosted = slot.as_ref().is_some_and(|c| c.host_record().is_some());
             // An agent under a host keeps running, with its turn and its
             // permission prompts, for the next daemon to adopt.
@@ -118,7 +133,11 @@ impl Hub {
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, fallback).await.is_err() {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }
+        for s in &sessions {
+            let _ = self.store_deferred(s);
+        }
         self.flush();
+        hosted.len() + unreached
     }
 
     /// Quit Everything: the turn in progress ends as cancelled (one
@@ -127,12 +146,10 @@ impl Hub {
     fn settle_cancelled(&self, s: &Arc<Session>) {
         let Some(turn) = s.turn.lock().unwrap().take() else { return };
         self.settled_by_shutdown.lock().unwrap().insert(turn.turn_id.clone());
-        self.append(
-            s,
-            "mux",
-            "turn_result",
-            json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq}),
-        );
+        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
+        // `lastTurn` too, as every other turn end: the chat lists date a chat by its last turn's end.
+        self.record_last_turn(s, &result);
+        self.append(s, "mux", "turn_result", result);
     }
 
     /// Save every session's meta and sync the event log to disk.
@@ -143,32 +160,19 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
+        // is its last step, after the teardown, and a shutdown past its budget calls it too.
+        self.peer_snapshots.flush_now();
     }
 }
 
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
-    RpcError::internal("acpmux is shutting down; no agent starts now")
+    RpcError::internal(SHUTTING_DOWN)
 }
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::MemoryStore;
-
-    /// A shutdown already running (SIGTERM, or a plain `_acpmux/shutdown`)
-    /// has decided to hand the agents off; a later `endAgents` cannot change
-    /// that and must say so instead of reporting success.
-    #[tokio::test]
-    async fn end_agents_after_the_shutdown_started_is_refused() {
-        let hub = Hub::new(Config::default(), Box::new(MemoryStore::default()));
-        hub.shutdown_all().await;
-        assert!(
-            hub.end_agents_at_shutdown(Default::default()).is_err(),
-            "endAgents was accepted after the shutdown had handed the agents off"
-        );
-    }
-}

@@ -10,6 +10,14 @@
 //! takes it in (the brain steers it into the turn: the cursor passes it
 //! while the Chief types), and then that turn's end answers it. A reply the
 //! owner's rate limit holds past the typing-off still ends the turn.
+//!
+//! E22: a brain that names the messages each reply answers (`answers`)
+//! decides it instead. Pipe mode keeps only the replies that answer its
+//! own message, waits past a turn whose reply answers others, and (unless
+//! `--no-wait-agents`) waits while the reply says that subagents the
+//! message started still work (`answers_pending`), until the turn of the
+//! last report ends. Replies without `answers` (an older brain) follow the
+//! inference above.
 
 use serde_json::Value;
 
@@ -32,11 +40,51 @@ pub(super) struct TurnWatch {
     typing: bool,
     /// The Chief's messages after `seq`, in order.
     pub replies: Vec<Value>,
+    /// The id of the message sent (E22): set, replies that name what they
+    /// answer count only when they answer it.
+    id: Option<String>,
+    /// Wait for the subagents the message started (`--no-wait-agents`
+    /// clears it).
+    wait_agents: bool,
+    /// A reply answered the message.
+    answered: bool,
+    /// The last reply that answered it says its subagents still work.
+    open: bool,
+    /// This turn's reply answered other messages only.
+    foreign: bool,
+    /// The chat's Chief (`backend::chief_of`); empty: `agent_mux`.
+    chief: String,
 }
 
 impl TurnWatch {
     pub(super) fn new(seq: u64) -> Self {
         Self { seq, ..Self::default() }
+    }
+
+    /// Watches the turns of `chief`, the chat's Chief (another Chief than
+    /// `agent_mux` answers in its own chat).
+    pub(super) fn of_chief(mut self, chief: &str) -> Self {
+        self.chief = chief.to_owned();
+        self
+    }
+
+    fn chief(&self) -> &str {
+        if self.chief.is_empty() { AGENT_MUX } else { &self.chief }
+    }
+
+    /// Watches for the replies that answer message `id` (E22).
+    pub(super) fn answering(mut self, id: &str, wait_agents: bool) -> Self {
+        self.id = Some(id.to_owned());
+        self.wait_agents = wait_agents;
+        self
+    }
+
+    /// The turn that answered the message ended: done, unless subagents it
+    /// started still work (their reports start more turns).
+    fn answered_turn_ended(&mut self) {
+        self.working = false;
+        self.ended = false;
+        self.done = !self.open;
     }
 
     /// Feeds one event; returns the reply message it added, if any.
@@ -45,7 +93,7 @@ impl TurnWatch {
             return None;
         }
         match event {
-            UiEvent::Cursor { participant, seq } if participant == AGENT_MUX => {
+            UiEvent::Cursor { participant, seq } if participant == self.chief() => {
                 if *seq >= self.seq {
                     self.read = true;
                     // Read while a turn runs: the brain steered the message
@@ -54,28 +102,42 @@ impl TurnWatch {
                 }
                 None
             }
-            UiEvent::Typing { participant, on } if participant == AGENT_MUX => {
+            UiEvent::Typing { participant, on } if participant == self.chief() => {
                 self.typing = *on;
-                if *on && self.read {
-                    self.working = true;
-                } else if !*on && self.working {
+                if *on {
+                    self.foreign = false;
+                    self.working |= self.read;
+                } else if self.working && self.answered {
+                    self.answered_turn_ended();
+                } else if self.working && self.foreign {
+                    // That turn answered other messages: ours waits for
+                    // the next one.
+                    self.working = false;
+                    self.foreign = false;
+                } else if self.working {
                     self.ended = true;
                     self.done = !self.replies.is_empty();
                 }
                 None
             }
             UiEvent::Snapshot { summary, messages, typing } => {
-                self.typing = typing.iter().any(|p| p == AGENT_MUX);
+                let chief = self.chief().to_owned();
+                self.typing = typing.contains(&chief);
                 // A reopened stream after a gap: the state it missed.
-                let cursor = summary.pointer("/read_cursors/agent_mux").and_then(Value::as_u64);
+                let cursor = summary
+                    .get("read_cursors")
+                    .and_then(|cursors| cursors.get(&chief))
+                    .and_then(Value::as_u64);
                 if cursor.is_some_and(|c| c >= self.seq) {
                     self.read = true;
                 }
                 for message in messages {
                     self.keep_reply(message);
                 }
-                if self.read && typing.iter().any(|p| p == AGENT_MUX) {
+                if self.read && typing.contains(&chief) {
                     self.working = true;
+                } else if self.answered {
+                    self.answered_turn_ended();
                 } else if self.read && !self.replies.is_empty() {
                     // Read, answered, and no longer typing: the turn ended
                     // while the stream was down.
@@ -93,8 +155,41 @@ impl TurnWatch {
         let author = message.get("author").and_then(Value::as_str);
         let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
         let known = self.replies.iter().any(|m| m.get("seq") == message.get("seq"));
-        if author != Some(AGENT_MUX) || seq <= self.seq || known {
+        if author != Some(self.chief()) || seq <= self.seq || known {
             return None;
+        }
+        let ids = |key: &str| -> Vec<&str> {
+            message
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect()
+        };
+        let answers = ids("answers");
+        if let Some(id) = self.id.as_deref()
+            && !answers.is_empty()
+        {
+            if !answers.contains(&id) {
+                // A reply to other messages: not ours, and its turn does
+                // not end the wait (a late one undoes the typing-off).
+                self.foreign = true;
+                if self.ended {
+                    self.ended = false;
+                    self.working = false;
+                }
+                return None;
+            }
+            self.replies.push(message.clone());
+            self.answered = true;
+            self.open = self.wait_agents && ids("answers_pending").contains(&id);
+            if !self.typing {
+                // Posted after its turn's typing-off (the owner's rate
+                // limit held it): that turn has ended.
+                self.answered_turn_ended();
+            }
+            return Some(message.clone());
         }
         self.replies.push(message.clone());
         if self.ended {

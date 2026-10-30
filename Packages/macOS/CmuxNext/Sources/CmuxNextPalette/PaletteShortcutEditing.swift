@@ -5,5 +5,4 @@ public import CmuxNextActions
 // names keep the palette's public API.
 public typealias PaletteShortcutEditing = ShortcutRecorderEditing
 public typealias PaletteShortcutOption = ShortcutRecorderOption
-public typealias PaletteShortcutPending = ShortcutRecorderPending
 public typealias PaletteShortcutRecorderState = ShortcutRecorderState

@@ -32,8 +32,6 @@ enum SettingsStyle {
     static var rowHeight: CGFloat { Metrics.sidebarRowHeight + Metrics.space2 }
     static var corner: CGFloat { Metrics.itemCornerRadius }
     static var cardCorner: CGFloat { Metrics.panelCornerRadius }
-    /// Strength of the tint on a row a search jump or deep link opened.
-    static var highlightOpacity: Double { 0.22 }
 }
 
 /// A rounded group of rows under a small heading.
@@ -67,5 +65,6 @@ struct SettingsButtonStyle: ButtonStyle {
             .background(configuration.isPressed ? SettingsStyle.selection : SettingsStyle.hover,
                         in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
             .contentShape(Rectangle())
+            .clickableCursor()
     }
 }

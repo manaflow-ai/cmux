@@ -72,7 +72,7 @@ stop_port() {
 
 print_url() {
   local token; token="$(cat "$home/token")"
-  local fragment="endpoint=ws://127.0.0.1:$daemon_port/&token=$token&cwd=$(cat "$home/cwd")"
+  local fragment="endpoint=ws://127.0.0.1:$daemon_port/&token=$token&cwd=$(cat "$home/cwd")&editor=$vite_origin"
   echo "agent pane: $vite_origin/agent-pane/#$fragment"
   echo "diff:       $vite_origin/diff/"
   echo "markdown:   $vite_origin/markdown (classic viewer: /markdown/viewer)"

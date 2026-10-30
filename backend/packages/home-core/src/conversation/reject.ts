@@ -30,7 +30,13 @@ export const LOCAL_REJECT_CODES = [
   /** The question was already answered or cancelled. */
   "question_closed",
   /** The answer misses an item, names an unknown option, chooses too many, or types Other where the item does not allow it. */
-  "invalid_answer"
+  "invalid_answer",
+  /** `thread_root` names no message of this conversation, or a message that is itself in a thread, or not the parent's own root (`thread_root` is always the top root). */
+  "invalid_thread_root",
+  /** A `thread.update` sets none of `title`, `status` and `owner`. */
+  "invalid_thread_update",
+  /** A `thread.update` `owner` is not a current participant, or is a pending invited address. */
+  "invalid_thread_owner"
 ] as const
 
 export const CLOUD_REJECT_CODES = [
@@ -72,7 +78,13 @@ export const CLOUD_REJECT_CODES = [
   /** An attachment part's type or size differs from the uploaded object's record. */
   "attachment_mismatch",
   /** A human the actor may not reach (no shared team or connection, their settings, or a block); also an unknown account (section 16). */
-  "not_reachable"
+  "not_reachable",
+  /** A read-only member tried to write (send, react, rename, add); it may read, read_cursor.set and leave. */
+  "read_only",
+  /** A role an op cannot set (`participants.set_role` never makes an owner: that is `ownership.transfer`). */
+  "invalid_role",
+  /** The person was removed with a ban; an admin unbans with `participants.unban` before anyone adds them again. */
+  "banned"
 ] as const
 
 export type LocalRejectCode = (typeof LOCAL_REJECT_CODES)[number]

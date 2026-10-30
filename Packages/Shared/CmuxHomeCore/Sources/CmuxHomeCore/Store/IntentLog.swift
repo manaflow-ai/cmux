@@ -46,7 +46,9 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
 /// The ordered log of the client's unconfirmed intents. The visible state is
 /// mirror + this log; nothing else in the client is optimistic.
 public struct IntentLog: Hashable, Sendable {
-    public private(set) var entries: [PendingIntent] = []
+    public private(set) var entries: [PendingIntent] = [] { didSet { cacheChanges.bump() } }
+    /// Moves with every write to `entries` (the cache keeps the pending sends). Equality ignores it.
+    public private(set) var cacheChanges = HomeChangeCount()
 
     public init() {}
 
@@ -204,6 +206,8 @@ public struct IntentLog: Hashable, Sendable {
     /// Drops every intent the mirror now confirms. Returns the keys that left.
     @discardableResult
     public mutating func settle(against mirror: HomeMirror) -> [IdempotencyKey] {
+        // A pass that settles nothing writes nothing (it runs after every owner event).
+        guard entries.contains(where: { Self.isSettled($0, by: mirror) }) else { return [] }
         var settled: [IdempotencyKey] = []
         entries.removeAll { entry in
             let done = Self.isSettled(entry, by: mirror)
@@ -214,7 +218,7 @@ public struct IntentLog: Hashable, Sendable {
     }
 
     static func isSettled(_ entry: PendingIntent, by mirror: HomeMirror) -> Bool {
-        if case .sendMessage(let conversation, _, _) = entry.intent.op,
+        if case .sendMessage(let conversation, _, _, _) = entry.intent.op,
            mirror.message(clientID: entry.intent.key, in: conversation) != nil {
             return true
         }
@@ -228,7 +232,7 @@ public struct IntentLog: Hashable, Sendable {
     /// Pending sends for one conversation, in the order the user made them.
     public func sends(in conversation: ConversationID) -> [PendingIntent] {
         entries.filter {
-            if case .sendMessage(let target, _, _) = $0.intent.op { return target == conversation }
+            if case .sendMessage(let target, _, _, _) = $0.intent.op { return target == conversation }
             return false
         }
     }

@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
@@ -24,6 +25,13 @@ final class SettingsWindowService: InternalPageProvider {
         self.services = services
     }
 
+    /// Customize Menu…: Settings > Menus with `context`'s menu selected. Each open is a new route
+    /// (`open`, which the page ignores), so it selects its menu again after the person picked another.
+    func showMenus(_ context: ActionMenuContext) {
+        menusOpens += 1
+        try? show(section: nil, route: "#/settings/menus?focus=\(context.rawValue)&open=\(menusOpens)")
+    }
+
     /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
@@ -31,13 +39,13 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
+    /// Customize Menu… opens so far (``showMenus(_:)``).
+    private var menusOpens = 0
     /// The route the next page view opens on.
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
     var isWaiting: Bool { waiting != nil }
-    /// The page fragment the Settings page shows, or will open with.
-    var currentRoute: String? { webPage?.route ?? pendingRoute }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
@@ -46,6 +54,10 @@ final class SettingsWindowService: InternalPageProvider {
     /// Agents' Add panel), with no section or setting.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
+        // task-owner: one read of the device list per opening (Settings > Devices)
+        Task { [devices = services.devices] in await devices.refresh() }
+        // task-owner: one read of this Mac's join status per opening (its consent switches)
+        Task { [join = services.joinConsent] in await join.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
             guard let found = SettingsAnchor(key: setting) else {
@@ -93,7 +105,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     private static func hasPane(_ window: WindowController) -> Bool {
-        window.workspaceContent.map { !$0.panes.isEmpty } ?? false
+        window.workspaceContent.map { !$0.modelPanes.isEmpty } ?? false
     }
 
     /// Shows the workspace of `window` that holds a Settings tab (a daemon page tab, or an app-only
@@ -101,7 +113,7 @@ final class SettingsWindowService: InternalPageProvider {
     private func revealSettingsTab(of window: WindowController) {
         let page = InternalPageID.settings
         func holds(_ content: WorkspaceContentController) -> Bool {
-            services.pages.tab(of: page, inPanes: content.panes.values.map(\.paneKey)) != nil
+            services.pages.tab(of: page, inPanes: content.modelPanes.map(\.id)) != nil
                 || content.workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } }
         }
         if let shown = window.content, holds(shown) { return }
@@ -117,9 +129,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// Whether a Settings tab in `window` would be seen: the window shows (or can leave its top
     /// page for) a workspace with a pane, and Home does not stand for that workspace.
     private static func holdsTab(_ window: WindowController, _ services: AppServices) -> Bool {
-        if window.shownTopPage == .page(.settings) { return false }
-        guard hasPane(window), let workspace = window.workspaceContent?.workspace else { return false }
-        return !(workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document))
+        window.shownTopPage != .page(.settings) && window.holdsVisiblePageTab
     }
 
     /// Settings as `window`'s top page (one view per window, shown again on a repeat), on `route`.
@@ -133,11 +143,22 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
     /// anchor opens its section.
-    static func route(section: SettingsSection?, setting: String?) -> String? {
+    /// The art picker, for `workspace` too when given (its This Workspace choice).
+    static func backgroundRoute(workspace: String?) -> String? {
+        guard let route = route(section: .appearance, setting: "appearance.background") else { return nil }
+        guard let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return route }
+        return "\(route)&workspace=\(id)"
+    }
+
+    /// The Development section (and its keys) exists only in DEV builds: elsewhere a request for
+    /// it opens Settings on the default page (the page hides the category the same way).
+    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isDebugBuild) -> String? {
         if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
+            guard descriptor.section != .development || devBuild else { return nil }
             return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
         }
-        return section.map { "#/settings/\($0.rawValue)" }
+        guard let section, section != .development || devBuild else { return nil }
+        return "#/settings/\(section.rawValue)"
     }
 
     // MARK: InternalPageProvider
@@ -169,7 +190,7 @@ final class SettingsWindowService: InternalPageProvider {
 
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
+        guard local.supports(DaemonCapability.profiles.rawValue) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
             SettingsListRow.space(id: room.id.rawValue, title: room.name, icon: room.icon, isActive: room.id == current)
@@ -177,13 +198,15 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     var machines: [SettingsListRow] {
-        let ssh = services.machines.ssh.map { session in
-            SettingsListRow(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
-                            symbol: "server.rack", isActive: Self.isConnected(session.daemon.store.connectionState))
+        let machines = services.machines
+        let ssh = machines.ssh.map { session in
+            SettingsListRow.machine(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
+                                    icon: machines.icon(machine: session.machineID), symbol: "server.rack",
+                                    isActive: Self.isConnected(session.daemon.store.connectionState))
         }
-        let cloud = services.machines.cloud.map { session in
-            SettingsListRow(id: session.machineID, title: session.machine.title, subtitle: nil,
-                            symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
+        let cloud = machines.cloud.map { session in
+            SettingsListRow.machine(id: session.machineID, title: session.machine.title, icon: machines.icon(machine: session.machineID),
+                                    symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
         }
         return ssh + cloud
     }
@@ -204,13 +227,11 @@ final class SettingsWindowService: InternalPageProvider {
 
     var shellIntegration: String? { GhosttyRuntime.shared.shellIntegrationSettings?.mode }
 
-    /// The window opacity the theme resolved (Ghostty's, or the default a
-    /// chosen material gets), so the unset slider sits where the window is:
-    /// read through the active window's theme scope (the app scope when no
-    /// window is open), which inherits the app theme unless a room
-    /// overrides it.
+    /// The window opacity the window shows (`ThemeScope.shownWindowOpacity`), so the unset slider
+    /// sits where the window is: read through the active window's theme scope (the app scope when
+    /// no window is open), which inherits the app theme unless a room overrides it.
     func derivedNumber(at path: [String]) -> Double? {
-        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).input.backgroundOpacity : nil
+        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
     }
 
     var browserProfiles: [SettingsBrowserProfileRow] {

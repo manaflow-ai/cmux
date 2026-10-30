@@ -15,26 +15,41 @@ public import CoreGraphics
 /// so `pillTop = (strip - tab - padding) / 2`, snapped down to the device
 /// pixel grid, and the strip's height follows from it (the
 /// `tabStripHeight` token, or one device pixel less when the token and a
-/// custom padding cannot split evenly). Horizontally the first pill starts
-/// on the content border's left edge, and the terminal's first cell sits
+/// custom padding cannot split evenly). Horizontally the first pill keeps
+/// the same gap from the pane's leading edge as from its top (2026-10-19:
+/// "the first tab, we need the same padding on the end and top"): the strip
+/// insets its pills by `pillLeading`, which is `pillTop`, and the pane
+/// padding outside the strip is the same on both sides. Outlined panes
+/// (`outlinedContent`) keep the first pill on the outline's left line, the
+/// line drawn right under it (2026-10-01). The terminal's first cell sits
 /// `terminalTextInset` inside the border. Pure, so the rules are tested
 /// with fixed numbers.
 public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
     /// The `tabStripHeight` token.
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
-    /// The pane padding between the cell and the strip (and the border).
+    /// The space above the strip that counts toward the gap above the pills:
+    /// the pane padding between the cell and the strip, or 0 where the pane
+    /// card's own edge is the strip's top (`Metrics.stripTopOutset`).
     public var panePadding: CGFloat
+    /// Whether each pane draws an outline around its content (the `borders`
+    /// separation): the first pill then starts on the outline's left line.
+    public var outlinedContent: Bool
 
-    public init(stripHeight: CGFloat, tabHeight: CGFloat, panePadding: CGFloat) {
+    public init(stripHeight: CGFloat, tabHeight: CGFloat, panePadding: CGFloat, outlinedContent: Bool = false) {
         self.stripHeight = stripHeight
         self.tabHeight = tabHeight
         self.panePadding = max(0, panePadding)
+        self.outlinedContent = outlinedContent
     }
 
-    /// Distance from the strip's leading edge to the first tab pill: the
-    /// strip's leading edge is the content border's left edge.
-    public static let pillLeading: CGFloat = 0
+    /// Distance from the strip's leading (and trailing) edge to the first
+    /// (and last) tab pill: the pill's own top inset, so the gap beside the
+    /// first pill equals the gap above it in every window style; 0 for
+    /// outlined panes, whose outline's left line the pill sits on.
+    public func pillLeading(scale: CGFloat) -> CGFloat {
+        outlinedContent ? 0 : pillTop(scale: scale)
+    }
 
     /// Distance from the content border to the terminal's first cell on
     /// every side (Ghostty's `window-padding-x`/`-y` default in cmux; a
@@ -61,9 +76,18 @@ public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
         pillTop(scale: scale) + tabHeight + tabGap(scale: scale)
     }
 
+    /// The card top, from the window's top edge, that puts the top row's
+    /// pill center on `centerY` (the traffic lights' center line), so the
+    /// tabs, the window buttons and the toolbar band share one line. Never
+    /// negative.
+    public func cardTop(centeringPillOn centerY: CGFloat, scale: CGFloat) -> CGFloat {
+        max(0, Self.snapDown(centerY - Self.snap(panePadding, scale) - pillTop(scale: scale) - tabHeight / 2, scale))
+    }
+
     /// The live tokens.
     @MainActor public static var current: PaneChromeMetrics {
-        PaneChromeMetrics(stripHeight: Metrics.tabStripHeight, tabHeight: Metrics.tabHeight, panePadding: Metrics.panePadding)
+        PaneChromeMetrics(stripHeight: Metrics.tabStripHeight, tabHeight: Metrics.tabHeight, panePadding: Metrics.stripTopOutset,
+                          outlinedContent: Metrics.paneBorder != .none)
     }
 
     static func snap(_ value: CGFloat, _ scale: CGFloat) -> CGFloat {

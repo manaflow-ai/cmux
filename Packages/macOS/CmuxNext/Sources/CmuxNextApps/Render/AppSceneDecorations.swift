@@ -41,13 +41,13 @@ struct AppSceneDecorations: ViewModifier {
             .layoutPriority(node.number("layoutPriority") ?? 0)
             .fixedSize(horizontal: fixed(.horizontal), vertical: fixed(.vertical))
             .disabled(node.flag("disabled"))
-            .help(node.string("help") ?? "")
+            .themedHelp(node.string("help") ?? "")
             .contentShape(shape)
             .onHover { hovering in
                 guard hoverFill != nil else { return }
                 isHovered = hovering
             }
-            .animation(reduceMotion ? nil : Motion.animation(.hover), value: isHovered)
+            .animation(reduceMotion ? nil : Motion.feedback.animation(.hover), value: isHovered)
             .modifier(AppSceneTap(enabled: node.flag("onTap") && node.type != .button) { model.send(id, "tap") })
             .contextMenu(node.type == .menu ? nil : menu)
     }

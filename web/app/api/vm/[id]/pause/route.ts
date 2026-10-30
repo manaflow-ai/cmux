@@ -6,10 +6,15 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { pauseVm } from "../../../../../services/vms/workflows";
+import { gcpCredentialFromRequest } from "../../../../../services/vms/routeInput";
 
 // Park a machine (`cmux vm pause <id>`): compute stops billing, the persistent
 // home and the daemon's durable session stay. A paused machine answers 200
 // again (idempotent); a provider without pause answers 501 vm_operation_unsupported.
+
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
 
 export async function POST(
   request: Request,
@@ -25,12 +30,14 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
+      const providerCredential = gcpCredentialFromRequest(request);
       const run = await runVmRoute(pauseVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
-      }), { request });
+        providerCredential,
+      }), { request, deadline: { operation: "pause" } });
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, status: run.value.status });
     },

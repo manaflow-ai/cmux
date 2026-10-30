@@ -227,10 +227,20 @@ impl Mux {
         }
     }
 
-    pub(super) fn surface_workspace(&self, surface: SurfaceId) -> Option<WorkspaceId> {
+    pub(crate) fn surface_workspace(&self, surface: SurfaceId) -> Option<WorkspaceId> {
         self.pending_workspace_surfaces.lock().unwrap().get(&surface).copied().or_else(|| {
             let state = self.state.lock().unwrap();
             Self::workspace_for_surface_in_state(&state, surface)
+        })
+    }
+
+    /// The key of the workspace `surface` is in, when it is a canonical
+    /// workspace UUID; None otherwise (no workspace, or a key of another form).
+    pub(crate) fn surface_workspace_key(&self, surface: SurfaceId) -> Option<String> {
+        let workspace = self.surface_workspace(surface)?;
+        self.with_state(|state| {
+            let key = &state.workspace_by_id(workspace)?.key;
+            crate::workspace_registry::is_canonical_workspace_key(key).then(|| key.clone())
         })
     }
 

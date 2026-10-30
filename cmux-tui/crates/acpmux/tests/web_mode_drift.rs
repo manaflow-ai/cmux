@@ -2,6 +2,11 @@
 //! is ignored with a warning, and Web control of a session ends when its
 //! mode leaves the asking table (default deny on drift).
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -9,7 +14,7 @@ use acpmux::server::{Origin, serve_connection_with};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -110,7 +115,7 @@ async fn a_config_entry_for_a_non_asking_mode_is_ignored() {
 fn the_daemon_logs_the_merged_table_once_and_warns_about_the_ignored_entry() {
     let d = dir("log");
     std::fs::write(d.join("config.json"), config(&d).to_string()).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(&d)
         .args([
             "daemon",
             "run",
@@ -124,8 +129,7 @@ fn the_daemon_logs_the_merged_table_once_and_warns_about_the_ignored_entry() {
         ])
         .env("ACPMUX_HOME", &d)
         .env("ACPMUX_SOCKET", d.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
-        .env_remove("XPC_SERVICE_NAME")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -187,10 +191,6 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
             "_acpmux/permission_respond",
             json!({"sessionId": s, "permissionId": "p1", "optionId": "allow"}),
         ),
-        (
-            "_acpmux/permission_group_respond",
-            json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k", "decision": "deny"}),
-        ),
     ] {
         let r = web.call(m, p).await;
         assert_eq!(
@@ -200,6 +200,12 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
         );
         assert_eq!(r["error"]["data"]["mode"], json!("bypassPermissions"), "{m}: {r}");
     }
+    // A deny only narrows: no asking rule holds it (here: no such group).
+    let deny = json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k",
+                      "decision": "deny"});
+    let r = web.call("_acpmux/permission_group_respond", deny).await;
+    let why = r["error"]["data"]["reason"].as_str().unwrap_or_default();
+    assert!(!why.starts_with("remote."), "{r}");
     // Web reads stay.
     for (m, p) in [
         ("_acpmux/attach", json!({"sessionId": s, "limit": 0})),

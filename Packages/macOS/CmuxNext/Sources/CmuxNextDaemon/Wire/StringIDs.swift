@@ -1,4 +1,7 @@
 import Foundation
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextWakeups
+#endif
 
 /// Marker for the entity a durable string id names.
 public protocol DaemonStringIDKind: Sendable {}
@@ -52,8 +55,8 @@ public typealias WorkspaceKey = DaemonStringID<StringIDKind.WorkspaceKey>
 public typealias TerminalID = DaemonStringID<StringIDKind.Terminal>
 /// Changes each time a terminal's process is (re)spawned under the same id.
 public typealias TerminalIncarnation = DaemonStringID<StringIDKind.TerminalIncarnation>
-/// Durable `resource_id` of a workspace, screen, pane, tab, or terminal
-/// (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`).
+/// Durable resource identity of a machine, workspace, screen, pane, tab, or terminal
+/// (`machine_…`, `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`).
 public typealias ResourceID = DaemonStringID<StringIDKind.Resource>
 /// Daemon boot UUID. A change means every numeric handle is invalid.
 public typealias DaemonGeneration = DaemonStringID<StringIDKind.Generation>
@@ -82,7 +85,12 @@ extension DaemonStringID where Kind == StringIDKind.Terminal {
     /// A caller-reserved id for `create-terminal` (canonical 32-character UUID).
     public static func generate() -> Self {
         let uuid = DaemonCommandScope.current?.nextDerivedUUID("terminal-id") ?? UUID()
-        return Self(rawValue: uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
+        let id = Self(rawValue: uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The first id minted after a traced new terminal action keys its trace.
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.bind(terminal: id.rawValue) }
+        #endif
+        return id
     }
 }
 

@@ -2,6 +2,8 @@
 //! operation it sends: the CLI's coverage test and `cmux mcp`'s parity test
 //! both read it.
 
+mod git;
+
 /// Operations whose CLI command sends several requests (`cmux agent message`
 /// and `cmux agent inbox`, cli/agent_message.rs), so no single case sends
 /// them.
@@ -21,7 +23,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
     const PAIRING: &str = "pairing_0000000000000000000000000000000b";
     const PROJECTION: &str = "projection_0000000000000000000000000000000c";
     const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
-    const CHECKPOINT: &str = "ckpt_0000000000000000000000000000000e";
     const CONVERSATION: &str = "conv_01J00000000000000000000000";
 
     let mut cases: Vec<(Vec<&'static str>, &'static str)> = vec![
@@ -197,6 +198,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "create",
                 "--empty",
                 "--ephemeral",
+                "--focus",
                 "--name",
                 "empty",
                 "--correlation-key",
@@ -207,6 +209,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
         (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
         (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
+        (
+            vec!["workspace", WORKSPACE, "open-url", "--url", "https://example.com/docs"],
+            "workspace.open_url",
+        ),
         (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
         (
             vec![
@@ -310,6 +316,11 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "24",
                 "--correlation-key",
                 "create-42",
+                "--focus",
+                "--",
+                "npm",
+                "run",
+                "dev",
             ],
             "pane.split",
         ),
@@ -446,6 +457,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         ),
         (vec!["tab", TAB, "focus"], "tab.focus"),
         (vec!["tab", TAB, "close"], "tab.close"),
+        (vec!["tab", TAB, "close", "--others", "--include-pinned"], "layout.bulk"),
         (vec!["terminal", "list"], "terminal.list"),
         (vec!["terminal", TERMINAL, "show"], "terminal.get"),
         (vec!["terminal", TERMINAL, "write", "--text", "hello"], "terminal.input.write"),
@@ -621,13 +633,21 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "--body",
                 "tests passed",
                 "--level",
-                "success",
+                "info",
                 "--terminal",
                 TERMINAL,
             ],
             "notification.create",
         ),
         (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
+        (
+            vec!["agent", "message", "release", "msg_1", "--recipient", TERMINAL, "--approve"],
+            "agent.message.release",
+        ),
+        (
+            vec!["agent", "message", "unsend", "msg_1", "--recipient", TERMINAL],
+            "agent.message.unsend",
+        ),
         (
             vec![
                 "agent",
@@ -669,94 +689,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             vec!["notification", "clear", "--terminal", "term_00000000000000000000000000000041"],
             "notification.clear",
         ),
-        (vec!["git", "status", "--path", "/repo"], "git.status"),
-        (
-            vec!["git", "files", "--path", "/repo", "--limit", "20", "app", "tsx"],
-            "git.files.search",
-        ),
-        (
-            vec![
-                "git",
-                "checkpoint",
-                "diff",
-                "--path",
-                "/repo",
-                "ckpt_00000000000000000000000000000001",
-                "ckpt_00000000000000000000000000000002",
-                "--only",
-                "src,docs",
-                "--patch",
-                "--max-patch-bytes",
-                "1024",
-                "--max-files",
-                "10",
-            ],
-            "git.checkpoint.diff",
-        ),
-        (
-            vec![
-                "git",
-                "diff",
-                "--path",
-                "/repo",
-                "--scope",
-                "staged",
-                "--patch",
-                "--max-patch-bytes",
-                "1024",
-                "--max-files",
-                "10",
-                "src",
-            ],
-            "git.diff",
-        ),
-        (
-            vec![
-                "git",
-                "checkpoint",
-                "create",
-                "--path",
-                "/repo",
-                "--reason",
-                "handoff",
-                "--exclude",
-                "target,.env.local",
-                "--expected-repository",
-                "repo_00000000000000000000000000000001",
-                "--expected-worktree",
-                "wt_00000000000000000000000000000001",
-                "--max-bytes",
-                "1048576",
-                "--max-files",
-                "100",
-                "notes.md",
-            ],
-            "git.checkpoint.create",
-        ),
-        (vec!["git", "checkpoint", "get", CHECKPOINT, "--path", "/repo"], "git.checkpoint.get"),
-        (
-            vec![
-                "git",
-                "checkpoint",
-                "list",
-                "--path",
-                "/repo",
-                "--cursor",
-                "1.ckpt_1",
-                "--limit",
-                "10",
-                "--candidates",
-            ],
-            "git.checkpoint.list",
-        ),
-        (
-            vec!["git", "checkpoint", "pin", CHECKPOINT, "--pin", "user:keep", "--reason", "keep"],
-            "git.checkpoint.pin",
-        ),
-        (
-            vec!["git", "checkpoint", "unpin", CHECKPOINT, "--pin", "user:keep"],
-            "git.checkpoint.unpin",
-        ),
         (vec!["conversation", "list"], "conversation.list"),
         (vec!["conversation", CONVERSATION, "get", "--tail", "5"], "conversation.get"),
         (
@@ -783,6 +715,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "conversation.events",
         ),
     ];
+    cases.extend(git::git_cases());
     cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
     cases
 }
@@ -860,6 +793,63 @@ fn state_resource_cases<'a>(
         (vec!["tab", tab, "pin"], "tab.pin"),
         (vec!["tab", tab, "unpin"], "tab.unpin"),
         (vec!["tab", tab, "update", "--zoom", "1.5"], "tab.update"),
+        (
+            vec!["tab", tab, "emulate", "--device", "iPhone 15", "--orientation", "horizontal"],
+            "browser.tab.emulate",
+        ),
+        (vec!["tab", tab, "emulate", "clear"], "browser.tab.emulate.clear"),
+        (vec!["browser", "devices", "list"], "browser.devices.list"),
+        (
+            vec![
+                "browser",
+                "devices",
+                "add",
+                "--device-json",
+                r#"{"title":"Kiosk","screen":{"vertical":{"width":600,"height":1000},"horizontal":{"width":1000,"height":600},"device-pixel-ratio":2}}"#,
+            ],
+            "browser.devices.add_custom",
+        ),
+        (vec!["browser", "devices", "remove", "--title", "Kiosk"], "browser.devices.remove_custom"),
+        (
+            vec!["browser", "tab", tab, "set-profile", "--profile", "Work"],
+            "browser.tab.set_profile",
+        ),
+        (vec!["browser", "profile", "list"], "browser.profile.list"),
+        (
+            vec![
+                "browser",
+                "profile",
+                "create",
+                "--name",
+                "Work",
+                "--color",
+                "blue",
+                "--icon",
+                "briefcase",
+                "--index",
+                "0",
+            ],
+            "browser.profile.create",
+        ),
+        (
+            vec![
+                "browser",
+                "profile",
+                "open",
+                "https://example.com/",
+                "--profile",
+                "Work",
+                "--engine",
+                "cef",
+                "--title",
+                "Example",
+                "--background",
+                "true",
+                "--pane",
+                pane,
+            ],
+            "browser.profile.open",
+        ),
         (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
         (vec!["tab", "group", "g", "show"], "tab_group.get"),
         (
@@ -867,7 +857,19 @@ fn state_resource_cases<'a>(
             "tab_group.create",
         ),
         (
-            vec!["tab", "group", "g", "update", "--name", "n", "--color", "red", "--collapse"],
+            vec![
+                "tab",
+                "group",
+                "g",
+                "update",
+                "--name",
+                "n",
+                "--color",
+                "red",
+                "--collapse",
+                "--icon",
+                "folder.fill",
+            ],
             "tab_group.update",
         ),
         (vec!["tab", "group", "g", "add", "--tabs", tab, "--index", "0"], "tab_group.add_tabs"),
@@ -934,7 +936,19 @@ fn state_resource_cases<'a>(
             "screen_group.create",
         ),
         (
-            vec!["screen", "group", "g", "update", "--name", "n", "--color", "red", "--collapse"],
+            vec![
+                "screen",
+                "group",
+                "g",
+                "update",
+                "--name",
+                "n",
+                "--color",
+                "red",
+                "--collapse",
+                "--icon",
+                "folder.fill",
+            ],
             "screen_group.update",
         ),
         (vec!["screen", "group", "g", "add", "--screens", screen], "screen_group.add_screens"),
@@ -945,7 +959,35 @@ fn state_resource_cases<'a>(
         (vec!["closed", "clear", "--since-ms", "5"], "closed.delete"),
         (vec!["workspace", workspace, "status", "list"], "workspace_status.list"),
         (
-            vec!["workspace", workspace, "status", "set", "k", "t", "--icon", "i", "--color", "c"],
+            // With the loading fields of a status entry (status-indicators.md section 5).
+            vec![
+                "workspace",
+                workspace,
+                "status",
+                "set",
+                "k",
+                "t",
+                "--icon",
+                "i",
+                "--color",
+                "c",
+                "--state",
+                "busy",
+                "--progress",
+                "0.5",
+                "--style",
+                "arc",
+                "--ttl",
+                "30s",
+                "--pid",
+                "4242",
+                "--target-terminal",
+                "term_00000000000000000000000000000008",
+                "--exit-code",
+                "0",
+                "--duration-ms",
+                "5",
+            ],
             "workspace_status.set",
         ),
         (vec!["workspace", workspace, "status", "clear", "k"], "workspace_status.clear"),
@@ -960,5 +1002,44 @@ fn state_resource_cases<'a>(
         ),
         (vec!["workspace", workspace, "log", "list", "--limit", "5"], "workspace_log.list"),
         (vec!["workspace", workspace, "log", "clear"], "workspace_log.clear"),
+        (vec!["workspace", workspace, "checklist", "list"], "workspace_checklist.list"),
+        (
+            vec![
+                "workspace",
+                workspace,
+                "checklist",
+                "add",
+                "t",
+                "--state",
+                "todo",
+                "--origin",
+                "agent",
+                "--index",
+                "0",
+            ],
+            "workspace_checklist.add",
+        ),
+        (
+            vec![
+                "workspace",
+                workspace,
+                "checklist",
+                "update",
+                "chk_1",
+                "--text",
+                "t",
+                "--state",
+                "done",
+                "--index",
+                "1",
+                "--attachments-json",
+                r#"[{"path":"/tmp/a.png"}]"#,
+            ],
+            "workspace_checklist.update",
+        ),
+        (
+            vec!["workspace", workspace, "checklist", "remove", "chk_1"],
+            "workspace_checklist.remove",
+        ),
     ]
 }

@@ -1,11 +1,12 @@
 public import CmuxNextDesign
 import Foundation
 
-/// Where a workspace row draws the brand mark of an agent working or waiting in it
-/// (Debug Settings `sidebar.agentMark`, the R79 prototype switch; Lawrence picks one
-/// in dogfood). The mark is a template tinted like the row's status.
+/// Where a workspace row draws the brand mark of an agent running in it
+/// (Debug Settings `sidebar.agentMark`, the R79 prototype switch). Off by default:
+/// rows draw no icon but the user's own or a page's favicon (Lawrence 2026-10-14,
+/// cx-im75u). The mark is a template tinted like the row's status.
 public nonisolated enum SidebarAgentMarkVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// No mark: the row shows only its status glyph (the shipping behavior).
+    /// No mark: the row shows only its status glyph (the default).
     case off
     /// The mark takes the status glyph's place while an agent runs, tinted with the
     /// waiting color when the agent waits for input.

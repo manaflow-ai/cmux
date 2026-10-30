@@ -163,8 +163,14 @@ nonisolated enum FeedWireDecode {
             }
             return .choice(answers)
         case .approve:
+            let proof = (o["proof"] as? Object).flatMap { p -> FeedAnswerValue.Decision.Proof? in
+                guard let install = p["install"] as? String, let ts = (p["ts"] as? NSNumber)?.int64Value,
+                      let sig = p["sig"] as? String else { return nil }
+                return FeedAnswerValue.Decision.Proof(install: install, timestampMs: ts, signature: sig)
+            }
             return .approve(.init(FeedAnswerValue.Decision.Outcome(rawValue: s("decision") ?? "") ?? .deny,
-                                  scope: s("scope").flatMap(FeedApproveScope.init(rawValue:)), reason: s("reason")))
+                                  scope: s("scope").flatMap(FeedApproveScope.init(rawValue:)), reason: s("reason"),
+                                  proof: proof))
         case .confirm: return .confirm(o["confirmed"] as? Bool ?? false)
         case .signIn: return .signIn(FeedAnswerValue.BrowserStatus(rawValue: s("status") ?? "") ?? .failed)
         case .passkey: return .passkey(FeedAnswerValue.BrowserStatus(rawValue: s("status") ?? "") ?? .failed)

@@ -2,6 +2,8 @@
 //! record, the journal roster host, and the pure helpers that map agent hook
 //! journal entries to states, notifications and published session ids.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use super::NotificationLevel;
@@ -50,24 +52,6 @@ impl AgentSource {
             AgentSource::Hook => "hook",
         }
     }
-}
-
-/// The agent-record state a committed hook journal event implies, or `None`
-/// for events that carry no lifecycle transition (child agents, unclassified
-/// state changes) so they never churn the record.
-pub(super) fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
-    Some(match kind {
-        // A freshly started session sits at its prompt; a completed turn
-        // returns to it.
-        "agent.session.started" | "agent.turn.completed" => AgentState::Idle,
-        "agent.turn.started" => AgentState::Working,
-        "agent.approval.requested"
-        | "agent.question.requested"
-        | "agent.plan_review.requested"
-        | "agent.error.reported" => AgentState::Blocked,
-        "agent.session.ended" => AgentState::Done,
-        _ => return None,
-    })
 }
 
 /// Title, body, and level for the notification an agent hook event earns,
@@ -164,7 +148,15 @@ pub struct AgentRecord {
     /// The reporting adapter id (`claude`, `codex`, ...) when a hook has
     /// claimed the terminal; absent for socket-only reports.
     pub agent: Option<String>,
+    /// The harness's own session id a hook reported (`published_agent_session_id`):
+    /// hook reports keep no `session`, so clients find the agent by this.
+    pub agent_session_id: Option<String>,
     pub updated_at_ms: u64,
+    /// When the terminal's agent entered `state` (Unix ms). A report that
+    /// keeps the state keeps it; it restarts at a daemon restart.
+    pub since_ms: u64,
+    /// The agent's last prompt, memory only (`agent_prompts.rs`).
+    pub last_prompt: Option<Arc<str>>,
 }
 
 /// Longest hook session id published for resume. Claude session ids are
@@ -207,6 +199,8 @@ pub(super) struct TerminalAgentRecord {
     /// resume it. Absent for agents without a native hook session.
     pub(super) agent_session_id: Option<String>,
     pub(super) updated_at_ms: u64,
+    /// When the record entered `state` (Unix ms); see `AgentRecord::since_ms`.
+    pub(super) since_ms: u64,
 }
 
 /// Who initiated an agent projection commit: a direct socket/SDK report

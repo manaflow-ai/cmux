@@ -435,7 +435,8 @@ def app_link_errors(binaries: list[Path], app_files: list[str], links: dict) -> 
     """The built app does not contain a package that the pane omits as absent."""
     record = links.get("app_link")
     if not record:
-        return ["link-set.json has no app_link (run ios_notices.py app-link)"]
+        # No app_link (a pin change drops it): the pane omits nothing, so nothing to disprove.
+        return []
     symbols: set[str] = set()
     for path in binaries:
         symbols |= defined_symbols(path)

@@ -1,3 +1,4 @@
+use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -13,8 +14,13 @@ use crate::{JournalCheckpoint, JournalContentRef, JournalReplayPolicy, Mux, Sess
 
 pub(crate) const JOURNAL_REDUCER_VERSION: u32 = 1;
 const MAX_CHECKPOINT_TERMINALS: usize = 4096;
-const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+const CHECKPOINT_REPLAY_RETRY_BUDGETS: [usize; 3] = [
+    crate::surface::VT_REPLAY_MAX_BYTES,
+    crate::surface::VT_REPLAY_MAX_BYTES * 2,
+    crate::surface::VT_REPLAY_MAX_BYTES * 4,
+];
 const MAX_UNSUPPORTED_PREVIEW_RECORDS: usize = 1024;
+pub(crate) const MAX_CHECKPOINT_CAPTURE_ATTEMPTS: usize = 4;
 const RESOURCE_COLLECTIONS: [&str; 10] = [
     "workspaces",
     "screens",
@@ -36,6 +42,19 @@ pub(crate) struct CapturedCheckpoint {
 }
 
 pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
+    for _ in 0..MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
+        if let Some(captured) = capture_attempt(mux)? {
+            return Ok(captured);
+        }
+        #[cfg(test)]
+        if let Some(hook) = tests::AFTER_RECOVERY_HOOK.with_borrow_mut(Option::take) {
+            hook();
+        }
+    }
+    anyhow::bail!("terminal replay recovery did not settle during checkpoint capture")
+}
+
+fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
     // Drain every output frame that reached ingress before the capture fence.
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
@@ -54,12 +73,12 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         .filter(|hook| hook.enabled)
         .map(|hook| hook.manifest)
         .collect::<Vec<_>>();
-    let terminal_ids = snapshot["terminals"]
+    let terminal_ids = JsonFields::field(&snapshot, "terminals")
         .as_array()
         .context("session snapshot terminals is not an array")?
         .iter()
         .map(|terminal| {
-            terminal["id"]
+            JsonFields::field(terminal, "id")
                 .as_str()
                 .context("session snapshot terminal id is not a string")
                 .and_then(|terminal_id| TerminalPublicId::parse(terminal_id).map_err(Into::into))
@@ -70,33 +89,24 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
     );
 
-    let mut total_bytes = 0_u64;
-    let mut blobs = Vec::new();
-    for terminal_id in terminal_ids {
-        let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
-        let blob = terminal_replay_blob(&surface, &terminal_id)?;
-        total_bytes = total_bytes
-            .checked_add(blob.reference.uncompressed_bytes)
-            .context("checkpoint content byte count overflow")?;
-        anyhow::ensure!(
-            total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
-            "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
-        );
-        blobs.push(blob);
-    }
+    // Terminal screens stay out of the journal (output_store.rs): a
+    // checkpoint names its terminals but keeps no replay blob. The output
+    // store writes its snapshots now instead, so a respawn after a reboot
+    // gets the screen of this checkpoint (none in memory mode).
+    mux.output_store.write_now(mux);
+    let blobs = Vec::new();
 
-    mux.flush_terminal_journal()?;
     // Verify against one cut as well, so a write landing between two separate
     // head and cursor reads cannot fail a capture that was in fact stable.
     let (verify_snapshot, head_after) =
         crate::resource_api::public_session_snapshot_with_journal_head(mux)
             .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?;
-    let cursor_after = verify_snapshot["cursor"].clone();
+    let cursor_after = verify_snapshot.field("cursor").clone();
     anyhow::ensure!(
-        head_before == head_after && snapshot["cursor"] == cursor_after,
+        head_before == head_after && *snapshot.field("cursor") == cursor_after,
         "session changed during checkpoint capture"
     );
-    Ok(CapturedCheckpoint {
+    Ok(Some(CapturedCheckpoint {
         source_sequence: head_after,
         state: json!({
             "session_snapshot":snapshot,
@@ -106,6 +116,20 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
             },
         }),
         blobs,
+    }))
+}
+
+pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        let message = cause.to_string();
+        [
+            "session changed during checkpoint capture",
+            "session journal changed during checkpoint capture",
+            "terminal changed during replay capture",
+            "terminal journal ingress is unsettled during replay capture",
+        ]
+        .iter()
+        .any(|reason| message.contains(reason))
     })
 }
 
@@ -117,6 +141,13 @@ pub(crate) fn terminal_replay_blob(
     surface: &crate::Surface,
     terminal_id: &TerminalPublicId,
 ) -> anyhow::Result<JournalContentBlob> {
+    terminal_replay_blob_with_recovery(surface, terminal_id).map(|(blob, _)| blob)
+}
+
+fn terminal_replay_blob_with_recovery(
+    surface: &crate::Surface,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<(JournalContentBlob, bool)> {
     let epoch_before = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -124,11 +155,56 @@ pub(crate) fn terminal_replay_blob(
         epoch_before & 1 == 0,
         "terminal journal ingress is unsettled during replay capture"
     );
-    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
-        terminal
-            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-            .map(|replay| (terminal.cols(), terminal.rows(), replay))
-    })??;
+    let (cols, rows, replay, recovered) = {
+        let mut last_error = None;
+        let mut captured = None;
+        let mut recovered = false;
+        for budget in CHECKPOINT_REPLAY_RETRY_BUDGETS {
+            let result = surface
+                .try_with_terminal(|terminal| {
+                    terminal
+                        .vt_replay_bounded(budget)
+                        .map(|replay| (terminal.cols(), terminal.rows(), replay))
+                })
+                .with_context(|| format!("terminal {terminal_id} replay capture"))?;
+            match result {
+                Ok(value) => {
+                    captured = Some(value);
+                    break;
+                }
+                Err(ghostty_vt::Error::OutOfSpace) => {
+                    last_error = Some(anyhow::Error::new(ghostty_vt::Error::OutOfSpace));
+                }
+                Err(error) => {
+                    return Err(anyhow::anyhow!(
+                        "terminal {terminal_id} replay capture failed: {error}"
+                    ));
+                }
+            }
+        }
+        if captured.is_none() {
+            let result = surface
+                .discard_unreplayable_replay_with(|terminal| {
+                    terminal
+                        .vt_replay_bounded(CHECKPOINT_REPLAY_RETRY_BUDGETS[0])
+                        .map(|replay| (terminal.cols(), terminal.rows(), replay))
+                })
+                .with_context(|| format!("terminal {terminal_id} replay recovery"))?;
+            if let Some(Ok(value)) = result {
+                captured = Some(value);
+                recovered = true;
+            } else {
+                return Err(anyhow::anyhow!(
+                    "terminal {terminal_id} replay capture failed after retrying larger buffers: {}",
+                    last_error
+                        .map(|error| error.to_string())
+                        .unwrap_or_else(|| "buffer too small".into())
+                ));
+            }
+        }
+        let (cols, rows, replay) = captured.context("replay recovery returned no capture")?;
+        (cols, rows, replay, recovered)
+    };
     let epoch_after = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -168,7 +244,7 @@ pub(crate) fn terminal_replay_blob(
     let digest = Sha256::digest(&uncompressed);
     let digest_hex = encode_hex(digest.as_slice());
     let compressed = gzip_deterministic(&uncompressed)?;
-    JournalContentBlob::verified(
+    let blob = JournalContentBlob::verified(
         JournalContentRef {
             content_id: format!("jcontent_{digest_hex}"),
             terminal_id: terminal_id.as_str().into(),
@@ -180,7 +256,8 @@ pub(crate) fn terminal_replay_blob(
             rows,
         },
         compressed,
-    )
+    )?;
+    Ok((blob, recovered))
 }
 
 #[cfg(test)]
@@ -452,8 +529,8 @@ impl RestoreReducer {
 
     fn apply_terminal_output(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.payload["format"].as_str() == Some("cmux.terminal-output.v1")
-                && record.payload["encoding"].as_str() == Some("raw"),
+            record.payload.field("format").as_str() == Some("cmux.terminal-output.v1")
+                && record.payload.field("encoding").as_str() == Some("raw"),
             "terminal output replay metadata is invalid"
         );
         let bytes = record
@@ -472,7 +549,7 @@ impl RestoreReducer {
             "terminal output replay offsets are invalid"
         );
         anyhow::ensure!(
-            record.payload["sha256"].as_str()
+            record.payload.field("sha256").as_str()
                 == Some(encode_hex(Sha256::digest(bytes).as_slice()).as_str()),
             "terminal output replay digest is invalid"
         );
@@ -497,7 +574,7 @@ impl RestoreReducer {
 
     fn apply_terminal_resize(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.payload["format"].as_str() == Some("cmux.terminal-geometry.v1"),
+            record.payload.field("format").as_str() == Some("cmux.terminal-geometry.v1"),
             "terminal resize replay metadata is invalid"
         );
         anyhow::ensure!(record.terminal_output.is_none(), "terminal resize contains output bytes");
@@ -591,20 +668,19 @@ impl RestoreReducer {
             self.resources.contains_key(collection)
                 && matches!(kind, "upsert" | "delete")
                 && (kind == "delete" || change.get("value").is_some())
-                && (kind == "delete" || change["value"]["id"].as_str() == Some(id))
+                && (kind == "delete" || change.field("value").field("id").as_str() == Some(id))
         })
     }
 
     fn apply_resource_change(&mut self, change: &Value) -> anyhow::Result<()> {
-        let kind = change["kind"].as_str().context("validated replay change omitted kind")?;
-        let resource =
-            change["resource"].as_str().context("validated replay change omitted resource")?;
-        let id = change["id"].as_str().context("validated replay change omitted id")?;
+        let text = |key| change.field(key).as_str();
+        let kind = text("kind").context("validated replay change omitted kind")?;
+        let resource = text("resource").context("validated replay change omitted resource")?;
+        let id = text("id").context("validated replay change omitted id")?;
         if resource == "session" {
-            let snapshot = self.state["session_snapshot"]
-                .as_object_mut()
-                .context("checkpoint session_snapshot is not an object")?;
-            snapshot.insert("session".into(), change["value"].clone());
+            let snapshot = self.state.get_mut("session_snapshot").and_then(Value::as_object_mut);
+            let snapshot = snapshot.context("checkpoint session_snapshot is not an object")?;
+            snapshot.insert("session".into(), change.field("value").clone());
             return Ok(());
         }
         let collection = resource_collection(resource).context("validated replay resource")?;
@@ -612,7 +688,7 @@ impl RestoreReducer {
             self.resources.get_mut(collection).context("validated replay collection is absent")?;
         match kind {
             "upsert" => {
-                values.insert(id.into(), change["value"].clone());
+                values.insert(id.into(), change.field("value").clone());
             }
             "delete" => {
                 values.remove(id);
@@ -730,11 +806,9 @@ fn gzip_deterministic(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
+    for nibble in bytes.iter().flat_map(|byte| [byte >> 4, byte & 0x0f]) {
+        encoded.push(char::from_digit(u32::from(nibble), 16).unwrap_or('0'));
     }
     encoded
 }
@@ -747,6 +821,11 @@ mod tests {
         JournalProducerManifest, JournalSensitivity, JournalSubject,
     };
     use std::sync::Arc;
+
+    thread_local! {
+        pub(super) static AFTER_RECOVERY_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+            std::cell::RefCell::new(None);
+    }
 
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
         JournalCheckpoint {
@@ -1194,6 +1273,25 @@ mod tests {
             "producer_1",
         )
         .unwrap();
+        for index in 0..1_100 {
+            mux.append_journal_ingress(
+                &crate::JournalIngress {
+                    producer_id: "segment_test".into(),
+                    manifest_version: 1,
+                    kind: "plugin.segment_test.event".into(),
+                    schema_version: 1,
+                    occurred_at_ms: None,
+                    subjects: vec![],
+                    sensitivity: None,
+                    payload: json!({"index": index}),
+                    causation_id: None,
+                    correlation_id: None,
+                },
+                "client_test",
+                &format!("segment_event_{index}"),
+            )
+            .unwrap();
+        }
         let checkpoint = mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
         let before = mux.session_journal_after(0, 1024).unwrap().records;
         let seal = mux
@@ -1203,11 +1301,22 @@ mod tests {
                 "segment_1",
             )
             .unwrap();
-        assert_eq!(seal.through_sequence, checkpoint.checkpoint.source_sequence);
+        assert!(seal.through_sequence < checkpoint.checkpoint.source_sequence);
+        assert!(seal.segments.iter().all(|segment| segment.record_count <= 1_024));
         assert!(!seal.segments.is_empty());
+        let stored_segments = mux.journal_segments().unwrap();
+        assert_eq!(stored_segments.len(), seal.segments.len());
+        assert!(stored_segments.iter().all(|segment| segment.record_count <= 1_024));
+        let second_seal = mux
+            .seal_journal_segments(
+                checkpoint.checkpoint.source_sequence,
+                "client_test",
+                "segment_2",
+            )
+            .unwrap();
+        assert_eq!(second_seal.through_sequence, checkpoint.checkpoint.source_sequence);
         let after = mux.session_journal_after(0, 1024).unwrap().records;
         assert_eq!(&after[..before.len()], before.as_slice());
-        assert_eq!(after.last().unwrap().kind, "journal.segment.sealed");
         let preview = mux.journal_restore_preview("latest").unwrap();
         assert_eq!(preview["fully_reducible"], true);
 
@@ -1385,42 +1494,11 @@ mod tests {
         .unwrap();
 
         let captured = capture(&mux).unwrap();
-        assert_eq!(captured.blobs.len(), 1);
-        assert!(captured.blobs[0].reference.terminal_id.starts_with("term_"));
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn checkpoint_rejects_terminal_state_ahead_of_journal_ingress() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-checkpoint-fence-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent("checkpoint-fence", crate::SurfaceOptions::default(), &root)
-            .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000072",
-                "10000000000040008000000000000072",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        {
-            let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
-            assert!(pending_output.activate(), "terminal journal update must be active");
-            let error = match capture(&mux) {
-                Ok(_) => panic!("checkpoint accepted unsettled terminal output"),
-                Err(error) => error,
-            };
-            assert!(error.to_string().contains("terminal journal ingress is unsettled"));
-        }
-
-        drop(surface);
+        // Terminal screens stay out of the journal (output_store.rs).
+        assert!(captured.blobs.is_empty());
+        let terminals = captured.state["session_snapshot"]["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        assert!(terminals[0]["id"].as_str().unwrap().starts_with("term_"));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

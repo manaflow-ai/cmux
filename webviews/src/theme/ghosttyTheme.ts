@@ -14,7 +14,11 @@ export type GhosttyTheme = {
   selectionForeground?: string;
   cursorColor?: string;
   cursorText?: string;
+  /** The theme's own app accent: a `# cmux-accent = #rrggbb` line (a comment to Ghostty). */
+  accent?: string;
 };
+
+const ACCENT_LINE = /^#\s*cmux-accent\s*=\s*(#?[0-9a-fA-F]{6})$/;
 
 const HEX = /^#?[0-9a-fA-F]{6}$/;
 const normal = (value: string) => (value.startsWith("#") ? value : `#${value}`).toLowerCase();
@@ -32,8 +36,11 @@ export function parseGhosttyTheme(name: string, text: string): GhosttyTheme | nu
   let foreground: string | undefined;
   const optional: Partial<Record<(typeof OPTIONAL_KEYS)[keyof typeof OPTIONAL_KEYS], string>> = {};
   const palette: (string | null)[] = Array.from({ length: 16 }, () => null);
+  let accent: string | undefined;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/^﻿/, "").trim();
+    const accentMatch = ACCENT_LINE.exec(line);
+    if (accentMatch) accent = normal(accentMatch[1]!);
     if (!line || line.startsWith("#")) continue;
     const equals = line.indexOf("=");
     if (equals < 0) continue;
@@ -55,5 +62,6 @@ export function parseGhosttyTheme(name: string, text: string): GhosttyTheme | nu
   if (optional.selectionForeground) theme.selectionForeground = optional.selectionForeground;
   if (optional.cursorColor) theme.cursorColor = optional.cursorColor;
   if (optional.cursorText) theme.cursorText = optional.cursorText;
+  if (accent) theme.accent = accent;
   return theme;
 }

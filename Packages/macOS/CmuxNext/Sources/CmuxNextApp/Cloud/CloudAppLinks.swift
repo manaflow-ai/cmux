@@ -16,10 +16,12 @@ enum CloudAppLinks {
     /// Sends one `apps-run` line and returns its result value.
     typealias Send = @Sendable (AppsRunRequest) async throws -> JSONValue
 
-    /// Runs Cloud app ops on `local`'s current connection.
-    static func runner(local: DaemonService) -> CloudAppOpRunner {
+    /// Runs Cloud app ops on `local`'s current connection. `beforeConnect`
+    /// runs before each `cloud.machine.connect` (it starts this Mac's link).
+    static func runner(local: DaemonService, beforeConnect: (@Sendable () async -> Void)? = nil) -> CloudAppOpRunner {
         let timeout = connectTimeout
         return { op, args, key, origin in
+            if op == CloudConnectOpResolver.connectOp { await beforeConnect?() }
             guard let connection = await local.connection else {
                 throw CloudLinkError.disconnected(reason: DaemonError.notConnected.description)
             }
@@ -96,15 +98,24 @@ enum CloudAppLinks {
         return CloudLinkChange.parse(appServerEvent: line)
     }
 
-    /// The text a session shows after its link ended: "disconnected, click
-    /// to connect" (v1 does not reconnect by itself).
+    /// The text a session shows after its link ended: what failed, then the
+    /// next step ("click Connect"; v1 does not reconnect by itself). A
+    /// failed check's own words stay in the log (``logEnded(_:)``).
     static func endedMessage(_ error: any Error) -> String {
         switch error as? CloudLinkError {
         case .revoked?: CloudStrings.linkRevoked
         case .disconnected?, nil: CloudStrings.linkDisconnected
-        case .unsafeSocket(let detail)?, .invalidAnswer(let detail)?: CloudStrings.linkFailed(detail)
-        case .failed(_, let message)?: CloudStrings.linkFailed(message)
-        case .unsupported?: CloudStrings.linkFailed(String(describing: CloudLinkError.unsupported))
+        case .helperNotRunning?: CloudStrings.linkHelperNotRunning
+        case .openDirectory(let path, let parent)?: CloudStrings.linkOpenDirectory(path, fix: CloudLinkError.chmodFix(path: path, parent: parent))
+        case .unsafeSocket?, .invalidAnswer?: CloudStrings.linkCheckFailed
+        case .notUp(let state)?: CloudStrings.linkNotReady(state)
+        case .failed(let code, let message)?: CloudStrings.linkFailed(message.isEmpty ? code : message)
+        case .unsupported?: CloudStrings.linkUnsupported
         }
+    }
+
+    /// Logs why a link ended, with the details ``endedMessage(_:)`` leaves out.
+    static func logEnded(_ error: any Error) {
+        logger.info("cloud link ended: \(String(describing: error), privacy: .public)")
     }
 }

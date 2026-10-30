@@ -11,7 +11,10 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     func sendInput(_ data: Data)
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
-    func sendReleaseGeometry()
+    /// Take over: optionally sets the terminal's policy to last active, then reports `size` and claims.
+    func sendTakeOver(reporting size: CellSize, setLatest: Bool)
+    /// The view hid or shows again; hidden, it keeps its lease and claim and stops counting toward the grid.
+    func sendHidden(_ hidden: Bool)
     /// Asks for a fresh READY + history on this attach.
     func sendSnapshotRequest(reason: SnapshotRequestReason)
     /// Detaches and closes the connection; its `events` then finish.
@@ -58,23 +61,36 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let observer: Observer?
     private let cursorDefault: TerminalCursorDefault
     private let backoffDelay: BackoffDelay
+    private let onGridSent: GridSent?
+
+    /// Told each grid this view sends to the PTY and whether the daemon will echo it (a grid other than
+    /// the one the stream last announced, or one sent while an earlier echo is still due).
+    public typealias GridSent = @Sendable (_ size: CellSize, _ expectsEcho: Bool) -> Void
 
     /// Waits before a re-attach that follows `failedReconnects` failed ones
     /// in a row (the App passes a capped ``Backoff``). Throws when cancelled.
     public typealias BackoffDelay = @Sendable (_ failedReconnects: Int) async throws -> Void
 
+    /// `restoring`: the view attaches to a terminal that already runs
+    /// (``TerminalAttachMachine/init(initialSize:visible:restoring:)``).
+    /// `onGridSent`: told each grid this view sends to the PTY (a claim or a take over of the live link),
+    /// in reduction order under the reducer's lock, as the effect is queued (the applier sends it right
+    /// after, in order); never a resize the machine dropped (no live link, hidden, or the grid it already
+    /// holds). Must not block (the burst bench's trace).
     public init(
         initialSize: CellSize,
         visible: Bool = true,
+        restoring: Bool = false,
         outputHighWater: Int = 1 << 20,
         opener: @escaping Opener,
         onFailure: @escaping @Sendable (any Error) -> Void = { _ in },
         onReattach: @escaping @Sendable (_ attempt: Int) -> Void = { _ in },
         observer: Observer? = nil,
         cursorDefault: TerminalCursorDefault = .ghostty,
-        backoffDelay: @escaping BackoffDelay = { _ in }
+        backoffDelay: @escaping BackoffDelay = { _ in },
+        onGridSent: GridSent? = nil
     ) {
-        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible)))
+        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure
@@ -82,6 +98,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         self.observer = observer
         self.cursorDefault = cursorDefault
         self.backoffDelay = backoffDelay
+        self.onGridSent = onGridSent
     }
 
     deinit {
@@ -110,6 +127,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func setVisible(_ visible: Bool) { send(.visibility(visible)) }
     /// The surface gained keyboard focus.
     public func focused() { send(.focused) }
+    /// Take over from the "Sized for" chip.
+    public func takeOver(setLatest: Bool) { send(.takeOver(setLatest: setLatest)) }
     /// The terminal or the daemon connection is back: a disconnected view
     /// re-attaches.
     public func reconnect() { send(.reconnect) }
@@ -128,15 +147,15 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     // MARK: Diagnostics
 
     public var machine: Machine { core.withLock { $0.machine } }
-    /// Attach attempts whose task is still running (open or pump).
-    public var runningTasks: Int { core.withLock { $0.tasks.count } }
     public var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     // MARK: Reducer and applier
 
     private func send(_ event: Machine.Event) {
         var batch = core.withLock { core -> [Machine.Effect] in
-            core.outbox += core.machine.reduce(event)
+            let effects = core.machine.reduce(event)
+            if let onGridSent { Self.reportGrids(effects, of: core.machine, to: onGridSent) }
+            core.outbox += effects
             observer?(event, core.machine)
             guard !core.applying, !core.outbox.isEmpty else { return [] }
             core.applying = true
@@ -166,7 +185,9 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
             startAttempt(attempt, size: size, delay: failedReconnects)
         case .send(let ref, let data): ref.link.sendInput(data)
         case .claim(let ref, let size): ref.link.sendClaim(reporting: size)
-        case .release(let ref): ref.link.sendReleaseGeometry()
+        case .takeOver(let ref, let size, let setLatest): ref.link.sendTakeOver(reporting: size, setLatest: setLatest)
+        case .hide(let ref): ref.link.sendHidden(true)
+        case .unhide(let ref): ref.link.sendHidden(false)
         case .detach(let ref): ref.link.detachNow()
         case .status(let status): queue.pushControl(.status(status))
         case .finish:
@@ -174,6 +195,17 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
             // A re-attach still waiting out its backoff must not open.
             let tasks = core.withLock { core in core.tasks.values }
             tasks.forEach { $0.cancel() }
+        }
+    }
+
+    /// Reports the grids `effects` send (``GridSent``). A claim adds its grid to the machine's due echoes
+    /// exactly when the daemon will echo it, so the last due echo names it then.
+    private static func reportGrids(_ effects: [Machine.Effect], of machine: Machine, to report: GridSent) {
+        for effect in effects {
+            switch effect {
+            case .claim(_, let size), .takeOver(_, let size, _): report(size, machine.echoesDue.last == size)
+            default: continue
+            }
         }
     }
 
@@ -205,18 +237,23 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         stream: for await event in ref.link.events {
             guard let queue = owner.value?.queue else { break stream }
             for step in TerminalStreamPlan.steps(for: event, cursorDefault: cursorDefault) {
+                // A grid change reaches the machine before the view applies it, so the view
+                // reads the geometry claim that grid leaves (`TerminalIO.appliesViewGrid`).
+                switch step {
+                case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
+                // A local-history READY is also the grid change (no .grid step).
+                case .snapshot(let frame) where frame.phase == .ready && frame.localHistory != nil:
+                    if let cols = frame.cols, let rows = frame.rows {
+                        owner.value?.send(.gridAnnounced(ref, CellSize(cols: cols, rows: rows)))
+                    }
+                default: break
+                }
                 await queue.push(step)
                 switch step {
                 case .replay: owner.value?.send(.replayDelivered(ref))
                 // A link's first READY is its replay; later ones are no-ops there.
-                case .snapshot(let frame) where frame.phase == .ready:
-                    // A local-history READY is also the grid change (no .grid step).
-                    if frame.localHistory != nil, let cols = frame.cols, let rows = frame.rows {
-                        owner.value?.send(.gridAnnounced(ref, CellSize(cols: cols, rows: rows)))
-                    }
-                    owner.value?.send(.replayDelivered(ref))
-                case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
-                case .output, .snapshot, .exited, .status: break
+                case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
+                case .grid, .output, .snapshot, .exited, .status, .sizing: break
                 }
             }
             if case .closed(let reason) = event {
@@ -277,5 +314,6 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 extension TerminalAttachment: TerminalAttachLink {
     public nonisolated func sendInput(_ data: Data) { enqueueInput(data) }
     public nonisolated func sendClaim(reporting size: CellSize) { claimGeometry(reporting: size) }
+    public nonisolated func sendTakeOver(reporting size: CellSize, setLatest: Bool) { takeOver(reporting: size, setLatest: setLatest) }
     public nonisolated func sendSnapshotRequest(reason: SnapshotRequestReason) { requestSnapshot(reason: reason) }
 }

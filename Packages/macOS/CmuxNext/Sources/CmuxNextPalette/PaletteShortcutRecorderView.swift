@@ -17,7 +17,7 @@ final class PaletteShortcutRecorderView: NSView {
     private let current = PaletteKeycapsView()
     private let noneLabel = PaletteText.label(Typography.caption, tone: .tertiary)
     private let recorded = PaletteKeycapsView()
-    private let message = NSTextField(wrappingLabelWithString: "")
+    private let message = ChromeLabel(wrappingLabelWithString: "")
     private var rowViews: [PaletteMenuRow] = []
 
     override init(frame: NSRect) {
@@ -70,9 +70,18 @@ final class PaletteShortcutRecorderView: NSView {
         recorded.isHidden = state.recorded == nil
         message.stringValue = state.message ?? ""
         rowViews.forEach { $0.removeFromSuperview() }
-        rowViews = state.options.enumerated().map { index, option in
+        let options = state.options
+        rowViews = options.enumerated().map { index, option in
             let row = PaletteMenuRow(command: Self.command(option), keycaps: Self.keycaps(option), isSelected: index == 0 && state.pending != nil)
-            row.onClick = { [weak self] in self?.onChoose?(option) }
+            // Press, drag and release, as in the Actions menu: the release picks the option it ends on.
+            row.onPress = { [weak self] event in
+                guard let self else { return }
+                PalettePress.track(event, in: self.content, row: { point in
+                    self.rowViews.firstIndex { $0.frame.contains(point) }
+                }, select: { _ in }, release: { index in
+                    if options.indices.contains(index) { self.onChoose?(options[index]) }
+                })
+            }
             content.addSubview(row)
             return row
         }
@@ -108,24 +117,25 @@ final class PaletteShortcutRecorderView: NSView {
         let padding = PaletteLayout.horizontalPadding
         let width = bounds.width - 2 * padding
         var y = Metrics.space4
-        title.frame = NSRect(x: padding, y: y, width: width, height: title.intrinsicContentSize.height)
+        title.frame = content.pixelAligned(NSRect(x: padding, y: y, width: width, height: PaletteText.height(title)))
         y += PaletteLayout.headerRowHeight
-        let actionHeight = action.intrinsicContentSize.height
-        let currentSize = current.isHidden ? CGSize(width: PaletteText.fittingWidth(noneLabel), height: noneLabel.intrinsicContentSize.height)
+        let actionHeight = PaletteText.height(action)
+        let currentSize = current.isHidden ? CGSize(width: PaletteText.fittingWidth(noneLabel), height: PaletteText.height(noneLabel))
             : current.intrinsicContentSize
         let right = bounds.width - padding - currentSize.width
-        action.frame = NSRect(x: padding, y: y + (PaletteLayout.rowHeight - actionHeight) / 2, width: max(0, right - padding - Metrics.space4),
-                              height: actionHeight)
-        let currentFrame = NSRect(x: right, y: y + (PaletteLayout.rowHeight - currentSize.height) / 2, width: currentSize.width,
-                                  height: currentSize.height)
+        action.frame = content.pixelAligned(NSRect(x: padding, y: y + (PaletteLayout.rowHeight - actionHeight) / 2,
+                                                   width: max(0, right - padding - Metrics.space4), height: actionHeight))
+        let currentFrame = content.pixelAligned(NSRect(x: right, y: y + (PaletteLayout.rowHeight - currentSize.height) / 2,
+                                                       width: currentSize.width, height: currentSize.height))
         current.frame = currentFrame
         noneLabel.frame = currentFrame
         y += PaletteLayout.rowHeight
         let recordedSize = recorded.intrinsicContentSize
-        recorded.frame = NSRect(x: (bounds.width - recordedSize.width) / 2, y: y, width: recordedSize.width, height: recordedSize.height)
+        recorded.frame = content.pixelAligned(NSRect(x: (bounds.width - recordedSize.width) / 2, y: y,
+                                                     width: recordedSize.width, height: recordedSize.height))
         y += PaletteLayout.keycapSize + Metrics.space4
         message.preferredMaxLayoutWidth = width
-        message.frame = NSRect(x: padding, y: y, width: width, height: Self.messageHeight)
+        message.frame = content.pixelAligned(NSRect(x: padding, y: y, width: width, height: Self.messageHeight))
         y += Self.messageHeight + Metrics.space2
         for row in rowViews {
             row.frame = NSRect(x: Metrics.space2, y: y, width: bounds.width - 2 * Metrics.space2, height: PaletteLayout.actionsMenuRowHeight)

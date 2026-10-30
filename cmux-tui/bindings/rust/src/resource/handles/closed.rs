@@ -1,5 +1,6 @@
-//! Closed history on a session handle: `closed.list` and `closed.reopen`
-//! (resource-api-v2.md, "State resources"; capability `state-resources-v1`).
+//! Closed history on a session handle: `closed.list`, `closed.reopen` and
+//! `closed.delete` (resource-api-v2.md, "State resources"; capability
+//! `state-resources-v1`).
 //!
 //! One close gesture is one group (`closed_…` state id); reopen restores its
 //! members in order, all of them or the chosen `members`. The same groups
@@ -90,6 +91,18 @@ pub struct ClosedItemSnapshot {
     pub additional: BTreeMap<String, Value>,
 }
 
+/// What `workspace.close` with `report_closed_ids` closed.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct WorkspaceCloseResult {
+    /// The closed groups the close stored, oldest first (empty for an
+    /// ephemeral workspace); `reopen_closed` of each restores exactly that
+    /// close, also when other closed workspaces share its name.
+    #[serde(default)]
+    pub closed_ids: Vec<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, Value>,
+}
+
 /// What `closed.reopen` restored.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ClosedReopenResult {
@@ -129,6 +142,32 @@ pub struct ClosedReopenOptions {
     /// Indexes into the group's `members`; `None` reopens every member, and
     /// the rest stay in the group.
     pub members: Option<Vec<u32>>,
+}
+
+/// What `closed.delete` names: one group (all of it, or the chosen
+/// `members`), or every group (`since_ms`: only those closed at or after it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClosedDeleteTarget {
+    Group {
+        /// The group's state id.
+        closed: String,
+        /// Indexes into the group's `members`; `None` deletes the group.
+        members: Option<Vec<u32>>,
+    },
+    All {
+        /// Unix milliseconds: only groups closed at or after it.
+        since_ms: Option<u64>,
+    },
+}
+
+/// What `closed.delete` removed: groups that left the history, and groups
+/// that lost only some members.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ClosedDeleteResult {
+    pub deleted: Vec<String>,
+    pub updated: Vec<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, Value>,
 }
 
 impl Session {
@@ -184,6 +223,54 @@ impl Session {
     }
 }
 
+impl Session {
+    /// Deletes closed groups for good (Delete Permanently, Clear Recently
+    /// Closed): they cannot be reopened, and their terminal archives go
+    /// with them. A fresh idempotency key; a retry with the same key
+    /// replays the result.
+    pub fn delete_closed(
+        &self,
+        target: ClosedDeleteTarget,
+    ) -> Result<MutationResult<ClosedDeleteResult>> {
+        self.delete_closed_with(target, MutationOptions::unique()?)
+    }
+
+    pub fn delete_closed_with(
+        &self,
+        target: ClosedDeleteTarget,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<ClosedDeleteResult>> {
+        let params = match target {
+            ClosedDeleteTarget::Group { closed, members } => {
+                validate_state_id("closed", &closed)?;
+                let params = self.params().string("closed", closed);
+                match members {
+                    None => params,
+                    Some(members) => {
+                        if members.is_empty() || members.len() > CLOSED_LIST_MAX as usize {
+                            return Err(Error::InvalidArgument(format!(
+                                "closed delete members must name 1 to {CLOSED_LIST_MAX} indexes"
+                            )));
+                        }
+                        params.value("members", Value::from(members))
+                    }
+                }
+            }
+            ClosedDeleteTarget::All { since_ms } => {
+                let params = self.params().boolean("all", true);
+                match since_ms {
+                    None => params,
+                    Some(since) => params.value("since_ms", Value::from(since)),
+                }
+            }
+        };
+        mutation_snapshot(
+            self.client.mutate(ops::CLOSED_DELETE, params, mutation)?,
+            "closed delete result",
+        )
+    }
+}
+
 fn validate_window(window: Option<&str>) -> Result<()> {
     match window {
         Some(window) if window.is_empty() || window.len() > WINDOW_ID_MAX_LEN => {
@@ -192,5 +279,24 @@ fn validate_window(window: Option<&str>) -> Result<()> {
             )))
         }
         _ => Ok(()),
+    }
+}
+
+impl Workspace {
+    /// `workspace.close` that also names the closed groups it stored
+    /// (`report_closed_ids`), so an Undo reopens exactly this close.
+    pub fn close_reporting(&self) -> Result<MutationResult<WorkspaceCloseResult>> {
+        self.close_reporting_with(MutationOptions::unique()?)
+    }
+
+    pub fn close_reporting_with(
+        &self,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<WorkspaceCloseResult>> {
+        let params = self.params().value("report_closed_ids", Value::Bool(true));
+        mutation_snapshot(
+            self.session.client.mutate(ops::WORKSPACE_CLOSE, params, mutation)?,
+            "workspace close result",
+        )
     }
 }

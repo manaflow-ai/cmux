@@ -1,5 +1,5 @@
 export { apply, isSend, targetMessageId } from "./apply.ts"
-export { BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS } from "./budget.ts"
+export { agentCount, BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, inThread, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, streakOf, threadAgentStreak, withTurn } from "./budget.ts"
 export { consentMarkerWrites, hasConsentMarker, TABLE_CONSENT, withConsentMarkers } from "./consent.ts"
 export { checkTyping, create, summary, type CreateRequest, type CreateResult } from "./create.ts"
 export {
@@ -83,7 +83,7 @@ export {
   type Respondent
 } from "./question.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
-export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
+export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, snippetWindow, type SearchHit, type SearchInput, type SearchResult, type SearchSource, type SnippetWindow } from "./search.ts"
 export {
   ATTACHMENT_LIMITS,
   ATTACHMENT_TYPES,
@@ -94,9 +94,12 @@ export {
   attachmentQuota,
   attachmentRefWrites,
   checkAttachments,
+  cleanAttachmentPart,
   contentDisposition,
-  DENIED_EXTENSIONS,
+  GENERIC_FILE_TYPE,
   isSha256,
+  MULTIPART_PART_COUNT,
+  multipartPlan,
   TABLE_ATTREF,
   messageDeleteWrites,
   DERIVED_IMAGE_TYPES,
@@ -123,6 +126,27 @@ export {
   type MetaResult,
   type QuotaResult
 } from "./attachments.ts"
+export { attachmentHeldBy, cleanLinkPreviewPart, LINK_PREVIEW_LIMITS, validLinkUrl } from "./link-preview.ts"
 export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"
 export { nextSweepAt, RETENTION_BATCH, SWEEP_OP } from "./sweep.ts"
 export { TYPING_MAX_ON, TYPING_REFRESH_MS, TYPING_WINDOW_MS, typingGate, type TypingDecision, type TypingMemo } from "./typing.ts"
+export {
+  cursorOf,
+  focusOf,
+  INLINE_MAX,
+  inboxViewFor,
+  isLarge,
+  MAX_GROUP_MEMBERS,
+  memberCount,
+  memberOf,
+  MEMBERS_PAGE_LIMIT,
+  membersPage,
+  recordOf,
+  ROSTER_HUMANS,
+  TABLE_MEMBER,
+  type InboxView,
+  type MemberRow,
+  type MembersPage
+} from "./large.ts"
+export { checkGrant, checkOver, checkWriter, grantableRole, isManager, rankOf, roleOf, ROLES } from "./roles.ts"
+export { DEFAULT_GRANT_HOURS, DEFAULT_GRANT_USES, MAX_GRANT_HOURS, MAX_GRANT_USES, MAX_OPEN_GRANTS, TABLE_GRANT, TABLE_GRANTHASH } from "./grants.ts"

@@ -1,6 +1,9 @@
 import AppKit
+import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// One-shot launch event: the first live terminal frame is drawn (the
 /// first terminal content reached a surface and the frame showing it
@@ -26,9 +29,21 @@ final class LaunchSettle {
         self.reveal = reveal
     }
 
-    /// Runs `work` once the launch settled (at once when it has).
+    /// Runs `work` once the launch settled and no agent page waits behind
+    /// its last frame (at once when both hold).
     func whenSettled(_ work: @escaping @MainActor () -> Void) {
-        if isSettled { work() } else { waiters.append(work) }
+        if isSettled { LaunchImageHold.shared.whenClear(work) } else { waiters.append(work) }
+    }
+
+    /// Returns once `whenSettled` work would run, or after `limit` (a launch
+    /// with no window never settles).
+    func settled(within limit: Duration) async {
+        let (settled, done) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let backstop = DemandTimer(owner: "LaunchSettle.settled")
+        backstop.schedule(after: limit) { done.finish() }
+        whenSettled { done.finish() }
+        for await _ in settled {}
+        backstop.cancel()
     }
 
     /// Settles (first call only) and runs the waiters in order.
@@ -37,9 +52,12 @@ final class LaunchSettle {
         isSettled = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
+        // The agent pages' warm-up page is done: their first page made its own process by now.
+        AgentPaneView.finishWarmup()
         let waiting = waiters
         waiters.removeAll()
-        for work in waiting { work() }
+        // An agent page still loading behind its last frame paints first (LaunchImageHold).
+        LaunchImageHold.shared.whenClear { for work in waiting { work() } }
     }
 
     /// Listens for the first terminal content (`TerminalTimings`), for the
@@ -62,7 +80,7 @@ final class LaunchSettle {
         }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
         unavailableWatch = Task { [weak self] in
-            for await unavailable in Observations({ daemon.startup.isUnavailable }) where unavailable {
+            for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
                 // No region will get its data: show everything as it is.
                 self?.reveal.markAllReady()
                 self?.settle()

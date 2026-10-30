@@ -114,8 +114,8 @@ final class PaletteFooterView: NSView {
             right = layoutButton(closeButton, label: closeLabel, keys: closeKeys, right: right)
         }
         let labelX = pageIcon.frame.maxX + Metrics.space3
-        let height = pageLabel.intrinsicContentSize.height
-        pageLabel.frame = NSRect(x: labelX, y: midY - height / 2, width: max(0, right - Metrics.space4 - labelX), height: height)
+        let height = PaletteText.height(pageLabel)
+        pageLabel.frame = pixelAligned(NSRect(x: labelX, y: midY - height / 2, width: max(0, right - Metrics.space4 - labelX), height: height))
         if !crumbs.isEmpty { layoutCrumbs(from: labelX, to: right - Metrics.space4) }
     }
 
@@ -144,21 +144,22 @@ final class PaletteFooterView: NSView {
         for (index, crumb) in crumbs.enumerated() {
             crumb.button.isHidden = index < first
             guard index >= first else { continue }
-            let height = crumb.label.intrinsicContentSize.height
-            crumb.button.frame = NSRect(x: left, y: bounds.midY - height / 2, width: widths[index], height: height)
-            crumb.label.frame = NSRect(x: 0, y: 0, width: widths[index], height: height)
+            let height = PaletteText.height(crumb.label)
+            crumb.button.frame = pixelAligned(NSRect(x: left, y: bounds.midY - height / 2, width: widths[index], height: height))
+            crumb.label.frame = crumb.button.bounds
             left += widths[index]
         }
     }
 
     private func layoutButton(_ button: NSView, label: NSTextField, keys: PaletteKeycapsView, right: CGFloat) -> CGFloat {
-        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: label.intrinsicContentSize.height)
+        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: PaletteText.height(label))
         let keySize = keys.intrinsicContentSize
         let width = labelSize.width + Metrics.space3 + keySize.width
         let height = max(labelSize.height, keySize.height)
-        button.frame = NSRect(x: right - width, y: bounds.midY - height / 2, width: width, height: height)
-        label.frame = NSRect(x: 0, y: (height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height)
-        keys.frame = NSRect(x: labelSize.width + Metrics.space3, y: (height - keySize.height) / 2, width: keySize.width, height: keySize.height)
+        button.frame = pixelAligned(NSRect(x: right - width, y: bounds.midY - height / 2, width: width, height: height))
+        label.frame = button.pixelAligned(NSRect(x: 0, y: (height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height))
+        keys.frame = button.pixelAligned(NSRect(x: labelSize.width + Metrics.space3, y: (height - keySize.height) / 2,
+                                                width: keySize.width, height: keySize.height))
         return button.frame.minX
     }
 }

@@ -11,47 +11,15 @@ impl PtySurface {
             .then_some((mux, terminal_id))
     }
 
-    pub(super) fn journal_output_if_open(
+    /// Hand output the parser accepted to the output store. Output never
+    /// enters the session journal (output_store.rs); the store only copies
+    /// the bytes into memory here.
+    pub(super) fn record_output(
         &self,
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
-        bytes: Vec<u8>,
+        bytes: &[u8],
     ) {
-        let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
-            let mut pending = chunk.to_vec();
-            loop {
-                let space_epoch = {
-                    let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire) {
-                        return;
-                    }
-                    let retry = match mux.try_journal_terminal_output(
-                        terminal_id.clone(),
-                        self.journal_generation.clone(),
-                        occurred_at_ms,
-                        pending,
-                    ) {
-                        Ok(retry) => retry,
-                        Err(error) => return self.stop_journal_capture(&error),
-                    };
-                    let Some((retry, space_epoch)) = retry else { break };
-                    pending = retry;
-                    space_epoch
-                };
-                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    return self.stop_journal_capture(&error);
-                }
-            }
-        }
-    }
-
-    /// A failed journal writer stops this terminal's capture; the terminal
-    /// and the daemon keep running. The failure is involuntary, so it must
-    /// not take the user shutdown path (`request_daemon_shutdown` marks a
-    /// session shutdown, which records signal deaths as session_shutdown).
-    pub(super) fn stop_journal_capture(&self, error: &str) {
-        self.journal_capture_open.store(false, Ordering::Release);
-        eprintln!("cmux-tui: terminal journal capture stopped: {error}");
+        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
@@ -139,7 +107,13 @@ impl PtySurface {
         TerminalColors::from_terminal(term, defaults)
     }
 
+    /// The hex terminal id flow marks name this terminal by (empty without a host identity).
+    pub(crate) fn flow_terminal_id(&self) -> &str {
+        self.host_identity.as_ref().map_or("", |id| id.terminal_id.as_str())
+    }
+
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
+        cmux_flow_trace::hop("daemon.output.attach", 0, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
@@ -147,7 +121,22 @@ impl PtySurface {
         }
         let frame = AttachFrame::Output(bytes.to_vec());
         taps.retain(|tap| tap.try_send(frame.clone()));
-        !taps.is_empty()
+        let sent = !taps.is_empty();
+        drop(taps);
+        if sent {
+            self.mark_attach_output_sent();
+        }
+        sent
+    }
+
+    /// The first output a followed terminal sends an attachment
+    /// (`CMUX_TUI_DEBUG_SPANS`).
+    fn mark_attach_output_sent(&self) {
+        if crate::debug_spans::following()
+            && let Some(identity) = self.host_identity.as_ref()
+        {
+            crate::debug_spans::terminal_mark(&identity.terminal_id, "attach.first_output_sent");
+        }
     }
 
     /// Viewers without pending-sequence support reconnect from a fresh
@@ -190,7 +179,13 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.snapshot_position.observe_frame(&frame);
-        self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
+        let mut taps = self.taps.lock().unwrap();
+        taps.retain(|tap| tap.try_send(frame.clone()));
+        let sent_output = matches!(frame, AttachFrame::OutputWithColors { .. }) && !taps.is_empty();
+        drop(taps);
+        if sent_output {
+            self.mark_attach_output_sent();
+        }
     }
 
     /// Replace every byte-stream mirror after a sidecar-only state change.
@@ -268,9 +263,7 @@ impl PtySurface {
     }
 
     pub(super) fn request_frame(&self, generation: u64) {
-        match self.frame_requests.try_send(generation) {
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
-        }
+        self.frame_requests.request(generation);
     }
 
     /// Apply one replacement to the terminal stream and publish its revision.
@@ -292,8 +285,8 @@ impl PtySurface {
     /// and the frame worker holds only a weak reference. Building here keeps
     /// the final render frame ordered after the byte taps and before detach.
     pub(super) fn publish_final_frame(&self) {
-        let term = self.term.lock().unwrap();
-        let generation = self.render_generation.load(Ordering::Acquire);
+        let mut term = self.term.lock().unwrap();
+        let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
     }
 
@@ -307,7 +300,7 @@ impl PtySurface {
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
-        let generation = self.render_generation.load(Ordering::Acquire);
+        let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_frame_locked(&mut term, generation, true);
         self.taps.lock().unwrap().clear();
         self.render.lock().unwrap().taps.clear();
@@ -318,6 +311,20 @@ impl PtySurface {
             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
         drop(term);
         self.mark_output_dirty();
+    }
+
+    /// The exited child's modes off, so its retained tab selects and
+    /// pastes like plain text instead of capturing the mouse. Published as
+    /// output: byte taps get the same reset and the returned generation
+    /// renders it.
+    fn drop_exited_modes(&self, term: &mut Terminal) -> u64 {
+        let exit_reset = crate::prompt_mode_reset::exit_reset(term);
+        let reset = term.vt_write_with_normalized(&exit_reset);
+        self.broadcast_attach_output(&reset);
+        self.mouse_encoders.lock().unwrap().sync_from_terminal(term);
+        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        self.stream_progress.notify();
+        generation
     }
 
     pub(super) fn mark_output_dirty(&self) {
@@ -400,18 +407,16 @@ impl PtySurface {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cols, rows, ..*geometry };
-        next.pty_size()?;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
-                if *geometry == next && host.viewer_size() == Some((cols, rows)) {
-                    return Ok(false);
-                }
                 // Do not speculatively reflow the mirror. The host orders
                 // either a compact smart-renderer marker or a legacy
                 // Resized+Colors replay on its authoritative byte stream.
-                return Ok(host.send_viewer_size(cols, rows).is_ok());
+                // `true` only when a new size went to the host, so callers
+                // wait for a `Resized` only when one can come.
+                return Ok(host.send_viewer_size(cols, rows)?);
             }
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
                 return Ok(false);
@@ -442,10 +447,8 @@ impl PtySurface {
             if (geometry.cell_width, geometry.cell_height) == requested {
                 return Ok(false);
             }
-            PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry }
-                .pty_size()?;
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             match &*runtime {
@@ -482,7 +485,6 @@ impl PtySurface {
         }
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry };
-        next.pty_size()?;
         self.commit_geometry(&mut geometry, next, false)
     }
 
@@ -497,7 +499,7 @@ impl PtySurface {
         self.commit_geometry_for_runtime(geometry, next, refresh_attach_colors, false)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn commit_hosted_geometry(
         &self,
         geometry: &mut PtyGeometry,
@@ -523,17 +525,28 @@ impl PtySurface {
         }
         let grid_changed = (geometry.cols, geometry.rows) != (next.cols, next.rows);
         let previous = *geometry;
-        let next_pty_size = next.pty_size()?;
-        let previous_pty_size = previous.pty_size()?;
-        // Hold the terminal lock while resizing and while sending the attach
-        // marker, so mirrors observe bytes and geometry in server order.
+        let next_pty_size = next.pty_size();
+        let previous_pty_size = previous.pty_size();
+        // Parse queued direct-PTY bytes on the old grid, even if the reader
+        // has not woken yet. Keep the shared parser through the ioctl and
+        // reflow so no read-to-parser gap can cross this boundary. Observers
+        // are queued for the reader to publish without geometry or term held.
+        #[cfg(unix)]
+        let mut local_output = self
+            .local_output
+            .as_ref()
+            .map(|output| output.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        #[cfg(unix)]
+        if let Some(output) = local_output.as_mut() {
+            output.drain(self)?;
+        }
         let mut term = self.term.lock().unwrap();
         let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
         let master = match runtime.as_deref() {
             Some(PtyRuntime::Local { master, .. }) => master.as_deref(),
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             Some(PtyRuntime::Hosted(_)) => None,
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             Some(PtyRuntime::ExitedHosted) => return Ok(false),
             None => None,
         };

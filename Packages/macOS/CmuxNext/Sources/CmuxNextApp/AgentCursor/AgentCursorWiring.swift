@@ -37,10 +37,26 @@ enum AgentCursorWiring {
     /// (plans/cmux-next/agent-cursor.md), with a9's per-window resolver.
     static func slot(for controller: WindowController) -> AgentCursorWindowSlot {
         let services = controller.services
-        let slot = AgentCursorWindowSlot(resolver: services.agentCursorVisibility.resolver(forWindow: controller.state.id)) {
-            [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorLayer ?? CALayer()
+        let slot = AgentCursorWindowSlot(
+            resolver: services.agentCursorVisibility.resolver(forWindow: controller.state.id),
+            // Every browser agent cursor is gray (user, 2026-10-20); the name
+            // tag tells agents apart.
+            color: { _ in AgentCursorLayer.gray },
+            // Who drives and where, for a session whose caller is known
+            // (user, 2026-10-20); else the agent's name.
+            label: { [weak services] session in
+                services?.agentCursorTagLinks.label(for: session) ?? AgentCursorSessionLabel(sessionID: session).text
+            },
+            glassLayer: { [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorGlassLayer }
+        ) { [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorLayer ?? CALayer()
         }
         slot.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
+        // The tags are links: the overlay routes the mouse to them while any shows.
+        slot.onTagsChange = { [weak controller] in
+            guard let controller, let overlay = (controller.window as? ShellWindow)?.overlayLayer else { return }
+            overlay.setAgentCursorTags(controller.agentCursorTags)
+            overlay.agentCursorTagsDidChange()
+        }
         return slot
     }
 

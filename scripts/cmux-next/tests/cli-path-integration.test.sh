@@ -11,6 +11,11 @@
 # the first prompt. It also checks that the user's files ran, that zsh ends
 # with the user's ZDOTDIR and HISTFILE, and that no cmux-cli-path variable
 # leaks into the shell's children.
+#
+# The same layers print a terminal's saved output (the classic session
+# import's CMUX_RESTORE_SCROLLBACK_FILE) once, above the first prompt, and
+# remove it; a path outside the app's cmux-next-scrollback folder is neither
+# printed nor removed, and the variable never reaches the shell's children.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 integration="$ROOT/ghostty-next/src/shell-integration"
@@ -37,6 +42,11 @@ mkdir -p "$home/.config/fish"
 printf '%s\n' 'set -gx PATH $HOME/.local/bin $PATH; set -gx CMUX_TEST_RC_RAN 1' >"$home/.config/fish/config.fish"
 
 fail=0
+mkdir -p "$TMP/t/cmux-next-scrollback"
+replay="$TMP/t/cmux-next-scrollback/replay"
+decoy="$TMP/t/decoy"
+replay_probe='printf "replay-env=%s\n" "${CMUX_RESTORE_SCROLLBACK_FILE-unset}"'
+
 probe='printf "cmux=%s rc=%s zdotdir=%s histfile=%s leak=%s\n" "$(command -v cmux)" "${CMUX_TEST_RC_RAN-}" "${ZDOTDIR-unset}" "${HISTFILE-}" "$(env | grep -c "^CMUX_CLI_" || true)"'
 
 check() {
@@ -50,6 +60,37 @@ check() {
     echo "FAIL: $name: ZDOTDIR/HISTFILE not the user's: $line" >&2; fail=1; return
   fi
   echo "PASS: $name"
+}
+
+# `file` set to $replay (printed once, before the probe, then gone) or
+# $decoy (never printed, still there).
+check_replay() {
+  local name="$1" out="$2" file="$3"
+  local answer; answer=$(grep -aoE 'replay-env=(unset|/)[^[:space:]]*' <<<"$out" | tail -1 || true)
+  if [[ "$answer" != "replay-env=unset" ]]; then
+    echo "FAIL: $name: replay variable reached the shell: ${answer:-no answer}" >&2; printf "%s\n" "$out" | tail -20 | cat -v >&2; fail=1; return
+  fi
+  local before="${out%%replay-env=*}" printed
+  printed=$(grep -ac 'saved scrollback line' <<<"$out" || true)
+  if [[ "$file" == "$replay" ]]; then
+    if [[ "$printed" != 1 || "$before" != *'saved scrollback line'* || -e "$replay" ]]; then
+      echo "FAIL: $name: replay printed $printed time(s); file $([[ -e $replay ]] && echo kept || echo gone)" >&2
+      printf "%s\n" "$out" | tail -20 | cat -v >&2; fail=1; return
+    fi
+  elif [[ "$printed" != 0 || ! -e "$decoy" ]]; then
+    echo "FAIL: $name: a file outside cmux-next-scrollback was printed or removed" >&2; fail=1; return
+  fi
+  echo "PASS: $name"
+}
+
+# Runs `run PROBE ENV...` (a shell's function below) with each replay file.
+replay_cases() {
+  local name="$1" run="$2" file out
+  for file in "$replay" "$decoy"; do
+    printf 'saved scrollback line\n' >"$file"
+    out=$("$run" "$replay_probe" CMUX_RESTORE_SCROLLBACK_FILE="$file")
+    check_replay "$name replay ${file##*/}" "$out" "$file"
+  done
 }
 
 base=(env -i HOME="$home" USER="${USER:-u}" TERM=xterm-256color PATH="$resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -66,6 +107,8 @@ if command -v zsh >/dev/null; then
   out=$(printf '%s\nexit\n' "$probe" | "${base[@]}" SHELL="$(command -v zsh)" ZDOTDIR="$cli_dir/zsh" \
         CMUX_CLI_ZSH_ZDOTDIR="$TMP/zdot" zsh -i 2>&1 || true)
   check "zsh -i without Ghostty integration" "$out" "$TMP/zdot"
+  run_zsh() { printf '%s\nexit\n' "$1" | "${zsh_env[@]}" "${@:2}" zsh -i 2>&1 || true; }
+  replay_cases "zsh -i" run_zsh
 else
   echo "SKIP: zsh not installed"
 fi
@@ -78,6 +121,11 @@ if [[ "$bash_bin" != /bin/bash ]] || [[ -n "${CMUX_TEST_BASH:-}" ]]; then
           CMUX_CLI_BASH_ENV="$integration/bash/ghostty.bash" GHOSTTY_BASH_INJECT=1 "$bash_bin" $login --posix -i 2>&1 || true)
     check "bash -i $login" "$out"
   done
+  run_bash() {
+    printf '%s\nexit\n' "$1" | "${base[@]}" SHELL="$bash_bin" ENV="$cli_dir/bash/cmux-cli-path.bash" \
+      CMUX_CLI_BASH_ENV="$integration/bash/ghostty.bash" GHOSTTY_BASH_INJECT=1 "${@:2}" "$bash_bin" --posix -i 2>&1 || true
+  }
+  replay_cases "bash -i" run_bash
 else
   echo "SKIP: only Apple /bin/bash (Ghostty does not integrate it); set CMUX_TEST_BASH to a newer bash"
 fi
@@ -86,15 +134,16 @@ if fish_bin=$(command -v fish); then
   fish_probe='printf "cmux=%s rc=%s zdotdir=unset histfile= leak=%s\n" (command -v cmux) "$CMUX_TEST_RC_RAN" (env | grep -c "^CMUX_CLI_"; or true)'
   # fish runs its prompt events only with a terminal on stdin: drive it on a
   # pty, send the probe once the first prompt is drawn, read until the answer.
-  out=$("${base[@]}" SHELL="$fish_bin" XDG_CONFIG_HOME="$home/.config" \
-        XDG_DATA_DIRS="$cli_dir:/usr/local/share:/usr/share" CMUX_CLI_FISH_XDG_DIR="$cli_dir" \
-        /usr/bin/python3 -I -c '
+  run_fish() {
+    "${base[@]}" SHELL="$fish_bin" XDG_CONFIG_HOME="$home/.config" \
+      XDG_DATA_DIRS="$cli_dir:/usr/local/share:/usr/share" CMUX_CLI_FISH_XDG_DIR="$cli_dir" "${@:2}" \
+      /usr/bin/python3 -I -c '
 import os, pty, re, select, sys, time
 pid, fd = pty.fork()
 if pid == 0:
     os.execv(sys.argv[1], [sys.argv[1], "-i"])
 buf, sent, end = b"", False, time.time() + 30
-while time.time() < end and not re.search(rb"cmux=/[^\r\n]* leak=[0-9]", buf):
+while time.time() < end and not re.search(rb"cmux=/[^\r\n]* leak=[0-9]|replay-env=(unset|/)[^\r\n]*[\r\n]|codex=/[^\r\n]*[\r\n]", buf):
     if select.select([fd], [], [], 0.2)[0]:
         try: buf += os.read(fd, 65536)
         except OSError: break
@@ -102,11 +151,47 @@ while time.time() < end and not re.search(rb"cmux=/[^\r\n]* leak=[0-9]", buf):
         os.write(fd, sys.argv[2].encode() + b"\n"); sent = True
 os.write(fd, b"exit\n")
 sys.stdout.write(buf.decode("utf-8", "replace"))
-' "$fish_bin" "$fish_probe" 2>&1 || true)
+' "$fish_bin" "$1" 2>&1 || true
+  }
+  out=$(run_fish "$fish_probe")
   check "fish -i" "$out"
+  replay_cases "fish -i" run_fish
 else
   echo "SKIP: fish not installed"
 fi
 
+# The cmux-tui daemon names its agent shim directory (`codex` and `claude`
+# that add the terminal's hooks) in CMUX_TUI_AGENT_SHIMS and puts it first on
+# the spawn PATH. The startup files prepend ~/.local/bin, which holds the real
+# `codex`; the layers move the shim directory back to the front before each
+# command (zsh, fish) or at each prompt (bash), so plain `codex` still starts
+# through the shim. Codex runs its hooks in a shared daemon that cannot see
+# the terminal's environment, so only the shim can route them.
+shims="$TMP/shims [x]"
+mkdir -p "$shims"
+printf '#!/bin/sh\necho shim\n' >"$shims/codex"
+printf '#!/bin/sh\necho real\n' >"$home/.local/bin/codex"
+chmod +x "$shims/codex" "$home/.local/bin/codex"
+shim_env=(CMUX_TUI_AGENT_SHIMS="$shims" PATH="$shims:$resources/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+codex_probe='printf "codex=%s\n" "$(command -v codex)"'
+check_codex() {
+  local name="$1" out="$2" line
+  line=$(grep -aoE 'codex=[^[:space:]]*.*' <<<"$out" | tr -d '\r' | tail -1 || true)
+  if [[ "$line" != "codex=$shims/codex" ]]; then
+    echo "FAIL: $name: plain codex skipped the agent shim: ${line:-no answer}" >&2
+    printf "%s\n" "$out" | tail -20 | cat -v >&2; fail=1; return
+  fi
+  echo "PASS: $name"
+}
+if command -v zsh >/dev/null; then
+  check_codex "zsh -i agent shim" "$(run_zsh "$codex_probe" "${shim_env[@]}")"
+fi
+if [[ "$(command -v bash)" != /bin/bash ]] || [[ -n "${CMUX_TEST_BASH:-}" ]]; then
+  check_codex "bash -i agent shim" "$(run_bash "$codex_probe" "${shim_env[@]}")"
+fi
+if command -v fish >/dev/null; then
+  check_codex "fish -i agent shim" "$(run_fish 'printf "codex=%s\n" (command -v codex)' "${shim_env[@]}")"
+fi
+
 [[ $fail -eq 0 ]] || exit 1
-echo "PASS: plain cmux is the bundled CLI after user startup files"
+echo "PASS: plain cmux is the bundled CLI, and plain codex the agent shim, after user startup files"

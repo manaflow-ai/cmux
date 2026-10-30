@@ -54,14 +54,6 @@ public nonisolated enum DropOverlayStyle: String, Sendable, CaseIterable, Tunabl
         }
     }
 
-    /// Whether the style draws Liquid Glass (and so follows `OverlayMaterial`).
-    public var usesGlass: Bool {
-        switch self {
-        case .glassFill, .glassOutline, .insetCard, .splitPreview, .tabGhost, .morph: true
-        case .outline, .insertionLine, .edgeGlow, .dimOthers, .hairline, .dashed, .corners: false
-        }
-    }
-
     /// The style the overlay draws now (the tunable; default `outline`).
     public static var current: DropOverlayStyle { DropOverlayTunables.style.value }
 }

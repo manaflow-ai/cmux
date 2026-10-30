@@ -38,6 +38,8 @@ final class MarkdownOverlay {
     /// Body origin in the host layer's coordinates.
     private(set) var bodyOrigin = CGPoint.zero
     private var generation = 0
+    /// The scale the regions are drawn at: the cell's (its window view's renderScale).
+    private(set) var scale: CGFloat = Fixture.renderScale
 
     init() {
         copyButton.isHidden = true
@@ -60,7 +62,7 @@ final class MarkdownOverlay {
         let body = RowDraw.bodyRect(spec)
         let host = cell.bitmap.superlayer ?? cell.contentView.layer
         o.bitmap = cell.bitmap
-        o.attach(to: host, layout: md, outgoing: p.outgoing, bodyOrigin: CGPoint(x: body.minX, y: body.minY))
+        o.attach(to: host, layout: md, outgoing: p.outgoing, bodyOrigin: CGPoint(x: body.minX, y: body.minY), scale: cell.renderScale)
     }
 
     /// Hides the row bitmap under the overlays (the bitmap draws every block at offset 0).
@@ -79,16 +81,18 @@ final class MarkdownOverlay {
         generation += 1
     }
 
-    func attach(to host: CALayer, layout md: MarkdownLayout, outgoing: Bool, bodyOrigin: CGPoint) {
+    func attach(to host: CALayer, layout md: MarkdownLayout, outgoing: Bool, bodyOrigin: CGPoint, scale: CGFloat) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let same = layout === md && self.outgoing == outgoing && self.host === host
+        let same = layout === md && self.outgoing == outgoing && self.host === host && self.scale == scale
         self.host = host
         self.bodyOrigin = bodyOrigin
         if !same {
             detach()
             layout = md
             self.outgoing = outgoing
+            self.scale = scale
+            copyGlyph.contentsScale = scale
             for (i, reg) in md.regions.enumerated() where MarkdownOverlay.usesOverlay(reg) {
                 let r = RegionLayers(i)
                 r.clip.masksToBounds = true
@@ -105,7 +109,7 @@ final class MarkdownOverlay {
                 r.indicator.cornerRadius = 1.25
                 r.indicator.backgroundColor = MDPalette.palette(outgoing: outgoing).text.withAlphaComponent(0.32).cgColor
                 r.fade.startPoint = CGPoint(x: 0, y: 0.5); r.fade.endPoint = CGPoint(x: 1, y: 0.5)
-                r.content.contentsScale = Fixture.renderScale
+                r.content.contentsScale = scale
                 host.addSublayer(r.clip)
                 regions.append(r)
                 render(r, md, outgoing)
@@ -130,14 +134,18 @@ final class MarkdownOverlay {
     }
 
     private func render(_ r: RegionLayers, _ md: MarkdownLayout, _ outgoing: Bool) {
-        guard let reg = md.regions[checked: r.index] else { return } // cmux: a region of an older layout renders nothing
+        guard let reg = md.regions[checked: r.index] else { return } // a region of an older layout renders nothing
         let size = CGSize(width: reg.contentWidth, height: reg.frame.height)
         let gen = generation
         let idx = r.index
+        let sc = scale
+        let box = PaletteScope.current // cmux: the cell's palette goes with the job
         MarkdownOverlay.queue.async { [weak self, weak r] in
-            let img = WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
-                MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing, mode: .region(idx))
-            }
+            let img = PaletteScope.with(box) { Fixture.withRenderScale(sc) {
+                WideBitmap.make(size: size, scale: sc, opaque: false) { ctx in
+                    MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing, mode: .region(idx))
+                }
+            } }
             DispatchQueue.main.async {
                 guard let self, let r, self.generation == gen else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -150,7 +158,7 @@ final class MarkdownOverlay {
     static let queue = DispatchQueue(label: "messages.markdown.overlay", qos: .userInitiated)
 
     private func place(_ r: RegionLayers) {
-        guard let md = layout, let reg = md.regions[checked: r.index] else { return } // cmux: checked
+        guard let md = layout, let reg = md.regions[checked: r.index] else { return } // checked
         let off = min(reg.maxOffset, max(0, MarkdownScroll.offset(identity: md.identity, region: r.index)))
         r.clip.frame = reg.frame.offsetBy(dx: bodyOrigin.x, dy: bodyOrigin.y)
         r.cover.frame = r.clip.frame
@@ -174,7 +182,7 @@ final class MarkdownOverlay {
     /// passes the gesture on).
     @discardableResult
     func scroll(region i: Int, by dx: CGFloat) -> Bool {
-        guard let md = layout, i < md.regions.count, let reg = md.regions[checked: i] else { return false } // cmux: checked
+        guard let md = layout, i < md.regions.count, let reg = md.regions[checked: i] else { return false } // checked
         let old = MarkdownScroll.offset(identity: md.identity, region: i)
         let new = min(reg.maxOffset, max(0, old + dx))
         guard abs(new - old) > 0.01 else { return false }
@@ -204,8 +212,8 @@ final class MarkdownOverlay {
     static var copiedTitle: String { MessagesLabLocalization.string("markdown.copied", "Copied") }
 
     func copyRect(_ i: Int) -> CGRect? {
-        guard let md = layout, i < md.regions.count, let f = md.regions[checked: i]?.frame else { return nil } // cmux: checked
-        let w = max(40, (MarkdownOverlay.copyTitle as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 10, weight: .medium)]).width + 14)
+        guard let md = layout, i < md.regions.count, let f = md.regions[checked: i]?.frame else { return nil } // checked
+        let w = max(40, (MarkdownOverlay.copyTitle as NSString).size(withAttributes: [.font: HomeFonts.system(ofSize: 10, weight: .medium)]).width + 14)
         return CGRect(x: f.maxX - w - 4, y: f.minY + 4, width: w, height: 18)
     }
 
@@ -217,7 +225,7 @@ final class MarkdownOverlay {
         copyButton.backgroundColor = (outgoing ? UIColor(white: 0, alpha: 0.32) : UIColor(white: 0.5, alpha: 0.35)).cgColor
         copyButton.zPosition = 2
         copyGlyph.string = copiedRegion == i ? MarkdownOverlay.copiedTitle : MarkdownOverlay.copyTitle
-        copyGlyph.font = UIFont.systemFont(ofSize: 10, weight: .medium)
+        copyGlyph.font = HomeFonts.system(ofSize: 10, weight: .medium)
         copyGlyph.foregroundColor = pal.text.cgColor
         copyGlyph.frame = CGRect(x: 0, y: 2.5, width: r.width, height: 14)
     }
@@ -228,6 +236,6 @@ final class MarkdownOverlay {
         guard let i = hoverRegion, let r = copyRect(i), r.insetBy(dx: -2, dy: -2).contains(p), let md = layout else { return nil }
         copiedRegion = i
         CATransaction.begin(); CATransaction.setDisableActions(true); placeCopy(); CATransaction.commit()
-        return md.regions[checked: i]?.copyText // cmux: checked
+        return md.regions[checked: i]?.copyText // checked
     }
 }

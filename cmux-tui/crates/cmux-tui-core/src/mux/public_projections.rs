@@ -29,30 +29,34 @@ pub(super) fn restore_public_projections(
     for (index, notification) in projections.notifications.into_iter().enumerate() {
         let numeric_id =
             u64::try_from(index).context("notification count exceeds uint64")?.saturating_add(1);
-        let surface = notification.terminal_id.as_ref().and_then(|terminal_id| {
+        let terminal_surface = notification.terminal_id.as_ref().and_then(|terminal_id| {
             state
                 .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
                 .first()
                 .copied()
                 .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
         });
+        let surface = terminal_surface.or_else(|| {
+            let browser = notification.browser_id.clone()?;
+            state.placements_of_content(&ContentPublicId::Browser(browser)).first().copied()
+        });
         let level = notification_level(&notification.level)?;
-        if notification.unread {
-            let terminal_id = notification
-                .terminal_id
-                .clone()
-                .context("terminal notification omitted its terminal identity")?;
-            if surface.is_some() {
-                terminal_notifications.insert(
-                    terminal_id,
-                    SurfaceNotification {
-                        notification: numeric_id,
-                        level,
-                        unread: true,
-                        source: notification.source,
-                    },
-                );
-            }
+        // Durable notifications can outlive their terminal. Keep their
+        // history, but only restore an unread marker while its terminal exists
+        // (an open browser of the same notification does not count).
+        if notification.unread
+            && terminal_surface.is_some()
+            && let Some(terminal_id) = notification.terminal_id.clone()
+        {
+            terminal_notifications.insert(
+                terminal_id,
+                SurfaceNotification {
+                    notification: numeric_id,
+                    level,
+                    unread: true,
+                    source: notification.source,
+                },
+            );
         }
         if !notification.read_by.is_empty() {
             notification_reads.insert(
@@ -67,9 +71,12 @@ pub(super) fn restore_public_projections(
             body: notification.body,
             level,
             terminal_id: notification.terminal_id,
+            workspace_id: notification.workspace_id,
             created_at_ms: notification.created_at_ms,
             source: notification.source,
             surface,
+            desktop: true,
+            reply: false,
         });
     }
     let next_notification_id = u64::try_from(notification_ledger.len())
@@ -133,6 +140,7 @@ pub(super) fn restore_public_projections(
                 agent: agent.agent,
                 agent_session_id: agent.agent_session_id,
                 updated_at_ms: agent.updated_at_ms,
+                since_ms: agent.updated_at_ms,
             },
         );
         anyhow::ensure!(

@@ -3,6 +3,14 @@
 //! `_acpmux/watch` connections as `_acpmux/harnesses_changed`, without a
 //! request and without polling.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
@@ -81,6 +89,20 @@ async fn a_new_profile_file_reaches_watchers_as_harnesses_changed() {
     tx.send(Message::request(1, method::MUX_WATCH, json!({"enabled": true})).to_line())
         .await
         .unwrap();
+    // The connection forwards changes once it has handled the watch request:
+    // a reload announced before that reaches no one, and none follows.
+    let watching = async {
+        while let Some(line) = rx.recv().await {
+            if let Ok(Message::Response { id, error, .. }) = Message::parse(&line)
+                && serde_json::to_value(&id).ok() == Some(json!(1))
+            {
+                assert!(error.is_none(), "{line}");
+                return;
+            }
+        }
+        panic!("the connection ended before it answered the watch request");
+    };
+    tokio::time::timeout(Duration::from_secs(10), watching).await.expect("no watch answer");
 
     std::fs::create_dir_all(&user).unwrap();
     write(

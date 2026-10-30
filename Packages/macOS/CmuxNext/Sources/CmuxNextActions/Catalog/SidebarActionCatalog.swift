@@ -17,6 +17,15 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("b", modifiers: [.option, .command]), category: .sidebar,
                 symbol: "sidebar.right", surfaces: [.keyboard, .menu], cliName: "sidebar toggle-right", mainMenu: .view
             ),
+            // The workspace list takes the keyboard (arrows, Return), the
+            // sidebar shown first if hidden (cx-zjtn.2).
+            ActionDescriptor(
+                id: "focusSidebar",
+                title: String(localized: "action.focusSidebar", defaultValue: "Focus Sidebar", bundle: .module),
+                keywords: ["sidebar", "workspaces", "list", "keyboard", "navigate"], defaultShortcut: Shortcut("e", modifiers: [.control, .command]),
+                category: .sidebar, symbol: "sidebar.squares.left", surfaces: [.palette, .keyboard],
+                cliName: "sidebar focus"
+            ),
             ActionDescriptor(
                 id: "focusRightSidebar",
                 title: String(localized: "action.focusRightSidebar", defaultValue: "Focus Right Sidebar", bundle: .module),
@@ -29,41 +38,41 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.switchRightSidebarToFiles", defaultValue: "Show Files", bundle: .module),
                 keywords: ["right sidebar", "explorer"],
                 category: .sidebar, symbol: "doc.text", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-files"
+                cliName: "sidebar show-files"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFind",
                 title: String(localized: "action.switchRightSidebarToFind", defaultValue: "Show Find", bundle: .module),
                 keywords: ["right sidebar", "search"],
                 category: .sidebar, symbol: "text.magnifyingglass", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-find"
+                cliName: "sidebar show-find"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToSessions",
                 title: String(localized: "action.switchRightSidebarToSessions", defaultValue: "Show Vault", bundle: .module),
                 keywords: ["right sidebar", "sessions"],
                 category: .sidebar, symbol: "archivebox", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-vault"
+                cliName: "sidebar show-vault"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFeed",
-                title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed", bundle: .module),
+                title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed in Right Sidebar", bundle: .module),
                 keywords: ["right sidebar", "activity"],
                 category: .sidebar, symbol: "dot.radiowaves.left.and.right", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-feed"
+                cliName: "sidebar show-feed"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToDock",
                 title: String(localized: "action.switchRightSidebarToDock", defaultValue: "Show Dock", bundle: .module),
                 keywords: ["right sidebar"], category: .sidebar,
-                symbol: "dock.rectangle", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
+                symbol: "dock.rectangle", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-dock"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToMachines",
                 title: String(localized: "action.switchRightSidebarToMachines", defaultValue: "Show Cloud", bundle: .module),
                 keywords: ["right sidebar", "machines"],
-                category: .sidebar, symbol: "cloud", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
+                category: .sidebar, symbol: "cloud", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-cloud"
             ),
             ActionDescriptor(
@@ -87,6 +96,15 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 keywords: ["file explorer"], category: .sidebar, symbol: "square.and.arrow.up.on.square",
                 surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar open-in"
             ),
+            // u9489: a page cmux renders (HTML, SVG, Markdown) as its source in the code editor;
+            // the row shows only for such a file (FileExplorerSectionView).
+            ActionDescriptor(
+                id: "fileExplorerOpenAsText",
+                title: String(localized: "action.fileExplorerOpenAsText", defaultValue: "Open as Text", bundle: .module),
+                keywords: ["file explorer", "source", "editor", "monaco", "html", "text"], category: .sidebar,
+                symbol: "chevron.left.forwardslash.chevron.right", surfaces: [.contextMenu], requires: [.fileExplorerFocused],
+                cliName: "sidebar open-as-text"
+            ),
             ActionDescriptor(
                 id: "fileExplorerReveal",
                 title: String(localized: "action.fileExplorerReveal", defaultValue: "Reveal in Finder", bundle: .module),
@@ -109,8 +127,33 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 id: "fileExplorerOpenWith",
                 title: String(localized: "action.fileExplorerOpenWith", defaultValue: "Open With…", bundle: .module),
                 keywords: ["file explorer", "open in"], category: .sidebar, symbol: "arrow.up.forward.app",
-                surfaces: [.contextMenu], requires: [.fileExplorerFocused], arguments: [CatalogArgument.appString],
+                // Without an app (the menu's Other…), the person picks one.
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], arguments: [CatalogArgument.appString.optional],
                 cliName: "sidebar open-with"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerNewFile",
+                title: String(localized: "action.fileExplorerNewFile", defaultValue: "New File", bundle: .module),
+                keywords: ["file explorer", "create", "untitled"], category: .sidebar, symbol: "doc.badge.plus",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar new-file"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerNewFolder",
+                title: String(localized: "action.fileExplorerNewFolder", defaultValue: "New Folder", bundle: .module),
+                keywords: ["file explorer", "create", "directory"], category: .sidebar, symbol: "folder.badge.plus",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar new-folder"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerRename",
+                title: String(localized: "action.fileExplorerRename", defaultValue: "Rename", bundle: .module),
+                keywords: ["file explorer", "name"], category: .sidebar, symbol: "pencil",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar rename-item"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerMoveToTrash",
+                title: String(localized: "action.fileExplorerMoveToTrash", defaultValue: "Move to Trash", bundle: .module),
+                keywords: ["file explorer", "delete", "remove", "trash"], category: .sidebar, symbol: "trash",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar move-to-trash"
             ),
             ActionDescriptor(
                 id: "vaultFocusSession",
@@ -146,37 +189,40 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 id: "checklistEditItem",
                 title: String(localized: "action.checklistEditItem", defaultValue: "Edit Checklist Item…", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "pencil", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.textString], cliName: "sidebar edit-checklist-item"
+                arguments: [CatalogArgument.checklistItem, CatalogArgument.textString], targets: [.workspace],
+                cliName: "sidebar edit-checklist-item"
             ),
             ActionDescriptor(
                 id: "checklistMarkInProgress",
                 title: String(localized: "action.checklistMarkInProgress", defaultValue: "Mark Checklist Item In Progress", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "circle.bottomhalf.filled",
-                surfaces: [.contextMenu], cliName: "sidebar mark-checklist-item-in-progress"
+                surfaces: [.contextMenu], arguments: [CatalogArgument.checklistItem], targets: [.workspace], cliName: "sidebar mark-checklist-item-in-progress"
             ),
             ActionDescriptor(
                 id: "checklistCompleteItem",
                 title: String(localized: "action.checklistCompleteItem", defaultValue: "Complete Checklist Item", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "checkmark.circle.fill",
-                surfaces: [.contextMenu], cliName: "sidebar complete-checklist-item"
+                surfaces: [.contextMenu], arguments: [CatalogArgument.checklistItem], targets: [.workspace],
+                cliName: "sidebar complete-checklist-item"
             ),
             ActionDescriptor(
                 id: "checklistRemoveItem",
                 title: String(localized: "action.checklistRemoveItem", defaultValue: "Remove Checklist Item", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "minus.circle", surfaces: [.contextMenu],
-                cliName: "sidebar remove-checklist-item"
+                arguments: [CatalogArgument.checklistItem], targets: [.workspace], cliName: "sidebar remove-checklist-item"
             ),
             ActionDescriptor(
                 id: "checklistOpenAsPane",
                 title: String(localized: "action.checklistOpenAsPane", defaultValue: "Open Checklist as Pane", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "list.bullet.rectangle.portrait",
-                surfaces: [.contextMenu], cliName: "sidebar open-checklist-as-pane"
+                surfaces: [.contextMenu], targets: [.workspace], cliName: "sidebar open-checklist-as-pane"
             ),
             ActionDescriptor(
                 id: "checklistAttachImages",
                 title: String(localized: "action.checklistAttachImages", defaultValue: "Attach Images to Checklist Item…", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "photo.badge.plus",
-                surfaces: [.contextMenu], cliName: "sidebar attach-images-to-checklist-item"
+                surfaces: [.contextMenu], arguments: [CatalogArgument.checklistItem, CatalogArgument.optionalPathString],
+                targets: [.workspace], cliName: "sidebar attach-images-to-checklist-item"
             ),
             ActionDescriptor(
                 id: "palette.toggleMatchTerminalBackground",
@@ -187,14 +233,17 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.enableMinimalMode",
                 title: String(localized: "action.palette.enableMinimalMode", defaultValue: "Enable Minimal Mode", bundle: .module),
-                keywords: ["sidebar", "compact"], category: .sidebar, symbol: "rectangle.compress.vertical",
-                surfaces: [.palette], cliName: "sidebar enable-minimal-mode"
+                keywords: ["sidebar", "compact", "minimal", "simple", "dense"], category: .sidebar, symbol: "rectangle.compress.vertical",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar enable-minimal-mode",
+                // cx-w1r5: the sidebar's menu offers the one that applies (Options, like Show Tabs Under Workspaces).
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 130, folder: .options)])
             ),
             ActionDescriptor(
                 id: "palette.disableMinimalMode",
                 title: String(localized: "action.palette.disableMinimalMode", defaultValue: "Disable Minimal Mode", bundle: .module),
-                keywords: ["sidebar", "compact"], category: .sidebar, symbol: "rectangle.expand.vertical",
-                surfaces: [.palette], cliName: "sidebar disable-minimal-mode"
+                keywords: ["sidebar", "compact", "minimal", "simple", "dense"], category: .sidebar, symbol: "rectangle.expand.vertical",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar disable-minimal-mode",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 131, folder: .options)])
             ),
         ]
     }

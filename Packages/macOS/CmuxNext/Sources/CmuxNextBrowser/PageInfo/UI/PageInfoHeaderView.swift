@@ -63,8 +63,7 @@ final class PageInfoIconButton: NSButton {
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
         focusRingType = .none
-        image = PageInfoStyle.symbol(symbol, size: PageInfoStyle.iconSize - 2, weight: .medium)
-        toolTip = label
+        image = PageInfoStyle.symbol(symbol, size: PageInfoStyle.iconSize - 2)
         setAccessibilityLabel(label)
         wantsLayer = true
         layer?.cornerRadius = PageInfoStyle.itemCornerRadius

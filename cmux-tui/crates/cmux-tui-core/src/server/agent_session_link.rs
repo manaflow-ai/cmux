@@ -21,6 +21,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+#[path = "agent_message_acpmux.rs"]
+mod agent_message_acpmux;
+
 /// Largest acpmux line the daemon reads: an attach or events page of
 /// records with big tool outputs stays under it (the daemon then trims the
 /// page to `MAX_PAGE_BYTES` for its client); a longer line ends the link.
@@ -32,18 +35,25 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Why a call failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum LinkError {
+pub(crate) enum LinkError {
     /// The socket is gone or never connected.
     Closed,
     Timeout,
     /// Too many calls wait already.
     Busy,
-    /// acpmux answered with an error (its message, for the daemon log only).
-    Rpc(String),
+    /// acpmux answered with an error: its message (for the daemon log
+    /// only) and its `data` (`Null` without one).
+    Rpc(String, Value),
+    /// acpmux does not know the method (JSON-RPC -32601, an acpmux from
+    /// before it): its message.
+    MethodNotFound(String),
 }
 
+/// JSON-RPC's method-not-found code (acpmux `RpcError::method_not_found`).
+const METHOD_NOT_FOUND: i64 = -32601;
+
 /// What the reader thread hands the link's owner.
-pub(super) enum Inbound {
+pub(crate) enum Inbound {
     /// A JSON-RPC notification: method and params.
     Notification(String, Value),
     /// The socket ended (EOF, an IO error, or an over-long line).
@@ -52,7 +62,7 @@ pub(super) enum Inbound {
 
 type Pending = Mutex<HashMap<u64, SyncSender<Result<Value, LinkError>>>>;
 
-pub(super) struct AcpmuxLink {
+pub(crate) struct AcpmuxLink {
     stream: Mutex<UnixStream>,
     pending: Arc<Pending>,
     next_id: AtomicU64,
@@ -62,7 +72,7 @@ pub(super) struct AcpmuxLink {
 impl AcpmuxLink {
     /// Connects and starts the reader thread, which calls `on_inbound` for
     /// every notification and once for the close.
-    pub(super) fn connect(
+    pub(crate) fn connect(
         socket: &Path,
         on_inbound: impl FnMut(Inbound) + Send + 'static,
     ) -> std::io::Result<Arc<Self>> {
@@ -85,7 +95,7 @@ impl AcpmuxLink {
     }
 
     /// Sends a request and waits up to `timeout` for its result.
-    pub(super) fn call(
+    pub(crate) fn call(
         &self,
         method: &str,
         params: Value,
@@ -134,7 +144,7 @@ impl AcpmuxLink {
     }
 
     /// Ends the socket; the reader thread reports the close.
-    pub(super) fn close(&self) {
+    pub(crate) fn close(&self) {
         self.closed.store(true, Ordering::Release);
         let stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         let _ = stream.shutdown(std::net::Shutdown::Both);
@@ -182,9 +192,17 @@ fn read_loop(
             && !message.contains_key("method")
         {
             let outcome = match message.remove("error") {
-                Some(error) => Err(LinkError::Rpc(
-                    error.get("message").and_then(Value::as_str).unwrap_or("error").to_string(),
-                )),
+                Some(error) => {
+                    let text = error.get("message").and_then(Value::as_str).unwrap_or("error");
+                    Err(if error.get("code").and_then(Value::as_i64) == Some(METHOD_NOT_FOUND) {
+                        LinkError::MethodNotFound(text.to_string())
+                    } else {
+                        LinkError::Rpc(
+                            text.to_string(),
+                            error.get("data").cloned().unwrap_or(Value::Null),
+                        )
+                    })
+                }
                 None => Ok(message.remove("result").unwrap_or(Value::Null)),
             };
             let sender = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
@@ -225,14 +243,60 @@ fn read_bounded_line(reader: &mut impl BufRead, line: &mut Vec<u8>) -> std::io::
             Some(end) => (end + 1, true),
             None => (available.len(), false),
         };
-        let content = if done { taken - 1 } else { taken };
-        if line.len() + content > MAX_LINE_BYTES {
+        let content = if done { taken.saturating_sub(1) } else { taken };
+        if line.len().saturating_add(content) > MAX_LINE_BYTES {
             return Ok(LineRead::TooLong);
         }
-        line.extend_from_slice(&available[..content]);
+        line.extend_from_slice(available.get(..content).unwrap_or_default());
         reader.consume(taken);
         if done {
             return Ok(LineRead::Line);
         }
+    }
+}
+
+/// How long a send waits for acpmux to name one session's workspace, and
+/// for all of them.
+const WORKSPACE_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
+const WORKSPACE_LOOKUP_BUDGET: Duration = Duration::from_secs(5);
+
+impl crate::mux::Mux {
+    /// The workspace key each acpmux session runs in, for agent message
+    /// policy: `_acpmux/info`'s `sessionEnv.CMUX_WORKSPACE_ID`, which acpmux
+    /// gives a local unix-socket client only. Keys are lowercase hex without
+    /// dashes. A session acpmux does not know, one without the variable, and
+    /// every session while acpmux is not running map to `None`; acpmux is
+    /// never started for this.
+    pub(crate) fn acp_session_workspace_keys(
+        &self,
+        sessions: &[String],
+    ) -> HashMap<String, Option<String>> {
+        let mut keys: HashMap<String, Option<String>> =
+            sessions.iter().map(|session| (session.clone(), None)).collect();
+        let Some(socket) = self.control_clients.agent_sessions.socket() else { return keys };
+        if sessions.is_empty() {
+            return keys;
+        }
+        let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { return keys };
+        let deadline = std::time::Instant::now() + WORKSPACE_LOOKUP_BUDGET;
+        for session in sessions {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            // The session env is in the session list: no wait for the chat logs.
+            let info = link.call(
+                "_acpmux/info",
+                agent_message_acpmux::info_params(session),
+                left.min(WORKSPACE_LOOKUP_TIMEOUT),
+            );
+            let key = info.ok().and_then(|info| {
+                let key = info.get("sessionEnv")?.get("CMUX_WORKSPACE_ID")?.as_str()?;
+                Some(crate::state::agent_message_policy::workspace_key(key))
+            });
+            keys.insert(session.clone(), key);
+        }
+        link.close();
+        keys
     }
 }

@@ -1,38 +1,23 @@
 // One theme choice of the Theme section: a button with the theme's swatch and name, and a popover
-// to search every bundled theme. The highlighted row previews in the section's hero (onPreview)
-// and live in the app (cmux.settings.preview) until the popover closes; Return or a click picks.
-import { useState } from "react";
+// to search every bundled theme. The row the arrow keys highlight previews at once in the section's
+// hero and live in the app (onPreview) until the popover closes. A row the pointer only passes over
+// does not: the preview follows the pointer once it rests on a row for DWELL_MS, so sweeping down
+// the list no longer flashes every theme across the whole app (the "loud" hover, Lawrence
+// 2026-10-18) or reloads every terminal's config per row. A right-click pins a row's preview so it
+// stays while the pointer moves on. Return or a click picks; Escape reverts. Every theme choice on
+// the page uses it: the terminal theme, the app theme, their light and dark sides, and a theme row
+// in search results (ThemeRowEditor). The button has one width, so a long name ellipsizes instead of
+// moving the row's controls.
+import { useEffect, useRef, useState } from "react";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
+import { ThemeBall } from "../../../ui/ThemeBall";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { Icon } from "../icons";
 import { t } from "../strings";
-
-const CONFIG = "\u0000config";
-
-/** A small chip of a theme: its background with the foreground and four palette colors. */
-export function ThemeChip({ theme }: { theme: GhosttyTheme | undefined }) {
-  if (!theme) return <span className="theme-chip theme-chip-empty" aria-hidden="true" />;
-  const dots = [1, 2, 4, 5].map((index) => theme.palette[index] ?? theme.foreground);
-  return (
-    <svg className="theme-chip" viewBox="0 0 28 18" aria-hidden="true">
-      <rect
-        x="0.5"
-        y="0.5"
-        width="27"
-        height="17"
-        rx="4"
-        fill={theme.background}
-        stroke="currentColor"
-        strokeOpacity="0.18"
-      />
-      <rect x="4" y="5" width="9" height="2" rx="1" fill={theme.foreground} />
-      {dots.map((color, index) => (
-        <circle key={index} cx={6 + index * 5.3} cy="12" r="1.9" fill={color} />
-      ))}
-    </svg>
-  );
-}
+import { CONFIG_ROW as CONFIG, pickerRows } from "../themePickerModel";
+/** How long the pointer rests on a row before that row previews. */
+export const DWELL_MS = 450;
 
 export function ThemePicker({
   value,
@@ -44,6 +29,8 @@ export function ThemePicker({
   configColors,
   onPick,
   onPreview,
+  custom = () => false,
+  nullChoice = true,
 }: {
   /** The picked theme name; null shows `configLabel` (the Ghostty config, or Match Terminal Theme). */
   value: string | null;
@@ -54,26 +41,73 @@ export function ThemePicker({
   configLabel: string;
   /** The colors the null choice shows (the Ghostty config's, or the terminal theme), for its chip. */
   configColors: GhosttyTheme | undefined;
-  onPick(name: string | null): void;
+  /** Writes the choice; the live preview ends once the returned promise settles. */
+  onPick(name: string | null): void | Promise<unknown>;
   /** The highlighted row while the list is open; null when it closes or nothing is highlighted. */
   onPreview(name: string | null): void;
+  /** Whether a theme has the user's color edits (appearance.themeEdits): it reads "<name> (custom)". */
+  custom?(name: string): boolean;
+  /** Whether the list offers the null choice (`configLabel`); the button still shows it for a null value. */
+  nullChoice?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
-  const typed = query.trim().toLowerCase();
-  const shown = [CONFIG, ...names.filter((name) => name.toLowerCase().includes(typed))].filter(
-    (name) => name !== CONFIG || typed === "",
-  );
-  const close = () => {
+  // The right-clicked theme: previewed whenever no row is highlighted.
+  const [pinned, setPinned] = useState<string | null>(null);
+  // A live preview is showing in the app; it must end even if the picker goes away while open.
+  const showing = useRef<string | null>(null);
+  // The pending pointer-rest preview; any other preview, a pick or a close cancels it.
+  const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelDwell = () => {
+    if (dwell.current !== null) clearTimeout(dwell.current);
+    dwell.current = null;
+  };
+  const preview = (name: string | null) => {
+    cancelDwell();
+    // The same theme again is no new preview: no bridge round trip, no hero re-render.
+    if (name === showing.current) return;
+    showing.current = name;
+    onPreview(name);
+  };
+  const end = useRef(() => {});
+  end.current = () => {
+    cancelDwell();
+    if (showing.current !== null) preview(null);
+  };
+  useEffect(() => () => end.current(), []);
+  const highlight = (name: string | undefined, by: "keyboard" | "pointer" | "none") => {
+    const target = name && name !== CONFIG ? name : pinned;
+    if (by === "keyboard") return preview(target);
+    // The pointer passing over, or the list re-highlighting its first row while typing: wait for a rest.
+    cancelDwell();
+    if (target === showing.current) return;
+    dwell.current = setTimeout(() => preview(target), DWELL_MS);
+  };
+  const label = (name: string) => (custom(name) ? t("settingsPage.theme.custom", name) : name);
+  const shown = pickerRows({ names, query, nullChoice });
+  const dismiss = () => {
     setOpen(false);
     setQuery("");
-    onPreview(null);
+    setPinned(null);
   };
+  const close = () => {
+    cancelDwell();
+    dismiss();
+    preview(null);
+  };
+  // Disabled while open (the key became managed, the host disconnected) closes it too.
+  useEffect(() => {
+    if (disabled && open) close();
+  });
+  // Write first, then end the preview: the app goes from the preview to the same saved theme,
+  // never back to the old one in between.
   const pick = (name: string) => {
-    close();
-    if (name === CONFIG) onPick(null);
-    else if (names.includes(name)) onPick(name);
+    cancelDwell();
+    dismiss();
+    const chosen = name === CONFIG ? null : names.includes(name) ? name : undefined;
+    if (chosen === undefined) return preview(null);
+    void Promise.resolve(onPick(chosen)).finally(() => preview(null));
   };
   return (
     <>
@@ -88,8 +122,8 @@ export function ThemePicker({
         disabled={disabled}
         onClick={() => setOpen(!open)}
       >
-        <ThemeChip theme={value ? colors?.get(value) : configColors} />
-        <span className="theme-button-name">{value ?? configLabel}</span>
+        <ThemeBall name={value ?? undefined} colors={value ? colors?.get(value) : configColors} />
+        <span className="theme-button-name">{value ? label(value) : configLabel}</span>
         <Icon name="chevron" />
       </button>
       <Popover
@@ -105,7 +139,7 @@ export function ThemePicker({
           onQuery={setQuery}
           onSubmit={pick}
           onCancel={close}
-          onHighlight={(name) => onPreview(name && name !== CONFIG ? name : null)}
+          onHighlight={highlight}
           label={t("settingsWindow.themeSearch")}
           placeholder={t("settingsWindow.themeSearch")}
           inputClassName="field theme-search"
@@ -114,19 +148,29 @@ export function ThemePicker({
           renderItem={(name) =>
             name === CONFIG ? (
               <span className="theme-option-row">
-                <ThemeChip theme={configColors} />
+                <ThemeBall colors={configColors} />
                 <span className="theme-option-name">{configLabel}</span>
                 {value === null && <Icon name="check" className="theme-option-check" />}
               </span>
             ) : (
-              <span className="theme-option-row" data-theme-option={name}>
-                <ThemeChip theme={colors?.get(name)} />
-                <span className="theme-option-name">{name}</span>
+              <span
+                className="theme-option-row"
+                data-theme-option={name}
+                data-previewing={name === pinned ? "" : undefined}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPinned(name);
+                  preview(name);
+                }}
+              >
+                <ThemeBall name={name} colors={colors?.get(name)} />
+                <span className="theme-option-name">{label(name)}</span>
                 {name === value && <Icon name="check" className="theme-option-check" />}
               </span>
             )
           }
         />
+        {shown.length === 0 && <output className="theme-empty empty block">{t("settingsPage.theme.noMatch")}</output>}
         <div className="theme-count">{t("settingsPage.theme.count", names.length)}</div>
       </Popover>
     </>

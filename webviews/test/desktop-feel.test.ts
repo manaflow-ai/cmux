@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // DESKTOP-FEEL (R139) in real engines (headless Chromium and WebKit from Playwright), on the diff
 // viewer (test/browser/desktop-feel.html) and the markdown editor (/markdown on the dev server):
 // - content selects: a diff line's code, a file bar's path, markdown prose and a code block;
@@ -17,7 +18,10 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("desktop-feel.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -94,10 +98,11 @@ const fenced = "code block text";
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/test/browser/desktop-feel.html");
+  }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
     for (const root of [markdownRoot, readOnlyRoot]) if (root) fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -128,18 +133,53 @@ const fenced = "code block text";
     return page.evaluate(selectedText);
   }
 
+  /// The target's box once layout has settled: the same over three painted frames, with the fonts
+  /// loaded, no animation running, and the pointer landing on the target at its centre. A box read
+  /// while the page still lays out (WebKit's markdown page moves its prose after the first paint)
+  /// sends the drag across whatever is there by the time it runs, and the diff viewer turns pointer
+  /// events off for a moment after it scrolls. A target that leaves the page while it settles is
+  /// found again.
   async function rectOf(page: Page, find: () => Element | Range | null | undefined) {
-    for (let tries = 0; tries < 100; tries += 1) {
+    for (let tries = 0; tries < 20; tries += 1) {
       const handle = await page.evaluateHandle(find);
-      const rect = await handle.evaluate((target) => {
-        const box = target?.getBoundingClientRect();
-        return box && box.width > 0 ? { x: box.x, y: box.y, width: box.width, height: box.height } : null;
+      const rect = await handle.evaluate(async (target) => {
+        await document.fonts.ready;
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        return new Promise<{ x: number; y: number; width: number; height: number } | null>((resolve) => {
+          let last: { x: number; y: number; width: number } | null = null;
+          let still = 0;
+          let frames = 0;
+          window.cmuxAfterPaint(() => {
+            const node = target instanceof Range ? target.startContainer : target;
+            const box = node?.isConnected ? target!.getBoundingClientRect() : undefined;
+            if (!box || box.width <= 0 || ++frames > 300) {
+              resolve(null);
+              return false;
+            }
+            // What a press at the centre lands on, inside shadow roots too.
+            let hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+            while (hit?.shadowRoot) {
+              const inner = hit.shadowRoot.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+              if (!inner || inner === hit) break;
+              hit = inner;
+            }
+            const owner = node instanceof Element ? node : node!.parentElement;
+            const lands = !!hit && !!owner && (owner === hit || owner.contains(hit) || hit.contains(owner));
+            still = lands && last && box.x === last.x && box.y === last.y && box.width === last.width ? still + 1 : 0;
+            last = box;
+            if (still < 2) return true;
+            resolve({ x: box.x, y: box.y, width: box.width, height: box.height });
+            return false;
+          });
+        });
       });
       await handle.dispose();
       if (rect) return rect;
-      await page.waitForTimeout(100);
+      await page.evaluate(() => window.cmuxPaintFrame());
     }
-    throw new Error(`nothing laid out for ${find.toString()}`);
+    throw new Error(`nothing laid out (or still moving) for ${find.toString()}`);
   }
 
   /** A file drop on the page: whether the layer refused it and the page stayed where it was. */
@@ -171,6 +211,7 @@ const fenced = "code block text";
 
       test("diff viewer: lines and paths select, chrome does not", async () => {
         page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+        await installPaintedFrames(page);
         await page.goto(`${base}/test/browser/desktop-feel.html`);
         await page.waitForFunction(() =>
           Array.from(document.querySelectorAll("diffs-container")).some((host) =>
@@ -200,7 +241,7 @@ const fenced = "code block text";
         await page.evaluate(() => document.getSelection()?.removeAllRanges());
         await page.mouse.dblclick(word.x + word.width / 2, word.y + word.height / 2);
         expect(await page.evaluate(selectedText)).toContain("value_");
-        if (name === "webkit") expect(await dragAcross(page, word)).toContain("value");
+        if (name === "webkit") expect(await dragAcross(page, word, 0.08)).toContain("value");
 
         const filePath = await rectOf(page, () => document.querySelector(".file-header-path .file-header-name"));
         expect(await dragAcross(page, filePath)).toContain(".ts");
@@ -258,6 +299,7 @@ const fenced = "code block text";
 
       test("markdown editor: the document and code blocks select and edit, the toolbar does not", async () => {
         page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+        await installPaintedFrames(page);
         await page.goto(`${base}/markdown?file=${encodeURIComponent(markdownFile)}`);
         await page.waitForSelector(".md-doc .ProseMirror p");
         expect(await page.evaluate(() => document.documentElement.hasAttribute("data-cmux-desktop"))).toBe(true);
@@ -290,6 +332,7 @@ const fenced = "code block text";
 
       test("markdown editor, read only: the document still selects, the page around it does not", async () => {
         page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+        await installPaintedFrames(page);
         await page.goto(`${base}/markdown?file=${encodeURIComponent(readOnlyFile)}`);
         await page.waitForSelector(".md-page[data-read-only='true'] .md-doc .ProseMirror p");
         const prose = await rectOf(page, () =>

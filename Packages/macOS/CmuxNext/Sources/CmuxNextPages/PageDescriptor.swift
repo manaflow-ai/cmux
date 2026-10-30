@@ -38,11 +38,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// `focusSearch`, which focuses and selects that field (Settings,
     /// Keyboard Shortcuts, Passwords), instead of a find bar.
     public let ownsSearchField: Bool
+    /// A first click in an inactive window reaches the page (``PageWKWebView``), as on the native
+    /// controls. Off by default (fail closed): a page opts in only when no control on it acts on one
+    /// click without a host confirmation sheet, so a click that only meant to bring the window
+    /// forward cannot run one (Settings' browsing-data Clear, the agent pane's permission cards,
+    /// Push, Apply and Remove, an app page's own content; those also say false explicitly, so a
+    /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
+    public let acceptsFirstMouse: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -57,6 +64,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
+        self.acceptsFirstMouse = acceptsFirstMouse
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -98,6 +106,11 @@ public nonisolated struct PageNativeOp {
     /// context menu choice in the page view (`PageCallContext.userGesture`); otherwise refused with
     /// ``userOnlyCode``.
     public static let clipboardWrite = "cmux.app.clipboard.write"
+    /// Runs `{command}` (`cut`, `copy`, `paste`, `pasteAsPlainText`) as the page view's own
+    /// responder action, for a page's own text-field menu: the page never reads the pasteboard.
+    /// Only on the person's click or key in the page view, each spent once. Served by the page's own
+    /// route (the Channels page's `PageEditProvider`), not the shared `cmux.app.` provider.
+    public static let edit = "cmux.app.edit"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
     public static let pageCommand = "cmux.page.command"
@@ -107,8 +120,22 @@ public nonisolated struct PageNativeOp {
     /// Stream every page may subscribe to: `{connected}`, the page's owner link (the daemon). The
     /// current state arrives as the first event.
     public static let pageConnection = "cmux.page.connection"
-    /// The page commands the dispatcher sends (the Settings lead's page pattern).
-    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset"]
+    /// Built in for every page (cx-6k6cg): a small transient surface with no room in the page shows
+    /// its rows past the window's edge (WebPopupHost): `show`, `update` and `hide`.
+    public static let popupShow = "cmux.app.popup.show"
+    public static let popupUpdate = "cmux.app.popup.update"
+    public static let popupHide = "cmux.app.popup.hide"
+    /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
+    public static let pagePopup = "cmux.page.popup"
+    /// Built in for every page: a right-click menu (`ui/ContextMenu.tsx`) shown as a standard macOS
+    /// menu (``WebContextMenu``); answers `{picked: id}` once it closes, `picked` null when dismissed.
+    public static let contextMenu = "cmux.app.contextMenu.show"
+    /// The page command the host sends each time the page's web view becomes first responder: the
+    /// page focuses its primary input when nothing in it has focus (pane-focus-DESIGN.md P1).
+    public static let focusContent = "focusContent"
+    /// The page commands the dispatcher sends (the Settings lead's page pattern), and
+    /// ``focusContent``.
+    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset", focusContent]
 }
 
 public extension PageDescriptor {
@@ -129,22 +156,34 @@ public extension PageDescriptor {
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
     /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
+    // Agents > Chiefs draws the Chief editor: the Chief owner through the host's page relay
+    // (`cmux.chief.profile.`) and the harness center (`cmux.chief.backend.`), as Home does.
+    // These notes sit above the call: gallery-coverage reads the id right after the open parenthesis.
     static let settings = PageDescriptor(
-        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
+        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration",
+                  "browserProfile.manageExtensions", "browserProfile.delete", "browserProfile.clearBrowsingData",
+                  "reloadConfiguration",
+                  // Machines > Add Server… opens the Add Server card (no code: the page never approves).
+                  "server.addServer",
+                  // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
+                  "device.add",
                   // Agents > Computer Use card (ComputerUseSetup).
-                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
+                  // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
+                  "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop"], ownsSearchField: true)
+        dynamicPrefixes: ["backdrop", "museum", "icon", "symbol"], ownsSearchField: true, acceptsFirstMouse: false)
 
-    /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
-    /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page
-    /// runs no registry action yet.
+    /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
+    /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
+    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
-        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun])
+        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
+        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
@@ -162,16 +201,29 @@ public extension PageDescriptor {
 
     /// The changelog page (R114): signed release notes, read only. Its only native op runs a
     /// highlight's "Try it", and only for an action in ``changelogTryItActions``: the signed
-    /// notes may name an action id, never a command or a URL.
+    /// notes may name an action id, never a command or a URL. Its one network source is the
+    /// nightly reels' folder (``changelogReelSource``), so the update's reel plays in the page.
+    /// A highlight's PR chip opens its link through the owner's `cmux.changelog.browser.openIn`,
+    /// which takes only https and spends the person's gesture (ChangelogPageProvider).
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
-        nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions)
+        nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
+        csp: PageCSP(media: ["data:", changelogReelSource]))
+
+    /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
+    /// page's `media-src`, a folder, so nothing else on that host plays.
+    static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"
 
     /// The actions a changelog "Try it" may run (compiled in, reviewed with each addition).
     static let changelogTryItActions: Set<String> = [
         "palette.checkForUpdates", "openSettings", "palette.searchShortcuts", "palette.newAgentChat",
-        "home.show", "appStore.show", "newBrowserWorkspace", "space.new",
+        "home.show", "appStore.show", "newBrowserWorkspace", "space.new", "renameWorkspace",
     ]
+
+    /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and
+    /// opens a file; the only native op copies a path.
+    static let files = PageDescriptor(
+        id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

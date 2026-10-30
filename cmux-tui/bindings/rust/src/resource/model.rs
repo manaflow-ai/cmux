@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 mod layout_column;
 #[path = "model_tab.rs"]
 mod tab;
-pub use layout_column::{LayoutColumn, LayoutColumnDock};
+pub use layout_column::{LayoutColumn, LayoutColumnDock, LayoutRow};
 pub use tab::{TabContentId, TabContentKind, TabSnapshot};
 
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.
@@ -34,42 +34,12 @@ impl Document {
     }
 }
 
-/// Origin of a machine visible to cmux.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum MachineOrigin {
-    Local,
-}
-
-/// Current lifecycle state of a machine.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum MachineStatus {
-    Running,
-    Connecting,
-    Sleeping,
-    Stopped,
-    Unavailable,
-}
-
-/// Catalog snapshot for one machine.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct MachineSnapshot {
-    pub id: MachineId,
-    pub name: String,
-    pub origin: MachineOrigin,
-    pub status: MachineStatus,
-    pub connectable: bool,
-    pub deleted: bool,
-    pub recoverable: bool,
-    #[serde(default)]
-    pub extra: BTreeMap<String, Value>,
-}
+#[path = "model_machine.rs"]
+mod machine;
+pub use machine::{MachineOrigin, MachinePlatform, MachineSnapshot, MachineStatus};
 
 /// Catalog snapshot for one session.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct SessionSnapshot {
     pub id: SessionId,
     pub machine_id: MachineId,
@@ -86,7 +56,6 @@ pub struct SessionSnapshot {
 
 /// Catalog snapshot for one workspace.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceSnapshot {
     pub id: WorkspaceId,
     pub session_id: SessionId,
@@ -280,6 +249,11 @@ impl LayoutNode {
                         ));
                     }
                     column.root.validate()?;
+                    if column.rows.iter().flatten().any(|row| !(100..=1000).contains(&row.height)) {
+                        return Err(crate::Error::InvalidArgument(
+                            "layout row height must be from 100 to 1000".to_string(),
+                        ));
+                    }
                 }
                 Ok(())
             }
@@ -309,7 +283,6 @@ impl LayoutDocument {
 
 /// Catalog snapshot for one screen.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ScreenSnapshot {
     pub id: ScreenId,
     pub workspace_id: WorkspaceId,
@@ -324,7 +297,6 @@ pub struct ScreenSnapshot {
 
 /// Catalog snapshot for one pane.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct PaneSnapshot {
     pub id: PaneId,
     pub screen_id: ScreenId,
@@ -403,7 +375,6 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             id: TerminalId,
             #[serde(default, deserialize_with = "deserialize_present_nullable")]
@@ -494,7 +465,6 @@ pub enum BrowserStatus {
 
 /// Catalog snapshot for one browser.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct BrowserSnapshot {
     pub id: BrowserId,
     pub tab_id: TabId,
@@ -563,7 +533,6 @@ impl<'de> Deserialize<'de> for ClientTerminalSize {
 
 /// Catalog snapshot for one connected client.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ClientSnapshot {
     pub id: ConnectedClientId,
     pub session_id: SessionId,
@@ -587,11 +556,14 @@ pub type ConnectedClientSnapshot = ClientSnapshot;
 
 /// Catalog snapshot for one notification.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct NotificationSnapshot {
     pub id: NotificationId,
     pub session_id: SessionId,
     pub title: String,
+    /// Second line under the title (`notification.create` `subtitle`); None
+    /// when the producer gave none.
+    #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+    pub subtitle: Option<String>,
     pub body: String,
     pub level: NotificationLevel,
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
@@ -599,6 +571,10 @@ pub struct NotificationSnapshot {
     #[serde(deserialize_with = "deserialize_decimal")]
     pub created_at_ms: u64,
     pub unread: bool,
+    /// Client ids that acknowledged the notification (empty from daemons
+    /// before the field).
+    #[serde(default)]
+    pub read_by: Vec<String>,
     #[serde(default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -615,7 +591,6 @@ pub enum AgentSnapshotSource {
 
 /// Catalog snapshot for one detected agent.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct AgentSnapshot {
     pub id: AgentId,
     pub session_id: SessionId,
@@ -671,7 +646,6 @@ pub enum PairingStatus {
 
 /// Catalog snapshot for one pairing request.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct PairingRequestSnapshot {
     pub id: PairingRequestId,
     pub session_id: SessionId,
@@ -686,7 +660,6 @@ pub struct PairingRequestSnapshot {
 
 /// Catalog snapshot for one frontend projection.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct FrontendProjectionSnapshot {
     pub id: FrontendProjectionId,
     pub session_id: SessionId,
@@ -702,7 +675,6 @@ pub struct FrontendProjectionSnapshot {
 
 /// Catalog snapshot for one sidebar view.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct SidebarViewSnapshot {
     pub id: SidebarViewId,
     pub session_id: SessionId,
@@ -737,8 +709,11 @@ pub struct ConfirmationRequiredDetails {
 }
 
 /// Complete catalog session snapshot.
+///
+/// The catalog snapshots (this envelope and every resource in it) decode
+/// forward-compatibly: fields a newer daemon adds are ignored, so a client
+/// built against an older catalog keeps its session (cx-d56v).
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ResourceSnapshot {
     pub machine: MachineSnapshot,
     pub session: SessionSnapshot,

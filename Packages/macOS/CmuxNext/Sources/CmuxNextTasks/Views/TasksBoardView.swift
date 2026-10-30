@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// Variant `board`: a column per status; dragging a card to another column
@@ -15,6 +16,7 @@ struct TasksBoardView: View {
                 }
             }
             .padding(12)
+            .thinScrollers()
         }
     }
 }
@@ -42,6 +44,7 @@ private struct BoardColumn: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
+                .thinScrollers()
             }
         }
         .padding(6)
@@ -60,6 +63,9 @@ private struct BoardCard: View {
     let model: TasksModel
     @Environment(\.tasksColors) private var colors
     @State private var hovering = false
+
+    /// A card rests on the first elevation step and rises to the second under the pointer.
+    private var elevation: Elevation { hovering ? PopupStyle.elevation2 : PopupStyle.elevation1 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -84,7 +90,7 @@ private struct BoardCard: View {
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(model.selection == task.id ? colors.selection : colors.elevated)
-                .shadow(color: colors.shadow.opacity(hovering ? 0.6 : 0.3), radius: hovering ? 5 : 2, y: 1)
+                .shadow(color: colors.shadow.opacity(elevation.alpha), radius: elevation.layerRadius, y: elevation.offset)
         )
         .opacity(model.isPending(task.id) ? 0.6 : 1)
         .onHover { hovering = $0 }

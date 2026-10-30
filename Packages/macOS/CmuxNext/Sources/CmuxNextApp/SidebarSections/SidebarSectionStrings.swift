@@ -1,3 +1,4 @@
+import CmuxNextSidebar
 import Foundation
 
 /// Strings of the sidebar section handlers (SidebarSections.xcstrings).
@@ -5,6 +6,28 @@ enum SidebarSectionStrings {
     static func rejected(_ reason: String) -> String {
         String(format: String(localized: "sidebarSections.rejected", defaultValue: "the sidebar layout refused this change (%@)",
                               table: "SidebarSections", bundle: .module), reason)
+    }
+    /// A band edit the sidebar document has no op for.
+    static func describe(_ gap: SidebarDocStore.LayoutOpGap) -> String {
+        switch gap {
+        case .unsupported: notInDocument
+        case .workspaceList: workspaceListStays
+        case .unknownItem: noSuchItem
+        case .rejected(let reject): rejected(reject.rawValue)
+        }
+    }
+    static var notInDocument: String {
+        String(localized: "sidebarSections.notInDocument", defaultValue: "this sidebar setting is not available in the new sidebar yet",
+               table: "SidebarSections", bundle: .module)
+    }
+    static var workspaceListStays: String {
+        String(localized: "sidebarSections.workspaceListStays", defaultValue: "the workspace list cannot be moved or removed",
+               table: "SidebarSections", bundle: .module)
+    }
+    /// A Priority row action named a chat no acpmux lists any more.
+    static var noSuchPriorityChat: String {
+        String(localized: "sidebarSections.priority.noSuchChat", defaultValue: "that chat is no longer in the Priority view",
+               table: "SidebarSections", bundle: .module)
     }
     static var noSuchSection: String {
         String(localized: "sidebarSections.noSuchSection", defaultValue: "no such sidebar section", table: "SidebarSections", bundle: .module)
@@ -34,10 +57,6 @@ enum SidebarSectionStrings {
     static var workspacesSection: String {
         String(localized: "sidebarSections.workspaces", defaultValue: "Workspaces", table: "SidebarSections", bundle: .module)
     }
-    static var notHideable: String {
-        String(localized: "sidebarSections.notHideable", defaultValue: "only Projects and Recents can be hidden; remove this section instead",
-               table: "SidebarSections", bundle: .module)
-    }
     static var alreadyHidden: String {
         String(localized: "sidebarSections.alreadyHidden", defaultValue: "this section is already hidden", table: "SidebarSections", bundle: .module)
     }
@@ -50,5 +69,30 @@ enum SidebarSectionStrings {
     }
     static var noneHidden: String {
         String(localized: "sidebarSections.noneHidden", defaultValue: "no sidebar section is hidden", table: "SidebarSections", bundle: .module)
+    }
+    static var cannotHide: String {
+        String(localized: "sidebarSections.cannotHide", defaultValue: "this section cannot be hidden; remove it instead", table: "SidebarSections", bundle: .module)
+    }
+    // Right-click rows that name their change (cx-w1r5).
+    static var hideLabel: String {
+        String(localized: "sidebarSections.menu.hideLabel", defaultValue: "Hide Label", table: "SidebarSections", bundle: .module)
+    }
+    static var showLabel: String {
+        String(localized: "sidebarSections.menu.showLabel", defaultValue: "Show Label", table: "SidebarSections", bundle: .module)
+    }
+    static var hideSectionTitle: String {
+        String(localized: "sidebarSections.menu.hideSectionTitle", defaultValue: "Hide Section Title", table: "SidebarSections", bundle: .module)
+    }
+    static var showSectionTitle: String {
+        String(localized: "sidebarSections.menu.showSectionTitle", defaultValue: "Show Section Title", table: "SidebarSections", bundle: .module)
+    }
+    static var collapseSection: String {
+        String(localized: "sidebarSections.menu.collapseSection", defaultValue: "Collapse Section", table: "SidebarSections", bundle: .module)
+    }
+    static var expandSection: String {
+        String(localized: "sidebarSections.menu.expandSection", defaultValue: "Expand Section", table: "SidebarSections", bundle: .module)
+    }
+    static func hide(named name: String) -> String {
+        String(format: String(localized: "sidebarSections.menu.hideNamed", defaultValue: "Hide %@", table: "SidebarSections", bundle: .module), name)
     }
 }

@@ -11,6 +11,8 @@
 //! starts a new one when a cell ends its session (timeout, limit, cancel).
 //! `types` prints the generated `cmux` declarations plus the script additions.
 
+use cmux_json::JsonSet as _;
+
 mod messages;
 
 #[cfg(test)]
@@ -318,7 +320,7 @@ pub(super) fn run_request(code: &str, args: &Value, timeout_ms: Option<u64>) -> 
     let mut request =
         json!({ "id": "script-run-1", "cmd": "script-run", "code": code, "args": args });
     if let Some(ms) = timeout_ms {
-        request["timeout_ms"] = json!(ms);
+        request.set("timeout_ms", json!(ms));
     }
     request
 }
@@ -386,7 +388,7 @@ where
         }
         let mut request = json!({ "id": next_id("eval"), "cmd": "script-repl-eval", "session": session, "code": code });
         if let Some(ms) = timeout_ms {
-            request["timeout_ms"] = json!(ms);
+            request.set("timeout_ms", json!(ms));
         }
         let outcome =
             exchange(lines, writer, &request, interrupts, &mut |l, m| out.log(l, m), cancel_wait)
@@ -533,17 +535,14 @@ fn print_log(output: OutputMode, level: &str, message: &str) {
     }
 }
 
-async fn connect(global: &GlobalArgs) -> Result<tokio::net::UnixStream, String> {
-    let Ok((socket, _)) = super::wire::resolve_socket_with_origin(global) else {
-        return Err(crate::localization::catalog().startup.invalid_session_name.to_string());
-    };
+async fn connect(socket: &std::path::Path) -> Result<tokio::net::UnixStream, String> {
     let connect_failed = |error: String| {
         messages()
             .connect_failed
             .replace("{path}", &socket.display().to_string())
             .replace("{error}", &error)
     };
-    let stream = tokio::net::UnixStream::connect(&socket)
+    let stream = tokio::net::UnixStream::connect(socket)
         .await
         .map_err(|error| connect_failed(error.to_string()))?;
     // Only this user's daemon (as every CLI connection checks).
@@ -589,12 +588,16 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         },
         Action::Repl { timeout_ms } => (None, Value::Null, timeout_ms),
     };
+    let socket = match super::wire::resolve_socket_or_report(global) {
+        Ok((socket, _)) => socket,
+        Err(code) => return code,
+    };
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
         return 3;
     };
     let output = global.output;
     let result = runtime.block_on(async {
-        let stream = connect(global).await?;
+        let stream = connect(&socket).await?;
         let mut interrupts = SigInt(
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
                 .map_err(|error| error.to_string())?,

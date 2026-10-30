@@ -31,12 +31,14 @@ impl StandbyTerminalHost {
         // shell get the open-file limit cmux started with: the host does
         // both as its first steps (`enter_terminal_host_process`).
         let session_env = host_session_env();
+        let orphan_env = host_orphan_env();
         let child = crate::host_exe::spawn_host(|command| {
-            if let Some((name, value)) = &session_env {
+            for (name, value) in session_env.iter().chain(&orphan_env) {
                 command.env(name, value);
             }
             command
                 .args(["__terminal-host", "--bootstrap-stdio"])
+                .args(host_owner_args())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 // A host outlives its daemon, so it must not retain a daemon
@@ -44,14 +46,12 @@ impl StandbyTerminalHost {
                 .stderr(Stdio::null());
         })
         .context("spawn terminal-host process")?;
-        let mut process = SpawnedHostProcess { child: Some(child) };
-        let host_pid = process.child_mut().id();
+        let host_pid = child.id();
         // A Cloud daemon's unit stop must not end its hosts (host_scope.rs).
         host_scope::place_host(host_pid);
-        let stdin =
-            process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
-        let stdout =
-            process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
+        let (process, stdin, stdout) = SpawnedHostProcess::with_pipes(child);
+        let stdin = stdin.context("open terminal-host bootstrap stdin")?;
+        let stdout = stdout.context("open terminal-host bootstrap stdout")?;
         Ok(Self { process, stdin, stdout, host_pid })
     }
 
@@ -60,10 +60,11 @@ impl StandbyTerminalHost {
     pub(crate) fn spawn_stand_in() -> anyhow::Result<Self> {
         let mut command = Command::new("cat");
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-        let mut process = SpawnedHostProcess { child: Some(command.spawn()?) };
-        let host_pid = process.child_mut().id();
-        let stdin = process.child_mut().stdin.take().context("stand-in stdin")?;
-        let stdout = process.child_mut().stdout.take().context("stand-in stdout")?;
+        let child = command.spawn()?;
+        let host_pid = child.id();
+        let (process, stdin, stdout) = SpawnedHostProcess::with_pipes(child);
+        let stdin = stdin.context("stand-in stdin")?;
+        let stdout = stdout.context("stand-in stdout")?;
         Ok(Self { process, stdin, stdout, host_pid })
     }
 
@@ -75,6 +76,6 @@ impl StandbyTerminalHost {
 
     /// False once the process has exited (killed, or crashed before use).
     pub(crate) fn is_alive(&mut self) -> bool {
-        matches!(self.process.child_mut().try_wait(), Ok(None))
+        self.process.is_alive()
     }
 }

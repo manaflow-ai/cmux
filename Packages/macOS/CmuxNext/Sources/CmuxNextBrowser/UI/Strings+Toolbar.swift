@@ -2,6 +2,18 @@ import Foundation
 
 // The trailing toolbar buttons (BrowserToolbarButtonsView).
 nonisolated extension Strings {
+    static func toolbarZoom(_ percent: Int) -> String {
+        String(localized: "browser.toolbar.zoom", defaultValue: "Zoom \(percent)%: Reset to Actual Size", bundle: .module)
+    }
+    static var toolbarMedia: String {
+        String(localized: "browser.toolbar.media", defaultValue: "Media Controls", bundle: .module)
+    }
+    static var toolbarDownloads: String {
+        String(localized: "browser.toolbar.downloads", defaultValue: "Downloads", bundle: .module)
+    }
+    static var toolbarFavorites: String {
+        String(localized: "browser.toolbar.favorites", defaultValue: "Bookmarks", bundle: .module)
+    }
     static var toolbarDesignMode: String {
         String(localized: "browser.toolbar.designMode", defaultValue: "Design Mode", bundle: .module)
     }
@@ -32,5 +44,18 @@ nonisolated extension Strings {
     }
     static var toolbarMore: String {
         String(localized: "browser.toolbar.more", defaultValue: "More Actions", bundle: .module)
+    }
+    // The More menu's Show in Toolbar submenu (cx-d0d.81).
+    static var toolbarShowInToolbar: String {
+        String(localized: "browser.toolbar.showInToolbar", defaultValue: "Show in Toolbar", bundle: .module)
+    }
+    static var toolbarPinZoom: String {
+        String(localized: "browser.toolbar.pin.zoom", defaultValue: "Zoom Level", bundle: .module)
+    }
+    static var toolbarPinTheme: String {
+        String(localized: "browser.toolbar.pin.theme", defaultValue: "Browser Theme", bundle: .module)
+    }
+    static var toolbarPinDevTools: String {
+        String(localized: "browser.toolbar.pin.devTools", defaultValue: "Developer Tools", bundle: .module)
     }
 }

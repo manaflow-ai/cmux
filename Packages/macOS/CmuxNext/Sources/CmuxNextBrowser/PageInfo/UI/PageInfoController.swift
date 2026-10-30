@@ -17,26 +17,42 @@ public final class PageInfoController {
 
     private let tabSource: () -> (any BrowserTab)?
     private let anchorSource: () -> NSView?
-    private var panel: PageInfoPanel?
+    /// The shared native popup host: placement, motion and the dismiss rules (REUSE.md slice 3).
+    private let popup: NativePopupHost
+    private var panel: PageInfoPanel? { popup.panel as? PageInfoPanel }
+    /// The omnibar button on screen, where the bubble grows from and shrinks to.
+    private var anchorRect = CGRect.zero
+    /// The side the bubble opened on; a new page keeps it (no flip while open).
+    private var side = PopupPlacement.Side.below
     private let card = PageInfoCardView()
     var observation: ObservationLoop?
     var loadTask: Task<Void, Never>?
     var livePermissions: [SitePermissionKind: SitePermissionSetting] = [:]
     var openedURL: URL?
     private var pageHadFocus = false
-    /// Panel size for the rendered page (card plus shadow margin).
+    /// Card size for the rendered page.
     private var cardSize = CGSize.zero
-    private var dismissedByMouseDown: Int?
     var windows = PageInfoWindows()
 
     init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
         tabSource = tab
         anchorSource = anchor
+        let panel = PageInfoPanel()
+        popup = NativePopupHost(panel: panel)
+        panel.adoptPopupStyle(card: card)
         // The page's shell window: its windows open on that screen.
         windows.parentWindow = { anchor()?.window.map { $0.parent ?? $0 } }
+        panel.onKey = { [weak self] event in self?.handleKey(event) ?? false }
+        // A press on the omnibar button toggles the bubble: the button closes it, not the host.
+        popup.keepsOpen = { event in
+            guard let button = anchor(), event.window === button.window else { return false }
+            return button.bounds.contains(button.convert(event.locationInWindow, from: nil))
+        }
+        popup.onDismiss = { [weak self] in self?.closed() }
     }
 
-    public var isShown: Bool { panel?.isVisible ?? false }
+    /// A bubble fading out counts as closed: the button opens it again.
+    public var isShown: Bool { popup.isShown }
 
     var tab: (any BrowserTab)? { tabSource() }
     var provider: (any PageInfoProviding)? { tab as? any PageInfoProviding }
@@ -48,13 +64,9 @@ public final class PageInfoController {
 
     // MARK: Entry points
 
-    /// The omnibar button: opens the bubble, or closes it when open. A press
-    /// whose mouse-down already closed the bubble does not reopen it.
+    /// The omnibar button: opens the bubble, or closes it when open (a press on the button is no
+    /// dismiss for the host, ``NativePopupHost/keepsOpen``).
     public func toggle() {
-        if let event = NSApp.currentEvent, event.type == .leftMouseUp, event.eventNumber == dismissedByMouseDown {
-            dismissedByMouseDown = nil
-            return
-        }
         if isShown { close() } else { send(.show(.main)) }
     }
 
@@ -104,54 +116,35 @@ public final class PageInfoController {
     }
 
     public func close() {
-        guard let panel, panel.isVisible else { return }
+        guard isShown else { return }
+        popup.hide()
+        closed()
+    }
+
+    /// Closes the bubble's panel for good (its page is closing): ``close()`` only orders it out.
+    func closePanel() {
+        close()
+        popup.closePanel()
+    }
+
+    /// The bubble closed (``close()`` or a host dismiss rule): live data stops, the page gets
+    /// the keys back.
+    private func closed() {
         observation?.cancel()
         observation = nil
         loadTask?.cancel()
-        panel.onResignKey = nil
-        panel.parent?.removeChildWindow(panel)
-        panel.orderOut(nil)
         if pageHadFocus { onReturnFocus?() }
     }
 
     private func present(in window: NSWindow, anchor: NSView) {
-        let panel = panel ?? makePanel()
-        self.panel = panel
-        let size = cardSize
-        let anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        let margin = PageInfoStyle.shadowMargin
-        var frame = NSRect(x: anchorRect.minX - margin - PageInfoStyle.rowInset,
-                           y: anchorRect.minY - size.height - 2, width: size.width, height: size.height)
-        if let screen = window.screen?.visibleFrame {
-            frame.origin.x = min(max(frame.minX, screen.minX), screen.maxX - frame.width)
-            frame.origin.y = max(frame.minY, screen.minY)
-        }
+        guard let panel else { return }
+        // The rows' icon column lines up with the omnibar button.
+        anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).offsetBy(dx: -PageInfoStyle.rowInset, dy: 0)
         // The bubble takes the omnibar's theme scope (its room or workspace).
         panel.adoptThemeScope(of: anchor)
-        panel.setFrame(frame, display: true)
-        if panel.parent !== window {
-            panel.parent?.removeChildWindow(panel)
-            window.addChildWindow(panel, ordered: .above)
-        }
-        panel.onResignKey = { [weak self] in self?.dismissForResign() }
-        panel.onKeyElsewhere = { [weak self] in self?.dismissForResign() }
-        if !panel.isVisible { panel.orderFront(nil) }
-        panel.makeKey()
+        guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, makeKey: true) else { return }
+        side = placed.side
         panel.makeFirstResponder(card)
-    }
-
-    private func makePanel() -> PageInfoPanel {
-        let panel = PageInfoPanel()
-        panel.contentView = card
-        panel.onKey = { [weak self] event in self?.handleKey(event) ?? false }
-        return panel
-    }
-
-    /// Closing because another window took key status: remember a mouse-down
-    /// on the omnibar button so its mouse-up does not reopen the bubble.
-    private func dismissForResign() {
-        if let event = NSApp.currentEvent, event.type == .leftMouseDown { dismissedByMouseDown = event.eventNumber }
-        close()
     }
 
     /// Rebuilds the current page, keeping keyboard focus on the same row.
@@ -159,13 +152,12 @@ public final class PageInfoController {
         let focused = (panel?.firstResponder as? NSView)?.identifier
         let content = PageInfoPages(model: model, send: { [weak self] in self?.send($0) }).build()
         let size = card.setContent(content)
-        let margin = PageInfoStyle.shadowMargin
-        let full = CGSize(width: size.width + margin * 2, height: size.height + margin * 2)
-        cardSize = full
-        if let panel, panel.isVisible, panel.frame.size != full {
-            let top = panel.frame.maxY
-            panel.setFrame(NSRect(x: panel.frame.minX, y: top - full.height, width: full.width, height: full.height), display: true)
+        // An open bubble takes the new page's size at its place (the host keeps it open).
+        if size != cardSize, isShown, let window = panel?.parent {
+            cardSize = size
+            popup.show(size: size, anchor: anchorRect, in: window, preferred: side)
         }
+        cardSize = size
         if let focused, let row = Self.find(focused, in: content) { panel?.makeFirstResponder(row) }
     }
 

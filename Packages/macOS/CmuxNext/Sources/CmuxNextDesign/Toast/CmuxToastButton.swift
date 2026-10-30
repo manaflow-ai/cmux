@@ -1,10 +1,11 @@
 public import AppKit
 
-/// A toast's action (Undo, Reopen) or close button: a borderless title or a
-/// small xmark on the toast's own material, with the shared hover fill only
-/// under the pointer. No second capsule, no accent color.
+/// A toast's action (Undo, Reopen) or close button: a clear text button in
+/// the primary text color, or a small xmark, on the toast's own surface,
+/// with the shared hover fill only under the pointer. No second capsule, no
+/// accent color.
 @MainActor
-public final class CmuxToastButton: NSButton {
+public final class CmuxToastButton: ClickableButton {
     public enum Style { case action, close }
 
     /// Horizontal padding of the action title inside its hover fill.
@@ -32,7 +33,6 @@ public final class CmuxToastButton: NSButton {
             let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
             image = NSImage(systemSymbolName: "xmark", accessibilityDescription: title)?.withSymbolConfiguration(config)
             imagePosition = .imageOnly
-            toolTip = title
             widthAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
             heightAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
         }
@@ -57,15 +57,14 @@ public final class CmuxToastButton: NSButton {
 
     private func applyStyle() {
         performWithTheme {
-            let active = hover.state.hovering || hover.state.pressed
             switch style {
             case .action:
                 attributedTitle = NSAttributedString(string: plainTitle, attributes: [
                     .font: Typography.bodyEmphasized,
-                    .foregroundColor: active ? Palette.textPrimary : Palette.textPrimary.withAlphaComponent(0.82),
+                    .foregroundColor: Palette.textPrimary,
                 ])
             case .close:
-                contentTintColor = active ? Palette.textPrimary : Palette.textSecondary
+                contentTintColor = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
             }
         }
     }

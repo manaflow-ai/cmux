@@ -1,5 +1,6 @@
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -13,12 +14,21 @@ extension BookmarkService {
     func observeHome() {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            for await serves in Observations({ [weak self] in self?.usesDaemon ?? false }) {
+            // A trigger: a daemon restart that still serves bookmarks resets and fetches again.
+            for await serves in ObservationStream({ [weak self] in ObservationTrigger(self?.usesDaemon ?? false) }) {
+                let serves = serves.value
                 guard let self else { return }
                 fetched.removeAll()
+                loadedFromDaemon.removeAll()
+                homeSettled = false
                 if serves {
                     await migrateFileToDaemon()
-                    for profile in Set(trees.keys).union([BrowserProfileRecord.defaultID]) { fetch(profile) }
+                    homeSettled = true
+                    // A read started during the copy saw part of it: read again.
+                    for profile in Set(trees.keys).union([BrowserProfileRecord.defaultID]) {
+                        await fetching[profile]?.value
+                        fetch(profile)
+                    }
                 } else if fileLoaded {
                     trees = fileTrees.mapValues(BookmarkTree.init(ordered:))
                     changed(profiles: Set(trees.keys))
@@ -31,6 +41,7 @@ extension BookmarkService {
     func fetch(_ profile: String) {
         guard fetching[profile] == nil, let connection = services.machines.local.connection else { return }
         fetched.insert(profile)
+        let complete = homeSettled
         // task-owner: one list-bookmarks read; ends with its reply
         fetching[profile] = Task { [weak self] in
             defer { self?.fetching[profile] = nil }
@@ -38,6 +49,7 @@ extension BookmarkService {
                 let list = try await connection.listBookmarks(browserProfileID: profile)
                 guard let self else { return }
                 trees[profile] = BookmarkTree(ordered: list.bookmarks.map(Self.node(from:)))
+                if complete { loadedFromDaemon.insert(profile) }
                 changed(profiles: [profile])
             } catch {
                 self?.fetched.remove(profile)
@@ -85,10 +97,10 @@ extension BookmarkService {
                     bookmark: node.id, lastUsedMs: .set(BookmarkTime.ms(lastUsed)),
                     mutation: MutationIdentity(origin: DaemonConnection.origin, mutationID: mutationID + ".used")))
             }
-        case .update(let id, let title, let url, let favicon, let lastUsed):
+        case .update(let id, let title, let url, let favicon, let lastUsed, let icon):
             try await connection.updateBookmark(UpdateBookmarkRequest(
                 bookmark: id, title: title, url: url?.absoluteString, faviconKey: fieldUpdate(favicon) { $0 },
-                lastUsedMs: fieldUpdate(lastUsed) { BookmarkTime.ms($0) }, mutation: key))
+                lastUsedMs: fieldUpdate(lastUsed) { BookmarkTime.ms($0) }, icon: fieldUpdate(icon) { $0 }, mutation: key))
         case .move(let id, let parent, let index):
             try await connection.moveBookmark(id, parent: parent, index: index, mutation: key)
         case .delete(let id):
@@ -117,7 +129,8 @@ extension BookmarkService {
     nonisolated static func node(from record: BookmarkRecord) -> BookmarkNode {
         BookmarkNode(id: record.id, parent: record.parent, kind: BookmarkNode.Kind(rawValue: record.kind) ?? .url, title: record.title,
                      url: record.url.flatMap(URL.init(string:)), faviconKey: record.faviconKey, sourceKey: record.sourceKey,
-                     created: BookmarkTime.date(ms: record.createdMs), lastUsed: record.lastUsedMs.map(BookmarkTime.date(ms:)))
+                     created: BookmarkTime.date(ms: record.createdMs), lastUsed: record.lastUsedMs.map(BookmarkTime.date(ms:)),
+                     icon: record.icon)
     }
 
     /// Copies this Mac's file into the daemon, node by node in tree order

@@ -36,6 +36,9 @@ pub const ProviderRenameWorkspaceOptions = provider.RenameWorkspaceOptions;
 pub const ProviderCloseWorkspaceOptions = provider.CloseWorkspaceOptions;
 
 test {
+    // refAllDecls walks every declaration at comptime; the generated protocol
+    // has more than the default 1000 branches allow.
+    @setEvalBranchQuota(10_000);
     std.testing.refAllDecls(capabilities);
     std.testing.refAllDecls(provider);
     _ = @import("raw/provider_test.zig");

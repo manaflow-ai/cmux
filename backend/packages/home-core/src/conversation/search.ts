@@ -45,11 +45,12 @@ export type SearchResult = { readonly ok: true; readonly hits: ReadonlyArray<Sea
 /** One code point to its lower case (may be more than one code point, for example "İ"). */
 const fold = (ch: string) => ch.toLowerCase()
 
-/** Text of a message for matching and snippets (text parts and question prompts joined by one space). */
+/** Text of a message for matching and snippets (text parts, question prompts and link preview titles joined by one space). */
 export const messageText = (message: Message): string =>
   message.parts
     .flatMap((part) => {
       if (part.type === "text") return [part.text]
+      if (part.type === "link_preview") return part.title === undefined ? [] : [part.title]
       const prompt = part.type === "question" ? questionText(part) : undefined
       return prompt === undefined ? [] : [prompt]
     })
@@ -57,15 +58,29 @@ export const messageText = (message: Message): string =>
     .replace(/\s+/g, " ")
     .trim()
 
+/**
+ * The snippet and where it sits in `text`: it shows code points [from, to) of `text`, after `lead`
+ * leading ellipsis code points (0 or 1), so offset i of `text` in that span is i - from + lead.
+ */
+export interface SnippetWindow {
+  readonly snippet: string
+  readonly from: number
+  readonly to: number
+  readonly lead: number
+}
+
 /** Up to SNIPPET_CHARS characters centered on the first match, with an ellipsis where cut. */
-export const snippetOf = (text: string, at: number, length: number): string => {
+export const snippetWindow = (text: string, at: number, length: number): SnippetWindow => {
   const chars = [...text]
   // `at` and `length` are code-point offsets in `text`.
-  if (chars.length <= SNIPPET_CHARS) return text
+  if (chars.length <= SNIPPET_CHARS) return { snippet: text, from: 0, to: chars.length, lead: 0 }
   const start = Math.max(0, Math.min(at - Math.floor((SNIPPET_CHARS - length) / 2), chars.length - SNIPPET_CHARS))
   const end = Math.min(chars.length, start + SNIPPET_CHARS)
-  return `${start > 0 ? "…" : ""}${chars.slice(start, end).join("")}${end < chars.length ? "…" : ""}`
+  const lead = start > 0 ? 1 : 0
+  return { snippet: `${lead ? "…" : ""}${chars.slice(start, end).join("")}${end < chars.length ? "…" : ""}`, from: start, to: end, lead }
 }
+
+export const snippetOf = (text: string, at: number, length: number): string => snippetWindow(text, at, length).snippet
 
 export const searchConversations = (actor: string, input: SearchInput, sources: ReadonlyArray<SearchSource>): SearchResult => {
   const query = typeof input.query === "string" ? input.query.trim() : ""

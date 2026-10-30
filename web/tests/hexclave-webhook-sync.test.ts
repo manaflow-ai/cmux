@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { applyHexclaveWebhookEvent, type HexclaveSyncDependencies } from "../services/auth/hexclave/sync";
 import { hexclaveWebhookEventTypes } from "../services/auth/hexclave/webhookEvents";
-import { handleStackWebhook, type StackWebhookDependencies } from "../services/auth/stackWebhook";
+import { HexclaveApiError } from "../services/auth/hexclave/serverApi";
+import { drainHexclaveInbox } from "../services/auth/hexclave/inbox";
+import { handleStackWebhook, type StackWebhookDependencies, type StackWebhookLog } from "../services/auth/stackWebhook";
 import {
   OTHER_TEAM_ID,
   OTHER_USER_ID,
@@ -14,7 +16,7 @@ import {
   USER_ID,
   validWebhookData,
 } from "./helpers/hexclave-fixtures";
-import { FakeHexclave, MemoryMirror } from "./helpers/hexclave-memory";
+import { FakeHexclave, MemoryInbox, MemoryMirror } from "./helpers/hexclave-memory";
 
 const KEY = Buffer.from("hexclave-webhook-test-key-0123456789");
 const SECRET = `whsec_${KEY.toString("base64")}`;
@@ -23,34 +25,52 @@ const NOW = 1_800_000_000;
 function harness(options: { sync?: Partial<HexclaveSyncDependencies>; deps?: Partial<StackWebhookDependencies> } = {}) {
   const hexclave = new FakeHexclave();
   const mirror = new MemoryMirror();
+  const inbox = new MemoryInbox();
   const calls: string[] = [];
+  const dirtyTeamIds: string[] = [];
   const logs: { level: string; message: string; fields: Record<string, unknown> }[] = [];
-  const sync: HexclaveSyncDependencies = {
+  let clockMs = NOW * 1_000;
+  const sync = {
     source: hexclave,
     store: mirror,
     revokeTeamMemberAccess: async ({ teamId, userId }) => { calls.push(`revoke-member:${teamId}:${userId}`); },
     revokeTeamAccess: async ({ teamId }) => { calls.push(`revoke-team:${teamId}`); },
     invalidateUser: async (userId) => { calls.push(`invalidate:${userId}`); },
+    markTeamSeatsDirty: async (teamId: string) => { dirtyTeamIds.push(teamId); },
     ...options.sync,
-  };
+  } as HexclaveSyncDependencies & { markTeamSeatsDirty: (teamId: string) => Promise<void> };
+  const log: StackWebhookLog = (level, message, fields) => { logs.push({ level, message, fields }); };
+  const drain = () => drainHexclaveInbox({ inbox, sync, entityLimit: 10, now: () => new Date(clockMs), log });
+  let kicked: Promise<unknown> | null = null;
   const dependencies: StackWebhookDependencies = {
     webhookSecret: () => SECRET,
     nowSeconds: () => NOW,
     sync: () => sync,
-    log: (level, message, fields) => { logs.push({ level, message, fields }); },
+    inbox: () => inbox,
+    // The route runs this after the response; here it runs before `post` returns.
+    scheduleDrain: () => { kicked = drain(); },
+    log,
     ...options.deps,
   };
   let counter = 0;
-  const post = (type: string, data: unknown, svixId = `msg_${++counter}`) => {
+  const post = async (type: string, data: unknown, svixId = `msg_${++counter}`) => {
     const body = JSON.stringify({ type, data });
     const signature = createHmac("sha256", KEY).update(`${svixId}.${NOW}.${body}`).digest("base64");
-    return handleStackWebhook(new Request("https://cmux.test/api/webhooks/stack", {
+    const response = await handleStackWebhook(new Request("https://cmux.test/api/webhooks/stack", {
       method: "POST",
       headers: { "content-type": "application/json", "svix-id": svixId, "svix-timestamp": String(NOW), "svix-signature": `v1,${signature}` },
       body,
     }), dependencies);
+    if (kicked) await kicked;
+    kicked = null;
+    return response;
   };
-  return { hexclave, mirror, calls, logs, post, sync };
+  /** Let every backoff elapse, then drain again (the cron's next run). */
+  const retry = async () => {
+    clockMs += 2 * 60 * 60 * 1_000;
+    return drain();
+  };
+  return { hexclave, mirror, inbox, calls, dirtyTeamIds, logs, post, retry, sync };
 }
 
 /** Hexclave state: USER_ID in TEAM_ID with one team and one project permission. */
@@ -115,22 +135,46 @@ describe("Hexclave webhook boundary", () => {
     expect(calls.length).toBe(sideEffects);
   });
 
-  test("a failed Hexclave read answers 500, records the failure, and the retry succeeds", async () => {
-    const { hexclave, mirror, post } = harness();
+  test("a failed apply keeps the event in the inbox and a later drain applies it", async () => {
+    const { hexclave, mirror, inbox, logs, post, retry } = harness();
     seed(hexclave);
     hexclave.failNext = new Error("hexclave 502");
-    expect((await post("user.created", serverUser(), "msg_retry")).status).toBe(500);
-    expect(mirror.events.get("msg_retry")).toMatchObject({ outcome: "failed", processed: false });
-    expect(mirror.users.has(USER_ID)).toBe(false);
     expect((await post("user.created", serverUser(), "msg_retry")).status).toBe(200);
+    expect(mirror.users.has(USER_ID)).toBe(false);
+    expect(inbox.rows.get("msg_retry")).toMatchObject({ attempts: 1 });
+    expect(logs.some((entry) => entry.message === "stack_webhook_inbox_apply_failed")).toBe(true);
+    await retry();
     expect(mirror.users.get(USER_ID)?.id).toBe(USER_ID);
-    expect(mirror.events.get("msg_retry")).toMatchObject({ outcome: "processed", processed: true, attempts: 2 });
+    expect(mirror.events.get("msg_retry")).toMatchObject({ outcome: "processed", processed: true });
+    expect(inbox.rows.size).toBe(0);
   });
 
-  test("a failed revocation answers 500 and the retry revokes again", async () => {
+  test("a Hexclave throttle, 5xx or timeout is answered 200, holds every drain, and is retried", async () => {
+    const { hexclave, mirror, inbox, logs, post, retry } = harness();
+    seed(hexclave);
+    for (const [svixId, failure] of [
+      ["msg_429", new HexclaveApiError("Hexclave GET teams failed", { status: 429, retryAfterSeconds: 5 })],
+      ["msg_502", new HexclaveApiError("Hexclave GET users failed", { status: 502 })],
+      ["msg_timeout", new DOMException("The operation timed out.", "TimeoutError")],
+    ] as const) {
+      hexclave.failNext = failure;
+      expect((await post("user.updated", serverUser(), svixId)).status).toBe(200);
+      expect(inbox.rows.has(svixId)).toBe(true);
+      // The global backoff from the first failure keeps the later drains off Hexclave.
+      await retry();
+    }
+    expect(logs.filter((entry) => entry.message === "stack_webhook_inbox_provider_unavailable").length).toBeGreaterThan(0);
+    await retry();
+    expect(inbox.rows.size).toBe(0);
+    for (const svixId of ["msg_429", "msg_502", "msg_timeout"]) {
+      expect(mirror.events.get(svixId)).toMatchObject({ processed: true });
+    }
+  });
+
+  test("a failed revocation is retried by the drain and revokes again", async () => {
     let fail = true;
     const revoked: string[] = [];
-    const { hexclave, post } = harness({
+    const { hexclave, inbox, post, retry } = harness({
       sync: {
         revokeTeamMemberAccess: async ({ teamId, userId }) => {
           if (fail) { fail = false; throw new Error("provider down"); }
@@ -140,15 +184,17 @@ describe("Hexclave webhook boundary", () => {
     });
     seed(hexclave);
     hexclave.removeMember(TEAM_ID, USER_ID);
-    expect((await post("team_membership.deleted", { team_id: TEAM_ID, user_id: USER_ID }, "msg_rev")).status).toBe(500);
     expect((await post("team_membership.deleted", { team_id: TEAM_ID, user_id: USER_ID }, "msg_rev")).status).toBe(200);
+    expect(inbox.rows.has("msg_rev")).toBe(true);
+    await retry();
     expect(revoked).toEqual([`${TEAM_ID}:${USER_ID}`]);
+    expect(inbox.rows.size).toBe(0);
   });
 
   test("a revoke that only the mirror knew about survives a failed attempt and runs on the retry", async () => {
     let fail = true;
     const revoked: string[] = [];
-    const { hexclave, mirror, post } = harness({
+    const { hexclave, mirror, post, retry } = harness({
       sync: {
         revokeTeamMemberAccess: async ({ teamId, userId }) => {
           if (fail) { fail = false; throw new Error("provider down"); }
@@ -160,17 +206,17 @@ describe("Hexclave webhook boundary", () => {
     expect((await post("user.created", serverUser())).status).toBe(200);
     // The removal's own webhook is lost; a user.updated (no team in its payload) finds it.
     hexclave.removeMember(TEAM_ID, USER_ID);
-    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(500);
+    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(200);
     expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
     expect([...mirror.pendingRevocations]).toEqual([`${TEAM_ID}:${USER_ID}`]);
-    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(200);
+    await retry();
     expect(revoked).toEqual([`${TEAM_ID}:${USER_ID}`]);
     expect(mirror.pendingRevocations.size).toBe(0);
   });
 
   test("a pending revoke is dropped, not run, when the member was added back", async () => {
     let fail = true;
-    const { hexclave, mirror, calls, post } = harness({
+    const { hexclave, mirror, inbox, calls, post } = harness({
       sync: {
         revokeTeamMemberAccess: async ({ teamId, userId }) => {
           if (fail) { fail = false; throw new Error("provider down"); }
@@ -181,22 +227,116 @@ describe("Hexclave webhook boundary", () => {
     seed(hexclave);
     await post("user.created", serverUser());
     hexclave.removeMember(TEAM_ID, USER_ID);
-    expect((await post("user.updated", serverUser())).status).toBe(500);
+    await post("user.updated", serverUser(), "msg_failed");
     hexclave.addMember(TEAM_ID, USER_ID);
     calls.length = 0;
+    // Drop the failed delivery's retry; the membership event alone must settle it.
+    inbox.rows.delete("msg_failed");
     expect((await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID })).status).toBe(200);
     expect(calls).toEqual([`invalidate:${USER_ID}`]);
     expect(mirror.pendingRevocations.size).toBe(0);
   });
 
-  test("a failed snapshot invalidation answers 500", async () => {
-    const { hexclave, post } = harness({ sync: { invalidateUser: async () => { throw new Error("db down"); } } });
+  test("a failed snapshot invalidation keeps the event for a retry", async () => {
+    const { hexclave, inbox, post } = harness({ sync: { invalidateUser: async () => { throw new Error("db down"); } } });
     seed(hexclave);
-    expect((await post("team_permission.created", teamPermission())).status).toBe(500);
+    expect((await post("team_permission.created", teamPermission(), "msg_inv")).status).toBe(200);
+    expect(inbox.rows.get("msg_inv")).toMatchObject({ attempts: 1 });
   });
 });
 
 describe("Hexclave mirror reconcile", () => {
+  test("membership creation and removal dirty Team billing seats", async () => {
+    const { hexclave, dirtyTeamIds, post } = harness();
+    seed(hexclave);
+    await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID });
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+
+    dirtyTeamIds.length = 0;
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    await post("team_membership.deleted", { team_id: TEAM_ID, user_id: USER_ID });
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+  });
+
+  test("a failed seat dirty mark for a membership addition is retried", async () => {
+    let fail = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (fail) {
+            fail = false;
+            throw new Error("seat queue unavailable");
+          }
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+
+    await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID }, "msg_seat_retry");
+    expect(inbox.rows.get("msg_seat_retry")).toMatchObject({ attempts: 1 });
+    await retry();
+
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+    expect(inbox.rows.has("msg_seat_retry")).toBe(false);
+  });
+
+  test("a failed seat dirty mark for a membership discovered by user update is retried", async () => {
+    let available = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (!available) throw new Error("seat queue unavailable");
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    dirtyTeamIds.length = 0;
+    hexclave.teams.set(OTHER_TEAM_ID, serverTeam({ id: OTHER_TEAM_ID, display_name: "Other" }));
+    hexclave.addMember(OTHER_TEAM_ID, USER_ID);
+    available = false;
+
+    await post("user.updated", serverUser(), "msg_user_seat_retry");
+    expect(inbox.rows.get("msg_user_seat_retry")).toMatchObject({ attempts: 1 });
+    available = true;
+    await retry();
+
+    expect(dirtyTeamIds.sort()).toEqual([OTHER_TEAM_ID, TEAM_ID].sort());
+    expect(inbox.rows.has("msg_user_seat_retry")).toBe(false);
+  });
+
+  test("a failed seat decrement discovered by user update keeps its revoke pending for retry", async () => {
+    let available = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, mirror, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (!available) throw new Error("seat queue unavailable");
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    dirtyTeamIds.length = 0;
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    available = false;
+
+    await post("user.updated", serverUser(), "msg_remove_seat_retry");
+    expect(inbox.rows.get("msg_remove_seat_retry")).toMatchObject({ attempts: 1 });
+    expect([...mirror.pendingRevocations]).toEqual([`${TEAM_ID}:${USER_ID}`]);
+    available = true;
+    await retry();
+
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+    expect(mirror.pendingRevocations.size).toBe(0);
+    expect(inbox.rows.has("msg_remove_seat_retry")).toBe(false);
+  });
+
   test("every event type reconciles from Hexclave, not from its payload", async () => {
     for (const type of hexclaveWebhookEventTypes) {
       const { hexclave, mirror, post } = harness();
@@ -314,6 +454,26 @@ describe("Hexclave mirror reconcile", () => {
     hexclave.teams.set(TEAM_ID, serverTeam({ display_name: "stale read" }));
     expect((await post("team.updated", serverTeam())).status).toBe(200);
     expect(mirror.teams.has(TEAM_ID)).toBe(false);
+  });
+
+  test("team deletion still invalidates members when team access cleanup fails", async () => {
+    let revokeAttempts = 0;
+    const { hexclave, calls, post } = harness({
+      sync: {
+        revokeTeamAccess: async () => {
+          revokeAttempts += 1;
+          throw new Error("provider cleanup unavailable");
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    hexclave.deleteTeam(TEAM_ID);
+    calls.length = 0;
+
+    expect((await post("team.deleted", { id: TEAM_ID })).status).toBe(200);
+    expect(revokeAttempts).toBe(1);
+    expect(calls).toContain(`invalidate:${USER_ID}`);
   });
 
   test("a user reconcile that listed a team before its deletion does not write it back", async () => {

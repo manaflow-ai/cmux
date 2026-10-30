@@ -1,24 +1,34 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
-@@ -15,7 +15,7 @@
-         if let p = cache[k] { return p }
-         if cache.count > 2000 { cache.removeAll() }
-         let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail).cgPath
--        cache[k] = p
-+        cache.updateValue(p, forKey: k) /* cmux */
-         return p
+@@ -58,6 +58,22 @@
+         }
+         t.apply(xf)
+         return UIBezierPath(cgPath: path.cgPath.union(t.cgPath))
++    }
++}
++
++extension BubblePath {
++    /// cmux: the one outline of a part's bubble in its frame `frame` (Lawrence 2026-10-20: "generally bubbles
++    /// should reuse code better"). Every bubble variant takes this path and changes only its fill or stroke:
++    /// the bubble's own fill (`BubbleView.drawBubble`), the outgoing gradient mask, the pressed highlight, the
++    /// selection, the find flash, the tapback picker's hole and a quoted root above a reply
++    /// (`ThreadPreview.shapeRow`). The drawn balloon (`RowDraw.balloon`) with its frame's corners, half-circle
++    /// ends on a 1-line text balloon (`RowDraw.circularEnds`) and the part's tail.
++    static func balloon(frame: CGRect, row p: PartRow, scale: CGFloat = Fixture.renderScale) -> UIBezierPath {
++        balloon(drawn: RowDraw.balloon(frame, row: p, scale: scale), frameSize: frame.size, row: p)
++    }
++    /// `balloon(frame:row:)` when the drawn balloon was already placed in another view's space (a hit's `outline`).
++    static func balloon(drawn: CGRect, frameSize: CGSize, row p: PartRow) -> UIBezierPath {
++        make(body: drawn, outgoing: p.outgoing, tail: p.tail, cornersOf: frameSize, circularEnds: RowDraw.circularEnds(p))
      }
-     static func make(body r: CGRect, outgoing: Bool, tail: Bool, radius: CGFloat = Fixture.bubbleRadius) -> UIBezierPath {
-@@ -130,9 +130,10 @@
-         let white = UIColor.white
-         let space = CGColorSpace(name: CGColorSpace.sRGB)
-         for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
--            let span = stops.last!.0
-+            // cmux: no force unwraps (crash program); an empty rim or a failed gradient draws nothing.
-+            guard let span = stops.last?.0 else { continue }
-             let g = CGGradient(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor } as CFArray,
--                               locations: stops.map { $0.0 / span })!
-+                               locations: stops.map { $0.0 / span })
-             let y0 = fromTop ? rect.minY : rect.maxY
-             let y1 = fromTop ? rect.minY + span : rect.maxY - span
-             ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: y0), end: CGPoint(x: 0, y: y1), options: [])
+ }
+ 
+@@ -273,7 +289,7 @@
+             attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
+         }
+         if let l = link, let range = s.range(of: l) {
+-            attr.addAttributes([.foregroundColor: UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1),
++            attr.addAttributes([.foregroundColor: Fixture.incomingLink, // cmux: themed link tint
+                                 .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
+         }
+         let line = CTLineCreateWithAttributedString(attr)

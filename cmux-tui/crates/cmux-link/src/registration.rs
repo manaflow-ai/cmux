@@ -115,6 +115,21 @@ pub fn read_live(_state_dir: &Path) -> Option<Registration> {
     None
 }
 
+/// [`read_live`], with the connection that proved it: the peer of the
+/// returned stream runs as this user and is the registered pid (where the
+/// system names a socket peer's pid). `cmux link stop` signals that pid and
+/// waits for this stream to end, so it never signals a pid it has not just
+/// seen serve the registered socket.
+#[cfg(unix)]
+pub fn connect_live(state_dir: &Path) -> Option<(Registration, std::os::unix::net::UnixStream)> {
+    let registration = read_owned(state_dir)?;
+    if !process_alive(registration.pid) {
+        return None;
+    }
+    let stream = connect_owned(&registration.socket)?;
+    served_by(&stream, registration.pid).then_some((registration, stream))
+}
+
 /// The most bytes `link.json` may hold; a real one is under 200.
 #[cfg(unix)]
 const MAX_FILE_BYTES: u64 = 64 * 1024;

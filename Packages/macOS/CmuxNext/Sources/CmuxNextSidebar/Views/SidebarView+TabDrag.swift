@@ -17,7 +17,7 @@ public struct SidebarTabDropHit: Hashable, Sendable {
     public var highlightFrame: CGRect
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     // MARK: External tab drag (driven by the App's TabDragSession)
 
     /// Hover time before a tab drag over a workspace row selects it.
@@ -37,7 +37,12 @@ extension SidebarView {
     /// Returns nil when the point is outside the sidebar or cannot accept the
     /// tab; the sidebar then clears its drop visuals.
     /// - Parameter sourceMachine: the tab's daemon; drops stay on that machine.
-    public func tabDragUpdate(screenPoint: CGPoint, sourceMachine: MachineID?) -> SidebarTabDropHit? {
+    /// - Parameter reordersTabRows: a tab drag, whose drop on a tab row's edge goes before that tab
+    ///   (workspace and screen drags keep the gap after the workspace there).
+    /// - Parameter slotDwell: how long the pointer rests between two rows before that slot opens
+    ///   a new-workspace gap; before that the row under the pointer takes the tab.
+    public func tabDragUpdate(screenPoint: CGPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false,
+                              slotDwell: CFTimeInterval = 0) -> SidebarTabDropHit? {
         guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil }
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         let local = convert(windowPoint, from: nil)
@@ -61,7 +66,8 @@ extension SidebarView {
             )
         }
         guard let nearest = nearestListPoint(windowPoint),
-              let (drop, rect) = list.externalDragMoved(windowPoint: nearest, sourceMachine: sourceMachine) else {
+              let (drop, rect) = list.externalDragMoved(windowPoint: nearest, sourceMachine: sourceMachine, reordersTabRows: reordersTabRows,
+                                                        slotDwell: slotDwell) else {
             return nil
         }
         showDropOutline(list.convert(rect, to: nil), refused: false)
@@ -71,11 +77,11 @@ extension SidebarView {
     /// Where `tabDragUpdate` found no drop inside the sidebar: why, the
     /// refused row (screen), and the localized reason. Draws the refused
     /// outline there (tab-dnd).
-    public func tabDragRefusal(screenPoint: CGPoint, sourceMachine: MachineID?) -> SidebarTabDropRefusalHit? {
+    public func tabDragRefusal(screenPoint: CGPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false) -> SidebarTabDropRefusalHit? {
         guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil }
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         guard bounds.contains(convert(windowPoint, from: nil)), let nearest = nearestListPoint(windowPoint),
-              let (reason, rect) = list.externalDragRefusal(windowPoint: nearest, sourceMachine: sourceMachine) else {
+              let (reason, rect) = list.externalDragRefusal(windowPoint: nearest, sourceMachine: sourceMachine, reordersTabRows: reordersTabRows) else {
             hideDropOutline()
             return nil
         }
@@ -95,6 +101,10 @@ extension SidebarView {
         return list.convert(CGPoint(x: min(max(inList.x, visible.minX), visible.maxX),
                                     y: min(max(inList.y, visible.minY), visible.maxY)), to: nil)
     }
+
+    /// When the slot between two rows under a resting pointer opens its
+    /// new-workspace gap (`tabDragUpdate`'s `slotDwell`); nil when none is pending.
+    public var tabDragSlotDeadline: CFTimeInterval? { list.externalDragSlotDeadline }
 
     /// The drag left the sidebar or was cancelled (Escape).
     public func tabDragExited() {

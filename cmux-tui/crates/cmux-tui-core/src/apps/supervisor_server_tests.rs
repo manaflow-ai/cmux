@@ -282,7 +282,25 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     // The link lane registers the hub socket; until then it is null.
     assert_eq!(value["hub_socket"], Value::Null);
     assert_eq!(value["state_dir"], json!(state.join("apps-data/cmux.linked/link")));
-    assert_eq!(value["socket_dir"], json!(state.join("apps-tmp/cmux.linked")));
+    // The app's temporary and socket folder (cx-wmd8x, server_tmp.rs): on macOS
+    // `<per-user temp dir>/cmux-apps/<12 hex>`, 71 bytes; elsewhere the old path, which fits here.
+    let socket_dir = PathBuf::from(value["socket_dir"].as_str().unwrap());
+    #[cfg(target_os = "macos")]
+    {
+        let text = socket_dir.to_str().unwrap();
+        let leaf = socket_dir.file_name().unwrap().to_str().unwrap();
+        assert_eq!(text.len(), 71, "{text}");
+        assert!(text.starts_with("/var/folders/") && text.contains("/T/cmux-apps/"), "{text}");
+        assert!(leaf.len() == 12 && leaf.chars().all(|c| c.is_ascii_hexdigit()), "{text}");
+    }
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(socket_dir, state.join("apps-tmp/cmux.linked"));
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::symlink_metadata(&socket_dir).unwrap();
+        assert!(meta.is_dir() && !meta.file_type().is_symlink());
+        assert_eq!(meta.permissions().mode() & 0o777, 0o700, "{}", socket_dir.display());
+    }
     assert!(value["device_name"].as_str().is_some_and(|n| !n.is_empty()));
     // A server without the scope gets host.error; the relay is not wired yet.
     let refused = &frames(&unscoped, 1)[0];

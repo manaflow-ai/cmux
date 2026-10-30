@@ -15,11 +15,12 @@ extension AgentPaneView {
     /// changes the live page's preferences and re-shows the page so WebKit
     /// applies them.
     public var rendersAtFullRate: Bool {
-        get { webView.configuration.preferences.isWebKitFeatureEnabled(Self.near60FPSFeature) == false }
+        get { webView.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature) == false }
         set {
-            guard newValue != rendersAtFullRate else { return }
+            // A Chromium page has no WebKit rate: Chromium renders at the display's rate.
+            guard page?.showsChromium != true, newValue != rendersAtFullRate else { return }
             // A WebKit without the feature has no rate to re-apply.
-            guard webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) else { return }
+            guard webView.configuration.preferences.setWebKitFeature(WebKitRenderRate.near60FPSFeature, enabled: !newValue) else { return }
             reapplyRenderRate()
         }
     }

@@ -4,7 +4,7 @@ pub(crate) fn read_saved_tab_groups(
     connection: &Connection,
 ) -> anyhow::Result<Vec<SavedTabGroupRecord>> {
     let mut statement = connection.prepare(
-        "SELECT saved_id, profile_id, name, color, members_json, updated_at_ms
+        "SELECT saved_id, profile_id, name, color, members_json, updated_at_ms, icon
          FROM personal_saved_tab_groups
          ORDER BY position ASC, saved_id ASC",
     )?;
@@ -16,11 +16,12 @@ pub(crate) fn read_saved_tab_groups(
             row.get::<_, String>(3)?,
             row.get::<_, String>(4)?,
             row.get::<_, i64>(5)?,
+            row.get::<_, Option<String>>(6)?,
         ))
     })?;
     let mut saved = Vec::new();
     for row in rows {
-        let (id, room, name, color, members, updated_at_ms) = row?;
+        let (id, room, name, color, members, updated_at_ms, icon) = row?;
         saved.push(SavedTabGroupRecord {
             id,
             room,
@@ -29,6 +30,7 @@ pub(crate) fn read_saved_tab_groups(
             members: serde_json::from_str(&members)
                 .context("saved tab group members are invalid")?,
             updated_at_ms: u64::try_from(updated_at_ms)?,
+            icon,
         });
     }
     Ok(saved)
@@ -44,6 +46,16 @@ pub(crate) fn put_saved_tab_group_in(
     validate_workspace_group_id(&record.room)?;
     validate_tab_group_name(&record.name)?;
     validate_tab_group_color(&record.color)?;
+    if let Some(icon) = &record.icon {
+        validate_icon_value(icon)?;
+        let stored = super::super::screen_store::stored_icons(
+            transaction,
+            &["tab_groups", "personal_saved_tab_groups"],
+        )?;
+        if !stored.contains(icon) {
+            super::super::personal_store::require_icon_asset(transaction, icon)?;
+        }
+    }
     let position = match transaction
         .query_row(
             "SELECT position FROM personal_saved_tab_groups WHERE saved_id = ?1",
@@ -61,14 +73,15 @@ pub(crate) fn put_saved_tab_group_in(
     };
     transaction.execute(
         "INSERT INTO personal_saved_tab_groups(
-           saved_id, profile_id, name, color, members_json, position, updated_at_ms
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+           saved_id, profile_id, name, color, members_json, position, updated_at_ms, icon
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(saved_id) DO UPDATE SET
            profile_id = excluded.profile_id,
            name = excluded.name,
            color = excluded.color,
            members_json = excluded.members_json,
-           updated_at_ms = excluded.updated_at_ms",
+           updated_at_ms = excluded.updated_at_ms,
+           icon = excluded.icon",
         params![
             record.id,
             record.room,
@@ -76,7 +89,8 @@ pub(crate) fn put_saved_tab_group_in(
             record.color,
             serde_json::to_string(&record.members)?,
             position,
-            i64::try_from(record.updated_at_ms)?
+            i64::try_from(record.updated_at_ms)?,
+            record.icon
         ],
     )?;
     append_presentation_record(

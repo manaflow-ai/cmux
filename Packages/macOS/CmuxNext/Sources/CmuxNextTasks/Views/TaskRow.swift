@@ -1,4 +1,5 @@
 import SwiftUI
+import CmuxNextDesign
 
 /// One dense row (list and inbox).
 struct TaskRow: View {
@@ -17,7 +18,7 @@ struct TaskRow: View {
                 .frame(minWidth: 46, alignment: .leading)
             if showStatus, let status = model.status(task.status) {
                 StatusGlyph(category: status.category, color: colors.ansi(status.color))
-                    .help(status.name)
+                    .themedHelp(status.name)
             }
             Text(task.title)
                 .font(.system(size: 12.5)).foregroundStyle(colors.primary)

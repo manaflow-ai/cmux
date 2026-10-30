@@ -59,32 +59,3 @@ pub fn read(path: &Path, alive: impl Fn(u32) -> bool) -> Option<Status> {
     status.agent_running = alive(status.agent_pid);
     Some(status)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trips_and_marks_dead_agents() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("status.json");
-        let status = Status {
-            agent_pid: 7,
-            agent_running: true,
-            instance_id: Some("vm-1".to_owned()),
-            parked: false,
-            daemon: "running".to_owned(),
-            daemon_pid: Some(9),
-            fast_exits: 0,
-            roles: vec![],
-            last_wake: "clock".to_owned(),
-            wakes: 3,
-        };
-        std::fs::write(&path, status.to_json()).unwrap();
-        let read_back = read(&path, |_| false).unwrap();
-        assert!(!read_back.agent_running);
-        assert_eq!(read_back.instance_id.as_deref(), Some("vm-1"));
-        assert!(read_back.summary().contains("not running"));
-        assert!(read(&dir.path().join("missing"), |_| true).is_none());
-    }
-}

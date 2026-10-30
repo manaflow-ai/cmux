@@ -38,8 +38,6 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var publisher: String { String(id.prefix { $0 != "/" }) }
     /// A sideloaded development app (never in the store).
     public var isLocal: Bool { publisher == "local" }
-    /// Global id of an implementation: `<app id>#<implementation id>`.
-    public func globalID(of implementation: AppImplementation) -> String { "\(id)#\(implementation.id)" }
     public var sections: [AppImplementation] { implementations.filter(\.isSection) }
     /// The app's own page (`cmux.pane/1` rendered from a scene export), if any.
     public var scenePane: AppImplementation? { implementations.first { $0.isPane && $0.hasScene } }

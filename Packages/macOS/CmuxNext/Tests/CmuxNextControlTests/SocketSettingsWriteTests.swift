@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// The socket writes settings only through the settings owner
@@ -201,16 +201,18 @@ extension SettingDescriptor {
         switch kind {
         case .choice(let choices): return .string(choices.first?.value ?? "")
         case .choiceOrNumber(let choices, let number): return choices.first.map { .string($0.value) } ?? .number(number.range.lowerBound)
+        case .choiceOrURL(let choices, let urlKey): return choices.first.map { .string($0.value) } ?? .object([urlKey: .string("http://mini.tail1234.ts.net:7320")])
         case .toggle: return .bool(false)
         case .number(let number): return .number(number.range.lowerBound)
         case .color: return .string("#336699")
         case .sound: return .string("default")
         case .url: return .string("")
-        case .hostList, .folderList, .numberList, .stringList, .orderedChoices: return .array([])
-        case .stringMap: return .object([:])
+        case .hostList, .folderList, .numberList, .stringList, .orderedChoices, .choiceSet: return .array([])
+        case .stringMap, .soundRules: return .object([:])
         case .timeRange: return .object(["start": .string("22:00"), "end": .string("07:00")])
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")
+        case .text: return .string("TextEdit")
         }
     }
 }

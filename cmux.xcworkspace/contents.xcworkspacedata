@@ -17,13 +17,22 @@
          location = "group:CmuxAgentCursor">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentQuestion">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAppAttest">
       </FileRef>
       <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
          location = "group:CmuxAuthRuntime">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxChiefVoiceCore">
       </FileRef>
       <FileRef
          location = "group:CmuxFeedPushCore">
@@ -47,7 +56,13 @@
          location = "group:CmuxIrxTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxMessagesLab">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxScreenKit">
       </FileRef>
       <FileRef
          location = "group:CmuxSentryTelemetry">
@@ -70,12 +85,21 @@
       <FileRef
          location = "group:CmuxTheme">
       </FileRef>
+      <FileRef
+         location = "group:CmuxVNC">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxVNCWebRTC">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
       name = "Packages (iOS)">
       <FileRef
          location = "container:ios/CmuxiOS">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxConversation">
       </FileRef>
       <FileRef
          location = "group:CmuxMobilePairedMac">
@@ -95,10 +119,16 @@
       <FileRef
          location = "group:CmuxMobileTunnel">
       </FileRef>
+      <FileRef
+         location = "group:CmuxTabsKit">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
+      <FileRef
+         location = "group:CmuxComputerUseHelper">
+      </FileRef>
       <FileRef
          location = "group:CmuxNext">
       </FileRef>

@@ -1,22 +1,24 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { isMachineInstallKind } from "./machine-installs.ts"
-import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
+import { isCompanyEmail } from "./domains/cloud-plan.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
+import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
 import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
-import { readInboxOp } from "./user-inbox.ts"
+import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
@@ -46,6 +48,7 @@ export class UserDO extends OwnerDO<UserState> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     this.homePush = new HomePushQueue(this.sqlStore)
     this.inbox = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "inbox",
@@ -56,7 +59,8 @@ export class UserDO extends OwnerDO<UserState> {
       // The list order index is derived owner data: its writes never reach subscribers.
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
-      maySubscribe: (_head, principal, entity) => principal.user === entity && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind))
+      // A chief token (principal.agent) never reads the owner's inbox: it holds the owner's DM previews (cx-59n8.11).
+      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.agent === undefined && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind))
     }, (ws, a) => this.socketLive(ws, a))
   }
 
@@ -125,13 +129,11 @@ export class UserDO extends OwnerDO<UserState> {
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     if (principal.agent === undefined) return super.submit(entity, principal, frame)
     const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
-    return {
-      frames: [
-        { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
-        { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }
-      ]
-    }
+    return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
+      { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }] }
   }
+  /** A Chief's own chief.create / chief.update from its Cloud brain (brain-chiefs.ts; DO RPC, no route reaches it): user-chief.ts `viaChief`. */
+  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> { return super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame) }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
@@ -222,18 +224,20 @@ export class UserDO extends OwnerDO<UserState> {
     return { frames }
   }
 
+  async avatar(call: AvatarCall) { return avatarRpc(this.ctx, this.env, this.existing()?.currentState, call) } // RPC: participant avatars (user-avatars.ts)
+
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
+    // A chief token never reads the owner's inbox (DM previews); a future chief that needs it gets an explicit grant (cx-59n8.11).
+    if (principal.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "a chief token cannot read the owner's inbox" }
     const refused = this.inboxRefusal(entity, principal, op)
     if (refused) return { ok: false, code: refused.code, message: refused.message }
-    return readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
+    const result = readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
+    return op === "inbox.list" ? pullLargeRows(this.env, entity, result) : result
   }
 
-  /**
-   * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
-   * user's `allow_requests_from`, never the discovery flags. An object that never served this
-   * user answers the default without binding.
-   */
+  /** RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the user's
+   *  `allow_requests_from`, never the discovery flags; an object that never served this user answers the default without binding. */
   async homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom> {
     if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_requests_from
     return homeUser.homeSettingsOf(this.bind(entity).currentState.home_settings).allow_requests_from
@@ -364,11 +368,15 @@ export class UserDO extends OwnerDO<UserState> {
   /** A revoked install loses its open sockets at once, not at token expiry. */
   private closeRevoked(op: string, frames: ReadonlyArray<OwnerFrame>) {
     const result = frames.find((f) => f.t === "result")
-    // An archived chief's token stops at once: its sockets here and on every other owner close.
-    if (op === "chief.archive" && result && result.t === "result") {
+    // An archived or deleted chief's token stops at once: its sockets here and on every other owner close.
+    if ((op === "chief.archive" || op === "chief.delete") && result && result.t === "result") {
       const agent = (result.value as { id?: string }).id
       if (!agent) return
-      this.closeSockets((p) => p.agent === agent, "chief archived")
+      this.closeSockets((p) => p.agent === agent, op === "chief.delete" ? "chief deleted" : "chief archived")
+      // Its sandboxes pause (archive: a restore resumes them) or are deleted (delete), and their Freestyle identity
+      // (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
+      const sandboxes = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown>; ccSandboxPurge(): Promise<unknown> }
+      this.ctx.waitUntil((op === "chief.delete" ? sandboxes.ccSandboxPurge() : sandboxes.ccSandboxRetire()).catch(() => undefined))
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }
@@ -440,7 +448,48 @@ export class UserDO extends OwnerDO<UserState> {
     this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
+  /** Message request trust (home-routes.ts): the domain of this user's verified email, or null. Never the address itself. */
+  async homeVerifiedEmailDomain(entity: string): Promise<string | null> {
+    const u = this.existing()?.currentState.user
+    return u && u.id === entity && u.email_verified ? invites.emailDomain(u.email) : null
+  }
+  /**
+   * Same-domain reach (home-routes.ts dm.open by email, DESIGN 2.4): when this user's verified
+   * email has `senderDomain`, that domain is a company domain, and `trust_same_domain` is on,
+   * the reach fact for the sender (this user's name and `allow_requests_from`); else null.
+   */
+  async homeSameDomainReach(entity: string, senderDomain: string): Promise<{ display_name: string; allow_requests_from: homeConversation.AllowRequestsFrom } | null> {
+    const engine = this.existing()
+    const u = engine?.currentState.user
+    if (!engine || !u || u.id !== entity || u.email_verified !== true) return null
+    const settings = homeUser.homeSettingsOf(engine.currentState.home_settings)
+    if (!settings.trust_same_domain || !invites.requestTrusted(senderDomain, invites.emailDomain(u.email))) return null
+    return { display_name: u.display_name, allow_requests_from: settings.allow_requests_from }
+  }
+  /** CloudDO (cloud-entitlements.ts): whether this user's verified email is a company account (cloud-plan.ts isCompanyEmail). Never the address itself. */
+  async cloudCompanyAccount(entity: string): Promise<boolean> {
+    const u = this.existing()?.currentState.user
+    return Boolean(u && u.id === entity && u.email_verified === true && isCompanyEmail(u.email))
+  }
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
+  /** TeamDO's identity check only: an active daemon's public key, scoped to its existing team and grant. */
+  async serverKey(entity: string, install: string, grant: string, team: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
+    if (!state.user || !inst || inst.kind !== "daemon" || inst.bound_team !== team || inst.revoked_at !== null || inst.grant !== grant
+      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own")) return null
+    return inst.public_jwk as JsonWebKey
+  }
+  /** Public identity only, pinned to the calling client's exact current grant. */
+  async deviceKey(entity: string, install: string, grant: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
+    if (!state.user || !inst || !["mac", "ios", "cli"].includes(inst.kind) || inst.revoked_at !== null || inst.grant !== grant
+      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own")) return null
+    return inst.public_jwk as JsonWebKey
+  }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
@@ -454,43 +503,90 @@ export class UserDO extends OwnerDO<UserState> {
     return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 
-  async challenge(entity: string, install: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
+  async challenge(entity: string, install: string, team?: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
     const engine = this.existing()
     // One answer for every refusal, so the endpoint does not reveal which users or installs exist.
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, message: "challenge refused" }
     const inst = engine.currentState.installs[install]
     if (!inst || inst.revoked_at !== null) return { ok: false, message: "challenge refused" }
+    if (team !== undefined && (!/^team_[0-9a-f]{20}$/.test(team) || !isClientInstall(inst.kind))) return { ok: false, message: "challenge refused" }
     const now = Date.now()
     const nonce = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")
     const sql = this.ctx.storage.sql
     sql.exec(`DELETE FROM auth_challenges WHERE expires_at < ?`, now)
-    sql.exec(`INSERT INTO auth_challenges (nonce, install, expires_at) VALUES (?, ?, ?)`, nonce, install, now + CHALLENGE_TTL_MS)
+    sql.exec(`DELETE FROM auth_team_challenges WHERE expires_at < ?`, now)
+    if (team === undefined) sql.exec(`INSERT INTO auth_challenges (nonce, install, expires_at) VALUES (?, ?, ?)`, nonce, install, now + CHALLENGE_TTL_MS)
+    else sql.exec(`INSERT INTO auth_team_challenges (nonce, install, team, expires_at) VALUES (?, ?, ?, ?)`, nonce, install, team, now + CHALLENGE_TTL_MS)
     return { ok: true, nonce, expires_at: now + CHALLENGE_TTL_MS }
   }
+
+  /**
+   * A hand's ephemeral frames (hand-do.ts: `hand-approval-pending`, `hand-approval-settled`) to this
+   * person's own subscribed sockets: a person's session or app install, never a Chief token or a
+   * machine install. Never committed (GET /v1/hands/<hand>/approvals is the read after a reconnect).
+   */
+  async handFrame(entity: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" } & Record<string, unknown>): Promise<void> {
+    const text = JSON.stringify(frame)
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (!a?.subscribed || a.principal.user !== entity || a.principal.agent !== undefined || isMachineInstallKind(a.principal.install_kind)) continue
+      if (!this.socketLive(ws, a)) continue
+      try {
+        ws.send(text)
+      } catch {}
+    }
+  }
+
+  /** The key of one of this person's active app installs (mac or ios), for a person proof (hand-levels.ts); null otherwise. */
+  async personKey(entity: string, install: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState
+    const inst = state.installs[install]
+    if (!state.user || !inst || inst.revoked_at !== null || (inst.kind !== "mac" && inst.kind !== "ios")) return null
+    const grant = state.grants[inst.grant]
+    return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
+  }
+
+  /** Live membership authority used only after the caller proves possession of its install key. */
+  protected tokenTeamMember = (team: string, user: string): Promise<string | null> =>
+    this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).memberRole(team, user)
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
     const sql = this.ctx.storage.sql
-    const row = sql.exec<{ install: string; expires_at: number }>(`SELECT install, expires_at FROM auth_challenges WHERE nonce = ?`, nonce).toArray()[0]
+    const row = sql.exec<{ install: string; expires_at: number; team: string | null }>(`SELECT install, expires_at, NULL AS team FROM auth_challenges WHERE nonce = ? UNION ALL SELECT install, expires_at, team FROM auth_team_challenges WHERE nonce = ?`, nonce, nonce).toArray()[0]
     // Consume first: a nonce is single use even when the signature fails.
     sql.exec(`DELETE FROM auth_challenges WHERE nonce = ?`, nonce)
+    sql.exec(`DELETE FROM auth_team_challenges WHERE nonce = ?`, nonce)
     if (!row || row.install !== install || row.expires_at < Date.now()) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
     const state = engine.currentState
     const inst = state.installs[install]
     if (!inst || inst.revoked_at !== null || !state.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
     const grant = state.grants[inst.grant]
-    if (!grant || grant.revoked_at !== null) return { ok: false, code: "auth.forbidden", message: "grant revoked" }
-    const ok = await verifyInstallSignature(inst.public_jwk, `${challengeMessagePrefix(this.env.ENVIRONMENT, install)}${nonce}`, signature)
+    if (!grant || grant.revoked_at !== null || (grant.expires_at !== null && grant.expires_at <= Date.now())) return { ok: false, code: "auth.forbidden", message: "grant revoked or expired" }
+    if (row.team !== null && (!isClientInstall(inst.kind) || agent !== undefined)) return { ok: false, code: "auth.forbidden", message: "a scoped challenge requires a client install" }
+    const ok = await verifyInstallSignature(inst.public_jwk, `${challengeMessagePrefix(this.env.ENVIRONMENT, install, row.team ?? undefined)}${nonce}`, signature)
     if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
-    // Re-read after the await: a revoke may have committed during the verify.
+    // Membership is checked only after proof of possession; the nonce, not a request header, selects the team.
+    if (row.team !== null && row.team !== state.user.personal_team) {
+      const role = await this.tokenTeamMember(row.team, entity)
+      if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
+    }
+    // Re-read after all awaits: revocation, expiry or replacement may have committed during verification or membership lookup.
     const now = engine.currentState
-    const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
-    if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
+    const current = now.installs[install]
+    const held = now.grants[grant.id]
+    if (!current || current.revoked_at !== null || current.grant !== grant.id || current.public_jwk.x !== inst.public_jwk.x || current.public_jwk.y !== inst.public_jwk.y || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || row.expires_at <= Date.now() || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
     // A chief token only for an unarchived chief of this user.
-    if (agent !== undefined && (!chiefActive(now, agent) || isMachineInstallKind(inst.kind))) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
+    if (agent !== undefined && (!chiefActive(now, agent) || isMachineInstallKind(current.kind))) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
     const emailDomain = emailDomainOf(now.user.email)
-    return { ok: true, user: now.user.id, team: isMachineInstallKind(inst.kind) && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}), ...(inst.kind === "team-vm" ? { team_vm: true as const } : {}) }
+    if (row.team !== null && !isClientInstall(current.kind)) return { ok: false, code: "auth.forbidden", message: "a scoped challenge requires a client install" }
+    const team = row.team ?? ((isMachineInstallKind(current.kind) || current.kind === "daemon") && current.bound_team ? current.bound_team : now.user.personal_team)
+    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
+
+const isClientInstall = (kind: string) => kind === "mac" || kind === "ios" || kind === "cli"

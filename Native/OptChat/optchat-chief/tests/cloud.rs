@@ -97,6 +97,8 @@ fn the_port_reads_and_writes_through_the_cloud_commands() {
         Ok(json!({"messages": [cloud_message(1, OWNER, "hi")], "has_more": false})),
         Ok(json!({"value": {}, "rev": 5, "replayed": false, "change": {"kind": "read-cursor", "participant": CHIEF, "seq": 2}})),
         Ok(json!({"value": {}, "rev": 6, "replayed": false})),
+        Ok(json!({"state": "live", "conversation": CONV})),
+        Err(OpError::Rejected("bad request: unknown variant `cloud-conversation-typing`, expected one of `identify`".into())),
     ]);
     let mut port = CloudPort::new(rpc.clone(), CHIEF.into());
     let (summary, messages) = port.snapshot(CONV, 500).unwrap();
@@ -120,13 +122,23 @@ fn the_port_reads_and_writes_through_the_cloud_commands() {
                 runs: None,
             }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
+            thread_root: None,
         },
     )
     .unwrap();
-    // Typing has no cloud frame yet: a no-op, nothing sent.
+    // Typing goes out as the owner's typing frame through the daemon; a daemon
+    // without the command says typing_unsupported (the brain logs it once).
     port.typing(CONV, true).unwrap();
+    assert!(matches!(
+        port.typing(CONV, false),
+        Err(OpError::Rejected(reason)) if reason == "typing_unsupported"
+    ));
     let calls = rpc.calls.lock().unwrap();
-    assert_eq!(calls.len(), 4);
+    assert_eq!(calls.len(), 6);
+    assert_eq!(calls[4].0, "cloud-conversation-typing");
+    assert_eq!(calls[4].1, json!({"conversation": CONV, "on": true}));
     assert_eq!(calls[0].0, "cloud-conversation-snapshot");
     assert_eq!(
         calls[0].1,
@@ -445,6 +457,9 @@ fn the_cloud_link_leases_the_chief_token_subscribes_and_answers() {
                 runs: None,
             }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
+            thread_root: None,
         },
     )
     .unwrap();

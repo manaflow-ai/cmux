@@ -1,0 +1,101 @@
+.disclosure-gallery-stage {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 240px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.disclosure-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.disclosure-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.disclosure-gallery {
+  width: min(100%, 440px);
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 14%, transparent));
+  border-radius: 9px;
+  background: var(--cmux-elevated-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+}
+
+.disclosure-gallery .ui-disclosure-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  font-weight: 600;
+  text-align: start;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.disclosure-gallery .ui-disclosure-trigger:hover {
+  background: var(--cmux-hover, color-mix(in srgb, CanvasText 7%, transparent));
+}
+
+.disclosure-gallery-chevron {
+  width: 7px;
+  height: 7px;
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  opacity: 0.6;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 120ms ease;
+}
+
+.disclosure-gallery .ui-disclosure-trigger[aria-expanded="true"] .disclosure-gallery-chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.disclosure-gallery-panel {
+  display: grid;
+  gap: 12px;
+  padding: 2px 12px 14px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 72%, transparent));
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.disclosure-gallery-panel p {
+  margin: 0;
+}
+
+.disclosure-gallery-action {
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  border-radius: 6px;
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.disclosure-gallery-receipt {
+  min-height: 18px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}

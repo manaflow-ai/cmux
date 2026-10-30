@@ -2,11 +2,16 @@
 //! endpoint (plans/cmux-next/transport.md 3 and 12a). Slice 1: direct paths
 //! to paired peers only, no relay.
 
+mod access_cli;
+mod agent_cli;
 mod cloud;
 mod cloud_fs;
 mod control;
 mod dial;
 mod dial_cli;
+mod enrollment;
+mod ensure;
+mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -15,12 +20,20 @@ mod inbound;
 #[cfg(target_os = "macos")]
 mod launchd;
 mod lines;
+pub(crate) mod machine_gate;
+pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
+mod paired_streams;
+mod process_exit;
 mod state;
 
 #[cfg(test)]
 mod e2e_tests;
+#[cfg(test)]
+mod outgoing_revocation_tests;
+#[cfg(test)]
+mod revocation_tests;
 #[cfg(test)]
 mod tests;
 
@@ -29,7 +42,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_link::LINK_PORT;
@@ -58,7 +71,8 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// `enabled` (`--link-entry`): only the link may connect, and its gate
 /// ([`link_entry_gate`]) admits only the seven `fs-v1` ops. On a Cloud host
 /// this also installs the daemon's file owner (`cloud_fs`); elsewhere the
-/// admitted fs ops answer `fs.unavailable`.
+/// admitted fs ops answer `fs.unavailable`. Every host also learns how it
+/// guards chats moved in (`agent-transfer-v1`).
 pub(crate) fn start_link_entry(
     enabled: bool,
     mux: &Arc<cmux_tui_core::Mux>,
@@ -66,6 +80,7 @@ pub(crate) fn start_link_entry(
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
     cloud_fs::install_if_cloud_host();
+    mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
     // refused until G1 and G2 hold. The mode is logged once (G3).
@@ -95,9 +110,23 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
     }
+    // `sync` answers one JSON line on stdout and has its own exit codes too.
+    if args.first().map(String::as_str) == Some("sync") {
+        return sync_cli::run(&args[1..]);
+    }
+    // So do `agent` and `access`.
+    if args.first().map(String::as_str) == Some("agent") {
+        return agent_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("access") {
+        return access_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("machine") {
+        return machine_update::run(&args[1..]);
+    }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
-        print!("{}", catalog().remote_client.link_help);
+        print!("{}", help_text());
         return 0;
     }
     match run_link(args) {
@@ -109,22 +138,45 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
+fn help_text() -> String {
+    format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
+}
+
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?)
 }
 
 /// `cmux link <action> ...`.
 fn run_link(args: &[String]) -> anyhow::Result<()> {
-    let help = || anyhow!(catalog().remote_client.link_help);
+    let help = || anyhow!(help_text());
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
-        "init" => run_init(&flags(rest, &["--state-dir", "--install", "--port"])?),
+        "init" => {
+            run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
+        }
         "show" => run_show(&flags(rest, &["--state-dir"])?),
         "peer" => run_peer(rest),
-        "serve" => {
-            run_serve(&flags(rest, &["--state-dir", "--session-socket", "--server-config"])?)
+        "serve" => run_serve(&flags(
+            rest,
+            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+        )?),
+        "ensure" => {
+            // `--handoff` is the one flag without a value.
+            let handoff = rest.iter().any(|arg| arg == "--handoff");
+            let rest: Vec<String> =
+                rest.iter().filter(|arg| *arg != "--handoff").cloned().collect();
+            ensure::run_ensure(
+                &flags(
+                    &rest,
+                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
+                )?,
+                handoff,
+            )
         }
+        "stop" => ensure::run_stop(&flags(rest, &["--state-dir"])?),
+        "archive" => ensure::run_archive(&flags(rest, &["--state-dir"])?),
+        "status" => ensure::run_status(&flags(rest, &["--state-dir"])?),
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),
         #[cfg(target_os = "macos")]
@@ -177,15 +229,31 @@ fn print_json(value: &serde_json::Value) {
 }
 
 fn run_init(flags: &Flags) -> anyhow::Result<()> {
-    let state = state(flags)?;
     let port = match flags.get("--port") {
         Some(port) => port
             .parse()
             .map_err(|_| anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT")))?,
         None => state::DEFAULT_PORT,
     };
-    let install = required(flags, "--install")?.to_string();
-    state.init(&LinkConfig { install, port })?;
+    // Resolve an enrollment before opening (and creating) link state. It never
+    // creates or changes a server identity, and never copies its private key.
+    let (install, server_identity) = match flags.get("--server-identity") {
+        Some(path) => {
+            let path = PathBuf::from(path);
+            let identity = cmux_server::pairing::EnrolledIdentity::load(&path)?;
+            let install = identity.paired().install.clone();
+            if flags.get("--install").is_some_and(|wanted| wanted != &install) {
+                bail!("server_link.identity_conflict");
+            }
+            (install, Some(std::fs::canonicalize(path)?))
+        }
+        None => (required(flags, "--install")?.to_string(), None),
+    };
+    let state = state(flags)?;
+    let _ensure_lock = server_identity.as_ref().map(|_| ensure::ensure_lock(&state)).transpose()?;
+    // `serve` holds this lock for its lifetime: init cannot rewrite its config.
+    let _lock = server_identity.as_ref().map(|_| serve_lock(&state)).transpose()?;
+    state.init(&LinkConfig { install, port, server_identity })?;
     run_show_state(&state)
 }
 
@@ -203,7 +271,16 @@ fn run_show_state(state: &LinkState) -> anyhow::Result<()> {
 fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     let config = state.config()?;
     let public_key = state::public_key(&*state.private_key()?);
-    let live = registration::read_live(&state.registration_dir());
+    let live = ensure::live(state);
+    if config.server_identity.is_some()
+        && let Some(live) = &live
+        && !ensure::query_status(&live.socket)
+            .map(|status| ensure::matches_enrollment(state, &status))
+            .transpose()?
+            .unwrap_or(false)
+    {
+        bail!("server_link.identity_mismatch");
+    }
     Ok(json!({
         "install": config.install,
         "public_key": STANDARD.encode(public_key),
@@ -212,12 +289,13 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
         "running": live.is_some(),
         "socket": live.map(|registration| registration.socket),
         "peers_file": state.peers_path(),
+        "identity_source": if config.server_identity.is_some() { "server_pairing" } else { "local" },
     }))
 }
 
 fn run_peer(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else {
-        return Err(anyhow!(catalog().remote_client.link_help));
+        return Err(anyhow!(help_text()));
     };
     let rest = &args[1..];
     match action {
@@ -265,7 +343,7 @@ fn change_peers(
     let mut pairings = Pairings::load(&state.peers_path())?;
     let changed = change(&mut pairings)?;
     pairings.save(&state.peers_path())?;
-    let reloaded = match registration::read_live(&state.registration_dir()) {
+    let reloaded = match ensure::live(&state) {
         Some(live) => tokio_runtime()?.block_on(reload(&live.socket)),
         None => false,
     };
@@ -284,28 +362,87 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    #[cfg(target_os = "macos")]
+    let watch = launchd::plist_path()
+        .ok()
+        .and_then(|plist| crate::launchd_refresh::for_agent(launchd::LABEL, plist));
+    #[cfg(not(target_os = "macos"))]
+    let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
-    let owner = owner_session(flags)?;
-    tokio_runtime()?.block_on(serve(state, session_socket, owner))
+    // `server.json` is read once: the owner session is parsed from, and
+    // `link.status` hashes, the same bytes.
+    let config_path = server_config_path(flags);
+    let config_bytes = read_server_config(config_path.as_deref())?;
+    let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
+    let ready = match flags.get("--ready-fd") {
+        Some(fd) => Some(ensure::ReadyPipe::take(fd)?),
+        None => None,
+    };
+    // One link per state directory, for its whole life, taken before the
+    // UDP bind: a second `serve` of the same state directory stops here.
+    let _lock = serve_lock(&state)?;
+    let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
+    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, watch))
 }
 
-/// The owner session block of `server.json` (`--server-config PATH`, else
-/// the user-mode `~/.config/cmux/server.json`); none when absent. An
-/// invalid block stops the link instead of serving with a guess.
-fn owner_session(flags: &Flags) -> anyhow::Result<Option<Arc<OwnerSession>>> {
-    let path = match flags.get("--server-config") {
-        Some(path) => PathBuf::from(path),
+/// `<state>/link.lock`, held by a running `serve` (never blocks).
+fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
+    let path = state.dir().join("link.lock");
+    let file = state::open_lock(&path)?;
+    // SAFETY: flock on a descriptor this process owns.
+    if unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX | libc::LOCK_NB) }
+        != 0
+    {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            return Err(anyhow!("a cmux link already runs for {}", state.dir().display()));
+        }
+        return Err(error).context("lock the link state directory");
+    }
+    Ok(file)
+}
+
+/// The `server.json` a link reads its owner session from: `--server-config
+/// PATH`, else the user-mode `~/.config/cmux/server.json`; none without HOME.
+pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
+    match flags.get("--server-config") {
+        Some(path) => Some(PathBuf::from(path)),
         // Shortcut: duplicates the user-mode layout of cmux-server-core; use
         // its layout code when the next Cargo WINDOW allows the dependency
         // (bead cx-uu3).
-        None => match std::env::var_os("HOME") {
-            Some(home) => PathBuf::from(home).join(".config/cmux/server.json"),
-            None => return Ok(None),
-        },
+        None => std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".config/cmux/server.json")),
+    }
+}
+
+/// The bytes of `server.json` at `path`; none when there is no path or no file.
+pub(super) fn read_server_config(path: Option<&Path>) -> anyhow::Result<Option<Vec<u8>>> {
+    let Some(path) = path else { return Ok(None) };
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
+    }
+}
+
+/// The owner session block of `server.json` (`--server-config PATH`, else
+/// the user-mode `~/.config/cmux/server.json`) from its `bytes`; none when
+/// absent. An invalid block stops the link instead of serving with a guess.
+fn owner_session(
+    path: Option<&Path>,
+    bytes: Option<&[u8]>,
+) -> anyhow::Result<Option<Arc<OwnerSession>>> {
+    let Some(bytes) = bytes else { return Ok(None) };
+    let where_ = || {
+        format!(
+            "read owner_session in {}",
+            path.map(Path::display).map(|p| p.to_string()).unwrap_or_default()
+        )
     };
-    let owner = OwnerSession::load(&path)
-        .with_context(|| format!("read owner_session in {}", path.display()))?;
+    let text = std::str::from_utf8(bytes).with_context(where_)?;
+    let owner = OwnerSession::parse(text).with_context(where_)?;
     Ok(owner.map(Arc::new))
 }
 
@@ -313,14 +450,18 @@ async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
+    ready: Option<ensure::ReadyPipe>,
+    served: ensure::Served,
+    watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
+    let private_key = state.private_key()?;
+    let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
             .await
             .with_context(|| format!("bind UDP port {}", config.port))?;
     let own = overlay_address(&config.install);
-    let private_key = state.private_key()?;
     let mesh = WgMesh::start(
         WgMeshConfig {
             private_key: private_key.clone(),
@@ -336,21 +477,32 @@ async fn serve(
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
-    let socket_path = state::socket_path();
+    let socket_path = state.socket_path();
     let local = bind_local(&socket_path)?;
     let pid = std::process::id();
+    let udp = overlay.local_addr()?.to_string();
+    let status: Arc<str> =
+        ensure::status_line(&state, &config, &socket_path, pid, &udp, &served, &public_key)
+            .to_string()
+            .into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
-    print_json(&json!({
+    let ready_line = json!({
         "event": "link-ready",
         "socket": socket_path,
+        "pid": pid,
         "overlay_address": own.to_string(),
-        "udp": overlay.local_addr()?.to_string(),
+        "udp": udp,
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
-    }));
+    });
+    print_json(&ready_line);
+    if let Some(ready) = ready {
+        ready.send(&ready_line);
+    }
     let result = tokio::select! {
-        served = serve_local(local, overlay.clone(), peers.clone(), resolver) => served.map_err(anyhow::Error::from),
+        served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
+        outcome = launchd_agent_outcome(watch) => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
@@ -363,6 +515,8 @@ fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     if let Some(parent) = path.parent() {
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        // Never bind in a folder another user or a symlink put there.
+        state::check_socket_dir(parent)?;
     }
     if path.exists() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {
@@ -374,6 +528,38 @@ fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     let listener = tokio::net::UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
+}
+
+/// This serve's launchd agent watch (`launchd_refresh.rs`), opened first thing in
+/// `run_serve`.
+#[cfg(target_os = "macos")]
+type AgentWatch = crate::launchd_refresh::Agent;
+#[cfg(not(target_os = "macos"))]
+type AgentWatch = std::convert::Infallible;
+
+/// When launchd runs this serve as `com.cmuxterm.link` (`watch`): resolves
+/// once an update replaced its binary (an error, so launchd starts the new
+/// one) or its app was deleted (the agent booted itself out and removed its
+/// plist). Never resolves otherwise.
+async fn launchd_agent_outcome(watch: Option<AgentWatch>) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = watch {
+        // A thread of its own: a blocking task would hold the runtime's shutdown.
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(agent.wait());
+        });
+        return match receiver.await {
+            Ok(crate::launchd_refresh::Outcome::Replaced) => {
+                Err(anyhow!("an update replaced this cmux; launchd starts the new build"))
+            }
+            Ok(crate::launchd_refresh::Outcome::Removed) => Ok(()),
+            Err(_) => std::future::pending().await,
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = watch;
+    std::future::pending().await
 }
 
 async fn shutdown_signal() -> anyhow::Result<()> {

@@ -13,6 +13,7 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 path + ["style"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.statusIndicator.style", "Style"),
                 help: SettingsText.keyed("settings.statusIndicator.style.help", "How sidebar rows, tabs and panes show work in progress."),
+                summary: SettingsText.keyed("settings.statusIndicator.style.summary", "How work in progress shows"),
                 kind: .choice([
                     SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.keyed("settings.choice.thinArc", "Thin Arc")),
                     SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.keyed("settings.choice.macSpinner", "macOS Spinner")),
@@ -21,6 +22,18 @@ nonisolated enum StatusIndicatorSettingsSchema {
                     SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
                 ]),
                 default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
+            ),
+            SettingDescriptor(
+                path + ["animation"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.statusIndicator.animation", "Status Indicators"),
+                help: SettingsText.keyed("settings.statusIndicator.animation.help",
+                                        "Static draws a still, distinct shape for each state. Reduce Motion always uses Static."),
+                kind: .choice([
+                    SettingChoice(StatusIndicatorAnimation.animated.rawValue, SettingsText.keyed("settings.choice.animated", "Animated")),
+                    SettingChoice(StatusIndicatorAnimation.`static`.rawValue, SettingsText.keyed("settings.choice.static", "Static")),
+                ]),
+                default: .string(defaults.animation.rawValue),
+                keywords: ["animation", "motion", "blink", "pulse", "flash", "static", "reduce motion", "accessibility", "headache"]
             ),
             SettingDescriptor(
                 path + ["size"], section: .appearance, group: group,
@@ -64,6 +77,7 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusy"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.status.inferCommandBusy", "Show Running Commands"),
                 help: SettingsText.keyed("settings.status.inferCommandBusy.help", "A shell command that runs a while shows as busy."),
+                summary: SettingsText.keyed("settings.status.inferCommandBusy.summary", "Mark long shell commands as busy"),
                 kind: .toggle, default: .bool(StatusBehaviorSettings().inferCommandBusy)
             ),
             SettingDescriptor(

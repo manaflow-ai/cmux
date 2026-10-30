@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { wireToken } from "./server"
+import { wireCredential } from "./server"
 
 /**
  * Loads data when `key` changes (and on `reload()`); the only effect in the
@@ -36,7 +36,7 @@ export interface WireEvent {
 
 /**
  * Subscribes to the user's stream over cmux.wire/1 while `stream` is set. The
- * socket token comes from the `wireToken` server function (see its trade-off note).
+ * socket credential (a single-use ticket) comes from the `wireCredential` server function.
  */
 export function useWire(stream: string | null) {
   const [frames, setFrames] = useState<Array<WireEvent>>([])
@@ -58,10 +58,10 @@ export function useWire(stream: string | null) {
       socket.onerror = () => setStatus("error")
     }
     setStatus("connecting")
-    void wireToken().then(({ token, apiUrl }) => {
+    void wireCredential().then(({ protocol, apiUrl }) => {
       if (!live) return
-      if (!token) return setStatus("signed out")
-      ws = new WebSocket(`${apiUrl.replace(/^http/, "ws")}/v1/wire/user`, ["cmux.wire.v1", `bearer.${token}`])
+      if (!protocol) return setStatus("signed out")
+      ws = new WebSocket(`${apiUrl.replace(/^http/, "ws")}/v1/wire/user`, ["cmux.wire.v1", protocol])
       attach(ws)
     })
     return () => {

@@ -47,7 +47,7 @@ public enum SSHLinkError: Error, Sendable, CustomStringConvertible {
     public var waitsForUser: Bool {
         switch self {
         case .blocked, .needsInstall, .stopped: true
-        case .ssh(let failure): failure.kind == .authFailed || failure.kind == .hostKeyUntrusted
+        case .ssh(let failure): failure.kind == .authFailed || failure.kind == .hostKeyUntrusted || failure.kind == .sessionInUse
         case .linkFailed: false
         }
     }
@@ -86,6 +86,8 @@ public actor SSHMachineLink {
     private var exitedOutput: String?
     private var socket: String?
     private var starting: Task<String, any Error>?
+    /// Invalidates in-flight startup work when transport ownership changes.
+    private var startGeneration = 0
     private var localProtocol: Int?
     /// The last probe's findings (platform for the installer).
     public private(set) var lastReport: SSHProbeReport?
@@ -118,16 +120,38 @@ public actor SSHMachineLink {
     public func handle(_ event: SSHConnectionMachine.Event) {
         let before = machine.status
         machine.handle(event)
-        if event == .disconnect { tearDown() }
+        if event == .disconnect {
+            startGeneration += 1
+            starting?.cancel()
+            starting = nil
+            tearDown()
+        }
         if machine.status != before { onStatus(machine.status) }
     }
 
     public func socketPath() async throws -> String {
         if let socket, child?.isRunning == true, FileManager.default.fileExists(atPath: socket) { return socket }
         if let starting { return try await starting.value }
-        let task = Task { try await self.start() }
+        startGeneration += 1
+        let generation = startGeneration
+        let task = Task {
+            do {
+                return try await self.start(generation: generation)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try self.checkStartup(generation)
+                // Probe decoding, local state preparation and process launch can
+                // fail before the link has a child to report an SSH error.
+                // Preserve typed remote failures, install consent and disconnect.
+                if self.startGeneration == generation && (self.machine.status == .connecting || self.machine.status == .reconnecting) {
+                    self.handle(.failed(.remoteFailed(String(describing: error))))
+                }
+                throw error
+            }
+        }
         starting = task
-        defer { starting = nil }
+        defer { if startGeneration == generation { starting = nil } }
         return try await task.value
     }
 
@@ -136,38 +160,65 @@ public actor SSHMachineLink {
         handle(.disconnect)
     }
 
+    /// Ends the link client so it can close the remote session at once
+    /// (its close frame goes over its own ssh child), then the whole process
+    /// group if it has not exited within `closeDeadline` (cx-bj1o).
     private func tearDown() {
-        child?.terminate()
+        if let child {
+            child.terminateProcessOnly()
+            // task-owner: one bounded fallback; terminate() is a no-op once the child exited
+            Task.detached {
+                // wakeup-allow: one-shot deadline for a stopped link client
+                try? await Task.sleep(for: Self.closeDeadline)
+                child.terminate()
+            }
+        }
         child = nil
         socket = nil
     }
 
-    private func start() async throws -> String {
+    /// How long a stopped link client may take to close its session before
+    /// its process group is ended.
+    static let closeDeadline: Duration = .seconds(5)
+
+    private func start(generation: Int) async throws -> String {
+        try checkStartup(generation)
         tearDown()
         handle(.attemptStarted)
         guard machine.mayAttempt else { throw SSHLinkError.blocked(machine.status) }
         let env = await environment()
+        try checkStartup(generation)
         let report = try await probe(env)
+        try checkStartup(generation)
         guard machine.mayAttempt else { throw SSHLinkError.stopped }
         let need = InstallNeed.assess(report, localProtocol: try await bundledProtocol(env))
+        try checkStartup(generation)
         guard need == .none else {
             handle(.probed(need))
             throw SSHLinkError.needsInstall(need)
         }
-        return try await spawn(env)
+        return try await spawn(env, generation: generation)
+    }
+
+    private func checkStartup(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard startGeneration == generation else { throw CancellationError() }
     }
 
     /// One ssh round trip: platform and the machine's cmux-tui.
     public func probe(_ env: [String: String]) async throws -> SSHProbeReport {
+        try Task.checkCancellation()
         let result: SSHProcessResult
         do {
             result = try await SSHProcessRunner.run(commandLine.script(host), input: .data(Data(SSHProbeReport.script(remoteBinary: host.remoteBinary).utf8)),
                                                  environment: env, deadline: .seconds(45), label: "ssh probe \(host.destination)")
         } catch is DeadlineExceeded {
+            try Task.checkCancellation()
             let failure = SSHFailure.unreachable("ssh to \(host.destination) did not answer within 45 s")
             handle(.failed(failure))
             throw SSHLinkError.ssh(failure)
         }
+        try Task.checkCancellation()
         if let failure = SSHFailure.classify(status: result.status, stderr: result.stderr), result.status == 255 {
             handle(.failed(failure))
             throw SSHLinkError.ssh(failure)
@@ -187,12 +238,13 @@ public actor SSHMachineLink {
         if let localProtocol { return localProtocol }
         let result = try await SSHProcessRunner.run([binary.path, "remote-probe", "--json"], environment: env, deadline: .seconds(10),
                                                  label: "cmux-tui remote-probe")
+        try Task.checkCancellation()
         let value = try RemoteProbe.decode(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)).remoteProtocol
         localProtocol = value
         return value
     }
 
-    private func spawn(_ env: [String: String]) async throws -> String {
+    private func spawn(_ env: [String: String], generation: Int) async throws -> String {
         try paths.prepare()
         let path = paths.linkSocket(machineID: machineID)
         unlink(path)
@@ -209,13 +261,18 @@ public actor SSHMachineLink {
                 if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
                 return nil
             }
+            try checkStartup(generation)
             guard machine.mayAttempt, self.child === child else {
-                child.terminate()
+                // A disconnect that raced the connected line already ran
+                // tearDown for this child; otherwise stop it the same way, so
+                // the client still closes its new session (cx-bj1o).
+                if self.child === child { tearDown() }
                 throw SSHLinkError.stopped
             }
             self.socket = socket
             handle(.linkUp)
             watchExit(child)
+            watchSnapshots(child)
             logger.info("ssh link up for \(self.host.destination.description, privacy: .public) pid \(child.pid ?? 0)")
             return socket
         } catch let error as SSHLinkError {
@@ -223,7 +280,14 @@ public actor SSHMachineLink {
         } catch {
             child.terminate()
             if self.child === child { self.child = nil }
+            try checkStartup(generation)
             let stderr = child.stderrText
+            if let refusal = RemoteRefusal.parse(stderr) {
+                // A typed refusal is an install or update state, not a failure (cx-z3zh).
+                logger.error("ssh link for \(self.host.destination.description, privacy: .public) refused: \(stderr, privacy: .public)")
+                handle(.probed(.refused(refusal)))
+                throw SSHLinkError.needsInstall(.refused(refusal))
+            }
             let failure = SSHFailure.classifyLink(stderr: stderr) ?? .remoteFailed(String(describing: error))
             logger.error("ssh link for \(self.host.destination.description, privacy: .public) failed: \(stderr, privacy: .public)")
             handle(.failed(failure))
@@ -238,6 +302,29 @@ public actor SSHMachineLink {
         Task { [weak self] in
             _ = await child.waitForExit()
             await self?.linkExited(child)
+        }
+    }
+
+    /// The running link client redials on its own after sleep, a network
+    /// drop or change, and its local socket stays up meanwhile; only its
+    /// snapshots say so. The machine reads as reconnecting until it is back.
+    private func watchSnapshots(_ child: ChildProcess) {
+        let lines = child.lines
+        // task-owner: ends with the child's stdout
+        Task { [weak self] in
+            for await line in lines {
+                guard let connected = CloudLinkEvent.linkConnected(line) else { continue }
+                await self?.linkReported(child, connected: connected)
+            }
+        }
+    }
+
+    private func linkReported(_ reporting: ChildProcess, connected: Bool) {
+        guard child === reporting else { return }
+        if connected {
+            if machine.status == .reconnecting { handle(.linkUp) }
+        } else {
+            handle(.linkInterrupted)
         }
     }
 

@@ -23,6 +23,8 @@ const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
 const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+/// Result arrays are capped by the embedded resource-operation catalog.
+pub(crate) const JOURNAL_LIST_MAX_ITEMS: usize = 4096;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
     if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -321,6 +323,7 @@ struct PreparedJournalSegment {
     metadata: JournalSegment,
     compressed: Vec<u8>,
     digest: [u8; 32],
+    kinds: Vec<String>,
 }
 
 pub(super) fn create_journal_extensions_schema(
@@ -412,6 +415,12 @@ pub(super) fn create_journal_extensions_schema(
            sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
            actors_json TEXT
          );
+         CREATE TABLE IF NOT EXISTS journal_segment_kinds (
+           segment_id TEXT NOT NULL,
+           kind TEXT NOT NULL,
+           PRIMARY KEY(segment_id, kind),
+           FOREIGN KEY(segment_id) REFERENCES journal_segments(segment_id)
+         ) WITHOUT ROWID;
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
          BEGIN
@@ -459,7 +468,6 @@ pub(super) fn create_journal_extensions_schema(
          END;",
     )?;
     ensure_built_in_agent_producer(transaction)?;
-    ensure_built_in_shell_producer(transaction)?;
     migrate_journal_receipt_origins(transaction)?;
     let delivery_columns = table_columns(transaction, "journal_hook_deliveries")?;
     if !delivery_columns.contains("started_event_id") {
@@ -525,51 +533,6 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             manifest_json,
             manifest.producer_id,
         ],
-    )?;
-    Ok(())
-}
-
-/// The reserved `cmux_shell` producer (terminal command history). Added when
-/// missing. A stored manifest of a lower version is replaced; a newer one
-/// (a newer daemon opened this session before) is kept, so an older binary
-/// never downgrades it; the same version with different content fails
-/// closed, like the agent producer.
-fn ensure_built_in_shell_producer(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let manifest = crate::shell_history::built_in_shell_producer_manifest();
-    let manifest_json = canonical_json(&serde_json::to_value(&manifest)?)?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO journal_producers(
-           producer_id, namespace, manifest_version, manifest_json, installed_at_ms
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![
-            manifest.producer_id,
-            manifest.namespace,
-            i64::from(manifest.manifest_version),
-            manifest_json,
-            i64::try_from(unix_epoch_ms()?)?,
-        ],
-    )?;
-    let (installed_version, installed_json) = transaction.query_row(
-        "SELECT manifest_version, manifest_json FROM journal_producers WHERE producer_id = ?1",
-        [crate::shell_history::SHELL_PRODUCER_ID],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-    )?;
-    let current = i64::from(manifest.manifest_version);
-    if installed_version > current {
-        return Ok(());
-    }
-    if installed_version == current {
-        anyhow::ensure!(
-            installed_json == manifest_json,
-            "reserved cmux shell producer manifest does not match this binary"
-        );
-        return Ok(());
-    }
-    transaction.execute(
-        "UPDATE journal_producers
-         SET namespace = ?1, manifest_version = ?2, manifest_json = ?3
-         WHERE producer_id = ?4",
-        params![manifest.namespace, current, manifest_json, manifest.producer_id],
     )?;
     Ok(())
 }
@@ -814,11 +777,16 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
             !regex.pattern.is_empty() && regex.pattern.len() <= 1024,
             "hook regex must contain 1 to 1024 UTF-8 bytes"
         );
+        // A new hook on terminal output would never fire: output is not in
+        // the session journal (output_store.rs). Hooks stored before keep
+        // matching the output records of older registries.
         anyhow::ensure!(
-            matches!(
-                regex.field.as_str(),
-                "kind" | "subjects" | "payload" | "record" | "terminal_output"
-            ),
+            regex.field != "terminal_output",
+            "hook regex field terminal_output is retired: terminal output is not in the session \
+             journal; wait with terminal.wait or read with terminal.output_read"
+        );
+        anyhow::ensure!(
+            matches!(regex.field.as_str(), "kind" | "subjects" | "payload" | "record"),
             "hook regex field is invalid"
         );
         regex::bytes::RegexBuilder::new(&regex.pattern)
@@ -918,7 +886,7 @@ impl WorkspaceRegistry {
         );
         anyhow::ensure!(
             manifest.producer_id != crate::shell_history::SHELL_PRODUCER_ID,
-            "the cmux shell producer is built in"
+            "the cmux shell producer id is reserved"
         );
         validate_journal_producer_manifest(manifest)?;
         validate_identifier("journal producer origin", origin)?;
@@ -1105,16 +1073,8 @@ fn append_journal_ingress_transaction(
     expand_topology_subjects(tx, &mut subjects)?;
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let built_in_agent = ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID;
-    let built_in_shell = ingress.producer_id == crate::shell_history::SHELL_PRODUCER_ID;
     let producer = JournalProducer {
-        kind: if built_in_agent {
-            "agent_adapter"
-        } else if built_in_shell {
-            "terminal_observer"
-        } else {
-            "plugin"
-        }
-        .into(),
+        kind: if built_in_agent { "agent_adapter" } else { "plugin" }.into(),
         id: ingress.producer_id.clone(),
     };
     let authority = JournalAuthority {
@@ -1882,10 +1842,11 @@ impl WorkspaceRegistry {
             "SELECT checkpoint_id, source_sequence, reducer_version, content_refs_json,
                     sha256, created_at_ms
              FROM journal_checkpoints
-             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC",
+             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC
+             LIMIT ?1",
         )?;
         let rows = statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -1951,15 +1912,40 @@ impl WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<AutoVacuumMigration> {
+        migrate_journal_auto_vacuum(&self.connection.get())
+    }
+
+    /// Returns up to 256 free pages; true while an incremental-vacuum
+    /// registry still has free pages for a later call.
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<bool> {
+        // Fresh registries opt into SQLite's incremental auto-vacuum. This is
+        // intentionally a small step: journal sealing must release the
+        // registry writer quickly even when a busy VM has many free pages.
+        let db = self.connection.get();
+        // SQLite frees one page per step of this pragma, so it must be stepped
+        // until done: `execute_batch` steps once and freed a single page.
+        let mut vacuum = db.prepare("PRAGMA incremental_vacuum(256)")?;
+        let mut steps = vacuum.raw_query();
+        while steps.next()?.is_some() {}
+        drop(steps);
+        drop(vacuum);
+        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
+        // converted, so they are no work for a later call.
+        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+        let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        Ok(mode == 2 && free > 0)
+    }
+
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                     uncompressed_bytes, sha256, sealed_at_ms
-             FROM journal_segments ORDER BY start_sequence ASC",
+             FROM journal_segments ORDER BY start_sequence ASC LIMIT ?1",
         )?;
         statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -1985,6 +1971,15 @@ impl WorkspaceRegistry {
                 })
             })
             .collect()
+    }
+
+    pub(crate) fn journal_segments_end(&self) -> anyhow::Result<u64> {
+        let end = self.connection.get().query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(u64::try_from(end)?)
     }
 
     pub(crate) fn begin_journal_segment_seal(
@@ -2021,7 +2016,7 @@ impl WorkspaceRegistry {
             requested_through <= head,
             "segment through sequence is ahead of the journal"
         );
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -2038,9 +2033,15 @@ impl WorkspaceRegistry {
         )?;
         let archived_end = u64::try_from(archived_end)?;
         anyhow::ensure!(
-            through_sequence > archived_end,
+            checkpoint_sequence > archived_end,
             "requested journal range is already sealed"
         );
+        // A checkpoint can cover a very large prefix. Prepare and commit at
+        // most one storage segment per call so terminal writers only wait for
+        // a bounded delete/insert transaction; the caller can continue with
+        // the same checkpoint on its next maintenance tick.
+        let through_sequence = checkpoint_sequence
+            .min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64));
         tx.commit()?;
         Ok(JournalSegmentSealStart::Prepare(JournalSegmentSealPlan {
             requested_through,
@@ -2068,7 +2069,7 @@ impl WorkspaceRegistry {
         )? {
             return Ok(Some(journal_segment_receipt(&tx, origin, idempotency_key, journal)?));
         }
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -2082,6 +2083,9 @@ impl WorkspaceRegistry {
             [],
             |row| row.get::<_, i64>(0),
         )?)?;
+        let through_sequence = checkpoint_sequence.map(|checkpoint| {
+            checkpoint.min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64))
+        });
         if through_sequence != Some(plan.through_sequence) || archived_end != plan.archived_end {
             return Ok(None);
         }
@@ -2089,6 +2093,7 @@ impl WorkspaceRegistry {
         let segments =
             prepared_segments.iter().map(|segment| segment.metadata.clone()).collect::<Vec<_>>();
         for segment in prepared_segments {
+            let kinds = segment.kinds.clone();
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -2110,6 +2115,12 @@ impl WorkspaceRegistry {
                     )?,
                 ],
             )?;
+            for kind in kinds {
+                tx.execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                    params![segment.metadata.segment_id, kind],
+                )?;
+            }
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -2195,6 +2206,7 @@ impl JournalSegmentSealPlan {
             uncompressed.push(b'[');
             let mut start_sequence = None;
             let mut record_count = 0_u64;
+            let mut kinds = BTreeSet::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -2211,6 +2223,7 @@ impl JournalSegmentSealPlan {
                         record.sequence
                     );
                     let sequence = record.sequence;
+                    let kind = record.kind.clone();
                     let record = session_journal::journal_record_for_archive(&record);
                     let record_bytes = serde_json::to_vec(&record)?;
                     anyhow::ensure!(
@@ -2228,6 +2241,7 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
                     }
@@ -2268,6 +2282,7 @@ impl JournalSegmentSealPlan {
                 },
                 compressed,
                 digest,
+                kinds: kinds.into_iter().collect(),
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;

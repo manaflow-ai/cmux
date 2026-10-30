@@ -4,21 +4,24 @@ import CmuxNextDesign
 /// Chrome colors of the pane, resolved by the pane view inside its theme
 /// scope and handed to every subview. No blue: selection and hover are the
 /// foreground at low alpha; the path dot uses success / attention; the
-/// upstream indicator uses the theme accent.
+/// upstream indicator uses the theme accent. Until the pane resolves, the app theme's
+/// (`ThemeTokens.unresolved`), never macOS's grays.
 struct RemotePaneColors: Equatable {
-    var background = NSColor.windowBackgroundColor
-    var textPrimary = NSColor.labelColor
-    var textSecondary = NSColor.secondaryLabelColor
-    var textTertiary = NSColor.tertiaryLabelColor
-    var hoverFill = NSColor.quaternaryLabelColor
-    var selectionFill = NSColor.unemphasizedSelectedContentBackgroundColor
-    var badgeFill = NSColor.quaternaryLabelColor
-    var separator = NSColor.separatorColor
-    var attention = NSColor.systemOrange
-    var danger = NSColor.systemRed
-    var success = NSColor.systemGreen
+    var background = ThemeTokens.unresolved.contentBackground.nsColor
+    var textPrimary = ThemeTokens.unresolved.textPrimary.nsColor
+    var textSecondary = ThemeTokens.unresolved.textSecondary.nsColor
+    var textTertiary = ThemeTokens.unresolved.textTertiary.nsColor
+    var hoverFill = ThemeTokens.unresolved.hoverFill.nsColor
+    var selectionFill = ThemeTokens.unresolved.selectionFill.nsColor
+    var badgeFill = ThemeTokens.unresolved.badgeFill.nsColor
+    var separator = ThemeTokens.unresolved.separator.nsColor
+    var attention = ThemeTokens.unresolved.attention.nsColor
+    var danger = ThemeTokens.unresolved.danger.nsColor
+    var success = ThemeTokens.unresolved.success.nsColor
     /// The Ghostty theme accent (`Palette.accent`), never the system blue.
-    var accent = NSColor.labelColor
+    var accent = ThemeTokens.unresolved.accent.nsColor
+    /// A lit button's label (`Palette.litGlyph`): the accent, never fainter than at rest.
+    var litGlyph = ThemeTokens.unresolved.litGlyph.nsColor
     var drawsBorders = true
 
     /// Reads the chrome tokens; callers run it inside `performWithTheme`.
@@ -31,6 +34,7 @@ struct RemotePaneColors: Equatable {
             selectionFill: plain(Palette.selectionFill), badgeFill: plain(Palette.badgeFill),
             separator: plain(Palette.separator), attention: plain(Palette.attention),
             danger: plain(Palette.danger), success: plain(Palette.success), accent: plain(Palette.accent),
+            litGlyph: plain(Palette.litGlyph),
             drawsBorders: Borders.drawsLines)
     }
 
@@ -38,7 +42,7 @@ struct RemotePaneColors: Equatable {
     func dot(for path: RemotePath?) -> NSColor {
         switch path {
         case .direct: success
-        case .viaCloudRegion, .relayed: attention
+        case .viaCloudRegion, .relayed, .compatibility: attention
         case nil: textTertiary
         }
     }

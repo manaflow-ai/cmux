@@ -36,14 +36,24 @@ extension SettingsController {
     /// (`{"shortcuts": {...}}`, pretty JSON), atomically.
     public func exportShortcutKeymap(to url: URL) async throws {
         let keymap: JSONValue = .object(["shortcuts": try await shortcutKeymap()])
-        try Data(keymap.prettyText().utf8).write(to: url, options: .atomic)
+        try await Self.write(Data(keymap.prettyText().utf8), to: url)
+    }
+
+    /// The keymap file's bytes, read off the main actor (a user-chosen file can be on a slow volume).
+    @concurrent nonisolated private static func read(_ url: URL) async throws -> String {
+        try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Writes the keymap file atomically, off the main actor.
+    @concurrent nonisolated private static func write(_ data: Data, to url: URL) async throws {
+        try data.write(to: url, options: .atomic)
     }
 
     /// Reads a keymap file (JSONC) and imports it (``importShortcutKeymap(_:)``),
     /// then reloads so the registry applies it. A file that does not parse
     /// changes nothing.
     public func importShortcutKeymap(from url: URL) async throws {
-        let value = try JSONC.parse(try String(contentsOf: url, encoding: .utf8))
+        let value = try JSONC.parse(try await Self.read(url))
         try await importShortcutKeymap(value)
         await reload()
     }
@@ -51,6 +61,28 @@ extension SettingsController {
     /// The edits that switch cmux-next.json to `preset`, from the file as it is.
     public func keymapPlan(_ preset: ShortcutKeymapPreset) async throws -> ShortcutKeymapPlan {
         preset.plan(from: try await shortcutBindings())
+    }
+
+    /// Writes `plan` in one publish and returns how to put back every
+    /// shortcut it changed (the base keymap toast's Undo).
+    public func applyUndoably(_ plan: ShortcutKeymapPlan) async throws -> ShortcutKeymapUndo {
+        var previous: [(path: [String], value: JSONValue?)] = []
+        for change in plan.changes {
+            // Only the paths `apply` writes (the legacy key goes only for a removed override).
+            var paths = [["shortcuts", "bindings", change.actionID]]
+            if change.write == nil { paths.append(["shortcuts", change.actionID]) }
+            for path in paths { previous.append((path, try await file.value(at: path))) }
+        }
+        try await apply(plan)
+        return ShortcutKeymapUndo(edits: previous)
+    }
+
+    /// Puts back the shortcuts an ``applyUndoably(_:)`` changed, in one
+    /// publish. An edit of the same shortcuts made after the keymap is
+    /// overwritten (the toast's Undo lasts seconds).
+    public func restore(_ undo: ShortcutKeymapUndo) async throws {
+        guard !undo.edits.isEmpty else { return }
+        try await file.apply(undo.edits)
     }
 
     /// Writes `plan` in one publish. A removed override also goes from the
@@ -74,4 +106,10 @@ extension SettingsController {
         }
         return bindings
     }
+}
+
+/// The shortcut values a base keymap replaced, as edits that write them back
+/// (nil removes a key the keymap added).
+public nonisolated struct ShortcutKeymapUndo: Sendable {
+    public let edits: [(path: [String], value: JSONValue?)]
 }

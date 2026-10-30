@@ -3,7 +3,7 @@ import Foundation
 public struct DeletePersonalGroupRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "delete-personal-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
+    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var group: WorkspaceGroupID
     public init(group: WorkspaceGroupID) { self.group = group }
 }
@@ -11,7 +11,7 @@ public struct DeletePersonalGroupRequest: DaemonRequest {
 public struct MovePersonalGroupRequest: DaemonRequest {
     public typealias Response = PersonalGroupResult
     public static let command = "move-personal-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
+    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var group: WorkspaceGroupID
     public var index: Int
     public init(group: WorkspaceGroupID, index: Int) {
@@ -25,21 +25,25 @@ public struct MovePersonalGroupRequest: DaemonRequest {
 public struct SetPersonalWorkspaceRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-personal-workspace"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
+    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
     public var index: Int?
     public var group: FieldUpdate<WorkspaceGroupID>
     public var browserProfileID: FieldUpdate<BrowserProfileKey>
     public var theme: FieldUpdate<String>
+    /// Needs `personal-remote-localhost-v1` unless unchanged.
+    public var remoteLocalhost: FieldUpdate<Bool>
     public init(sessionID: String, workspaceKey: WorkspaceKey, index: Int? = nil, group: FieldUpdate<WorkspaceGroupID> = .unchanged,
-                browserProfileID: FieldUpdate<BrowserProfileKey> = .unchanged, theme: FieldUpdate<String> = .unchanged) {
+                browserProfileID: FieldUpdate<BrowserProfileKey> = .unchanged, theme: FieldUpdate<String> = .unchanged,
+                remoteLocalhost: FieldUpdate<Bool> = .unchanged) {
         self.sessionID = sessionID
         self.workspaceKey = workspaceKey
         self.index = index
         self.group = group
         self.browserProfileID = browserProfileID
         self.theme = theme
+        self.remoteLocalhost = remoteLocalhost
     }
 
     enum CodingKeys: String, CodingKey {
@@ -47,6 +51,7 @@ public struct SetPersonalWorkspaceRequest: DaemonRequest {
         case sessionID = "session_id"
         case workspaceKey = "workspace_key"
         case browserProfileID = "browser_profile_id"
+        case remoteLocalhost = "remote_localhost"
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -56,5 +61,6 @@ public struct SetPersonalWorkspaceRequest: DaemonRequest {
         try c.encode(group, forKey: .group)
         try c.encode(browserProfileID, forKey: .browserProfileID)
         try c.encode(theme, forKey: .theme)
+        try c.encode(remoteLocalhost, forKey: .remoteLocalhost)
     }
 }

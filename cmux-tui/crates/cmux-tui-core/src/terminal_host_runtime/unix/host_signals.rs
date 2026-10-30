@@ -10,7 +10,17 @@
 //! ([`SURVIVED_SIGNALS`]), are recorded and otherwise ignored. `SIGKILL` cannot be caught; the owner then names
 //! the loss from the missing exit record and these breadcrumbs.
 //!
-//! One sender is honored: a `SIGTERM` from PID 1, the service manager
+//! In a build with an orphan grace (tagged DEV, staging, debug; cx-t2sqm
+//! D1), an orphaned host honors a plain `SIGTERM` from any sender
+//! (cx-hostorphan): when no client stream is attached (its owner daemon is
+//! gone and none adopted it), the host ends its terminal through the same
+//! path as an owner's `Terminate`, so a throwaway build's host does not hold
+//! its PTY until reboot. A normal install's host (no orphan grace) and a
+//! host its daemon still serves keep the rule above: quitting or updating
+//! cmux, a cleanup script or a `pkill` never ends a user's terminal
+//! (cx-t2sqm.17).
+//!
+//! One sender is always honored: a `SIGTERM` from PID 1, the service manager
 //! (launchd at logout, systemd stopping the unit or the machine, a container
 //! init). The session is going away around the host, so the host ends its
 //! terminal through the same bounded path as an owner's `Terminate` and
@@ -115,6 +125,16 @@ static TERMINATE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
 /// The terminal was asked to end for the service-manager stop.
 static STOP_ACTED: AtomicBool = AtomicBool::new(false);
+/// Set by the handler on any `SIGTERM`; the writer thread ends the
+/// terminal when the host is orphaned ([`on_orphan_check`]).
+static TERM_PENDING: AtomicBool = AtomicBool::new(false);
+/// The terminal was asked to end for a `SIGTERM` to an orphaned host.
+static ORPHAN_TERM_ACTED: AtomicBool = AtomicBool::new(false);
+/// The slot of the `SIGTERM` that ended an orphaned host (`usize::MAX`:
+/// none), so only that breadcrumb says `ended`.
+static ORPHAN_TERM_SLOT: AtomicUsize = AtomicUsize::new(usize::MAX);
+/// True when no client stream is attached (the owner daemon is gone).
+static ORPHANED: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
 /// Dropped signals already summarized in the breadcrumb file.
 static DROPPED_REPORTED: AtomicUsize = AtomicUsize::new(0);
 /// A breadcrumb append failed (for example `EFBIG` past `RLIMIT_FSIZE`): stop
@@ -131,6 +151,37 @@ pub(crate) fn honors(signal: libc::c_int, sender_pid: libc::pid_t) -> bool {
 pub(crate) fn on_service_manager_stop(terminate: Box<dyn Fn() + Send + Sync>) {
     let _ = TERMINATE.set(terminate);
     act_on_service_manager_stop();
+}
+
+/// Register how the host learns it is orphaned (no client stream). A
+/// `SIGTERM` then ends its terminal.
+pub(crate) fn on_orphan_check(orphaned: Box<dyn Fn() -> bool + Send + Sync>) {
+    let _ = ORPHANED.set(orphaned);
+}
+
+/// A `SIGTERM` to an orphaned host ends its terminal; one to a host its
+/// daemon serves is only recorded. Runs on the writer thread.
+fn act_on_orphan_term() {
+    if !TERM_PENDING.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    if ORPHANED.get().is_some_and(|orphaned| orphaned())
+        && let Some(terminate) = TERMINATE.get()
+        && !ORPHAN_TERM_ACTED.swap(true, Ordering::AcqRel)
+    {
+        // The newest recorded SIGTERM is the one acted on.
+        let recorded = NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS);
+        if let Some(index) = (0..recorded).rev().find(|index| {
+            SLOTS.get(*index).is_some_and(|slot| {
+                slot.ready.load(Ordering::Acquire) == 1
+                    && slot.signal.load(Ordering::Relaxed) == libc::SIGTERM
+            })
+        }) {
+            ORPHAN_TERM_SLOT.store(index, Ordering::Release);
+        }
+        super::super::shared::host_state::mark_owner_gone();
+        terminate();
+    }
 }
 
 fn act_on_service_manager_stop() {
@@ -188,10 +239,11 @@ extern "C" fn record_signal(
         let sender_uid = if info.is_null() { u32::MAX } else { siginfo_uid(info) };
         if honors(signal, sender) {
             SERVICE_STOP.store(true, Ordering::Release);
+        } else if signal == libc::SIGTERM {
+            TERM_PENDING.store(true, Ordering::Release);
         }
         let index = NEXT_SLOT.fetch_add(1, Ordering::AcqRel);
-        if index < MAX_RECORDED_SIGNALS {
-            let slot = &SLOTS[index];
+        if let Some(slot) = SLOTS.get(index) {
             let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
             libc::clock_gettime(libc::CLOCK_REALTIME, &mut now);
             let at_ms = now.tv_sec.saturating_mul(1000) + now.tv_nsec / 1_000_000;
@@ -260,6 +312,7 @@ pub(crate) fn install() -> anyhow::Result<()> {
             }
             // A service-manager stop first: naming senders reads /proc.
             act_on_service_manager_stop();
+            act_on_orphan_term();
             flush();
         }
     })?;
@@ -306,7 +359,7 @@ fn flush() {
     let recorded = NEXT_SLOT.load(Ordering::Acquire);
     let mut lines = String::new();
     while *written < recorded.min(MAX_RECORDED_SIGNALS) {
-        let slot = &SLOTS[*written];
+        let Some(slot) = SLOTS.get(*written) else { break };
         if slot.ready.load(Ordering::Acquire) == 0 {
             break;
         }
@@ -328,7 +381,8 @@ fn flush() {
             "action": if honors(
                 slot.signal.load(Ordering::Relaxed),
                 slot.sender_pid.load(Ordering::Relaxed),
-            ) {
+            ) || ORPHAN_TERM_SLOT.load(Ordering::Acquire) == *written
+            {
                 "ended"
             } else {
                 "ignored"

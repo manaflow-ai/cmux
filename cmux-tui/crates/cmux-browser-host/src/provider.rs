@@ -56,6 +56,25 @@ pub struct TabAnnounce {
     pub title: String,
     #[serde(default)]
     pub visible: bool,
+    /// View points per CSS px of the page's layout that the app's emulation
+    /// applies (a fit, or a device bigger than the pane: Chromium's
+    /// `setDeviceMetricsOverride` scale); 1 for every other tab. Chromium
+    /// reads CDP mouse coordinates in view points under that scale, so the
+    /// tab's driver multiplies CSS px by it (`CdpDriver::set_input_scale`).
+    #[serde(rename = "inputScale", default = "unit_scale", skip_serializing_if = "is_unit_scale")]
+    pub input_scale: f64,
+    /// The app's emulation turned touch on (a phone or tablet preset): the
+    /// tab's driver sends pointer input as touch (`CdpDriver::set_touch_emulation`, cx-3ny35).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub touch: bool,
+}
+
+fn unit_scale() -> f64 {
+    1.0
+}
+
+fn is_unit_scale(scale: &f64) -> bool {
+    *scale == 1.0
 }
 
 /// An automation lease the app shows as a "driven by" badge.
@@ -67,6 +86,10 @@ pub struct Lease {
     pub on_behalf_of: Option<String>,
     pub origin: String,
     pub label: String,
+    /// The holder's cmux terminal (`term_…`) when its client named one: the
+    /// app draws the lease in that agent's presence colour. Display only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
     pub since_ms: u64,
     /// The lease state machine's state (plans/cmux-next/automation-lease.md).
     pub state: LeaseState,
@@ -168,8 +191,8 @@ pub enum Frame {
         #[serde(rename = "targetId")]
         target_id: String,
     },
-    /// Whether agents may drive a CEF tab (app -> host, interim extension
-    /// rule): `extension_host_access` is true when an enabled extension of
+    /// A CEF tab's extension exposure (app -> host), informational since
+    /// #24413 made it no gate: `extension_host_access` is true when an enabled extension of
     /// the tab's profile holds host permissions on its page; `user_override`
     /// is the person's per-tab override from the app's native confirmation.
     /// Only the provider connection sends this; no driver call can set it.
@@ -395,6 +418,8 @@ mod tests {
                 url: "https://example.com/".into(),
                 title: "Example".into(),
                 visible: false,
+                input_scale: 1.0,
+                touch: false,
             }],
         }
     }

@@ -2,9 +2,9 @@ public import CmuxNextDesign
 
 /// The persisted appearance tuner values in `cmux.json`.
 ///
-/// Values are independent of the experimental UI gate: the gate decides
-/// whether the controls are shown, while these keys describe the appearance
-/// that the app applies when the controls are enabled.
+/// Values are independent of the experimental gate
+/// (`appearance.experimentalControls`): the gate decides whether the app
+/// applies them to the window tint, while these keys hold the values.
 public struct AppearanceTuningSetting: Sendable {
     public static let glassTransparencyPath = ["appearance", "glassTransparency"]
     public static let huePath = ["appearance", "hue"]

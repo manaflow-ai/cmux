@@ -44,6 +44,7 @@ struct HomePasteboardValue: HomePasteboardContents {
 
     func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool { types.contains(.fileURL) && !fileURLs.isEmpty }
     func data(forType type: NSPasteboard.PasteboardType) -> Data? { nil }
+    func string(forType type: NSPasteboard.PasteboardType) -> String? { nil }
 }
 
 extension HomeNativeTranscriptView {
@@ -69,15 +70,63 @@ extension HomeNativeTranscriptView {
 /// points a user reaches, for screenshots and recordings.
 extension HomeNativeTranscriptView {
     /// Return in the field: sends the text and the draft attachments.
-    public func sendDraft() { transcript.sendDraft() }
+    /// Nil when the draft went (or waits for the owner as "sending"), else why nothing was sent.
+    @discardableResult
+    public func sendDraft() -> String? { transcript.sendDraft() }
     /// A love tapback on the newest incoming message (the picker's path).
-    public func debugTapbackNewestIncoming() -> Bool { transcript.debugTapbackNewestIncoming() }
+    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool { transcript.debugTapbackNewestIncoming(mine: mine) }
     /// Plays or pauses the newest video bubble (the click's path).
     public func debugToggleNewestVideo() -> Bool { transcript.debugToggleNewestVideo() }
     /// The context menu's titles at the newest text bubble (the right-click's path).
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
     /// The field's height and the gap under the newest receipt, in points.
-    public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
+    /// With the drop target's state: the draft's attachment count, drops on their way, the highlight (1 shown).
+    public func debugGeometry() -> [String: Double] {
+        transcript.debugGeometry().merging(["draftAttachments": Double(transcript.draftAttachments.count), "dropPending": Double(drop.pending),
+                                            "dropHighlighted": drop.highlight.isShowing ? 1 : 0]) { $1 }
+    }
+    /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
+    public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
+    /// Moves the transcript by `dx`, `dy` points in this view (a pane on a fraction of a point).
+    public func debugNudge(dx: CGFloat, dy: CGFloat) {
+        debugTranscriptOffset = CGPoint(x: debugTranscriptOffset.x + dx, y: debugTranscriptOffset.y + dy)
+        layoutSubtreeIfNeeded()
+    }
+    /// Narrows the transcript to `trim` points under this view's width and lays it out now, in this
+    /// main-thread turn (no display frame passes between two calls in one socket request).
+    public func debugTrimWidth(_ trim: CGFloat) {
+        debugTranscriptWidthTrim = trim
+        layoutSubtreeIfNeeded()
+    }
+    /// MessagesLab's width pass counters (all panes): passes run, passes deferred to the next frame.
+    public var debugWidthPasses: (passes: Int, deferred: Int) { transcript.debugWidthPasses }
+    /// MessagesLab's width pass frame budget (s).
+    public var debugWidthPassBudget: Double { transcript.debugWidthPassBudget }
+    /// The transcript host's origin in window points (bottom-left origin).
+    public var debugHostOrigin: CGPoint { transcript.debugHostOrigin }
+    /// The transcript host's frame in window points (bottom-left origin).
+    public var debugHostFrame: CGRect { transcript.debugHostFrame }
+    /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.
+    public func debugTypingBubbleFrame() -> CGRect? { transcript.debugTypingBubbleFrame() }
+    /// The visible rows as drawn (a part: its bubble body and drawn balloon; a preview or other row: its content box),
+    /// window coordinates (bottom-left origin), top to bottom.
+    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] { transcript.debugRowFrames() }
+    /// The text of the newest `limit` messages this view shows, oldest first.
+    public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
+    public var debugStatusLine: String? { transcript.debugStatusLine }
+    public var debugRebuilds: Int { transcript.debugRebuilds }
+    public var debugStreamTexts: [String] { transcript.debugStreamTexts }
+    public var debugLineCloseAfterHandOffFires: Int? { transcript.debugLineCloseAfterHandOffFires }
+    /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
+    public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
+    /// The open thread's root (the transcript's id), nil when none is open.
+    public var debugOpenThread: String? { transcript.debugOpenThread }
+    /// Esc through the field's path.
+    public func debugEscape() { transcript.debugEscape() }
+    /// Reply… in the newest text bubble's context menu; the open thread's root.
+    public func debugReplyNewest(mine: Bool) -> String? { transcript.debugReplyNewest(mine: mine) }
+    /// A real Esc key press through the app's event queue (`outside`: the key focus leaves the pane first).
+    public func debugPostEscape(outside: Bool) { transcript.debugPostEscape(outside: outside) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

@@ -76,6 +76,35 @@ impl Flavor {
     fn resume(self, id: &str) -> Resume {
         Resume::Argv { argv: argv(&[self.binary(), "-s", id]), cwd_needed: true }
     }
+
+    /// A chat in one of the DBs: OpenCode's ACP agent loads it (`session/load`),
+    /// so acpmux adopts it (cx-6edj); Kilo resumes in its own CLI.
+    fn db_resume(self, id: &str) -> Resume {
+        match self {
+            Self::OpenCode => Resume::Adopt,
+            Self::Kilo => self.resume(id),
+        }
+    }
+}
+
+/// The OpenCode DB under `root` (an OpenCode data dir) that has session
+/// `id`, with the folder it recorded: what acpmux adopts.
+pub fn find_session(root: &Path, id: &str) -> Option<(PathBuf, Option<String>)> {
+    let dbs = db_files(root, Flavor::OpenCode).ok()?;
+    dbs.into_iter().find_map(|db| {
+        let conn = open_read_only(&db).ok()?;
+        ["session_v2", "session"].iter().find_map(|table| {
+            let cols = columns(&conn, table).ok()?;
+            if !cols.contains("id") {
+                return None;
+            }
+            let directory = pick(&cols, "directory");
+            let sql = format!("SELECT {directory} FROM {table} WHERE id = ?1");
+            let found: Option<Option<String>> =
+                conn.query_row(&sql, [id], |row| row.get(0)).optional().ok()?;
+            found.map(|dir| (db.clone(), dir.filter(|dir| !dir.is_empty())))
+        })
+    })
 }
 
 pub(super) fn read_store(root: &Path, flavor: Flavor) -> io::Result<Vec<ChatEntry>> {
@@ -225,7 +254,7 @@ fn db_entry(
         source_path: db.to_path_buf(),
         originator: None,
         archived: row.archived_ms.is_some(),
-        resume: flavor.resume(&row.id),
+        resume: flavor.db_resume(&row.id),
         session_id: row.id,
     }
 }

@@ -106,19 +106,32 @@ public nonisolated struct AgentPaneHarnessEnablePrompt: Equatable, Sendable {
 extension AgentPaneTransport {
     /// The native Enable harness step of a `_acpmux/harness_enable` frame that passed the folder
     /// check and the gesture rule: acpmux's prompt for the frame's (canonical) folder and id, the
-    /// sheet, and on Enable the prompt's sha256 in the frame. False on Cancel, without a sheet,
-    /// while another confirmation is open (app-wide, one at a time), or without a prompt.
-    func confirmHarnessEnable(_ box: FrameBox) async -> Bool {
-        guard let folder = box.param("folder"), let id = box.param("id"), let requestHarnessEnable else { return false }
+    /// sheet, and on Enable the prompt's sha256 in the frame. Declined on Cancel, without a sheet,
+    /// while another confirmation is open (app-wide, one at a time), or without a prompt. Without a
+    /// prompt the page learns why: acpmux's refusal (`detail`, cx-cuk4), or `reason`
+    /// ``promptUnavailable`` when acpmux did not answer with one (down, too slow; cx-nt39g).
+    func confirmHarnessEnable(_ box: FrameBox) async -> (confirmed: Bool, detail: String?, reason: String?) {
+        guard let folder = box.param("folder"), let id = box.param("id"), let requestHarnessEnable else { return (false, nil, nil) }
         let gate = confirmationGate
-        guard gate.open() else { return false }
+        guard gate.open() else { return (false, nil, nil) }
         defer { gate.close() }
-        guard let prompt = await harnessEnablePrompt(folder, id), prompt.id == id else { return false }
+        let prompt: AgentPaneHarnessEnablePrompt
+        do {
+            prompt = try await harnessEnablePrompt(folder, id)
+        } catch let refusal as AcpmuxRPCError {
+            return (false, refusal.message, nil)
+        } catch {
+            return (false, nil, Self.promptUnavailable)
+        }
+        guard prompt.id == id else { return (false, nil, Self.promptUnavailable) }
         let confirmed = await withCheckedContinuation { continuation in
             requestHarnessEnable(prompt) { continuation.resume(returning: $0) }
         }
-        guard confirmed else { return false }
+        guard confirmed else { return (false, nil, nil) }
         box.setParam("sha256", prompt.sha256)
-        return true
+        return (true, nil, nil)
     }
+
+    /// The refusal reason of an Enable acpmux gave no prompt for.
+    static let promptUnavailable = "harness.prompt_unavailable"
 }

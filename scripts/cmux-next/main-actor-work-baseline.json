@@ -5,7 +5,13 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/CuaSocketClient.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/AgentTurnStateFeed.swift": {
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneContextMenu.swift": {
+  "line split of a whole input": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitReviewThreads.swift": {
   "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel+Replies.swift": {
@@ -14,12 +20,11 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneScrollAnchors.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShell.swift": {
   "process launch": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/AgentTurnStateFeed.swift": {
-  "JSON / property-list decode": 1,
-  "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/ChatsFeed.swift": {
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
@@ -27,19 +32,41 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentUnsentDrafts.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkResolver.swift": {
   "regular expression": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChatSettingsPush.swift": {
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMoveRetries.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMovedChats.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPresenter.swift": {
+  "line split of a whole input": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAgentPane.swift": {
   "JSON / property-list decode": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAgentPaneClick.swift": {
-  "JSON / property-list decode": 1
+  "JSON / property-list decode": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugNewTab.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/AcpmuxPermissionFeedBridge.swift": {
+  "JSON / property-list decode": 2,
+  "a main-actor Task per line or event (batch with MainActorLineBatch)": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedApproveProofCheck.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedInstallPrincipal.swift": {
@@ -63,23 +90,20 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation/BrowserHibernation.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hints/WindowHintTargets.swift": {
+  "JSON / property-list decode": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/AgentHistory.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/CommandHistory.swift": {
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/DaemonTrailLocation.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift": {
   "JSON / property-list decode": 4
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/LocationTrailService.swift": {
-  "JSON / property-list decode": 2
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeMentions.swift": {
-  "string scan inside a loop": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeSidebarSource.swift": {
-  "JSON / property-list decode": 2
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabChoiceMemory.swift": {
+  "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/BrowserImportOfferState.swift": {
   "JSON / property-list decode": 1
@@ -92,6 +116,16 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider.swift": {
   "directory walk": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/SSHService+PersonKey.swift": {
+  "JSON / property-list decode": 1,
+  "line split of a whole input": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/MuseumArtSession.swift": {
+  "string scan inside a loop": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift": {
   "JSON / property-list decode": 1
@@ -112,6 +146,24 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextBridge/ProgramStatusSeen.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFBookmarkBridge.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFCookieStore.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFMediaBridge.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPasswordPrompts.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserPageBusy.swift": {
+  "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserEmulation+Wire.swift": {
+  "JSON / property-list decode": 3
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/MockBrowserEngine.swift": {
   "string scan inside a loop": 1
  },
@@ -126,7 +178,10 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift": {
   "line split of a whole input": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Gallery/GalleryReviewStore.swift": {
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeMentions.swift": {
+  "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeSidebarSource.swift": {
   "JSON / property-list decode": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageHostPool+Build.swift": {
@@ -137,6 +192,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift": {
   "process launch": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService/ActionRegistry+WorkspaceLocalhost.swift": {
+  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard.swift": {
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 1

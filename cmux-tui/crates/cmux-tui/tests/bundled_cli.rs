@@ -12,15 +12,21 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
+/// A fresh path per call: pid + nanos alone can repeat when two parallel
+/// tests ask in the same clock tick (coarse clocks), so a process-wide
+/// counter makes each name unique.
 fn unique_temp_dir(name: &str) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let seq = NEXT.fetch_add(1, Ordering::Relaxed);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    PathBuf::from("/tmp").join(format!("cmux-bcli-{name}-{}-{stamp}", std::process::id()))
+    PathBuf::from("/tmp").join(format!("cmux-bcli-{name}-{}-{seq}-{stamp}", std::process::id()))
 }
 
 fn write_executable(path: impl AsRef<Path>, contents: &str) {

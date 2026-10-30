@@ -15,14 +15,17 @@ public nonisolated struct SidebarProfile: Hashable, Sendable, Identifiable {
     public var name: String
     /// Tint of the dot or icon; nil draws the plain foreground dot.
     public var color: GroupColor?
-    /// An SF Symbol name or one emoji shown instead of the dot.
+    /// An SF Symbol name or one emoji shown instead of the dot, or a stored image or SVG asset.
     public var icon: String?
+    /// The stored asset `icon` names, drawn as is once read (nil while it loads: the dot).
+    public var image: SidebarFavicon?
 
-    public init(id: ProfileKey, name: String, color: GroupColor? = nil, icon: String? = nil) {
+    public init(id: ProfileKey, name: String, color: GroupColor? = nil, icon: String? = nil, image: SidebarFavicon? = nil) {
         self.id = id
         self.name = name
         self.color = color
         self.icon = icon
+        self.image = image
     }
 
     /// Whether `icon` is an emoji (drawn as text) rather than a symbol name.

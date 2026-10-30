@@ -40,21 +40,23 @@ use tokio::sync::{RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
 
 use crate::PROTOCOL_VERSION;
+use crate::git_refs;
 use crate::manifest::{AllowedFile, Manifest, split_resource_path, valid_token};
 use crate::protocol::{
-    BranchListResult, BranchPickerConfidence, BranchPickerGroup, BranchPickerRow, DiffCommand,
-    DiffRequest, DiffResourceRef, DiffResponse, DiffResult, DiffSource, OpenSessionRequest,
-    PAGE_PATCH_URL_PREFIX, SessionOpened, SessionRequest, handshake,
+    BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
+    DiffSource, OpenSessionRequest, PAGE_PATCH_URL_PREFIX, SessionOpened, SessionRequest,
+    handshake,
 };
-use crate::session_host_git;
+use crate::session_git::SessionGit;
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
 
 #[derive(Clone)]
 pub struct ServerConfig {
     pub root: PathBuf,
-    /// The bundled cmux CLI (cmux-tui). The sidecar reads branch facts from
-    /// the session host's git operations through it.
+    /// The bundled cmux CLI (cmux-tui), from `--cmux`. Branch facts come
+    /// from the cmux-git library (`git_refs`), so nothing runs it; the host
+    /// still passes it for a later pane-protocol provider.
     pub cmux_executable: PathBuf,
     pub executable_path: PathBuf,
     /// The URL scheme stdio replies use for patch resources.
@@ -126,8 +128,8 @@ const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
 // The caller-supplied ID cannot be trusted until the complete envelope parses.
 const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
-/// Deadline for one `cmux git status` read of the session host.
-const SESSION_HOST_GIT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Deadline for one branch read through cmux-git (base or branch list).
+const GIT_REFS_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
@@ -155,6 +157,11 @@ const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
 struct SessionOwner {
     session_id: String,
     capability_token: String,
+    /// What a git-backed session's patch compares, for `fileContents`
+    /// (`file_contents.rs`). Written once the patch is made; a `patch` session
+    /// has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sides: Option<file_contents::SessionSides>,
 }
 
 #[cfg(feature = "http-server")]
@@ -537,6 +544,9 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
                 }
             }
         }
+        DiffCommand::FileContents(params) => {
+            file_contents_response(request.id, state, &params).await
+        }
         DiffCommand::BranchChange(params) => {
             let Some(state) = state else {
                 return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
@@ -549,6 +559,7 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
                     &params.repo_root,
                     &params.base_ref,
                     &params.capability_token,
+                    params.ignore_whitespace,
                 ),
             )
             .await
@@ -571,11 +582,57 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
     }
 }
 
+/// Answers `fileContents` (`file_contents.rs`).
+async fn file_contents_response(
+    id: String,
+    state: Option<&AppState>,
+    params: &crate::protocol::FileContentsRequest,
+) -> DiffResponse {
+    let Some(state) = state else {
+        return DiffResponse::failure(id, "hostUnavailable", "Host unavailable");
+    };
+    match tokio::time::timeout(SESSION_GIT_TIMEOUT, file_contents::read(state, params)).await {
+        Ok(Ok(value)) => DiffResponse::success(id, DiffResult::FileContents(value)),
+        Ok(Err(file_contents::FileContentsError::Unauthorized)) => {
+            DiffResponse::failure(id, "notAllowed", "This file is not in the diff session")
+        }
+        Err(_) | Ok(Err(file_contents::FileContentsError::Failed)) => {
+            DiffResponse::failure(id, "fileContentsFailed", "Could not read the file")
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionOpenError {
     Unauthorized,
     Empty,
     Failed,
+}
+
+/// Whether a git-backed session's diff shows white space changes (the
+/// viewer's Hide white space is `Ignore`: `git diff --ignore-all-space`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Whitespace {
+    Show,
+    Ignore,
+}
+
+impl Whitespace {
+    fn requested(ignore: Option<bool>) -> Self {
+        if ignore == Some(true) {
+            Self::Ignore
+        } else {
+            Self::Show
+        }
+    }
+
+    /// The `git diff` options this adds.
+    fn diff_args(self) -> &'static [&'static str] {
+        match self {
+            Self::Show => &[],
+            Self::Ignore => &["--ignore-all-space"],
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -614,6 +671,8 @@ async fn open_session(
             },
             source: params.source,
             generated_paths: Vec::new(),
+            // A patch source is fixed bytes: white space cannot be hidden.
+            ignore_whitespace: false,
         });
     }
     let _permit = state
@@ -656,9 +715,21 @@ async fn open_session(
         owner_path,
     );
 
-    let source = resolve_session_source(state, params.source, &canonical_repo).await?;
-    run_git_patch(&source, &canonical_repo, &temporary_path).await?;
-    let generated_paths = git_generated_paths(&source, &canonical_repo).await;
+    let source = resolve_session_source(params.source, &canonical_repo).await?;
+    let whitespace = Whitespace::requested(params.ignore_whitespace);
+    let git = SessionGit::open(&canonical_repo, SESSION_GIT_TIMEOUT)
+        .await
+        .ok_or(SessionOpenError::Failed)?;
+    run_git_patch(&source, whitespace, &git, &temporary_path).await?;
+    let generated_paths = git_generated_paths(&source, whitespace, &git).await;
+    let sides = file_contents::session_sides(&source, &canonical_repo, &git).await?;
+    file_contents::record_session_sides(
+        &state.config.root,
+        &session_id,
+        &params.capability_token,
+        sides,
+    )
+    .map_err(|_| SessionOpenError::Failed)?;
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -695,6 +766,7 @@ async fn open_session(
         },
         source,
         generated_paths,
+        ignore_whitespace: whitespace == Whitespace::Ignore,
     })
 }
 
@@ -746,7 +818,6 @@ fn remove_owned_patch_sync(root: &Path, path: &Path) {
 }
 
 async fn resolve_session_source(
-    state: &AppState,
     source: DiffSource,
     repo: &Path,
 ) -> Result<DiffSource, SessionOpenError> {
@@ -757,17 +828,12 @@ async fn resolve_session_source(
     else {
         return Ok(source);
     };
-    // The suggested base is the session host's base branch, the one its own
-    // `git.diff --scope branch` compares with.
-    let base_ref = session_host_git::repository_status(
-        &state.config.cmux_executable,
-        repo,
-        SESSION_HOST_GIT_TIMEOUT,
-    )
-    .await
-    .and_then(|status| status.base)
-    .filter(|value| !value.is_empty())
-    .ok_or(SessionOpenError::Failed)?;
+    // The suggested base is cmux-git's first candidate, the base the session
+    // host's own `git.diff --scope branch` compares with.
+    let base_ref = git_refs::suggested_base(repo.to_path_buf(), GIT_REFS_TIMEOUT)
+        .await
+        .filter(|value| !value.is_empty())
+        .ok_or(SessionOpenError::Failed)?;
     Ok(DiffSource::Branch {
         repo_root,
         base_ref: Some(base_ref),
@@ -776,49 +842,49 @@ async fn resolve_session_source(
 
 async fn run_git_patch(
     source: &DiffSource,
-    repo: &Path,
+    whitespace: Whitespace,
+    git: &SessionGit,
     output_path: &Path,
 ) -> Result<(), SessionOpenError> {
-    run_git_patch_with_limit(source, repo, output_path, MAX_SESSION_PATCH_BYTES).await
+    run_git_patch_with_limit(
+        source,
+        whitespace,
+        git,
+        output_path,
+        MAX_SESSION_PATCH_BYTES,
+    )
+    .await
 }
 
 async fn run_git_patch_with_limit(
     source: &DiffSource,
-    repo: &Path,
+    whitespace: Whitespace,
+    git: &SessionGit,
     output_path: &Path,
     max_patch_bytes: u64,
 ) -> Result<(), SessionOpenError> {
-    let mut arguments = vec![
-        "-C".to_owned(),
-        repo.to_string_lossy().into_owned(),
-        "diff".to_owned(),
-        "--no-ext-diff".to_owned(),
-        "--no-color".to_owned(),
-        "--binary".to_owned(),
-    ];
+    let mut command = git.command();
+    command.args([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--binary",
+    ]);
+    command.args(whitespace.diff_args());
     match source {
-        DiffSource::Unstaged { .. } => arguments.push("--".to_owned()),
+        DiffSource::Unstaged { .. } => {
+            command.arg("--");
+        }
         DiffSource::Staged { .. } => {
-            arguments.push("--cached".to_owned());
-            arguments.push("--".to_owned());
+            command.args(["--cached", "--"]);
         }
         DiffSource::Branch {
             base_ref: Some(base_ref),
             ..
         } => {
-            let base_commit = git_single_line(
-                repo,
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--end-of-options",
-                    &format!("{base_ref}^{{commit}}"),
-                ],
-            )
-            .await?;
-            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
-            arguments.push(merge_base);
-            arguments.push("--".to_owned());
+            let merge_base = git_merge_base(git, base_ref).await?;
+            command.args([merge_base.as_str(), "--"]);
         }
         DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
             return Err(SessionOpenError::Failed);
@@ -831,7 +897,7 @@ async fn run_git_patch_with_limit(
     let mut bytes_written = 0_u64;
     let result = async {
         stream_git_stdout(
-            arguments,
+            command,
             &[0],
             &mut output,
             &mut bytes_written,
@@ -845,12 +911,14 @@ async fn run_git_patch_with_limit(
             // Best effort: an untracked file git cannot read, or one that does
             // not fit the remaining budget, is left out. It must never fail the
             // session or hide the tracked diff, which plain `git diff` shows.
-            let untracked = git_untracked_paths(repo).await.unwrap_or_default();
+            // White space does not matter here: every line of a new file is
+            // an addition.
+            let untracked = git_untracked_paths(git).await.unwrap_or_default();
             for path in untracked {
                 let budget = max_patch_bytes
                     .saturating_sub(bytes_written)
                     .min(MAX_UNTRACKED_FILE_PATCH_BYTES);
-                let Some(patch) = git_untracked_file_patch(repo, path, budget).await else {
+                let Some(patch) = git_untracked_file_patch(git, path, budget).await else {
                     continue;
                 };
                 output
@@ -874,15 +942,13 @@ async fn run_git_patch_with_limit(
 /// limit and the per-command timeout. Any failure kills the child; the caller
 /// owns the partially written file.
 async fn stream_git_stdout(
-    arguments: Vec<String>,
+    mut command: Command,
     allowed_exit_codes: &[i32],
     output: &mut tokio::fs::File,
     bytes_written: &mut u64,
     max_patch_bytes: u64,
 ) -> Result<(), SessionOpenError> {
-    let mut command = Command::new("/usr/bin/git");
     command
-        .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -936,12 +1002,16 @@ async fn stream_git_stdout(
 /// Changed paths whose `.gitattributes` mark them generated
 /// (`linguist-generated` set or `diff` unset). Best effort: any failure or an
 /// oversized listing yields an empty list so a session never fails over it.
-async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
-    let Ok(mut paths) = git_changed_paths(source, repo).await else {
+async fn git_generated_paths(
+    source: &DiffSource,
+    whitespace: Whitespace,
+    git: &SessionGit,
+) -> Vec<String> {
+    let Ok(mut paths) = git_changed_paths(source, whitespace, git).await else {
         return Vec::new();
     };
     if matches!(source, DiffSource::Unstaged { .. })
-        && let Ok(untracked) = git_untracked_paths(repo).await
+        && let Ok(untracked) = git_untracked_paths(git).await
     {
         paths.extend(untracked);
     }
@@ -953,10 +1023,8 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
         stdin_bytes.extend_from_slice(path.as_bytes());
         stdin_bytes.push(0);
     }
-    let mut command = Command::new("/usr/bin/git");
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args(["check-attr", "-z", "--stdin", "linguist-generated", "diff"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -972,8 +1040,11 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
         let _ = stdin.write_all(&stdin_bytes).await;
         drop(stdin);
     };
-    let ((), output) = tokio::join!(write, child.wait_with_output());
-    let Ok(output) = output else {
+    let Ok(((), Ok(output))) = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
+        tokio::join!(write, child.wait_with_output())
+    })
+    .await
+    else {
         return Vec::new();
     };
     if !output.status.success() {
@@ -999,39 +1070,35 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
 /// Paths changed by the source, mirroring the range `run_git_patch` diffs.
 async fn git_changed_paths(
     source: &DiffSource,
-    repo: &Path,
+    whitespace: Whitespace,
+    git: &SessionGit,
 ) -> Result<Vec<String>, SessionOpenError> {
-    let mut arguments = vec!["diff".to_owned(), "--name-only".to_owned(), "-z".to_owned()];
+    let mut command = git.command();
+    command.args([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--name-only",
+        "-z",
+    ]);
+    command.args(whitespace.diff_args());
     match source {
         DiffSource::Unstaged { .. } => {}
-        DiffSource::Staged { .. } => arguments.push("--cached".to_owned()),
+        DiffSource::Staged { .. } => {
+            command.arg("--cached");
+        }
         DiffSource::Branch {
             base_ref: Some(base_ref),
             ..
         } => {
-            let base_commit = git_single_line(
-                repo,
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--end-of-options",
-                    &format!("{base_ref}^{{commit}}"),
-                ],
-            )
-            .await?;
-            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
-            arguments.push(merge_base);
+            command.arg(git_merge_base(git, base_ref).await?);
         }
         DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
             return Err(SessionOpenError::Failed);
         }
     }
-    arguments.push("--".to_owned());
-    let mut command = Command::new("/usr/bin/git");
     command
-        .arg("-C")
-        .arg(repo)
-        .args(&arguments)
+        .arg("--")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
@@ -1053,14 +1120,13 @@ async fn git_changed_paths(
 /// The added-file patch for one untracked `path`, or `None` when git fails on
 /// it, times out, or its output exceeds `budget` bytes. Output is buffered so a
 /// rejected file leaves nothing in the session patch.
-async fn git_untracked_file_patch(repo: &Path, path: String, budget: u64) -> Option<Vec<u8>> {
-    let mut command = Command::new("/usr/bin/git");
+async fn git_untracked_file_patch(git: &SessionGit, path: String, budget: u64) -> Option<Vec<u8>> {
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args([
             "diff",
             "--no-ext-diff",
+            "--no-textconv",
             "--no-color",
             "--binary",
             "--no-index",
@@ -1104,11 +1170,9 @@ async fn git_untracked_file_patch(repo: &Path, path: String, budget: u64) -> Opt
 
 /// Untracked, non-ignored paths relative to `repo`, bounded so a huge
 /// unignored tree degrades to the tracked-only diff instead of stalling.
-async fn git_untracked_paths(repo: &Path) -> Result<Vec<String>, SessionOpenError> {
-    let mut command = Command::new("/usr/bin/git");
+async fn git_untracked_paths(git: &SessionGit) -> Result<Vec<String>, SessionOpenError> {
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args(["ls-files", "--others", "--exclude-standard", "-z"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -1132,11 +1196,18 @@ async fn git_untracked_paths(repo: &Path) -> Result<Vec<String>, SessionOpenErro
         .collect())
 }
 
-async fn git_single_line(repo: &Path, arguments: &[&str]) -> Result<String, SessionOpenError> {
-    let mut command = Command::new("/usr/bin/git");
+/// The merge base of HEAD and `base_ref`, the commit a branch session
+/// diffs from.
+async fn git_merge_base(git: &SessionGit, base_ref: &str) -> Result<String, SessionOpenError> {
+    let base = format!("{base_ref}^{{commit}}");
+    let arguments = ["rev-parse", "--verify", "--end-of-options", base.as_str()];
+    let base_commit = git_single_line(git, &arguments).await?;
+    git_single_line(git, &["merge-base", "HEAD", &base_commit]).await
+}
+
+async fn git_single_line(git: &SessionGit, arguments: &[&str]) -> Result<String, SessionOpenError> {
+    let mut command = git.command();
     command
-        .arg("-C")
-        .arg(repo)
         .args(arguments)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -1396,6 +1467,7 @@ fn reserve_session_owner(root: &Path, session_id: &str, token: &str) -> Result<P
     let owner = SessionOwner {
         session_id: session_id.to_owned(),
         capability_token: token.to_owned(),
+        sides: None,
     };
     let bytes = serde_json::to_vec(&owner).map_err(|error| error.to_string())?;
     let mut file = OpenOptions::new()
@@ -1707,9 +1779,8 @@ async fn branch_refs(
     }
 }
 
-/// The branch picker's rows. Until the session host lists branches
-/// (`git.branches`, plans in /tmp/pane-protocol/s2-git-crate.md), the picker
-/// offers the host's base branch and the base the viewer already uses.
+/// The branch picker's groups (`git_refs::branch_list`): Suggested, Local
+/// and Remote, from cmux-git.
 async fn load_branch_refs(
     state: &AppState,
     repo: &str,
@@ -1719,60 +1790,14 @@ async fn load_branch_refs(
     if !authorize_repo_for_token(state, token, repo).await {
         return Err(());
     }
-    let Ok(_permit) = state.child_processes.try_acquire() else {
+    let Ok(permit) = state.child_processes.clone().try_acquire_owned() else {
         return Err(());
     };
     let canonical_repo = tokio::fs::canonicalize(repo).await.map_err(|_| ())?;
-    let status = session_host_git::repository_status(
-        &state.config.cmux_executable,
-        &canonical_repo,
-        SESSION_HOST_GIT_TIMEOUT,
-    )
-    .await
-    .ok_or(())?;
-    Ok(branch_list(status.base.as_deref(), base))
-}
-
-/// One "Suggested" group: the selected base first (marked current), then
-/// the session host's base branch.
-fn branch_list(host_base: Option<&str>, selected: Option<&str>) -> BranchListResult {
-    let selected = selected.map(str::trim).filter(|value| !value.is_empty());
-    let host_base = host_base.filter(|value| !value.is_empty());
-    let mut rows = Vec::new();
-    if let Some(selected) = selected
-        && Some(selected) != host_base
-    {
-        rows.push(BranchPickerRow {
-            r#ref: selected.to_owned(),
-            label: selected.to_owned(),
-            secondary: None,
-            reason: Some("manual".to_owned()),
-            confidence: Some(BranchPickerConfidence::High),
-            current: Some(true),
-            worktree_dir: None,
-        });
-    }
-    if let Some(host_base) = host_base {
-        rows.push(BranchPickerRow {
-            r#ref: host_base.to_owned(),
-            label: host_base.to_owned(),
-            secondary: None,
-            reason: Some("default".to_owned()),
-            confidence: Some(BranchPickerConfidence::Low),
-            current: (selected == Some(host_base)).then_some(true),
-            worktree_dir: None,
-        });
-    }
-    let groups = if rows.is_empty() {
-        Vec::new()
-    } else {
-        vec![BranchPickerGroup {
-            id: "suggested".to_owned(),
-            label: "Suggested".to_owned(),
-            rows,
-        }]
-    };
-    BranchListResult { groups }
+    let refs = git_refs::repository_refs(canonical_repo, GIT_REFS_TIMEOUT, permit)
+        .await
+        .ok_or(())?;
+    Ok(git_refs::branch_list(&refs, base))
 }
 
 /// Changes a branch session's base: the token must own the group's branch
@@ -1785,6 +1810,7 @@ async fn change_branch(
     repo: &str,
     base: &str,
     token: &str,
+    ignore_whitespace: Option<bool>,
 ) -> Result<SessionOpened, SessionOpenError> {
     let base = base.trim();
     if base.is_empty() || !authorize_branch_change(state, token, group, repo).await {
@@ -1799,6 +1825,7 @@ async fn change_branch(
             },
             capability_token: token.to_owned(),
             session_id: None,
+            ignore_whitespace,
         },
     )
     .await
@@ -2187,6 +2214,17 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
     stdout.flush().await.map_err(|error| error.to_string())
 }
 
+mod file_contents;
+
+#[cfg(all(test, unix))]
+mod file_contents_tests;
+
+#[cfg(all(test, unix))]
+mod hostile_repository_tests;
+
+#[cfg(all(test, unix))]
+mod whitespace_tests;
+
 #[cfg(test)]
 mod tests {
     use std::process::Command;
@@ -2199,11 +2237,12 @@ mod tests {
 
     use super::{
         AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
-        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, git_generated_paths, handle_protocol_request,
-        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
-        reserve_session_owner, run_git_patch_with_limit, valid_group_id,
+        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, Whitespace, git_generated_paths,
+        handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
+        register_session_temp, reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
-    use super::{AppState, ResourceScheme, ServerConfig, app_state, branch_list, resource_url};
+    use super::{AppState, ResourceScheme, ServerConfig, app_state, resource_url};
+    use super::{SESSION_GIT_TIMEOUT, SessionGit};
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
@@ -2228,6 +2267,11 @@ mod tests {
             handshake
                 .capabilities
                 .contains(&"transport.page".to_owned())
+        );
+        assert!(
+            handshake
+                .capabilities
+                .contains(&crate::protocol::IGNORE_WHITESPACE_CAPABILITY.to_owned())
         );
         #[cfg(feature = "http-server")]
         assert!(
@@ -2428,6 +2472,12 @@ mod tests {
         );
     }
 
+    async fn session_git(repo: &std::path::Path) -> SessionGit {
+        SessionGit::open(repo, SESSION_GIT_TIMEOUT)
+            .await
+            .expect("open the session's git")
+    }
+
     #[tokio::test]
     async fn unstaged_patch_includes_untracked_files() {
         let root = std::env::temp_dir().join(format!(
@@ -2467,9 +2517,15 @@ mod tests {
             repo_root: repo.to_string_lossy().into_owned(),
         };
 
-        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
-            .await
-            .expect("write unstaged patch");
+        run_git_patch_with_limit(
+            &source,
+            Whitespace::Show,
+            &session_git(&repo).await,
+            &patch_path,
+            1024 * 1024,
+        )
+        .await
+        .expect("write unstaged patch");
 
         // Untracked (non-ignored) files are part of the unstaged working tree,
         // so the session patch carries them as added files after `git diff`.
@@ -2482,9 +2538,15 @@ mod tests {
 
         // An untracked-only working tree is not an empty diff.
         std::fs::write(repo.join("story.txt"), "one\n").expect("restore tracked file");
-        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
-            .await
-            .expect("write untracked-only patch");
+        run_git_patch_with_limit(
+            &source,
+            Whitespace::Show,
+            &session_git(&repo).await,
+            &patch_path,
+            1024 * 1024,
+        )
+        .await
+        .expect("write untracked-only patch");
         let patch = std::fs::read_to_string(&patch_path).expect("read untracked-only patch");
         assert!(!patch.contains("+two"), "{patch}");
         assert!(patch.contains("+brand new content"), "{patch}");
@@ -2535,7 +2597,8 @@ mod tests {
             repo_root: repo.to_string_lossy().into_owned(),
         };
 
-        let mut generated = git_generated_paths(&source, &repo).await;
+        let mut generated =
+            git_generated_paths(&source, Whitespace::Show, &session_git(&repo).await).await;
         generated.sort();
         assert_eq!(
             generated,
@@ -2551,7 +2614,11 @@ mod tests {
         let staged = DiffSource::Staged {
             repo_root: repo.to_string_lossy().into_owned(),
         };
-        assert!(git_generated_paths(&staged, &repo).await.is_empty());
+        assert!(
+            git_generated_paths(&staged, Whitespace::Show, &session_git(&repo).await)
+                .await
+                .is_empty()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2600,7 +2667,14 @@ mod tests {
         // A 16 KiB budget fits the tracked change and the small untracked file
         // but not the 64 KiB one. Neither the oversized nor the unreadable
         // untracked file may fail the session or hide the tracked diff.
-        let result = run_git_patch_with_limit(&source, &repo, &patch_path, 16 * 1024).await;
+        let result = run_git_patch_with_limit(
+            &source,
+            Whitespace::Show,
+            &session_git(&repo).await,
+            &patch_path,
+            16 * 1024,
+        )
+        .await;
         let _ = std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644));
         result.expect("write unstaged patch");
         let patch = std::fs::read_to_string(&patch_path).expect("read patch");
@@ -2650,7 +2724,8 @@ mod tests {
             &DiffSource::Unstaged {
                 repo_root: repo.to_string_lossy().into_owned(),
             },
-            &repo,
+            Whitespace::Show,
+            &session_git(&repo).await,
             &patch_path,
             1024,
         )
@@ -2694,37 +2769,9 @@ mod tests {
         assert!(ResourceScheme::parse("http").is_err());
     }
 
-    #[test]
-    fn branch_list_offers_the_selected_base_then_the_host_base() {
-        let rows = |result: &crate::protocol::BranchListResult| {
-            result.groups[0]
-                .rows
-                .iter()
-                .map(|row| (row.r#ref.clone(), row.current == Some(true)))
-                .collect::<Vec<_>>()
-        };
-        let both = branch_list(Some("origin/main"), Some("release"));
-        assert_eq!(both.groups.len(), 1);
-        assert_eq!(both.groups[0].id, "suggested");
-        assert_eq!(
-            rows(&both),
-            [
-                ("release".to_owned(), true),
-                ("origin/main".to_owned(), false)
-            ]
-        );
-        let same = branch_list(Some("origin/main"), Some("origin/main"));
-        assert_eq!(rows(&same), [("origin/main".to_owned(), true)]);
-        let host_only = branch_list(Some("main"), None);
-        assert_eq!(rows(&host_only), [("main".to_owned(), false)]);
-        assert!(branch_list(None, Some("  ")).groups.is_empty());
-    }
-
     #[tokio::test]
-    async fn branch_sessions_fail_when_the_session_host_is_unreachable() {
-        let state = stdio_state(ResourceScheme::Page);
+    async fn branch_sessions_fail_outside_a_repository() {
         let resolved = super::resolve_session_source(
-            &state,
             DiffSource::Branch {
                 repo_root: "/repo".to_owned(),
                 base_ref: None,

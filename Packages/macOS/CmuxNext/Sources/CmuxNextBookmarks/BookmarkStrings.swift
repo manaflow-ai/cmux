@@ -28,9 +28,6 @@ public nonisolated enum BookmarkStrings {
     public static var invalidURL: String { t("editor.invalidURL", "Enter a valid URL") }
     public static var addBookmark: String { t("verb.addBookmark", "Add Bookmark…") }
     public static var addFolder: String { t("verb.addFolder", "Add Folder…") }
-    public static var importHTML: String { t("verb.import", "Import Bookmarks…") }
-    public static var importFromBrowser: String { t("verb.importBrowser", "Import from Browser…") }
-    public static var exportHTML: String { t("verb.export", "Export Bookmarks…") }
     public static var open: String { t("verb.open", "Open") }
     public static var openInNewTab: String { t("verb.openInNewTab", "Open in New Tab") }
     public static var openInBackgroundTab: String { t("verb.openInBackgroundTab", "Open in Background Tab") }
@@ -39,6 +36,8 @@ public nonisolated enum BookmarkStrings {
     public static var delete: String { t("verb.delete", "Delete") }
     public static var copyURL: String { t("verb.copyURL", "Copy URL") }
     public static var showInFolder: String { t("verb.showInFolder", "Show in Folder") }
+    public static var setIcon: String { t("verb.setIcon", "Set Icon…") }
+    public static var removeIcon: String { t("verb.removeIcon", "Remove Icon") }
 
     public static func openAll(_ count: Int) -> String {
         String(format: t("verb.openAll", "Open All (%lld)"), count)

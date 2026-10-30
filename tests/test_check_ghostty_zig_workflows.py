@@ -136,6 +136,85 @@ def test_an_unrelated_submodule_does_not_satisfy_the_guard() -> None:
     assert any("before Ghostty submodule init" in failure for failure in failures), failures
 
 
+def test_retrying_init_script_for_ghostty_next_satisfies_the_guard() -> None:
+    """feat-cmux-next's cmux-tui jobs init ghostty-next with scripts/ci/init-submodule.sh; the guard
+    accepted that only through `git submodule update`, so 13 jobs read as Zig before init."""
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            env:
+              GHOSTTY_ZIG_SOURCE: ghostty-next
+            steps:
+              - uses: actions/checkout@v6
+              - name: Init ghostty-next submodule
+                run: bash scripts/ci/init-submodule.sh ghostty-next
+              - name: Install Zig
+                run: ./scripts/install-zig-ci.sh
+        """
+    )
+
+    assert failures == [], failures
+
+
+def test_an_unparseable_step_that_runs_no_zig_consumer_is_not_a_failure() -> None:
+    """nightly.yml's bundle-check step inits ghostty-next in another worktree and runs no Zig consumer;
+    bashlex cannot read its `case` patterns. Skipping it can only miss an init, never hide a consumer."""
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          sign:
+            runs-on: ubuntu-latest
+            steps:
+              - name: Check out the build's own source
+                run: |
+                  case "$status" in
+                    ahead|identical) ;;
+                    *) exit 1 ;;
+                  esac
+                  (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
+        """
+    )
+
+    assert failures == [], failures
+
+
+def test_one_step_initializing_both_ghostty_sources_is_one_init() -> None:
+    """cmux-tui-build-package.yml inits ghostty and ghostty-next in one step before the resolver."""
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v6
+              - name: Init ghostty submodule
+                run: |
+                  bash scripts/ci/init-submodule.sh ghostty
+                  bash scripts/ci/init-submodule.sh ghostty-next
+              - name: Resolve Zig
+                id: ghostty-zig-version
+                run: |
+                  version="$(bash ./scripts/ghostty-zig-version.sh)"
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+              - name: Install zig
+                uses: mlugg/setup-zig@v2
+                with:
+                  version: ${{ steps.ghostty-zig-version.outputs.version }}
+        """,
+        name="cmux-tui-build-package.yml",
+    )
+
+    assert failures == [], failures
+
+
 def test_release_architecture_selection_remains_analyzed() -> None:
     workflow = yaml.safe_load(
         (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
@@ -207,6 +286,41 @@ def test_submodule_update_without_init_does_not_satisfy_guard() -> None:
 
     assert len(failures) == 1, failures
     assert "install-zig-ci.sh" in failures[0], failures
+
+
+def test_retrying_init_script_satisfies_guard() -> None:
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          through-bash:
+            runs-on: ubuntu-latest
+            steps:
+              - run: bash scripts/ci/init-submodule.sh ghostty
+              - run: ./scripts/install-zig-ci.sh
+          direct:
+            runs-on: ubuntu-latest
+            steps:
+              - run: |
+                  ./scripts/ci/init-submodule.sh ghostty
+                  ./scripts/install-zig-ci.sh
+          other-submodule:
+            runs-on: ubuntu-latest
+            steps:
+              - run: bash scripts/ci/init-submodule.sh vendor/bonsplit ghostty
+              - run: ./scripts/install-zig-ci.sh
+          other-script:
+            runs-on: ubuntu-latest
+            steps:
+              - run: bash tools/init-submodule.sh ghostty
+              - run: ./scripts/install-zig-ci.sh
+        """
+    )
+
+    assert len(failures) == 2, failures
+    assert any("other-submodule" in failure for failure in failures), failures
+    assert any("other-script" in failure for failure in failures), failures
 
 
 def test_function_body_runs_at_invocation_not_definition() -> None:
@@ -399,6 +513,7 @@ if __name__ == "__main__":
     test_release_architecture_selection_remains_analyzed()
     test_wrapped_and_prefixed_consumer_execution_fails()
     test_submodule_update_without_init_does_not_satisfy_guard()
+    test_retrying_init_script_satisfies_guard()
     test_function_body_runs_at_invocation_not_definition()
     test_bash_conditional_path_check_is_not_execution()
     test_setup_zig_ignores_non_run_mentions()
@@ -408,4 +523,7 @@ if __name__ == "__main__":
     test_consumer_diagnostic_uses_run_content_line()
     test_ghostty_next_init_satisfies_the_guard()
     test_an_unrelated_submodule_does_not_satisfy_the_guard()
+    test_retrying_init_script_for_ghostty_next_satisfies_the_guard()
+    test_an_unparseable_step_that_runs_no_zig_consumer_is_not_a_failure()
+    test_one_step_initializing_both_ghostty_sources_is_one_init()
     print("all Ghostty Zig workflow guard tests passed")

@@ -7,11 +7,23 @@ extension PaletteModel {
         state.needsLoad = false
         guard case .list(let page) = state.kind else { return }
         state.cancel()
+        deferredLoads.removeAll { $0.state === state }
         var pending = Set<String>()
+        // A filtering page's empty query lists none of a hidden provider's rows (the command
+        // page's workspaces and tabs), only the few it showed as Recent: those stand in, and the
+        // provider reads its source after the first frame (Cmd-Shift-P with thousands of tabs).
+        let defersHidden = page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
+        var deferred: [any PaletteProvider] = []
         for provider in page.providers {
+            if defersHidden, !provider.showsItemsForEmptyQuery {
+                state.providerItems[provider.id] = shownDeferredItems[page.id]?[provider.id] ?? []
+                deferred.append(provider)
+                continue
+            }
             if let items = provider.immediateItems {
                 state.providerItems[provider.id] = items
-            } else {
+            }
+            if provider.immediateItems == nil || provider.refreshesOnOpen {
                 pending.insert(provider.id)
             }
         }
@@ -33,13 +45,69 @@ extension PaletteModel {
                 }
             })
         }
+        if !deferred.isEmpty {
+            let scheduled = !deferredLoads.isEmpty
+            deferredLoads.append(PaletteDeferredLoad(state: state, providers: deferred))
+            if !scheduled { afterFrame { [weak self] in self?.flushDeferredLoads() } }
+        }
+    }
+
+    /// Builds the providers opens left for after their first frame, into
+    /// pages still on the stack, and searches the shown page again with them.
+    func flushDeferredLoads() {
+        guard !deferredLoads.isEmpty else { return }
+        let loads = deferredLoads
+        deferredLoads = []
+        for load in loads where pages[load.state.levelID] === load.state {
+            let state = load.state
+            for provider in load.providers {
+                if let items = provider.immediateItems {
+                    state.providerItems[provider.id] = items
+                    if !provider.refreshesOnOpen { continue }
+                }
+                let providerID = provider.id
+                state.pendingProviders.insert(providerID)
+                state.tasks.append(Task { [weak self, weak state] in
+                    let items = await provider.items()
+                    guard !Task.isCancelled, let self, let state else { return }
+                    state.providerItems[providerID] = items
+                    state.pendingProviders.remove(providerID)
+                    state.rebuild()
+                    if state === self.current {
+                        self.isLoading = !state.pendingProviders.isEmpty
+                        self.search(state)
+                    }
+                })
+            }
+            state.rebuild()
+            if state === current {
+                isLoading = !state.pendingProviders.isEmpty
+                search(state)
+            }
+        }
+    }
+
+    /// Keeps the deferred providers' items that `sections` show on `state`'s
+    /// empty query (Recent rows), for the next open's first frame.
+    func recordShownDeferredItems(_ sections: [PaletteResultSection], on state: PageState) {
+        guard case .list(let page) = state.kind, page.filtersByQuery, state.query.allSatisfy(\.isWhitespace),
+              !deferredLoads.contains(where: { $0.state === state }) else { return }
+        let hidden = page.providers.filter { !$0.showsItemsForEmptyQuery }
+        guard !hidden.isEmpty else { return }
+        let shown = Set(sections.lazy.flatMap(\.rows).map(\.id))
+        var kept: [String: [PaletteItem]] = [:]
+        for provider in hidden {
+            let items = (state.providerItems[provider.id] ?? []).filter { shown.contains($0.id) }
+            if !items.isEmpty { kept[provider.id] = items }
+        }
+        shownDeferredItems[page.id] = kept
     }
 
     /// Ranks the page's rows for its query and generation on the searcher,
     /// off the main actor. An empty query shows its last rank or its
     /// unranked rows at once (`searchEmpty`); for a real query the rows on
     /// screen stay until its result lands.
-    func search(_ state: PageState) {
+    func search(_ state: PageState) { // perf-hot: 4ms palette-key (every query key; ranking stays off main)
         let generation = state.generation
         switch state.kind {
         case .textInput(let spec):
@@ -64,9 +132,19 @@ extension PaletteModel {
             deliver([PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])],
                     to: state, generation: generation)
         case .list(let page):
+            if let queryResults = page.queryResults {
+                searchQueryResults(state, results: queryResults, generation: generation)
+                return
+            }
+            // A typed query searches every row: the open's deferred providers load first.
+            if !state.query.allSatisfy(\.isWhitespace), deferredLoads.contains(where: { $0.state === state }) {
+                flushDeferredLoads()
+                // The flush searched the shown page with every row.
+                if state === current { return }
+            }
             searchGeneration += 1
             let searchID = searchGeneration
-            if FuzzyQuery(state.query).isEmpty || !page.filtersByQuery {
+            if state.query.allSatisfy(\.isWhitespace) || !page.filtersByQuery {
                 searchEmpty(state, page: page, generation: generation, searchID: searchID)
                 return
             }
@@ -98,6 +176,79 @@ extension PaletteModel {
         }
     }
 
+    /// A page that finds its own rows for the query (`queryResults`): the
+    /// newest query's stream replaces the one before, and each of its answers
+    /// lands with the typed words highlighted in their titles. The rows are
+    /// final (Return no longer waits, the spinner stops) when the stream ends.
+    func searchQueryResults(_ state: PageState, results: @escaping @MainActor (String) -> AsyncStream<[PaletteItem]>,
+                            generation: Int) {
+        searchGeneration += 1
+        let searchID = searchGeneration
+        let query = state.query
+        searchTask?.cancel()
+        // The search field's spinner while the page looks (Search All Windows reads every terminal first).
+        state.answeringSearch = searchID
+        if state === current { isLoading = true }
+        let answers = results(query)
+        searchTask = Task { [weak self, weak state] in
+            // However this search ends, it no longer answers the page (a newer one may).
+            defer { if state?.answeringSearch == searchID { state?.answeringSearch = nil } }
+            let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+            var last: [PaletteResultSection]?
+            for await items in answers {
+                guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
+                let sections = Self.querySections(items, words: words)
+                last = sections
+                self.deliver(sections, to: state, generation: generation, complete: false)
+            }
+            guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
+            self.searchTask = nil
+            state.answeringSearch = nil
+            if state === self.current { self.isLoading = false }
+            self.deliver(last ?? [], to: state, generation: generation)
+            if self.pendingClose {
+                self.pendingClose = false
+                self.handle(.closeItem)
+            }
+        }
+    }
+
+    /// One block per section, in the order the sections first appear (linear: a search
+    /// can return thousands of terminal lines, and copying a section per row was quadratic).
+    static func querySections(_ items: [PaletteItem], words: [String]) -> [PaletteResultSection] {
+        var order: [PaletteSection] = []
+        var rowsBySection: [PaletteSection: [PaletteRow]] = [:]
+        for item in items {
+            let row = PaletteRow(item: item, highlights: wordHighlights(in: item.title, words: words), score: 0)
+            if rowsBySection[item.section] == nil { order.append(item.section) }
+            rowsBySection[item.section, default: []].append(row)
+        }
+        return order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
+    }
+
+    /// Scalar offsets of every case-insensitive occurrence of `words` in `title`.
+    static func wordHighlights(in title: String, words: [String]) -> [Int] {
+        guard !words.isEmpty else { return [] }
+        let scalars = Array(title.lowercased().unicodeScalars)
+        // Lowercasing can change the scalar count (rare); offsets would point past the title then.
+        guard scalars.count == title.unicodeScalars.count else { return [] }
+        var marked = Set<Int>()
+        for word in words {
+            let needle = Array(word.lowercased().unicodeScalars)
+            guard !needle.isEmpty, needle.count <= scalars.count else { continue }
+            var start = 0
+            while start + needle.count <= scalars.count {
+                if scalars[start..<start + needle.count].elementsEqual(needle) {
+                    marked.formUnion(start..<start + needle.count)
+                    start += needle.count
+                } else {
+                    start += 1
+                }
+            }
+        }
+        return marked.sorted()
+    }
+
     /// `sections` after the page's rows made from the query, if any.
     static func leading(_ items: [PaletteItem]?, _ sections: [PaletteResultSection]) -> [PaletteResultSection] {
         guard let items, !items.isEmpty else { return sections }
@@ -110,13 +261,16 @@ extension PaletteModel {
     /// for the level's current generation and keeps or moves the selection.
     /// `provisional` rows stand in until the ranked rows of the same
     /// generation land (`PaletteNavEvent.results`).
-    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false) {
+    /// `complete` false: more rows of the same generation follow (a `queryResults` stream reads on).
+    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
+                 complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
         state.lastSections = sections
         state.awaitsRank = provisional
+        if !provisional { recordShownDeferredItems(sections, on: state) }
         if shownLevelID == state.levelID { display(sections) }
         send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
-                      isFinal: !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
+                      isFinal: complete && !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
                       provisional: provisional))
     }
 

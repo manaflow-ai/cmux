@@ -17,7 +17,7 @@ import SwiftUI
 /// them. The field follows the shared field geometry; a height change is
 /// animated by `FieldAnimation`.
 final class FieldChrome: NSView {
-    // cmux: LabGlass surfaces (system glass on macOS 26+, a visual-effect stand-in on 14/15).
+    // LabGlass: system glass on macOS 26 and newer, a visual-effect stand-in on 14 and 15.
     let container = LabGlass.container()
     private let group = FlippedView()
     let fieldContainer = LabGlass.container()
@@ -29,6 +29,10 @@ final class FieldChrome: NSView {
     let emoji = NSButton()
     var onPlus: () -> Void = {}
     var onEmoji: () -> Void = {}
+    /// Real Messages' key-window glass rims over the system glass (GlassKeyFix.swift), in a
+    /// non-flipped view above both glass containers (a container tones its content).
+    let keyFix = GlassKeyFix()
+    private let keyFixView = NSView()
     /// Glass shapes closer than this merge (the "+" button is 9.5 pt from
     /// the field: separate at rest).
     static let mergeSpacing: CGFloat = 6
@@ -41,6 +45,9 @@ final class FieldChrome: NSView {
         fieldContainer.spacing = FieldChrome.mergeSpacing
         fieldContainer.contentView = fieldGroup
         addSubview(fieldContainer)
+        keyFixView.wantsLayer = true
+        for l in keyFix.layers { keyFixView.layer?.addSublayer(l) }
+        addSubview(keyFixView)
         field.cornerRadius = 15
         // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
         // and a light under the pointer brighten 14 ms after the click and fade in 0.1 s).
@@ -48,14 +55,14 @@ final class FieldChrome: NSView {
         // it (Xcode 27), Swift 6.3.3 with the 26.5 SDK (Xcode 26.6), where #available
         // cannot hide an undeclared symbol.
         #if compiler(>=6.4)
-        if #available(macOS 27.0, *) { (field as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
+        if #available(macOS 27.0, *) { (field as? NSGlassEffectView)?.effectIsInteractive = true }
         #endif
         fieldGroup.addSubview(field)
         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
             g.cornerRadius = 15
             #if compiler(>=6.4)
-            if #available(macOS 27.0, *) { (g as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
+            if #available(macOS 27.0, *) { (g as? NSGlassEffectView)?.effectIsInteractive = true }
             #endif
             b.isBordered = false
             b.bezelStyle = .regularSquare
@@ -124,7 +131,7 @@ final class FieldChrome: NSView {
     private let pressLightLayer: CALayer = {
         let l = CALayer()
         let w = 256, s = Double(w) / 8
-        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // cmux: no trap
+        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // no trap
         let data = px.flatMap { [UInt8(255), UInt8(255), UInt8(255), $0] }
         if let p = CGDataProvider(data: Data(data) as CFData) {
             l.contents = CGImage(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
@@ -197,12 +204,52 @@ final class FieldChrome: NSView {
         group.frame = bounds
         fieldContainer.frame = bounds
         fieldGroup.frame = bounds
+        keyFixView.frame = bounds
+        placeKeyFix()
+    }
+
+    /// The correction follows the field glass's model frame (an animated height change adds the same
+    /// spring to its layers, `FieldAnimation.internal`).
+    /// On whole device pixels, as the system glass draws its rims; the buttons' maps include the dark
+    /// outline's column on each side.
+    private func placeKeyFix() {
+        if keyFixView.frame != bounds { keyFixView.frame = bounds }
+        let snap = { (r: CGRect) in self.keyFixView.backingAlignedRect(self.keyFixView.convert(r, from: self), options: .alignAllEdgesNearest) }
+        keyFix.field.place(snap(field.frame))
+        keyFix.plus.place(snap(plusGlass.frame.insetBy(dx: -0.5, dy: 0)))
+        keyFix.emoji.place(snap(emojiGlass.frame.insetBy(dx: -0.5, dy: 0)))
+    }
+    /// Key state, appearance or scale changed: the correction shows only where it was measured.
+    func updateKeyFix() { keyFix.update(window: window) }
+    private var keyFixObservers: [NSObjectProtocol] = []
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for o in keyFixObservers { NotificationCenter.default.removeObserver(o) }
+        keyFixObservers = []
+        guard let w = window else { return }
+        for n in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didChangeBackingPropertiesNotification] {
+            keyFixObservers.append(NotificationCenter.default.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in
+                self?.updateKeyFix()
+            })
+        }
+        updateKeyFix()
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateKeyFix() }
+    /// Snapped at the new scale's device pixels.
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); placeKeyFix(); updateKeyFix() }
+    deinit { for o in keyFixObservers { NotificationCenter.default.removeObserver(o) } }
+    /// AppKit's own animators (`--field-anim appkit|swiftui`, A/B only) move the glass on the main thread: the
+    /// correction is hidden until their completion, then placed at the glass's frame.
+    func keyFixHidden(_ hidden: Bool) {
+        if !hidden { placeKeyFix() }
+        for l in keyFix.field.layers { l.opacity = hidden ? 0 : 1 }
     }
 
     func place(field f: CGRect, plus p: CGRect, emoji e: CGRect) {
         follow(field: f)
         if plusGlass.frame != p { plusGlass.frame = p }
         if emojiGlass.frame != e { emojiGlass.frame = e }
+        placeKeyFix()
     }
 
     /// Model geometry (no animation), unless an animation is moving there.
@@ -213,6 +260,7 @@ final class FieldChrome: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         field.frame = f
         field.layoutSubtreeIfNeeded()
+        placeKeyFix()
         CATransaction.commit()
     }
 
@@ -231,6 +279,7 @@ final class FieldChrome: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         field.frame = r
         field.layoutSubtreeIfNeeded()
+        placeKeyFix()
         CATransaction.commit()
     }
     func markAnimating(to r: CGRect) { animatingTo = r }
@@ -259,6 +308,7 @@ final class FieldChrome: NSView {
         default:
             guard let l = fieldContainer.layer else { return }
             Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
+            for k in keyFix.field.layers { Animate.sampledPulse(k, "opacity", Springs.fieldOpacity, base: 1, begin: begin) }
         }
     }
 
@@ -272,6 +322,7 @@ final class FieldChrome: NSView {
         let done = tau >= e.settleTime
         let v = done ? 1 : CGFloat(min(1, max(0, e.value(tau, from: 1, to: 1))))
         if fieldContainer.alphaValue != v { fieldContainer.alphaValue = v }
+        for l in keyFix.field.layers where l.opacity != Float(v) { l.opacity = Float(v) }
         if done { link.isPaused = true }
     }
 }
@@ -300,7 +351,7 @@ enum FieldAnimation: String {
 
     static let mode: FieldAnimation = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } /* cmux */ ?? .`internal`
+        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } ?? .`internal`
     }()
 
     func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
@@ -312,6 +363,7 @@ enum FieldAnimation: String {
         case .appkit:
             chrome.setFrameNow(start)
             chrome.markAnimating(to: target)
+            chrome.keyFixHidden(true)
             let spring = { (key: String) -> CASpringAnimation in
                 let a = CASpringAnimation(keyPath: key)
                 a.mass = 1
@@ -321,22 +373,23 @@ enum FieldAnimation: String {
                 return a
             }
             field.animations = ["frameOrigin": spring("frameOrigin"), "frameSize": spring("frameSize")]
-            NSAnimationContext.runAnimationGroup { ctx in
+            NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = c.spring.settlingTime()
                 ctx.allowsImplicitAnimation = true
                 field.animator().frame = target
                 field.layoutSubtreeIfNeeded()
-            }
+            }, completionHandler: { [weak chrome] in chrome?.keyFixHidden(false) })
         case .swiftui:
             chrome.setFrameNow(start)
             chrome.markAnimating(to: target)
-            // cmux: SwiftUI-spring NSAnimationContext needs macOS 15; 14 takes the size at once.
+            // The SwiftUI-spring NSAnimationContext needs macOS 15; 14 takes the size at once.
             guard #available(macOS 15, *) else { chrome.setFrameNow(target); return }
-            NSAnimationContext.animate(.spring(duration: c.spring.duration, bounce: c.spring.bounce)) {
+            chrome.keyFixHidden(true)
+            NSAnimationContext.animate(.spring(duration: c.spring.duration, bounce: c.spring.bounce), changes: {
                 NSAnimationContext.current.allowsImplicitAnimation = true
                 field.animator().frame = target
                 field.layoutSubtreeIfNeeded()
-            }
+            }, completion: { [weak chrome] in chrome?.keyFixHidden(false) })
         case .`internal`:
             chrome.setFrameNow(target)
             guard let root = field.layer else { return }
@@ -362,6 +415,13 @@ enum FieldAnimation: String {
             if found == 0 {
                 root.removeAllAnimations()
                 FieldAnimation.appkit.run(chrome, from: start, to: target, el, begin: begin)
+                return
+            }
+            // The key glass correction (a non-flipped view: y up) keeps its bottom edge, as the glass does.
+            for k in chrome.keyFix.field.layers {
+                let ay = Double(k.anchorPoint.y)
+                Animate.scalar(k, "bounds.size.height", from: Double(k.bounds.height) - d, to: Double(k.bounds.height), el, begin: begin)
+                Animate.scalar(k, "position.y", from: Double(k.position.y) - ay * d, to: Double(k.position.y), el, begin: begin)
             }
         }
     }
@@ -385,8 +445,9 @@ final class FlippedView: NSView {
 // MARK: Tapback picker
 
 /// Double-click picker: six tapbacks in a glass capsule above the bubble.
-/// Real buttons (keyboard and VoiceOver reach each one).
-final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS 14)
+/// Real buttons (keyboard and VoiceOver reach each one). The capsule is a
+/// LabGlass surface that fills this view (macOS 14 has no NSGlassEffectView).
+final class TapbackPickerView: NSView {
     let ref: PartRef
     private let glass = LabGlass.surface()
     private let stack = NSStackView()
@@ -408,7 +469,6 @@ final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS
         self.pick = pick
         super.init(frame: .zero)
         glass.frame = bounds
-        glass.autoresizingMask = [.width, .height]
         addSubview(glass)
         glass.cornerRadius = Self.size.height / 2
         stack.orientation = .horizontal
@@ -440,6 +500,14 @@ final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS
         setAccessibilityLabel(Strings.menuTapback)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The glass fills the picker, set on every size change: autoresizing from the zero
+    /// size of init put the glass 0.5 pt off (y -0.5 for 42 pt), one pixel row lower than
+    /// the picker that was itself the glass view.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        glass.frame = bounds
+    }
 
     override var fittingSize: NSSize { Self.size }
 
@@ -528,7 +596,7 @@ final class InlineEditor: NSView {
         textView.typingAttributes = ComposeView.typing
         textView.insertionPointColor = Fixture.caret
         textView.isContinuousSpellCheckingEnabled = true
-        if #available(macOS 15, *) { textView.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
+        if #available(macOS 15, *) { textView.writingToolsBehavior = ComposeView.writingTools }
         textView.setAccessibilityLabel(Strings.menuEdit)
         textView.onSend = { [weak textView] in commit(textView?.string ?? text) }
         textView.onEscape = cancel

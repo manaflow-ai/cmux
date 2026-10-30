@@ -92,6 +92,12 @@ def is_other_workflow_config(path: str) -> bool:
 
 
 CI_CONTROL_PLANE_ONLY = frozenset({
+    # The shared merge helper and its deployment-status classifier are used by
+    # GitHub/agents, not by any macOS product job. Keep policy-only changes out
+    # of native compile admission; their focused guard tests remain Linux-side.
+    "scripts/gh-merge-green",
+    "scripts/ci/vercel_merge_gate.py",
+    "scripts/tests/test_vercel_merge_gate.py",
     "scripts/ci/web_validation.py",
     # Operational helpers: janitors, census and reporting, registry validation,
     # R2 canaries, build diagnostics. No workflow runs any of them on a macOS
@@ -103,17 +109,27 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
     # imports it and ci-macos.yml runs that on a Mac, which is the same reason
     # cache_restore_receipt.py stays out.
+    "scripts/ci/actions_artifact_prune.py",
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
+    # The portable guard runner and its regression suite execute only in the
+    # Linux guard jobs. They are CI control-plane inputs, not native product
+    # inputs, so changing either must not admit macOS compile work.
+    "scripts/ci/run_ci_guards.py",
+    "tests/test_ci_run_guards.py",
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",
     "scripts/ci/r2_cache_census.py",
     "scripts/ci/r2_cache_prune.py",
+    "scripts/ci/cmux_binaries_prune.py",
+    "scripts/ci/r2_storage_census.py",
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
+    # The registry check's pull request lanes (--pr-lanes).
+    "scripts/ci/pr_test_lanes.py",
     "scripts/ci/verify-r2-canary.py",
     # ci-web.yml's subarea router. It keeps the web area below -- editing it
     # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
@@ -218,6 +234,14 @@ def is_unowned_ci_helper(path: str) -> bool:
         and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     )
+
+
+# Script sources ci_helper_areas() can trace through the tree by name.
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+
+
+def is_walkable_script(path: str) -> bool:
+    return path.startswith("scripts/") and path.endswith(_WALKABLE_SCRIPT_SUFFIXES)
 
 
 def forces_all_areas(path: str) -> bool:
@@ -498,6 +522,17 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
+# Files that list test paths without running them: the routing tables and
+# cmux-next.yml's path router.
+_TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
+    "scripts/ci/cmux_next_route.py",
+})
+# The execution registry runs its entries: ci-macos.yml's
+# `run_python_test_lane.py --lane ...` step executes every test in the lanes it
+# names (macos-shell, macos-cli-no-socket and their fish variants). Only these
+# lanes run no Mac job; a new lane is run until it is added here.
+_TEST_REGISTRY_PATH = "tests/test-execution.toml"
+_TEST_REGISTRY_INERT_LANES = frozenset({"linux-guard", "legacy", "manual"})
 _COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
 
 
@@ -690,6 +725,37 @@ def ci_helper_areas(
             if referrer.startswith("tests/"):
                 if is_guard_only_test(referrer, test_references):
                     continue
+                if is_unrouted_test(referrer, test_references):
+                    runners = _files_naming(root, referrer)
+                    if runners is None:
+                        return every_area(f"could not search for {referrer}")
+                    runners = [
+                        runner for runner in runners
+                        if runner not in _TEST_PATH_LISTS
+                        and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
+                    ]
+                    if runners and all(
+                        (runner.startswith(".github/workflows/") and runner not in routed)
+                        or runner.startswith("scripts/")
+                        for runner in runners
+                    ):
+                        # Only workflows outside ci.yml's call tree run this test
+                        # (feat-cmux-next's cmux-next.yml and nightly.yml run a
+                        # checks-job test and the nightly strip test): a dead end,
+                        # like those workflows themselves. A script that runs it
+                        # (a nightly step moved out of nightly.yml) is walked in
+                        # turn, so a routed job that runs the script still counts;
+                        # a script nothing names fails open.
+                        for runner in runners:
+                            if not runner.startswith("scripts/") or runner in visited_files:
+                                continue
+                            namers = _files_naming(root, Path(runner).stem)
+                            if namers is None:
+                                return every_area(f"could not search for {Path(runner).stem}")
+                            if not [namer for namer in namers if namer != runner]:
+                                return every_area(f"{runner} runs {referrer} and nothing names it")
+                            tokens.append(Path(runner).stem)
+                        continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
             if referrer.startswith("scripts/"):
                 tokens.append(Path(referrer).stem)
@@ -778,6 +844,38 @@ def _load_macos_job_test_references(root: Path) -> Optional[tuple[frozenset[str]
     return frozenset(macos), frozenset(everywhere)
 
 
+def _registry_lane_is_inert(root: Path, test: str) -> bool:
+    """Whether the execution registry lists `test` only in lanes no Mac job runs.
+
+    Read inline with tomllib, because the trusted base router that a PR's
+    scripts/ci edit selects runs from a copy of only this file and a few
+    workflows (ci.yml's trusted-ci-router step), so it cannot import
+    test_execution_registry.py. An unreadable or invalid registry, a test with
+    no entry, an entry without a lane, or any non-inert lane among duplicate
+    entries counts as run (fails open).
+    """
+    try:
+        entries = _test_registry_entries((root / _TEST_REGISTRY_PATH).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ImportError, ValueError, TypeError, KeyError) as error:
+        print(f"Could not read {_TEST_REGISTRY_PATH}: {error}", file=sys.stderr)
+        return False
+    lanes = [entry.get("lane") for entry in entries if entry.get("path") == test]
+    return bool(lanes) and all(lane in _TEST_REGISTRY_INERT_LANES for lane in lanes)
+
+
+def is_unrouted_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
+    """A tests/ file no job of ci.yml's workflows names, and no macOS job reaches by a glob prefix.
+
+    ci_helper_areas() treats such a test as a dead end when only workflows outside
+    ci.yml's call tree run it; anything else still answers every area. Unreadable
+    references keep the old answer.
+    """
+    if references is None or not path.startswith("tests/"):
+        return False
+    macos, everywhere = references
+    return path not in everywhere and not any(path.startswith(reference) for reference in macos)
+
+
 def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
     # A tests/ file is macOS-neutral only when a CI workflow names it and every
     # job that names it runs on Linux. An unnamed file may be imported by a test a
@@ -800,6 +898,8 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
 
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
+    # The diff sidecar links this crate by path.
+    "cmux-tui/crates/cmux-git/",
 )
 
 
@@ -935,6 +1035,16 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
         "scripts/build-webviews-app.sh",
+        # react-apps-check runs the webviews tests through it.
+        "scripts/ci/run-webviews-tests.sh",
+        # and splits and orders its files by recorded duration through this.
+        "scripts/ci/webviews_test_shards.py",
+        # and compares its reds with the base's through these.
+        "scripts/ci/webviews-tests-new-reds.sh",
+        "scripts/ci/webviews_test_results.py",
+        "scripts/ci/guards_new_reds.py",
+        # It also runs the test of the PR scoping of ui-rules and gallery coverage.
+        "scripts/tests/test_pr_scoped_webviews_checks.py",
         "scripts/check-webviews-bun-version.sh",
         "scripts/check-webviews-react-compiler.mjs",
         # The generated agent pane page, its build and regenerate scripts, and
@@ -1395,18 +1505,30 @@ def is_release_build_neutral(path: str) -> bool:
     return is_test_only_source(path) or path in RELEASE_BUILD_NEUTRAL_INPUTS
 
 
+def _test_registry_entries(text: str) -> list[dict]:
+    """tests/test-execution.toml's `[[test]]` entries, read with tomllib.
+
+    Raises ValueError (tomllib.TOMLDecodeError is one) for an unknown schema,
+    no entries or a non-table entry, and ImportError without tomllib.
+    """
+    import tomllib
+
+    registry = tomllib.loads(text)
+    if set(registry) != {"version", "test"} or registry["version"] != 1:
+        raise ValueError("unknown registry schema")
+    entries = registry["test"]
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("missing test entries")
+    if not all(isinstance(entry, dict) for entry in entries):
+        raise ValueError("unknown test entry")
+    return entries
+
+
 def test_registry_change_is_linux_only(base: str, head: str) -> bool:
     """Ignore only Linux registrations; native execution entries must match."""
     try:
-        import tomllib
-
         def native_entries(text: str) -> list[dict]:
-            registry = tomllib.loads(text)
-            if set(registry) != {"version", "test"} or registry["version"] != 1:
-                raise ValueError("unknown registry schema")
-            entries = registry["test"]
-            if not isinstance(entries, list) or not entries:
-                raise ValueError("missing test entries")
+            entries = _test_registry_entries(text)
             seen = set()
             native = []
             for entry in entries:
@@ -1535,6 +1657,21 @@ def classify_files(paths: Iterable[str], *,
         if is_agent_session_web_change(path):
             agent_session_web = True
         if is_macos_change(path, macos_ios_packages):
+            # Any other script is placed by the same walk as the scripts/ci
+            # helpers above. Whatever the walk cannot place (an Xcode build
+            # phase, app source or native test names it, a Mac job runs it,
+            # nothing names it) keeps the macOS route below.
+            script_areas = (
+                ci_helper_areas(path, helper_root, test_references, base_root=Path("."))
+                if is_walkable_script(path) else None
+            )
+            if script_areas is not None:
+                print(f"{path} runs only in routed jobs gated by: {script_areas if script_areas != NO_AREAS else 'none'}")
+                macos = macos or script_areas.macos
+                web = web or script_areas.web
+                agent_session_web = agent_session_web or script_areas.agent_session_web
+                release_build = release_build or script_areas.release_build
+                continue
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True

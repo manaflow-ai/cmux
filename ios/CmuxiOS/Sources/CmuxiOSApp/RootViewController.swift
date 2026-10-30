@@ -2,7 +2,9 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSDesign
+import CmuxiOSPush
 import CmuxiOSTerminal
+import SwiftUI
 import UIKit
 
 /// Switches between restoring, sign-in and Home as the auth state changes.
@@ -27,6 +29,7 @@ final class RootViewController: UIViewController {
         container.auth.onChange = { [weak self] state in self?.show(state) }
         container.devOptions.onChange = { [weak self] options in self?.home?.apply(options) }
         container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
+        container.feedResponder.presentApprove = { [weak self] request, scope in self?.presentApprove(request, scope: scope) }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
             // DEV preview (simulator screenshots): the update-required banner
@@ -83,10 +86,12 @@ final class RootViewController: UIViewController {
         let store = container.homeStore(for: account)
         let home = HomeViewController(store: store, options: container.devOptions.options)
         home.updateRequired = container.updateRequired
+        home.onOpenSettings = { [weak self] in self?.presentChatServerSettings(account: account) }
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
         install(navigation)
+        container.chiefCall.homeReady(account: account, presenter: self)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
         #if DEBUG
         if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {
@@ -108,6 +113,34 @@ final class RootViewController: UIViewController {
             DevTerminal.captureDiagnostics(terminal)
         }
         #endif
+    }
+
+    /// Settings > Chat Server. Saving another server rebuilds Home on it.
+    private func presentChatServerSettings(account: SignedInAccount) {
+        guard presentedViewController == nil else { return }
+        let before = container.chatServers.load()
+        let model = ChatServerSettingsModel(current: before) { [weak self] server in
+            guard let self, server != before else { return }
+            self.container.setChatServer(server)
+            self.showHome(account: account)
+        }
+        weak var sheet: UIViewController?
+        let close: () -> Void = { sheet?.dismiss(animated: true) }
+        let hosting = UIHostingController(rootView: NavigationStack {
+            ChatServerSettingsView(model: model, onDone: close, onCancel: close)
+        })
+        sheet = hosting
+        present(hosting, animated: true)
+    }
+
+    /// The approve sheet for an agent's permission request (cx-aocz), over
+    /// whatever is in front; one at a time.
+    private func presentApprove(_ request: FeedApproveRequest, scope: String) {
+        guard let signer = container.approveSigner, presentedViewController == nil else { return }
+        let model = FeedApproveModel(request: request, scope: scope, signer: signer, ops: container.ops)
+        let sheet = UIHostingController(rootView: FeedApproveSheet(model: model))
+        model.onDone = { [weak sheet] in sheet?.dismiss(animated: true) }
+        present(sheet, animated: true)
     }
 
     private func install(_ next: UIViewController) {

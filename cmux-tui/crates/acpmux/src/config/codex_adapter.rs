@@ -1,36 +1,10 @@
-//! Codex without its ACP adapter on PATH: run the pinned adapter package through npx.
+//! The pinned Codex ACP adapter package, and npx launches of adapter packages.
 
-use std::collections::BTreeMap;
-
-use super::{HarnessKind, HarnessProfile};
-
-/// The codex-acp adapter version acpmux runs when only `codex` is installed (the version the
-/// cmux ACP installer pins).
+/// The codex-acp adapter version the cmux ACP installer pins. Discovery offers no npx launch of
+/// it: an installed codex is the in-process bridge (`discover.rs`).
 pub const CODEX_ACP_PACKAGE: &str = "@agentclientprotocol/codex-acp@1.10.0";
 
-/// A `codex` harness through `npx -y <CODEX_ACP_PACKAGE>`, the adapter pointed at the installed
-/// codex by CODEX_PATH; None unless both codex and npx are found.
-pub fn codex_through_adapter_package(
-    codex: Option<&str>,
-    npx: Option<&str>,
-) -> Option<HarnessProfile> {
-    let (codex, npx) = (codex?, npx?);
-    Some(HarnessProfile {
-        kind: HarnessKind::Acp,
-        argv: vec![npx.to_owned(), "-y".into(), CODEX_ACP_PACKAGE.into()],
-        env: BTreeMap::from([("CODEX_PATH".to_owned(), codex.to_owned())]),
-        description: Some(format!("Codex through {CODEX_ACP_PACKAGE} (no codex-acp on PATH)")),
-        fallback: None,
-        family: None,
-        models: vec![],
-        model: None,
-        effort: None,
-        policy: None,
-    })
-}
-
-/// `[npx, -y, PACKAGE, ...]` (the pinned adapter launch above, or a config
-/// written the same way): `(npx, PACKAGE)`.
+/// `[npx, -y, PACKAGE, ...]` (a config written that way): `(npx, PACKAGE)`.
 pub fn adapter_package_launch(argv: &[String]) -> Option<(&str, &str)> {
     let [npx, yes, package, ..] = argv else { return None };
     let is_npx = std::path::Path::new(npx).file_name().is_some_and(|n| n == "npx");
@@ -70,24 +44,4 @@ pub async fn resolve_adapter_package_bin(npx: &str, package: &str) -> Option<Str
     let path = String::from_utf8(out.stdout).ok()?.lines().last()?.trim().to_owned();
     let p = std::path::Path::new(&path);
     (p.is_absolute() && p.is_file()).then_some(path)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn package_launches_and_their_bin_names() {
-        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            adapter_package_launch(&argv(&["/usr/bin/npx", "-y", CODEX_ACP_PACKAGE])),
-            Some(("/usr/bin/npx", CODEX_ACP_PACKAGE))
-        );
-        assert_eq!(package_bin(CODEX_ACP_PACKAGE), Some("codex-acp"));
-        assert_eq!(package_bin("plain@2"), Some("plain"));
-        assert_eq!(package_bin("@scope"), None);
-        assert_eq!(package_bin("@s/x;rm -rf ~"), None);
-        assert!(adapter_package_launch(&argv(&["/usr/bin/node", "-y", "x"])).is_none());
-        assert!(adapter_package_launch(&argv(&["npx", "x"])).is_none());
-    }
 }

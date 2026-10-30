@@ -3,7 +3,8 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The lower part of the suggestion card: flush under the bar, as wide as
-/// the card top (`OmnibarCardTopView`), rounded at the bottom only, with
+/// the bar (`OmnibarCardTopView`), rounded at the bottom only (flush above
+/// a bar at the bottom of its pane and rounded at the top, `upward`), with
 /// 28 pt rows whose icon and text line up with the bar's chip and text.
 /// It draws on the window's overlay host in the `.pane` layer, clipped to
 /// the browser pane (plans/cmux-next/overlay-host.md), so it stays above
@@ -20,41 +21,64 @@ final class OmniboxSuggestionPanel {
     private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
     private(set) var overlay: OverlayHandle?
-    /// The bar's window rect the card was last placed under, so a later
-    /// layout can tell whether the card must move (`follow`).
+    /// The bar's window rect the card was last placed at, and on which side,
+    /// so a later layout can tell whether the card must move (`follow`).
     private var placedAnchor: NSRect?
+    private var placedUpward = false
 
     var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
 
     /// The card view (tests draw it).
     var cardView: NSView { content }
 
-    /// Shows `suggestions` under `anchor` (the bar), clipped to `pane`.
-    func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, below anchor: NSView, pane: NSView, in window: NSWindow) {
-        rows.forEach { $0.removeFromSuperview() }
-        rows = suggestions.enumerated().map { index, suggestion in
-            let row = SuggestionRowView(suggestion: suggestion)
-            row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-            row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
-            row.isHighlighted = index == highlighted
-            return row
+    /// Row views made so far (tests: typing reuses them).
+    private(set) var rowViewsMade = 0
+
+    /// Site icons for page rows (`AddressBarView.rowFavicon`).
+    var faviconSource: ((URL) async -> NSImage?)? {
+        didSet { rows.forEach { $0.faviconSource = faviconSource } }
+    }
+
+    /// Shows `suggestions` under `anchor` (the bar), or above it when `upward`, clipped to `pane`.
+    /// Rows already on the card take the new matches in place, so typing
+    /// never rebuilds the card (no flash, hover tracking kept); only a
+    /// longer list adds rows and a shorter one removes the extra ones.
+    func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, at anchor: NSView, upward: Bool = false, pane: NSView, in window: NSWindow) {
+        let count = rows.count
+        if count > suggestions.count {
+            rows[suggestions.count...].forEach { $0.removeFromSuperview() }
+            rows.removeLast(count - suggestions.count)
         }
-        rows.forEach { content.card.addSubview($0) }
-        content.setAccessibilityRows(rows)
-        place(below: anchor, pane: pane, in: window)
+        for (index, suggestion) in suggestions.enumerated() {
+            if index < rows.count {
+                rows[index].show(suggestion)
+            } else {
+                let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
+                rowViewsMade += 1
+                row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
+                row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+                rows.append(row)
+                content.card.addSubview(row)
+            }
+            rows[index].isHighlighted = index == highlighted
+        }
+        if rows.count != count { content.setAccessibilityRows(rows) }
+        place(at: anchor, upward: upward, pane: pane, in: window)
     }
 
     /// Sizes the card and its rows to `anchor` (the bar) and puts it under
-    /// it: presented when it is not on screen, else moved in place.
-    private func place(below anchor: NSView, pane: NSView, in window: NSWindow) {
+    /// it (above it when `upward`): presented when it is not on screen, else moved in place.
+    private func place(at anchor: NSView, upward: Bool, pane: NSView, in window: NSWindow) {
         let anchorRect = anchor.convert(anchor.bounds, to: nil)
         placedAnchor = anchorRect
+        placedUpward = upward
         let outset = OmnibarStyle.cardSideOutset
         let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
         let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
         let cardWidth = anchorRect.width + 2 * outset
         content.setFrameSize(NSSize(width: cardWidth, height: cardHeight))
         content.cardFrame = NSRect(x: 0, y: 0, width: cardWidth, height: cardHeight)
+        content.opensUpward = upward
         // Rows from the top, inset (4 at the sides, 2 above each).
         for (index, row) in rows.enumerated() {
             let top = cardHeight - OmnibarStyle.rowGap - CGFloat(index) * rowStep
@@ -68,7 +92,7 @@ final class OmniboxSuggestionPanel {
         // The card takes the omnibar's theme scope (its room or workspace).
         anchor.themeScope.fullStrength.root(content)
 
-        let origin = NSRect(x: anchorRect.minX - outset, y: anchorRect.minY - cardHeight, width: cardWidth, height: cardHeight)
+        let origin = NSRect(x: anchorRect.minX - outset, y: upward ? anchorRect.maxY : anchorRect.minY - cardHeight, width: cardWidth, height: cardHeight)
         let clip = pane.convert(pane.bounds, to: nil)
         if let overlay, !overlay.isDismissed, content.window?.parent === window {
             overlay.update(paneClip: clip)
@@ -88,9 +112,9 @@ final class OmniboxSuggestionPanel {
     /// Moves and resizes the open card when `anchor` moved since it was
     /// placed (a window resize, or a toolbar render that lands after the
     /// rows). The row views stay, so a hovered row keeps its tracking.
-    func follow(below anchor: NSView, pane: NSView, in window: NSWindow) {
-        guard isVisible, let placedAnchor, anchor.convert(anchor.bounds, to: nil) != placedAnchor else { return }
-        place(below: anchor, pane: pane, in: window)
+    func follow(at anchor: NSView, upward: Bool = false, pane: NSView, in window: NSWindow) {
+        guard isVisible, let placedAnchor, anchor.convert(anchor.bounds, to: nil) != placedAnchor || upward != placedUpward else { return }
+        place(at: anchor, upward: upward, pane: pane, in: window)
     }
 
     func highlight(_ index: Int?) {
@@ -108,6 +132,7 @@ final class OmniboxSuggestionPanel {
     var rowViews: [SuggestionRowView] { rows }
 
     func dismiss() {
+        // The rows stay (the card fades out with them; the next show reuses them).
         let presented = overlay
         overlay = nil
         placedAnchor = nil
@@ -131,6 +156,8 @@ final class SuggestionCardListView: NSView {
 final class SuggestionCardView: NSView {
     let card = SuggestionCardListView()
     var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
+    /// Above the bar: rounded at the top, not the bottom.
+    var opensUpward = false { didSet { needsLayout = true } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -142,13 +169,13 @@ final class SuggestionCardView: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
         card.wantsLayer = true
-        card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
         card.layer?.cornerCurve = .continuous
         card.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         card.layer?.masksToBounds = false
-        card.layer?.shadowOpacity = 0.16
-        card.layer?.shadowRadius = 8
-        card.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        // No shadow of its own: the card top's shadow reaches down past the seam (OmnibarCardTopView).
+        // This panel floats over the bar, so a shadow here that reached up to meet it would darken
+        // the bar; one that stops at the seam shows a gap. A rows shadow needs a cut-out like
+        // PopupHostView's and a device check (cx-iif6y follow-up).
         addSubview(card)
     }
 
@@ -158,10 +185,9 @@ final class SuggestionCardView: NSView {
     override func layout() {
         super.layout()
         card.frame = cardFrame
-        // The shadow shape reaches above the panel top, so the seam with the
-        // bar's card top shows no shadow edge.
-        let shape = CGRect(x: 0, y: 0, width: cardFrame.width, height: cardFrame.height + 40)
-        card.layer?.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
+        card.layer?.maskedCorners = opensUpward ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        // The bar's corner (it follows the look live).
+        card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
         refresh()
     }
 

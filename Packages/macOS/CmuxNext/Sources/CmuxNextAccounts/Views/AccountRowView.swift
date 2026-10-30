@@ -1,6 +1,7 @@
 import CmuxAgentBrands
 import CmuxNextCodeRouter
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// One provider: name, status, redacted account label and source, the
@@ -32,7 +33,7 @@ struct AccountRowView: View {
                 }
                 Spacer(minLength: Metrics.space4)
                 HStack(spacing: Metrics.space2) {
-                    if row.isBusy, row.phase != .detecting { ProgressView().controlSize(.mini) }
+                    if row.isBusy, row.phase != .detecting { ThemedSpinner(size: 10) }
                     Circle().fill(palette.statusColor(row)).frame(width: 6, height: 6)
                     Text(AccountsStrings.status(row)).font(palette.caption).foregroundStyle(palette.secondary)
                 }
@@ -75,6 +76,11 @@ struct AccountRowView: View {
                     .disabled(row.isBusy)
                     .accessibilityIdentifier("cmux.accounts.reauth.\(row.provider.rawValue)")
             }
+            if row.canSignOut {
+                Button(AccountsStrings.signOut, role: .destructive) { model.signOut(row.provider) }
+                    .disabled(row.isBusy)
+                    .accessibilityIdentifier("cmux.accounts.signOut.\(row.provider.rawValue)")
+            }
             if row.provider.acceptsPastedKey {
                 Button(AccountsStrings.addKey) { model.pasteTarget = row.provider }
                     .disabled(row.isBusy)
@@ -115,7 +121,7 @@ private struct LinkedAccountLine: View {
 
     var body: some View {
         HStack(spacing: Metrics.space3) {
-            Image(systemName: "arrow.triangle.branch").foregroundStyle(palette.tertiary)
+            Icon(.accountRouted, size: 13).foregroundStyle(palette.tertiary)
             Text(account.label).font(palette.caption).foregroundStyle(palette.text).lineLimit(1).truncationMode(.middle)
             Text(account.state).font(palette.caption).foregroundStyle(account.isHealthy ? palette.secondary : palette.attention)
             Spacer(minLength: Metrics.space4)
@@ -138,9 +144,9 @@ struct ConnectConfirmation: View {
             Text(AccountsStrings.codexRefreshNote).font(palette.caption).foregroundStyle(palette.text)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: Metrics.space3) {
-                Button(AccountsStrings.confirmConnect) { model.connect(provider, confirmed: true) }
+                CmuxDialogActionButton(AccountsStrings.confirmConnect, hint: .return) { model.connect(provider, confirmed: true) }
                     .accessibilityIdentifier("cmux.accounts.confirm.\(provider.rawValue)")
-                Button(AccountsStrings.cancel) { model.confirmTarget = nil }
+                CmuxDialogActionButton(AccountsStrings.cancel, hint: .escape) { model.confirmTarget = nil }
             }
             .buttonStyle(AccountsButtonStyle(palette: palette))
         }

@@ -21,6 +21,11 @@ pub enum MenuAction {
     RenameWorkspace(WorkspaceId),
     RenameManagedWorkspace(WorkspaceId),
     CopyWorkspaceId(WorkspaceId),
+    /// `sidebar.pin` (or `sidebar.unpin` when `pinned` is false).
+    PinWorkspace {
+        workspace: WorkspaceId,
+        pinned: bool,
+    },
     CloseWorkspace(WorkspaceId),
     DeleteManagedWorkspace(WorkspaceId),
     RestoreManagedWorkspace(usize),
@@ -131,6 +136,8 @@ impl MenuAction {
                 localization::catalog().sidebar.rename_workspace
             }
             MenuAction::CopyWorkspaceId(_) => menu.copy_workspace_id,
+            MenuAction::PinWorkspace { pinned: true, .. } => menu.pin_workspace,
+            MenuAction::PinWorkspace { pinned: false, .. } => menu.unpin_workspace,
             MenuAction::CloseWorkspace(_) => {
                 localization::catalog().action_label(Action::CloseWorkspace)
             }

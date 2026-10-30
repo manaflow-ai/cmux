@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextRemote
+import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
 
@@ -17,6 +19,9 @@ final class MachineRegistry {
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
     private(set) var cloud: [CloudMachineSession] = []
+    /// The account's Cloud machine cap from the last `/api/vm` list (nil
+    /// before one, or when the list carried none). Never inferred from `cloud`.
+    var cloudLimits: CloudMachineLimits?
     /// SSH machines in the order they were added.
     private(set) var ssh: [SSHMachineSession] = []
     /// Paired servers whose Chief brain session the app shows (`ServerReachService`).
@@ -26,6 +31,10 @@ final class MachineRegistry {
     /// a Cloud machine is not reachable with `cloud` off, an SSH machine
     /// not with `remoteHosts` off, so no path opens work on it.
     @ObservationIgnored var isFeatureDisabled: (ActionFeature) -> Bool = { _ in false }
+    /// A machine left the registry (forgotten, deleted, unpaired): its
+    /// connections that live outside its session close (cx-2cob slice 2:
+    /// the forwarding connection and the browser runtimes on it).
+    @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
 
     init(local: DaemonService) {
         self.local = local
@@ -75,18 +84,41 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName ?? server(machineID)?.name
     }
 
+    /// The machine name on the tabs of `machineID`'s tree: nil for a tree that runs on this
+    /// Mac (2026-10-20: every Chief subagent tab wore "Chief"). The Chief owner daemon and a
+    /// server that is this Mac are reached at a Unix socket here; their tabs run on this Mac.
+    func tabBadge(_ machineID: String) -> String? {
+        if let server = server(machineID), case .unix = server.reach.route { return nil }
+        return machineBadge(machineID)
+    }
+
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
     }
 
+    /// The name a tab's machine badge takes its color from (`TabItem.machineName`): the sidebar
+    /// name of `machineID` when `badge` is that machine's short name (an SSH host's badge shows
+    /// its destination, the sidebar its label), so the tab wears its rows' MachineColor. Nil for
+    /// any other badge (a "this Mac" chip) or a machine not known here: the badge's own text.
+    func tabColorName(_ machineID: String?, badge: String?) -> String? {
+        guard let machineID, let badge, badge == machineBadge(machineID) else { return nil }
+        return machineName(machineID)
+    }
+
     /// What `daemon` can do for the app. A remote daemon never needs the
     /// home-only capabilities, nor, once the local daemon keeps personal
     /// state (`profiles-v1`), workspace groups and saved tab groups.
+    /// `terminal-reaper-active-v1` says how a daemon was started (with a
+    /// reap grace), not what its build serves: a remote daemon that the SSH
+    /// bootstrap starts never has it, and tab close handles both cases, so
+    /// its absence is not "update this machine" (cx-z0uk: a daemon installed
+    /// from the app's own tree still read as limited).
     func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
         guard !daemon.isLocal else { return daemon.compatibility }
-        var notNeeded = Set(DaemonCapabilities.shared.homeOnly)
-        if local.supports(DaemonCapabilities.shared.profiles) { notNeeded.formUnion(DaemonCapabilities.shared.personalOnHome) }
+        var notNeeded = Set(DaemonCapability.homeOnly)
+        notNeeded.insert(DaemonCapability.terminalReaperActive.rawValue)
+        if local.supports(DaemonCapability.profiles.rawValue) { notNeeded.formUnion(DaemonCapability.personalOnHome) }
         return daemon.compatibility(notNeeded: notNeeded)
     }
 
@@ -100,15 +132,12 @@ final class MachineRegistry {
     }
 
     /// The daemon whose tree holds workspace `id` (`WorkspaceModel.id`).
-    func daemon(forWorkspace id: String) -> DaemonService? {
-        daemons.first { daemon in daemon.store.workspaces.contains { $0.id == id } }
-    }
+    func daemon(forWorkspace id: String) -> DaemonService? { workspace(id: id)?.1 }
 
+    /// O(1) per daemon (`DaemonStore.workspace(id:)`).
     func workspace(id: String) -> (WorkspaceModel, DaemonService)? {
-        for daemon in daemons {
-            if let workspace = daemon.store.workspaces.first(where: { $0.id == id }) { return (workspace, daemon) }
-        }
-        return nil
+        if let workspace = local.store.workspace(id: id) { return (workspace, local) } // no daemon list for the common case
+        return remoteDaemons.lazy.compactMap { daemon in daemon.store.workspace(id: id).map { ($0, daemon) } }.first
     }
 
     /// The daemon holding pane `pane` (by object identity).
@@ -122,6 +151,26 @@ final class MachineRegistry {
         for daemon in remoteDaemons where daemon.store.tab(surface: tab.surface) === tab { return daemon }
         return local
     }
+
+    /// The daemon of agent tab `tab`, whose record names a host other than this Mac (its chat
+    /// runs on another machine): the remote daemon whose tree lists it. Refused, never this Mac's
+    /// daemon in its place (hq-84, cx-cmok), when this Mac's tree lists it, or when the record
+    /// names a store (`registry:<id>`) other than the one listing it.
+    func agentDaemon(forTab tab: TabModel) throws(MachineRoutingRefusal) -> DaemonService {
+        let daemon = daemon(forTab: tab)
+        let host = tab.agentSession?.host ?? ""
+        guard !daemon.isLocal else { throw MachineRoutingRefusal(host: host, machineID: daemon.machineID) }
+        if host.hasPrefix(Self.registryHostPrefix) {
+            let named = host.dropFirst(Self.registryHostPrefix.count).lowercased()
+            guard let own = daemon.store.registryID ?? daemon.identity?.sessionID, own.lowercased() == named else {
+                throw MachineRoutingRefusal(host: host, machineID: daemon.machineID)
+            }
+        }
+        return daemon
+    }
+
+    /// An agent tab record's `host` naming a machine's store (cmux-tui `store_host`).
+    nonisolated static let registryHostPrefix = "registry:"
 
     /// Every workspace on every machine, local first.
     var allWorkspaces: [(WorkspaceModel, DaemonService)] {
@@ -137,7 +186,9 @@ final class MachineRegistry {
 
     func remove(_ machineID: String) -> CloudMachineSession? {
         guard let index = cloud.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return cloud.remove(at: index)
+        let removed = cloud.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: SSH sessions (SSHService only)
@@ -149,7 +200,9 @@ final class MachineRegistry {
 
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
         guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return ssh.remove(at: index)
+        let removed = ssh.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: Servers (ServerReachService only)
@@ -161,6 +214,17 @@ final class MachineRegistry {
 
     func removeServer(_ machineID: String) -> ServerMachineSession? {
         guard let index = servers.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return servers.remove(at: index)
+        let removed = servers.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
+}
+
+/// An agent tab whose record names a machine other than the daemon whose tree lists it: its chat
+/// is not run, read or shown through that daemon (``MachineRegistry/agentDaemon(forTab:)``).
+nonisolated struct MachineRoutingRefusal: Error, Equatable {
+    /// The tab record's host.
+    let host: String
+    /// The machine whose tree lists the tab.
+    let machineID: String
 }

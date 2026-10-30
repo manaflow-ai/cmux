@@ -133,6 +133,7 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     #expect(pairingDecoded.expiresAt == nil)
     #expect(pairingDecoded.authToken == nil)
 
+    #if canImport(CoreImage)
     let compactBase64 = encoded.base64EncodedString()
         .replacingOccurrences(of: "+", with: "-")
         .replacingOccurrences(of: "/", with: "_")
@@ -154,6 +155,7 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     // buys working irx peer intent for one version step, still far below the
     // 57-module compact v1 payload.
     #expect(afterModules <= 45)
+    #endif
 
     let tailscaleOnly = try CmxAttachTicket(
         workspaceID: "",

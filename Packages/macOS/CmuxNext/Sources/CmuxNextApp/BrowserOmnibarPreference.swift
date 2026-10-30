@@ -1,14 +1,10 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 import os
 
 extension OmniboxConfiguration {
-    /// Pure: cmux.json's address bar keys as the browser module's value.
-    init(_ setting: BrowserOmnibarSetting) {
-        self = Self.resolve(setting).configuration
-    }
-
     /// The configuration, and whether the chosen custom engine is unusable
     /// (no search address with `%s` or `{searchTerms}`). Then the address
     /// bar searches with Google, never with the broken address; the caller
@@ -23,7 +19,7 @@ extension OmniboxConfiguration {
         }
         let configuration = OmniboxConfiguration(searchEngine: engine, remoteSuggestions: setting.remoteSuggestions,
                                                  inlineAutocomplete: setting.inlineAutocomplete, maxRows: setting.maxRows,
-                                                 calculator: setting.calculator)
+                                                 calculator: setting.calculator, showFullURLs: setting.showFullURLs)
         return (configuration, invalid)
     }
 }
@@ -36,11 +32,13 @@ enum BrowserOmnibarPreference {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "omnibar")
 
     static func follow(_ settings: SettingsController, cache: TabContentCache) {
+        // The password keys follow from here too: AppDelegate, which starts the followers, is at its line budget.
+        BrowserPasswordsPreference.follow(settings, cef: cache.cef)
         // task-owner: lives as long as the app's settings and cache; both weak.
         Task { [weak settings, weak cache] in
             guard let settings else { return }
             var reported: BrowserOmnibarSetting?
-            for await setting in Observations({ settings.snapshot.browserOmnibar }) {
+            for await setting in ObservationStream({ settings.snapshot.browserOmnibar }) {
                 guard let cache else { return }
                 let resolved = OmniboxConfiguration.resolve(setting)
                 if resolved.invalidCustomEngine, reported != setting {
@@ -48,8 +46,12 @@ enum BrowserOmnibarPreference {
                     logger.fault("browser.searchEngine is custom without a usable browser.customSearchEngine.search; searching with Google")
                 }
                 reported = resolved.invalidCustomEngine ? setting : nil
+                OmnibarGlassAppearance.shared.apply(glass: setting.glass, tint: setting.glassTint, tintStrength: setting.glassTintStrength,
+                                                    cornerRadius: setting.cornerRadius, shadow: setting.shadow, backgroundOpacity: setting.backgroundOpacity)
                 cache.omniboxConfiguration = resolved.configuration
                 for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
+                // Chromium's own search (chrome://settings/search, its menu rows) uses the same engine.
+                cache.cef.setDefaultSearch(resolved.configuration.searchEngine)
             }
         }
     }

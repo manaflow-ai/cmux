@@ -14,10 +14,6 @@ public struct BrowserTime {
         return Date(timeIntervalSince1970: Double(microseconds) / 1_000_000 - chromiumEpochOffset)
     }
 
-    public func chromiumMicroseconds(_ date: Date) -> Int64 {
-        Int64((date.timeIntervalSince1970 + chromiumEpochOffset) * 1_000_000)
-    }
-
     /// Firefox: microseconds since 1970-01-01 UTC. Zero means unknown.
     public func mozilla(_ microseconds: Int64) -> Date? {
         guard microseconds > 0 else { return nil }

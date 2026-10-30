@@ -66,6 +66,8 @@ Failed `clear-history` responses add `error_delivery`. `known-not-delivered` pro
 
 `browser-provider-v1` means browser tabs are attach-only: cmux-tui waits for cmux-browser to publish a connection-scoped loopback CDP endpoint and a target keyed by the tab's stable public id. It never discovers or launches an isolated Chrome process and never closes a provider-owned target. Endpoints and targets are available only to trusted-local `register-browser-provider` and `get-browser-provider` callers. Optional bearer credentials are accepted only during registration and are never returned. Multiple renderer clients may attach independently; presentation focus and scroll remain client-local. Provider disconnects leave canonical topology intact and reattach when a replacement lease appears.
 
+`browser-provider-native-hosting-v1` adds `hosting` to `register-browser-provider`. With `hosting:"native"` the provider presents each page in its own native view: cmux-tui never sends a geometry `Emulation.setDeviceMetricsOverride` (the page keeps its native viewport), never sends `Target.activateTarget` to recover a stalled frame stream, and screencasts a target only while a frame viewer is attached. The default `"daemon"` keeps the older behavior, where cmux-tui sizes each target to its own viewer and always screencasts it.
+
 cmux-browser starts the helper with its private agent-browser provider mode. New terminals use isolated upstream agent-browser daemon sessions; the `agent-browser.plugin.v1` adapter resolves the caller's containing workspace from its stable terminal id and returns one page-scoped provider target. This adapter is a control-plane bridge only—snapshotting, refs, actions, and policy remain upstream agent-browser behavior. It rejects bearer CDP leases because the current upstream direct-page provider response has no WebSocket-header field.
 
 `browser-pointer-frame-guard-v1` means browser attach state and frame events report authoritative `pointer_frame_seq` and `pointer_frame_floor_seq`, and the server accepts `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded`. Each admitted bitmap receives a new pointer sequence even when its document and dimensions match the previous bitmap. The reported floor through latest range proves only that a token belongs to the current document and coordinate mapping. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command also acknowledges its own token, so a dropped presentation message cannot strand input. Each connection retains one acknowledged token, while the browser input queue bounds actions admitted before a later presentation. Navigation or geometry changes reset the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A remote TUI sends the same capability in `set-client-info`; the server permits browser attach only when both peers advertise it. Clients and servers that omit it remain compatible for PTY surfaces. The legacy `browser-mouse` and `browser-wheel` JSON schemas still accept an omitted or null guard, but a guarded server rejects those requests before surface lookup instead of interpreting the current frame as authority.
@@ -122,12 +124,59 @@ mark (Mark Workspace as Unread), separate from notification markers and
 app does when the user types into one of the workspace's terminals (on this Mac) or uses Mark
 as Read or Clear Notifications; focusing or opening the workspace keeps it.
 
+`tab-mark-unread-v1` adds `marked_unread` (boolean) to `tab.update` and, while
+set, `marked_unread: true` to the tab's `extra`. It is a manual mark (Mark Tab
+Unread) on any tab, separate from notification markers. The daemon keeps it on
+the tab record until a frontend clears it, which the Mac app does when the tab
+comes into view.
+
+`tab-attention-v1` adds `attention` (a one-line reason, or null to clear) to
+`tab.update` and, while set, `attention: {reason, at_ms}` to the tab's `extra`.
+An agent sets it when the person must act in that tab (confirm, log in,
+approve, pick); `cmux attention request --tab <tab_…> --reason <text>` and
+`cmux attention clear --tab <tab_…>` send it. It never moves focus. Viewing
+the tab keeps it; the agent's clear, a browser tab's navigation to another
+URL, or the tab's close clears it.
+
+`tab-attention-request-id-v1` adds `extra.attention.request_id`: an opaque
+32-byte lowercase hexadecimal string issued by the owning daemon for each
+new mark, including identical reasons at the same time. It is persisted with
+the mark; clients compare equality only. `at_ms` is display time, never an
+identity or ordering guarantee. Existing valid tokenless marks receive an
+identity once when the store opens. Clearing, closing, reissuing, restarting,
+and clock rollback cannot reuse a prior identity (128 random bits; entropy
+failure aborts the write).
+
+A client acknowledging a captured request sends `tab.update` with
+`attention:null` and `attention_request_id` equal to the captured token. The
+daemon compares inside the write transaction. A mismatch or absent mark is a
+successful no-op; the result is the current tab snapshot, and unrelated fields
+still update. Null, malformed tokens, or a token without `attention:null` are
+validation errors. The legacy clear without a token remains unconditional for
+existing callers. New clients must require both this capability and a valid
+token; if either is absent, disable guarded actions rather than falling back
+to time matching or unconditional clearing. Older daemons do not advertise
+this capability. Older builds can still read the additive JSON; if they replace
+it without a token, the next upgrade issues a fresh identity. No FFI ABI change
+is needed: native consumers must use a daemon release containing this capability
+before enabling their actions. These core/protocol files are outside the derived
+CCmuxAppFFI inputs, so this change needs no app FFI release or binary-target repin.
+
+
+`workspace-description-v1` adds `description` (string, 1-4096 characters, line
+breaks allowed; null clears it) to `workspace.update` and, while set,
+`description` to the workspace's `extra`. `workspace-status-v1` adds
+`task_status` the same way: one of the classic cmux task lanes `todo`,
+`working`, `needs-attention`, `review`, `done`, or null for automatic. Both live
+in the shared workspace presentation, so every client shows them.
+
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
 OSC 7 (or the launch directory) and reads the repository's HEAD on the host
 that owns the PTY, so remote daemons report their own branches. `tab-changed`
-delivers the refreshed tab after a pin or directory change.
+delivers the refreshed tab after a pin or directory change. A pinned browser
+tab also reports `pinned_url`, the page it showed when it was pinned.
 
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
@@ -155,6 +204,22 @@ most 64 KiB) per frontend-rendered browser tab, such as its back/forward
 entries and scroll, and reads it back after a relaunch. `history:null`
 clears it. The daemon never journals it or puts it in the tree.
 
+`remote-terminal-tabs-v1` adds tabs that reference a terminal on another
+session, for frontends that federate several sessions. `new-remote-terminal-tab`
+stores `{session_id, terminal_id, session_name, title?}` in the durable tree;
+`update-remote-terminal-tab` records the title, session name, or a bounded
+text snapshot, which `remote-terminal-snapshot` reads back. The daemon never
+attaches or spawns anything for these tabs. They report
+`kind:"remote-terminal"` with a `remote` object and move, pin, group, and
+close like any tab. The TUI does not render them.
+
+`detached-terminals-v1` adds `detached:true` to `create-terminal`: the daemon
+creates a kept terminal with no workspace, pane, screen, or tab and returns
+its public `terminal_resource_id`, so another session's frontend can show it
+as a remote-terminal tab and attach by that id. Send it only to a daemon that
+advertises the capability; an older daemon ignores the field and creates a
+tab.
+
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
 `move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
@@ -168,6 +233,10 @@ moves the tab back without closing anything:
 {"id":15,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","transaction":"drop-9"}
 {"id":16,"cmd":"undo-layout","pane":2}
 ```
+
+`tab-split-keep-focus-v1` adds `keep_focus` to `move-tab-to-split` and
+`move-tab-to-column`: the new pane does not take focus, so an app can open a
+pane for an agent while the user types in another one.
 
 `tab-split-respawn-v1` adds `respawn` to `move-tab-to-split`. A pane's only
 tab dropped on that pane's own edge then splits the pane: the daemon leaves a

@@ -19,19 +19,3 @@ public struct ZoomPaneRequest: DaemonRequest {
         self.mode = mode
     }
 }
-
-/// TODO(feat-cmux-next-daemon): proposed `move-pane {pane, target, position}`
-/// for moving panes and columns. Wire shape is a guess.
-public struct MovePaneRequest: DaemonRequest {
-    public enum Position: String, Sendable, Codable { case left, right, above, below, columnBefore = "column-before", columnAfter = "column-after" }
-    public typealias Response = EmptyResponse
-    public static let command = "move-pane"
-    public var pane: PaneID
-    public var target: PaneID
-    public var position: Position
-    public init(pane: PaneID, target: PaneID, position: Position) {
-        self.pane = pane
-        self.target = target
-        self.position = position
-    }
-}

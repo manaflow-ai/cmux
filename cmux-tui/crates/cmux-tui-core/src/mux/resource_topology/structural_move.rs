@@ -14,7 +14,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
     source_pane: PaneId,
     target_pane: PaneId,
     index: usize,
-    result: Value,
+    result: impl FnOnce(&ResourceTopologySnapshot) -> anyhow::Result<Value>,
 ) -> anyhow::Result<ResourceMutationPlan> {
     let previous_active = state.active_pane();
     let source_location = state.screen_of(source_pane).context("source pane has no screen")?;
@@ -44,6 +44,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
     }
 
     let topology = registry.resource_topology_snapshot()?;
+    let before = topology.clone();
     let mut after = topology;
     after.panes.retain(|pane| pane.public_id != source_pane_id);
     let target_order = {
@@ -97,7 +98,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
     {
         *screen = target_durable.clone();
     }
-    changes.push(ResourceChange::UpsertScreen(target_durable.clone()));
+    changes.push(ResourceChange::UpsertScreen(target_durable));
 
     let source_durable = if source_screen_remains && source_screen_id != target_screen_id {
         let durable = registry_screen_from_layout(
@@ -182,54 +183,26 @@ pub(in crate::mux) fn structural_tab_move_plan(
         workspace_id: Some(target_workspace_id.clone()),
     });
 
-    let mut delta_values = vec![
-        ("tab", tab_id.to_string(), tab_value(&moved_tab, &after)?),
-        ("pane", target_pane_id.to_string(), pane_value(state, &target_record, &after)?),
-        (
-            "screen",
-            target_screen_id.to_string(),
-            screen_value(
-                &target_durable,
-                &after,
-                after.active_workspace.as_ref(),
-                active_screen(&after, &target_workspace_id),
-            )?,
-        ),
-        (
-            "workspace",
-            target_workspace_id.to_string(),
-            workspace_value(state, &after, &target_workspace_id)?,
-        ),
-    ];
-    if let Some(source) = &source_durable {
-        delta_values.push((
-            "screen",
-            source_screen_id.to_string(),
-            screen_value(
-                source,
-                &after,
-                after.active_workspace.as_ref(),
-                active_screen(&after, &source_workspace_id),
-            )?,
-        ));
+    // The focus change of the one focus path first, with the target and the
+    // surviving source screen, then the moved tab and its pane (cx-gzh.26).
+    let mut restated = vec![target_screen_id.clone()];
+    if source_durable.is_some() {
+        restated.push(source_screen_id.clone());
     }
-    if source_workspace_id != target_workspace_id {
-        delta_values.push((
-            "workspace",
-            source_workspace_id.to_string(),
-            workspace_value(state, &after, &source_workspace_id)?,
-        ));
+    let mut deltas = focus_change_deltas(state, &before, &after, &restated, &[&target_pane_id])?;
+    deltas.push(upsert(0, "tab", tab_id.as_str(), tab_value(&moved_tab, &after)?));
+    let pane = pane_value(state, &target_record, &after)?;
+    deltas.push(upsert(0, "pane", target_pane_id.as_str(), pane));
+    for (sequence, delta) in deltas.iter_mut().enumerate() {
+        delta["sequence"] = json!(sequence);
     }
-    let mut deltas = delta_values
-        .into_iter()
-        .enumerate()
-        .map(|(sequence, (resource, id, value))| upsert(sequence, resource, &id, value))
-        .collect::<Vec<_>>();
     deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
     if !source_screen_remains {
         deltas.push(delete_delta(deltas.len(), "screen", source_screen_id.as_str()));
     }
 
+    // The result describes the state after the move.
+    let result = result(&after)?;
     let source_screen_public = source_screen_id.clone();
     let target_screen_public = target_screen_id;
     let mux = Arc::clone(mux);

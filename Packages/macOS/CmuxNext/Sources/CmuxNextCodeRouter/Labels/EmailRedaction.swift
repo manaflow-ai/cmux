@@ -91,7 +91,4 @@ extension String {
     /// -> `s…@e…`); see `EmailRedaction`. For callers outside this module
     /// that pass account data on (for example app operations).
     public func redactingEmails() -> String { EmailRedaction.redactEmails(in: self) }
-
-    /// Whether the text holds an email marker (`@`, `＠`, `﹫`, `%40`, `%2540`).
-    public var containsEmailMarker: Bool { EmailRedaction.containsEmail(self) }
 }

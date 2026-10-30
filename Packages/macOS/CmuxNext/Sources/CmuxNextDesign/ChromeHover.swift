@@ -1,11 +1,13 @@
 public import AppKit
 import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The hover, pressed, selected and keyboard-focus look shared by chrome
 /// controls (sidebar rows and buttons, tab strip buttons, onboarding rows):
 /// a theme-token fill one tonal step per state (`hoverFill`, then
-/// `selectionFill`, then `pressedFill`) and a `focusRing` outline, faded with
-/// the `MotionFade.hover` token. The fill is its own sublayer, drawn
+/// `selectionFill`, then `pressedFill`; a hover over a resting fill takes
+/// `raisedHoverFill`) and a `focusRing` outline, faded as
+/// `fade(to:pressed:)` says. The fill is its own sublayer, drawn
 /// `outset` beyond the view's bounds, so nothing moves or resizes when it
 /// shows (plans/cmux-next/motion.md). A view that draws its own content
 /// (a button's title) uses its backing layer's background instead, which
@@ -61,37 +63,67 @@ public final class ChromeHover {
 
     /// The fill's color for a state, from theme tokens; `rest` when idle
     /// (a tile's faint fill), nil for no fill. Pressed wins over selected,
-    /// selected over hovered. Focus is an outline, never a fill.
+    /// selected over hovered. Focus is an outline, never a fill. A hover over a
+    /// resting fill takes `raisedHoverFill`, so it still shows a change.
     public static func fillColor(_ state: State, rest: NSColor? = nil) -> NSColor? {
         if state.pressed { return Palette.pressedFill }
         if state.selected { return Palette.selectionFill }
-        return state.hovering ? Palette.hoverFill : rest
+        // Calm mode (`ui.calm`): the pointer paints no hover fill.
+        guard state.hovering, DesignSettings.shared.showsHoverFills else { return rest }
+        return rest == nil ? Palette.hoverFill : raisedHoverFill
     }
 
-    /// Sets `layer`'s fill to `color` (nil clears it), fading with
-    /// `MotionFade.hover` when `animated`, at once otherwise. For views that
-    /// keep their own fill layer (a pill inset in a row). Call inside the
-    /// view's theme scope.
-    public static func paint(_ layer: CALayer, _ color: NSColor?, animated: Bool) {
+    /// The hover over a control that already rests on `Palette.hoverFill` (a sidebar tile, a quiet
+    /// button): the same neutral ink midway between the hover and the pressed fill (0.10 dark, 0.08
+    /// light, what a theme without an accent always showed here), so a press still reads past it.
+    /// Never the selection fill, which is the theme's accent (Leo 2026-10-20: a hover is not a
+    /// selection, and sidebar hovers paint no theme color). Call inside the view's theme scope.
+    public static var raisedHoverFill: NSColor {
+        let hover = Palette.hoverFill
+        return hover.withAlphaComponent((hover.alphaComponent + Palette.pressedFill.alphaComponent) / 2)
+    }
+
+    /// How a hover or pressed fill reaches `color`, as Edge draws it
+    /// (cx-f6i7): nil (at once) for a press, so a quick click always shows;
+    /// `hoverOut` as the fill clears (instant by default, so a fast sweep
+    /// leaves no trail); `hover`, a fast ease, as it shows or eases back from
+    /// a press.
+    static func fade(to color: CGColor?, pressed: Bool = false) -> MotionFade? {
+        fade(showing: (color?.alpha ?? 0) > 0, pressed: pressed)
+    }
+
+    /// `fade(to:pressed:)` for a view that sets its fill inside
+    /// `Motion.transaction`: whether the new fill shows at all.
+    public static func fade(showing: Bool, pressed: Bool = false) -> MotionFade? {
+        pressed ? nil : showing ? .hover : .hoverOut
+    }
+
+    /// Sets `layer`'s fill to `color` (nil clears it), fading as
+    /// `fade(to:pressed:)` says when `animated`, at once otherwise. For views
+    /// that keep their own fill layer (a pill inset in a row). `clearing`
+    /// replaces `hoverOut` as the fill clears (sidebar rows fade out too).
+    /// Call inside the view's theme scope.
+    public static func paint(_ layer: CALayer, _ color: NSColor?, animated: Bool, pressed: Bool = false,
+                             clearing: MotionFade = .hoverOut) {
         let target = color?.cgColor
         // A faded-out fill keeps an alpha-0 model value: already clear.
         let shown = color == nil && layer.backgroundColor?.alpha == 0 ? nil : layer.backgroundColor
         guard shown != target else { return }
-        guard animated else {
+        guard animated, let token = fade(to: target, pressed: pressed).map({ $0 == .hoverOut ? clearing : $0 }) else {
             layer.removeAnimation(forKey: "backgroundColor")
-            Motion.transaction(nil) { layer.backgroundColor = target }
+            Motion.feedback.transaction(nil) { layer.backgroundColor = target }
             return
         }
-        // Fade to or from the same color at alpha 0, not to black, starting
-        // from what is on screen so a reversal mid-fade never jumps.
-        let clear = (color ?? layer.backgroundColor.flatMap(NSColor.init(cgColor:)) ?? .clear).withAlphaComponent(0).cgColor
-        let start = layer.presentation()?.backgroundColor ?? layer.backgroundColor ?? clear
-        Motion.set(layer, "backgroundColor", to: target ?? clear, fade: .hover, from: start)
+        // Fade to or from the same color at alpha 0, not to black (a `.clear`
+        // rest color is black at alpha 0), starting from what is on screen so
+        // a reversal mid-fade never jumps.
+        let onScreen = layer.presentation()?.backgroundColor ?? layer.backgroundColor
+        let hue = [target, onScreen, layer.backgroundColor].compactMap { $0 }.first { $0.alpha > 0 }
+        let clear = hue?.copy(alpha: 0) ?? NSColor.clear.cgColor
+        let end = target.flatMap { $0.alpha > 0 ? $0 : nil } ?? clear
+        let start = onScreen.flatMap { $0.alpha > 0 ? $0 : nil } ?? clear
+        Motion.feedback.set(layer, "backgroundColor", to: end, fade: token, from: start)
     }
-
-    /// The fill as drawn now (model value), and where it is drawn.
-    public var shownFill: CGColor? { fill.backgroundColor }
-    public var fillFrame: CGRect { fill.frame }
 
     /// Call from the view's `layout()`.
     public func layout() {
@@ -135,13 +167,9 @@ public final class ChromeHover {
     public func refresh(animated: Bool = true) {
         guard let view else { return }
         view.performWithTheme {
-            let color = (Self.fillColor(state) ?? .clear).cgColor
-            if animated {
-                Motion.set(fill, "backgroundColor", to: color, fade: .hover)
-            } else {
-                Motion.transaction(nil) { fill.backgroundColor = color }
-            }
-            Motion.transaction(nil) {
+            // `paint` eases from the color at alpha 0, so the first hover fades in too.
+            Self.paint(fill, Self.fillColor(state), animated: animated, pressed: state.pressed)
+            Motion.feedback.transaction(nil) {
                 fill.borderColor = Palette.focusRing.cgColor
                 fill.borderWidth = state.focused ? Metrics.lineWidth(1.5) : 0
             }

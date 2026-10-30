@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import re
@@ -18,6 +19,19 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = ROOT / "scripts" / "build-cmux-cua.sh"
 
 
+def patch_files() -> list[Path]:
+    """The patch series build-cmux-cua.sh applies, in its order."""
+    block = re.search(
+        r"^CMUX_CUA_PATCH_RELATIVE_PATHS=\(\n(.*?)^\)$",
+        BUILD_SCRIPT.read_text(),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert block is not None
+    paths = re.findall(r'^\s*"([^"]+)"$', block.group(1), re.MULTILINE)
+    assert paths
+    return [ROOT / path for path in paths]
+
+
 def pinned_sha() -> str:
     match = re.search(
         r'^CMUX_CUA_PINNED_SHA="([0-9a-f]{40})"$',
@@ -26,6 +40,10 @@ def pinned_sha() -> str:
     )
     assert match is not None
     return match.group(1)
+
+
+def patch_digest() -> str:
+    return hashlib.sha256(b"".join(path.read_bytes() for path in patch_files())).hexdigest()
 
 
 def write_executable(path: Path, contents: str) -> None:
@@ -50,7 +68,7 @@ fi
 if [[ "${{1:-}}" == "-C" ]]; then
   shift 2
   case "${{1:-}}" in
-    cat-file|checkout|clean|fetch) exit 0 ;;
+    cat-file|checkout|clean|fetch|apply) exit 0 ;;
     remote)
       echo "fake://cmux-cua"
       exit 0
@@ -107,6 +125,9 @@ exit 1
         bin_dir / "cargo",
         """#!/bin/bash
 set -eu
+if [[ -n "${CUA_TEST_CARGO_ARGV_LOG:-}" ]]; then
+  printf '%s\n' "$@" > "$CUA_TEST_CARGO_ARGV_LOG"
+fi
 target=""
 while (($#)); do
   if [[ "$1" == "--target" ]]; then
@@ -210,6 +231,16 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
 
         assert result.returncode != 0, result.stdout
         assert sentinel.read_text() == "keep me", result.stderr
+        snapshot = cache_dir / f"build-src-{sha}-{patch_digest()}"
+        assert (
+            snapshot / ".cmux-cua-managed-build-source"
+        ).read_text() == f"cmux-cua-build-source-v1 {sha} {patch_digest()}\n"
+        assert (
+            next((snapshot / ".cmux-cargo-target").glob("xcode-*"))
+            / ("aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin")
+            / "release"
+            / "cmux-cua"
+        ).is_file()
 
 
 def fake_xcode(root: Path, name: str) -> tuple[Path, Path]:
@@ -256,6 +287,63 @@ def test_each_xcode_gets_its_own_cargo_target(sha: str) -> None:
         assert [sdkroot for _target, sdkroot in rows] == seen, rows
 
 
+def cargo_features(argv: list[str]) -> set[str]:
+    """Every feature cargo was asked for, from `--features A,B`, `--features "A B"`
+    and `--features=A` alike."""
+    features: set[str] = set()
+    for index, argument in enumerate(argv):
+        if argument == "--features" and index + 1 < len(argv):
+            value = argv[index + 1]
+        elif argument.startswith("--features="):
+            value = argument.split("=", 1)[1]
+        else:
+            continue
+        features.update(name for name in re.split(r"[,\s]+", value) if name)
+    return features
+
+
+def test_the_bundled_build_turns_on_host_consent(sha: str) -> None:
+    """The cmux-cua that ships inside cmux.app must take machine consent only from
+    the verified cmux host (the `cmux-host-consent` feature that
+    scripts/cmux-cua-machine-consent.patch adds). Without the feature the helper
+    falls back to the consent sources a caller could redirect, and the consent
+    red/green tests would not notice: they build cmux-cua with cargo directly, not
+    through this script. So run the script itself and check the cargo command it
+    ran."""
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-features-") as tmp:
+        root = Path(tmp)
+        argv_log = root / "cargo-argv.log"
+        environment = successful_build_environment(root, sha)
+        environment["CUA_TEST_CARGO_ARGV_LOG"] = str(argv_log)
+        developer, sdk = fake_xcode(root, "Xcode")
+        environment.update(DEVELOPER_DIR=str(developer), SDKROOT=str(sdk))
+        result = subprocess.run(
+            [
+                str(BUILD_SCRIPT),
+                "--output",
+                str(root / "output" / "cmux-cua"),
+                "--archs",
+                "arm64",
+                "--cache-dir",
+                str(root / "cache"),
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        assert argv_log.exists(), (
+            "build-cmux-cua.sh never reached cargo build\n"
+            f"exit {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        argv = argv_log.read_text().splitlines()
+        assert argv[:1] == ["build"], argv
+        assert "--release" in argv and "--locked" in argv, argv
+        assert ["-p", "cmux-cua"] in [argv[i:i + 2] for i in range(len(argv))], argv
+        assert "cmux-host-consent" in cargo_features(argv), (
+            f"build-cmux-cua.sh built cmux-cua without --features cmux-host-consent: {argv}"
+        )
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
@@ -263,6 +351,7 @@ def main() -> int:
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
     test_each_xcode_gets_its_own_cargo_target(sha)
+    test_the_bundled_build_turns_on_host_consent(sha)
     print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 

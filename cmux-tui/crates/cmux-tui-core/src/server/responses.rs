@@ -1,6 +1,7 @@
 //! Error replies to raw protocol requests (moved out of server.rs, behavior
 //! unchanged).
 
+use crate::panic_free::JsonFields;
 use serde_json::Value;
 
 use super::{MessageWriter, Response, ResponseErrorDelivery};
@@ -66,13 +67,13 @@ pub(super) fn send_response_with_details(
 ) -> bool {
     let Ok(mut value) = serde_json::to_value(response) else { return false };
     if let Some(reason) = reason {
-        value["reason"] = Value::String(reason);
+        value.insert("reason", Value::String(reason));
     }
     if let Some(retryable) = retryable {
-        value["retryable"] = Value::Bool(retryable);
+        value.insert("retryable", Value::Bool(retryable));
     }
     if let Some(details) = details {
-        value["error_details"] = details;
+        value.insert("error_details", details);
     }
     writer.send_control(&value).is_ok()
 }
@@ -94,19 +95,27 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .and_then(|error| error.code().map(str::to_string))
         })
         .or_else(|| permanent_column_code(error))
+        .or_else(|| resource_refusal_code(error, crate::mux::PINNED_COLUMN_CODE))
         .or_else(|| agent_chat_column_code(error))
         .or_else(|| super::rows::error_code(error))
+        .or_else(|| super::column_move::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
+        .or_else(|| crate::mux::creating_input::error_code(error))
+        .or_else(|| super::browser_profiles::error_code(error))
         .or_else(|| crate::mux::feed_local::feed_error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
         .or_else(|| super::chief_inspect::error_code(error))
+        .or_else(|| super::icon_assets::error_code(error))
         .or_else(|| super::conversations::error_code(error))
         .or_else(|| super::cloud_conversations::error_code(error))
         .or_else(|| super::new_screen::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
+        .or_else(|| crate::mux::workspace_not_empty_code(error))
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
         .or_else(|| super::renderer_grant::error_code(error))
         .or_else(|| super::browser_host_command::error_code(error))
+        .or_else(|| super::tab_restart::error_code(error))
+        .or_else(|| super::conversation_tabs_wire::error_code(error))
 }
 
 /// `permanent-dock-v1`: a close, move or undo the permanent-column guard
@@ -126,7 +135,7 @@ fn resource_refusal_code(error: &anyhow::Error, code: &str) -> Option<String> {
     let refused = error.chain().any(|cause| {
         cause
             .downcast_ref::<crate::resource::ResourceError>()
-            .is_some_and(|refusal| refusal.details["extra"]["reason_code"] == code)
+            .is_some_and(|refusal| refusal.details.field("extra").field("reason_code") == code)
             || cause.to_string().starts_with(code)
     });
     refused.then(|| code.to_string())

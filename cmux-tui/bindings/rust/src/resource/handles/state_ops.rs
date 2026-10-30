@@ -2,8 +2,9 @@
 //! `tab.unpin`, `tab.update`, `column.update`, `window_record.*`,
 //! `workspace.ensure_home`, the personal workspace groups
 //! (`workspace_group.*`, `workspace.place`, `workspace.placement.list`),
-//! closed history (`closed.*`), tab groups (`tab_group.*`), and saved tab
-//! groups (`saved_tab_group.*`).
+//! closed history (`closed.*`), tab groups (`tab_group.*`), saved tab
+//! groups (`saved_tab_group.*`), and the palette usage history
+//! (`palette_usage.*`).
 
 #[path = "closed.rs"]
 mod closed;
@@ -11,6 +12,8 @@ mod closed;
 mod column_update;
 #[path = "home.rs"]
 mod home;
+#[path = "palette_usage.rs"]
+mod palette_usage;
 #[path = "saved_tab_groups.rs"]
 mod saved_tab_groups;
 #[path = "tab_groups.rs"]
@@ -25,11 +28,17 @@ mod workspace_groups;
 mod workspace_update;
 
 pub use closed::{
-    ClosedItemSnapshot, ClosedListOptions, ClosedMemberRecord, ClosedReopenOptions,
-    ClosedReopenResult, ClosedScreenRecord, ClosedTabRecord,
+    ClosedDeleteResult, ClosedDeleteTarget, ClosedItemSnapshot, ClosedListOptions,
+    ClosedMemberRecord, ClosedReopenOptions, ClosedReopenResult, ClosedScreenRecord,
+    ClosedTabRecord, WorkspaceCloseResult,
 };
 pub use column_update::{ColumnEdge, ColumnMode};
 pub use home::CONVERSATION_TABS_CAPABILITY;
+pub use palette_usage::{
+    PALETTE_USAGE_CAPABILITY, PALETTE_USAGE_IMPORT_MAX_ROWS, PALETTE_USAGE_KEY_MAX_CHARS,
+    PaletteUsageImportResult, PaletteUsageImportRow, PaletteUsagePick, PaletteUsageRevision,
+    PaletteUsageRow, PaletteUsageSnapshot,
+};
 pub use saved_tab_groups::{
     SavedTabGroupReopenResult, SavedTabGroupSnapshot, SavedTabMemberSnapshot, StateDeleteResult,
 };

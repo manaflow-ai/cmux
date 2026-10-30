@@ -33,24 +33,19 @@ struct BookmarkEditorSheet: View {
             Grid(alignment: .leading, horizontalSpacing: Metrics.space4, verticalSpacing: Metrics.space3) {
                 GridRow {
                     Text(BookmarkStrings.name)
-                    TextField("", text: $state.title).textFieldStyle(.roundedBorder)
-                        .accessibilityIdentifier("cmux.bookmarks.editor.name")
+                    ThemedField(text: $state.title, identifier: "cmux.bookmarks.editor.name")
                 }
                 if !state.isFolder {
                     GridRow {
                         Text(BookmarkStrings.url)
-                        TextField("", text: $state.url).textFieldStyle(.roundedBorder)
-                            .accessibilityIdentifier("cmux.bookmarks.editor.url")
+                        ThemedField(text: $state.url, identifier: "cmux.bookmarks.editor.url")
                     }
                 }
                 GridRow {
                     Text(BookmarkStrings.folder)
-                    Picker("", selection: $state.folder) {
-                        ForEach(choices) { choice in
-                            Text(String(repeating: "    ", count: choice.depth) + choice.title).tag(choice.id)
-                        }
-                    }
-                    .labelsHidden()
+                    ThemedPicker(selection: $state.folder, choices: choices.map {
+                        ThemedPicker.Choice(id: $0.id, title: String(repeating: "    ", count: $0.depth) + $0.title)
+                    })
                 }
             }
             if let error = model.errorMessage {
@@ -58,20 +53,20 @@ struct BookmarkEditorSheet: View {
             }
             HStack {
                 Spacer()
-                Button(BookmarkStrings.cancel) {
+                CmuxDialogActionButton(BookmarkStrings.cancel, hint: .escape) {
                     model.errorMessage = nil
                     dismiss()
                 }
-                .keyboardShortcut(.cancelAction)
-                Button(BookmarkStrings.save) {
+                CmuxDialogActionButton(BookmarkStrings.save, hint: .return) {
                     if model.commitEditor(state) { dismiss() }
                 }
-                .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("cmux.bookmarks.editor.save")
             }
         }
         .font(Font(Typography.body))
         .padding(Metrics.space6)
         .frame(width: Metrics.paletteWidth * 0.7)
+        // The default button in the theme's selection fill, never the system blue (cx-wqn5).
+        .tint(model.colors.selection)
     }
 }

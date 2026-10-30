@@ -7,10 +7,38 @@ import { LineSocket } from "./line-socket.ts";
 // socket). New code for the brain host; the method set follows feat-mux
 // mux/packages/acpmux/src/client.ts and `acpmux daemon schema`.
 
-export function acpmuxSocketPath(env: Record<string, string | undefined> = process.env): string {
-  if (env.ACPMUX_SOCKET) return env.ACPMUX_SOCKET;
-  if (env.ACPMUX_HOME) return join(env.ACPMUX_HOME, "acpmux.sock");
-  return join(env.HOME ?? homedir(), ".acpmux", "acpmux.sock");
+/** The longest Unix socket path every host binds (cmux-agent-pane-policy MAX_SOCKET_PATH_BYTES). */
+const MAX_SOCKET_PATH_BYTES = 103;
+
+/** FNV-1a 64 of the UTF-8 bytes, as 16 hex digits. */
+function fnv1a64(text: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash ^= BigInt(byte);
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+/**
+ * The acpmux daemon socket every host and client resolves (cmux-agent-pane-policy
+ * `environment::socket_path`, tests/cases/environment.json): ACPMUX_SOCKET, except an
+ * absolute path past the Unix socket limit (a long TMPDIR), which maps to the short alias
+ * acpmux binds; else `<home>/acpmux.sock`, or the alias of a long home.
+ */
+export function acpmuxSocketPath(
+  env: Record<string, string | undefined> = process.env,
+  uid: number = process.getuid?.() ?? 0,
+): string {
+  const alias = (key: string) => `/tmp/acpmux-${uid}/${fnv1a64(key)}.sock`;
+  const configured = env.ACPMUX_SOCKET;
+  if (configured) {
+    const long = configured.startsWith("/") && Buffer.byteLength(configured) > MAX_SOCKET_PATH_BYTES;
+    return long ? alias(configured) : configured;
+  }
+  const home = env.ACPMUX_HOME || join(env.HOME ?? homedir(), ".acpmux");
+  const preferred = join(home, "acpmux.sock");
+  return Buffer.byteLength(preferred) < 96 ? preferred : alias(home);
 }
 
 export interface Notification {
@@ -50,7 +78,6 @@ export class AcpmuxClient {
   private readonly listeners = new Set<(n: Notification) => void>();
   private socket!: LineSocket;
 
-  /** Connects and runs `initialize`. */
   /** Connects and runs `initialize`. Aborting `signal` closes the socket, so a stuck handshake leaves nothing open. */
   static async connect(path = acpmuxSocketPath(), clientName = "mux-host", signal?: AbortSignal): Promise<AcpmuxClient> {
     const client = new AcpmuxClient();
@@ -120,10 +147,24 @@ export class AcpmuxClient {
     return this.request("_acpmux/attach", { sessionId, afterSeq, limit });
   }
 
-  events(sessionId: string, afterSeq = 0, limit = 1_000_000): Promise<AcpmuxEvent[]> {
-    return this.request<{ events: AcpmuxEvent[] }>("_acpmux/events", { sessionId, afterSeq, limit }).then(
-      (r) => r.events,
-    );
+  /** Up to `limit` events after `afterSeq`, oldest first. A page ends at the daemon's byte
+   * limit (1 MiB by default) with `hasMore`, so this reads page after page. */
+  async events(sessionId: string, afterSeq = 0, limit = 1_000_000): Promise<AcpmuxEvent[]> {
+    const all: AcpmuxEvent[] = [];
+    let cursor = afterSeq;
+    while (all.length < limit) {
+      const page = await this.request<{ events: AcpmuxEvent[]; hasMore?: boolean }>("_acpmux/events", {
+        sessionId,
+        afterSeq: cursor,
+        limit: limit - all.length,
+      });
+      all.push(...page.events);
+      const last = page.events.at(-1)?.seq;
+      // A page that does not move the cursor would repeat forever.
+      if (!page.hasMore || typeof last !== "number" || last <= cursor) break;
+      cursor = last;
+    }
+    return all;
   }
 
   info(sessionId: string): Promise<SessionSummary & { pending?: { permissionId: string; request: Record<string, unknown> }[] }> {

@@ -35,12 +35,6 @@ nonisolated public struct BundledWhatsNewSource: WhatsNewSource {
         var versions: [String]
     }
 
-    /// Where a bundled media path resolves (`media/<version>/<file>`).
-    public func mediaURL(_ path: String) -> URL? {
-        guard WhatsNewDocument.Media.isSafe(path), let directory else { return nil }
-        return directory.appending(path: path)
-    }
-
     public func documents(after: WhatsNewVersion?, through: WhatsNewVersion) async -> [WhatsNewDocument] {
         await read(after: after, through: through)
     }
@@ -96,19 +90,51 @@ nonisolated public struct FeedWhatsNewSource: WhatsNewSource {
     }
 
     /// The digest of `notes`: its embedded document, else one built from
-    /// its highlights (nil without either).
+    /// its highlights, else the short summary (nil without any user-facing
+    /// lines). Summary lines keep a signed nightly build discoverable when
+    /// no highlight file was written for its release range.
     static func document(from notes: ReleaseNotes) -> WhatsNewDocument? {
         if var document = notes.whatsNew, document.schemaVersion == 1, document.version == notes.shortVersion {
             document.origin = .feed
             return document.entries.isEmpty ? nil : document
         }
-        guard !notes.highlights.isEmpty, WhatsNewVersion(notes.shortVersion) != nil else { return nil }
-        let entries = notes.highlights.map { highlight in
-            WhatsNewDocument.Entry(id: highlight.id, category: .new, title: WhatsNewText(stringLiteral: highlight.title),
-                                   summary: WhatsNewText(stringLiteral: highlight.body),
-                                   tryIt: highlight.action.map { WhatsNewDocument.TryIt(action: $0.id) })
+        guard WhatsNewVersion(notes.shortVersion) != nil else { return nil }
+
+        let entries: [WhatsNewDocument.Entry]
+        if !notes.highlights.isEmpty {
+            entries = notes.highlights.compactMap { highlight in
+                let title = highlight.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { return nil }
+                return WhatsNewDocument.Entry(
+                    id: highlight.id,
+                    category: category(for: highlight.category),
+                    title: WhatsNewText(stringLiteral: title),
+                    summary: WhatsNewText(stringLiteral: highlight.body),
+                    tryIt: highlight.action.map { WhatsNewDocument.TryIt(action: $0.id) }
+                )
+            }
+        } else {
+            entries = (notes.summary ?? []).enumerated().compactMap { index, line in
+                let title = line.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { return nil }
+                let text = WhatsNewText(stringLiteral: title)
+                return WhatsNewDocument.Entry(id: "summary-\(index)", category: category(for: line.group),
+                                              title: text, summary: text)
+            }
         }
+        guard let headline = entries.first?.title else { return nil }
         return WhatsNewDocument(version: notes.shortVersion, channel: .nightly, date: notes.date,
-                                headline: WhatsNewText(stringLiteral: notes.highlights[0].title), entries: entries, origin: .feed)
+                                headline: headline, entries: entries, origin: .feed)
+    }
+
+    /// Release notes use "changed" for the short changelog while What's New
+    /// uses "improved"; the latter is the closest user-facing category.
+    private static func category(for value: String?) -> WhatsNewDocument.Category {
+        switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "fixed": return .fixed
+        case "improved", "changed": return .improved
+        case "security": return .security
+        default: return .new
+        }
     }
 }

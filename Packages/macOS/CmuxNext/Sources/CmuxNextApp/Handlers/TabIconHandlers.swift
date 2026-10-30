@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextLayout
 
 /// `tab.setIcon` and `tab.clearIcon` (ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS): the
 /// one path behind the tab context menu, the palette, `cmux tab set-icon` and MCP.
@@ -15,14 +16,15 @@ enum TabIconHandlers {
         registry.bind("tab.setIcon", invoke: { invocation in
             guard let target = target(invocation, ctx) else { return }
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                guard WorkspaceIconValue.isValid(icon) else { return ctx.refuse(WorkspaceVerbStrings.invalidIcon) }
+                guard WorkspaceIconValue.isValid(icon, assets: true) else { return ctx.refuse(WorkspaceVerbStrings.invalidIcon) }
                 return change(target, to: icon, origin: invocation.origin, ctx)
             }
             guard let anchor = anchor(target, ctx) ?? ctx.refuse(ScreenStrings.iconArgumentRequired) else { return }
             // A pick in the picker is the person's own gesture, also when automation opened it.
-            ctx.services.iconPicker.pick(current: target.tab.userIcon, target: "tab:\(target.resource.rawValue)", at: anchor) { result in
+            ctx.services.iconPicker.pick(current: target.tab.userIcon, target: "tab:\(target.resource.rawValue)", at: anchor,
+                                         assets: IconAssetStore.owner(target.daemon)) { result in
                 switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon): change(target, to: icon, origin: .user, ctx)
+                case .set(let icon) where WorkspaceIconValue.isValid(icon, assets: true): change(target, to: icon, origin: .user, ctx)
                 case .clear: change(target, to: nil, origin: .user, ctx)
                 case .set, .cancel: break
                 }
@@ -47,23 +49,20 @@ enum TabIconHandlers {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return nil }
         let daemon = ctx.services.daemon(for: pane)
         guard daemon.store.servesStateResources, let resource = tab.resourceID else {
-            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.stateResources))
+            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapability.stateResources.rawValue))
         }
         return Target(tab: tab, pane: pane, resource: resource, daemon: daemon)
     }
 
-    /// The id of the tab icon undo toast (one per window; a newer change replaces it).
-    static let undoToastID = "tab-icon-undo"
-
-    /// Changes the tab's icon (nil removes it); a user's change offers an undo toast (IconHistory).
+    /// Changes the tab's icon (nil removes it); a user's change is an undo step (IconHistory).
     static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
         // The icon the tab shows now (the picker may have been open while it changed).
-        let previous = ctx.services.locateTab(target.tab.id)?.0.userIcon ?? target.tab.userIcon
+        let previous = ctx.services.locateTab(model: target.tab)?.0.userIcon ?? target.tab.userIcon
         try? history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin)
     }
 
-    /// Icon updates by tab id, so an undo after the tab moved still finds it; the undo toast shows
-    /// in the window that shows the tab (not the picker panel that is key while it closes).
+    /// Icon updates by tab id, so an undo after the tab moved still finds it; the undo step goes on
+    /// the undo stack of the window that shows the tab (not the picker panel that is key while it closes).
     static func history(_ ctx: AppActionContext) -> IconHistory {
         let shownIn = UndoToastWindow()
         return IconHistory(messages: .tab, apply: { id, update in
@@ -76,8 +75,7 @@ enum TabIconHandlers {
         }, offerUndo: { message, undo in
             let windows = ctx.services.windows
             guard let window = shownIn.window ?? windows.active?.window ?? NSApp.mainWindow else { return }
-            let handle = CmuxToastCenter.shared.show(CmuxToast(id: undoToastID, message: message, action: .undo()), in: window)
-            handle.onAction = { undo() }
+            IconHistory.registerUndo(message, in: window, undo)
         })
     }
 
@@ -97,4 +95,8 @@ enum TabIconHandlers {
 @MainActor
 final class UndoToastWindow {
     weak var window: NSWindow?
+
+    // Each icon change releases this inside the action's task-local scope; teardown must not
+    // need a main-actor hop (cx-bpcj, cx-t7hu).
+    nonisolated deinit {}
 }

@@ -22,7 +22,7 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
-import { agentLaunchCheck } from "./devbox-agent-launch";
+import { agentLaunchCheck, codexHookTrustCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
@@ -40,9 +40,17 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
+  CMUX_TUI_STATE_IMAGE_PATH,
+  CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
+  CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
+  DEVBOX_MACHINE_HEALTH_REARM_COMMAND,
+  DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
   devboxAgentPins,
+  devboxMachineHealthRearmProblems,
+  devboxMachineHealthResumeProblems,
   devboxDir,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -64,6 +72,7 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./cmux-vm-image/machine-health";
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -74,6 +83,8 @@ const hexPort = (port: number): string => port.toString(16).toUpperCase().padSta
 const FILE_PIN_CHECKS = [
   ["cmux-bashrc", "/etc/cmux/bashrc"],
   ["agent-config.sh", "/etc/cmux/agent-config.sh"],
+  ["agent-auth.sh", "/etc/cmux/agent-auth.sh"],
+  ["claude-onboarding.py", "/etc/cmux/claude-onboarding.py"],
   ["seed-history", "/etc/cmux/seed-history"],
   ["cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot"],
   ["chrome-managed-policy.json", "/etc/opt/chrome/policies/managed/cmux.json"],
@@ -135,11 +146,17 @@ const CHECKS: readonly string[] = [
   // header: the edge injects it) and persists every var 0600; the
   // unreachable config endpoint writes no opencode config; the image ships
   // no pre-generated config for root.
-  `rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && grep -q 'base_url = "https://' /root/.codex/config.toml && grep -qF "${DEFAULT_VM_EDGE_ALIAS_DOMAIN}/v1" /root/.codex/config.toml && ! grep -q crt_ /root/.codex/config.toml && ! grep -q crt_ /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok`,
+  `grep -q agent-config.sh /etc/profile.d/cmux-agents.sh && echo owner > /tmp/cmux-vm-kind.verify && sed 's#/etc/cmux/vm-kind#/tmp/cmux-vm-kind.verify#g' /etc/cmux/agent-config.sh > /tmp/cmux-agent-config.verify.sh && { rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -c '. /tmp/cmux-agent-config.verify.sh' && grep -q 'model_provider = "cmux"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json; }; rc=$?; rm -f /tmp/cmux-vm-kind.verify /tmp/cmux-agent-config.verify.sh; [ "$rc" = 0 ] && rm -rf /tmp/cmux-agent-config-verify && grep -q 'base_url = "https://' /root/.codex/config.toml && grep -qF "${DEFAULT_VM_EDGE_ALIAS_DOMAIN}/v1" /root/.codex/config.toml && ! grep -q crt_ /root/.codex/config.toml && ! grep -q crt_ /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok`,
+  // A team record (the image's default until cmux-vm-kind-sync or the create replaces it):
+  // agent-config keeps none of a caller's model-plane env. Both generator probes read a
+  // private record (a copy of agent-config.sh pointed at a temp file), so the live
+  // /etc/cmux/vm-kind the boot supervisor's sync writes is never touched or raced.
+  "echo team > /tmp/cmux-vm-kind.team-verify && sed 's#/etc/cmux/vm-kind#/tmp/cmux-vm-kind.team-verify#g' /etc/cmux/agent-config.sh > /tmp/cmux-agent-config.team-verify.sh && rm -rf /tmp/cmux-team-kind-verify && { env HOME=/tmp/cmux-team-kind-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -c '. /tmp/cmux-agent-config.team-verify.sh' && ! grep -rqs -e cmux-team-kind-check -e example.invalid /tmp/cmux-team-kind-verify; }; rc=$?; rm -rf /tmp/cmux-vm-kind.team-verify /tmp/cmux-agent-config.team-verify.sh /tmp/cmux-team-kind-verify; [ \"$rc\" = 0 ] && echo team-kind-keeps-no-caller-env",
   "python3 -c \"import json; s = json.load(open('/etc/claude-code/managed-settings.json')); assert s['cleanupPeriodDays'] == 99999 and s['skipDangerousModePermissionPrompt'] is True\" && echo claude-retention-ok",
   // Trust everywhere: the managed HOME entries for codex, the claude first-run
   // seed for root, and the sandbox env every login shell exports.
   `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${DEVBOX_DESKTOP_HOME}"]["trust_level"] == "trusted"' && bash -lc 'test "$CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER" = 1:1:1' && python3 -c "import json; j = json.load(open('/root/.claude.json')); assert j['hasCompletedOnboarding'] is True and j['bypassPermissionsModeAccepted'] is True and j['projects']['/']['hasTrustDialogAccepted'] is True and isinstance(j['customApiKeyResponses']['approved'], list) and '-vm-edge-placeholder' in j['customApiKeyResponses']['approved']" && echo agent-trust-ok`,
+  `python3 -c 'import json, pathlib; homes = ["/root", "${DEVBOX_WORK_HOME}"]; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`,
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 
@@ -166,6 +183,7 @@ const DAEMON_CHECKS: readonly string[] = [
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
   `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
+  `test -f ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && test -x ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} && test -f ${CMUX_TUI_STATE_IMAGE_PATH} && mountpoint -q ${DEVBOX_WORK_HOME}/.local/state/cmux-tui && test "$(stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH})" = ${CMUX_TUI_STATE_RESERVATION_BYTES} && echo daemon-state-reservation-ok`,
   // The static model-plane env is baked; a shell with no boot env sources it.
   `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
@@ -235,11 +253,18 @@ const desktopChecks = (): readonly string[] => [
 const CLAUDE_LAUNCH_MARKER = "bypass permissions on";
 const CLAUDE_GATE_TEXTS = "Do you trust|Detected a custom API key|text style that looks best|Yes, I accept|cannot be used with root|Select login method";
 const CODEX_LAUNCH_MARKER = "Ask Codex to do anything";
-const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT";
+// "Hooks need review" is codex's hook-trust gate: every hook cmux installs or
+// injects must already be trusted.
+const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT|Hooks need review";
 const AGENT_LAUNCH_CHECKS: readonly string[] = [
-  agentLaunchCheck("root", "/root", "claude-root-launch", "claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
-  agentLaunchCheck("root", "/root", "codex-root-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
-  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  agentLaunchCheck("root", "/root", "claude-root-launch", "CMUX_CLAUDE_AUTH=team claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
+  agentLaunchCheck("root", "/root", "codex-root-launch", "CMUX_CODEX_AUTH=team codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "CMUX_CODEX_AUTH=team codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  // A daemon pane starts codex through cmux-tui's codex wrapper (the pane
+  // PATH's codex shim), which injects per-terminal hooks and their trust.
+  // Codex draws the composer before "Hooks need review", so ask codex itself
+  // whether every hook it would run is trusted (#20482).
+  codexHookTrustCheck(DEVBOX_WORK_USER, DEVBOX_WORK_HOME, "codex-pane-hooks-trusted", `${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`, `/tmp/cmux-tui-$(id -u)/${CMUX_TUI_SESSION}.sock`),
   // Nothing a launch wrote in the work user's home may be root-owned (the
   // root probes ran with HOME=/root, never the work user's home).
   `[ "$(find ${DEVBOX_DESKTOP_HOME} -not -user ${DEVBOX_DESKTOP_USER} | wc -l)" = 0 ] && echo home-still-owned-by-${DEVBOX_DESKTOP_USER}`,
@@ -266,11 +291,16 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // the interactive path shows the five first-run dialogs, so the probe is a
   // real PTY with an interactive shell (what the daemon spawns), types the
   // command, and reads the screen.
-  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L claude new-session -d -s c -x 110 -y 34 && sleep 1 && tmux -L claude send-keys -t c "claude --dangerously-skip-permissions" Enter; pane=""; for i in $(seq 1 120); do pane="$(tmux -L claude capture-pane -pt c)"; printf "%s\\n" "$pane" | grep -qE "bypass permissions on|root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && break; sleep 0.5; done; tmux -L claude kill-server 2>/dev/null; printf "%s\\n" "$pane"; printf "%s\\n" "$pane" | grep -qiE "root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && exit 1; printf "%s\\n" "$pane" | grep -q "bypass permissions on"' && echo claude-reaches-the-prompt`,
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L claude new-session -d -s c -x 110 -y 34 && sleep 1 && tmux -L claude send-keys -t c "CMUX_CLAUDE_AUTH=team claude --dangerously-skip-permissions" Enter; pane=""; for i in $(seq 1 120); do pane="$(tmux -L claude capture-pane -pt c)"; printf "%s\\n" "$pane" | grep -qE "bypass permissions on|root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && break; sleep 0.5; done; tmux -L claude kill-server 2>/dev/null; printf "%s\\n" "$pane"; printf "%s\\n" "$pane" | grep -qiE "root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && exit 1; printf "%s\\n" "$pane" | grep -q "bypass permissions on"' && echo claude-reaches-the-prompt`,
   `[ "$(id -u ${DEVBOX_WORK_USER})" = 1000 ] && sudo -n -u ${DEVBOX_WORK_USER} sudo -n true && echo work-user-sudo-ok`,
   `sudo -n -u ${DEVBOX_WORK_USER} bash -ic 'head -1 ~/.bash_history' | grep -q claude && echo work-user-shell-ok`,
   "test ! -e /opt/mise && test ! -e /usr/local/bin/mise && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-toolchain-in-use",
   "for b in node claude codex opencode pi agent-browser bun; do test -L /usr/local/bin/$b || exit 1; done && echo agent-symlinks-ok",
+  // Agent sign-in modes: each entry is its launcher, which resolves team or
+  // own login per launch (agent-auth.sh); a login shell's PATH (nvm first)
+  // resolves each agent to its launcher too, and no shell carries Claude's
+  // model-plane key.
+  'for a in claude codex opencode; do test "$(readlink /usr/local/bin/$a)" = /etc/cmux/$a && test -x /usr/local/libexec/cmux-$a-real || exit 1; done && sh -n /etc/cmux/agent-auth.sh && bash -lc \'test -z "${ANTHROPIC_API_KEY-}" && test -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" && for a in claude codex opencode; do test "$(readlink -f "$(type -P $a)")" = /etc/cmux/$a && test "$(type -t $a)" = function || exit 1; done\' && echo agent-launchers-ok',
   ...pins.map((pin) => `env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm sudo -n -u ${DEVBOX_WORK_USER} bash -lc '${pin.binary} --version' | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-login-pin-ok`),
   // Non-login probe, as the work user: probing as root with the work user's
   // HOME would itself leave root-owned state dirs behind.
@@ -420,6 +450,12 @@ if (provider === "freestyle") {
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
     const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
     if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);
+    // cmux-machine-health resumed parked: no pass in the clone's first seconds,
+    // its timer waiting on the housekeeping re-arm (cmux-devbox-boot), which
+    // is scheduled to start it.
+    const healthResume = await exec(DEVBOX_MACHINE_HEALTH_RESUME_COMMAND, 30_000);
+    const healthResumeProblems = devboxMachineHealthResumeProblems(healthResume.output);
+    console.log(`  $ machine-health at resume\n    ${(healthResumeProblems.join("\n") || healthResume.output.trim()).split("\n").join("\n    ")}`);
     // The baked binary must be the pin the bake resolved and recorded in
     // /etc/cmux/cmux-tui-pin (that is the image's contract; the manifest entry
     // carries the same commit). The live files.cmux.com pin moves with every
@@ -517,7 +553,18 @@ if (provider === "freestyle") {
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
     ], exec) && idleOk && cloneIdentityOk;
+    // cmux-machine-health last: the re-arm also starts the other housekeeping
+    // timers, whose overdue runs the quiet-resume check above must not see.
+    // The re-arm starts the health timer (its service by hand, not its 10 min
+    // wait), the timer runs a pass, one more pass reports no problem, and the
+    // guard drop-ins apply (cmux-vm-image/machine-health.ts).
+    const healthSmoke = await exec(`${DEVBOX_MACHINE_HEALTH_REARM_COMMAND}; ${machineHealthSmokeCommand(DEVBOX_WORK_USER)}`, 240_000);
+    const healthProblems = [...healthResumeProblems, ...devboxMachineHealthRearmProblems(healthSmoke.output), ...machineHealthSmokeProblems(healthSmoke.output)];
+    console.log(`  $ machine-health smoke\n    ${(healthProblems.join("\n") || healthSmoke.output.trim()).split("\n").join("\n    ")}`);
+    const healthOk = healthProblems.length === 0;
+    pass = pass && healthOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
+    if (!healthOk) console.log("[freestyle] machine-health check FAILED");
     if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
   } finally {
     await vm.delete();

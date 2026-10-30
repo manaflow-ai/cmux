@@ -1,14 +1,29 @@
 public import Foundation
 
 /// The wallpaper choices displayed by Appearance settings.
-public nonisolated struct BackdropCatalog: Sendable {
-    /// The bundled figure drawings, then the bundled paintings, then the desktop picture, then a
-    /// bounded starter set of macOS wallpapers.
+public nonisolated struct BackdropCatalog: Sendable, Equatable {
+    /// The bundled art by collection (Dark Art, Museum Icons, Calm, Doré), then the person's own
+    /// images, then the desktop picture, then every macOS wallpaper (``AppleWallpapers``), then the
+    /// moving wallpapers (Apple's and downloaded aerials, then the person's own videos).
     public let choices: [BackdropSelection]
+    /// The macOS wallpapers among ``choices``, by path.
+    public let appleWallpapers: [String: AppleWallpaper]
+    /// The aerial names read once while building this catalog.
+    public let aerialNames: [String: String]
+    /// The listed aerials not downloaded when this catalog was built off main.
+    public let pendingVideoPaths: Set<String>
 
-    /// The bundled art in picker order (figure drawings first; the default is one).
-    public static let bundled: [BackdropSelection] = [BackdropArtCollection.figureDrawings, .paintings].flatMap { collection in
+    /// The bundled art in picker order: by collection, darkest works first within each.
+    public static let bundled: [BackdropSelection] = BackdropArtCollection.allCases.flatMap { collection in
         BackdropArt.allCases.filter { $0.collection == collection }.map(BackdropSelection.art)
+    }
+
+    /// The bundled art only (no folder read): what ``BackdropCatalogStore`` shows before its first build.
+    public init(bundledOnly: Void) {
+        choices = Self.bundled
+        appleWallpapers = [:]
+        aerialNames = [:]
+        pendingVideoPaths = []
     }
 
     /// Builds a catalog from an injected directory listing.
@@ -16,17 +31,22 @@ public nonisolated struct BackdropCatalog: Sendable {
     /// - Parameters:
     ///   - systemDirectory: The macOS wallpaper directory.
     ///   - fileManager: The file manager used to enumerate it.
-    ///   - systemLimit: Maximum number of system wallpapers shown initially.
-    public init(systemDirectory: URL, fileManager: FileManager, systemLimit: Int = 12) {
-        let extensions = Set(["jpg", "jpeg", "png", "heic", "heif", "avif"])
-        let system = (try? fileManager.contentsOfDirectory(
-            at: systemDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ))?.filter { extensions.contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-            .prefix(max(0, systemLimit))
-            .map { BackdropSelection.system(path: $0.path) } ?? []
-        choices = Self.bundled + [.desktop] + system
+    ///   - assets: The macOS wallpapers downloaded in full.
+    ///   - userImages: The person's own images and videos (``BackdropUserImages``), if any.
+    ///   - aerials: Where idleassetsd keeps downloaded aerials (``AppleWallpapers``).
+    public init(systemDirectory: URL, fileManager: FileManager, assets: AppleWallpaperAssets = AppleWallpaperAssets(),
+                userImages: BackdropUserImages? = nil, aerials: URL = AppleWallpapers.system.aerials) {
+        let wallpapers = AppleWallpapers(desktopPictures: systemDirectory, aerials: aerials)
+        let apple = wallpapers.pictures(assets: assets, fileManager: fileManager)
+        appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let yours = userImages?.list(fileManager: fileManager) ?? []
+        aerialNames = wallpapers.aerialNames()
+        let moving = wallpapers.videos(fileManager: fileManager, names: aerialNames)
+        pendingVideoPaths = Set(moving.compactMap { choice in
+            guard case .system(let path) = choice, !fileManager.fileExists(atPath: path) else { return nil }
+            return path
+        })
+        choices = Self.bundled + yours.filter { !$0.isVideo } + [.desktop] + apple.map { BackdropSelection.system(path: $0.path) }
+            + moving + yours.filter(\.isVideo)
     }
 }

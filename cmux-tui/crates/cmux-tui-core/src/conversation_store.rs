@@ -17,6 +17,7 @@ use cmux_conversation::{
     ConversationHead, CreateRequest, Message, Op, OpRequest, Origin, Participant, Reject, Summary,
     encode_id, format_rfc3339_millis, summary, valid_participant_id, valid_token,
 };
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -24,7 +25,15 @@ use sha2::{Digest, Sha256};
 
 #[path = "conversation_import.rs"]
 mod import;
+#[path = "conversation_inbox.rs"]
+pub(crate) mod inbox;
 pub(crate) use import::ImportedMessage;
+#[path = "conversation_links.rs"]
+pub(crate) mod links;
+#[path = "conversation_runs.rs"]
+pub(crate) mod runs;
+#[path = "conversation_threads.rs"]
+pub(crate) mod threads;
 
 /// The store's file inside the session state directory.
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
@@ -36,6 +45,15 @@ pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
 pub(crate) const LOCAL_USER: &str = "user_local";
 
+/// Whether `participant` may hold a minted credential (`conversation-bind`):
+/// an agent, or a person other than the server's own user. A device
+/// (`remote_`) comes only from pairing, and `user_local` is every unbound
+/// trusted connection already.
+pub(crate) fn credentialed(participant: &str) -> bool {
+    participant.starts_with("agent_")
+        || (participant.starts_with("user_") && participant != LOCAL_USER)
+}
+
 /// An op the conversation reducer refused. The control socket reports it
 /// with `error_code` [`ConversationRejected::CODE`] and the reason code as
 /// the error text.
@@ -44,6 +62,20 @@ pub struct ConversationRejected(pub Reject);
 
 impl ConversationRejected {
     pub const CODE: &'static str = "conversation_rejected";
+}
+
+/// The conversation an idempotency key made, on the `idempotency_conflict`
+/// refusal of a create that reused the key with another request (a context
+/// of that [`ConversationRejected`]; its text is the same reason). Given only
+/// to a creator that takes part in it: a Chief brain whose grown DM was also
+/// retitled finds its DM again (hq-6d 2026-10-14), `error_details.conversation`.
+#[derive(Debug)]
+pub struct KeyedConversation(pub String);
+
+impl std::fmt::Display for KeyedConversation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(Reject::IdempotencyConflict.code())
+    }
 }
 
 impl std::fmt::Display for ConversationRejected {
@@ -113,6 +145,7 @@ impl ConversationStore {
                     .with_context(|| format!("open conversation store {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict conversation store {}", path.display()))?;
+                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
                 connection
             }
             None => Connection::open_in_memory()?,
@@ -126,9 +159,7 @@ impl ConversationStore {
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -197,12 +228,21 @@ impl ConversationStore {
                agent_text_streak INTEGER NOT NULL CHECK(agent_text_streak >= 0),
                last_agent_text_at TEXT
              ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS agent_thread_guard (
+               conversation TEXT NOT NULL,
+               thread_root TEXT NOT NULL,
+               agent_text_streak INTEGER NOT NULL CHECK(agent_text_streak > 0),
+               PRIMARY KEY(conversation, thread_root)
+             ) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS agent_token (
                participant TEXT PRIMARY KEY NOT NULL,
                token_hash TEXT NOT NULL
              ) WITHOUT ROWID;",
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
+        transaction.execute_batch(threads::SCHEMA)?;
+        transaction.execute_batch(inbox::SCHEMA)?;
+        transaction.execute_batch(runs::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -213,13 +253,14 @@ impl ConversationStore {
         Ok(Self { connection, attachments })
     }
 
-    /// Mints the credential of agent `participant`: a random token whose SHA-256
-    /// is stored (a new token replaces the old one). A connection becomes that
-    /// participant only by presenting the token (`conversation-bind`).
+    /// Mints the credential of `participant` (an agent, or a person other than
+    /// `user_local`): a random token whose SHA-256 is stored (a new token
+    /// replaces the old one). A connection becomes that participant only by
+    /// presenting the token (`conversation-bind`).
     pub(crate) fn mint_agent_token(&mut self, participant: &str) -> anyhow::Result<String> {
         anyhow::ensure!(
-            valid_participant_id(participant) && participant.starts_with("agent_"),
-            "bad request: participant must be an agent id"
+            valid_participant_id(participant) && credentialed(participant),
+            "bad request: participant must be an agent or another person"
         );
         let mut random = [0_u8; 32];
         getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("agent token randomness"))?;
@@ -230,6 +271,14 @@ impl ConversationStore {
             params![participant, token_digest(&token)],
         )?;
         Ok(token)
+    }
+
+    /// Removes `participant`'s credential (`chief.profile.adopt`): no token
+    /// issued for it before binds again; the next credential is minted anew.
+    pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
+        self.connection
+            .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        Ok(())
     }
 
     /// Whether `token` is the current credential of `participant`.
@@ -306,7 +355,17 @@ impl ConversationStore {
             .optional()?;
         if let Some((stored, conversation)) = existing {
             if stored != fingerprint {
-                return Err(rejected(Reject::IdempotencyConflict));
+                let error = rejected(Reject::IdempotencyConflict);
+                // A failed lookup only leaves the detail out: the refusal stays.
+                let takes_part = load_head(&transaction, &conversation)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|head| head.participants.iter().any(|p| p.id == actor));
+                return Err(if takes_part {
+                    error.context(KeyedConversation(conversation))
+                } else {
+                    error
+                });
             }
             let head = load_head(&transaction, &conversation)?
                 .context("created conversation is missing")?;
@@ -443,6 +502,10 @@ fn apply_op_in(
         Some(reply_to) => load_message_by_id(transaction, &reply_to.message_id)?,
         None => None,
     };
+    let thread_target = match op.thread_root() {
+        Some(root) => load_message_by_id(transaction, root)?,
+        None => None,
+    };
     let last_message = load_message_by_seq(transaction, conversation, head.last_seq)?;
     let mut commit = cmux_conversation::apply(
         &head,
@@ -454,6 +517,7 @@ fn apply_op_in(
             new_message_id: &new_message_id,
             target: target.as_ref(),
             reply_target: reply_target.as_ref(),
+            thread_target: thread_target.as_ref(),
             last_message: last_message.as_ref(),
         },
     )
@@ -465,7 +529,10 @@ fn apply_op_in(
     if let Op::MessageSend { parts, .. } = op {
         // After every reducer rule (the conformance corpus order), over the
         // head's loop-guard counters (no row window to fill with work cards).
-        cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
+        // In the thread the new message joins (the reducer resolved it).
+        let thread_root = commit.message.as_ref().and_then(|m| m.thread_root.as_deref());
+        cmux_conversation::check_agent_streak(&head, actor, parts, now_ms, thread_root)
+            .map_err(rejected)?;
     }
     let origin = stamp_origin(&mut commit, actor, op);
     write_head(transaction, &commit.head)?;
@@ -583,6 +650,17 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
         )
         .optional()?
         .unwrap_or((0, None));
+    // The loop guard per thread (budget.rs): only threads above 0 have a row.
+    let mut statement = connection.prepare(
+        "SELECT thread_root, agent_text_streak FROM agent_thread_guard WHERE conversation = ?1",
+    )?;
+    let thread_agent_streaks = statement
+        .query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+        .map(|row| {
+            let (root, streak) = row?;
+            Ok((root, u32::try_from(streak).context("thread agent streak is out of range")?))
+        })
+        .collect::<anyhow::Result<_>>()?;
     Ok(Some(ConversationHead {
         id: id.to_string(),
         title,
@@ -595,6 +673,7 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
         read_cursors,
         agent_text_streak: u32::try_from(guard.0).context("agent_text_streak is out of range")?,
         last_agent_text_at: guard.1,
+        thread_agent_streaks,
     }))
 }
 
@@ -627,6 +706,15 @@ fn write_head(transaction: &Transaction<'_>, head: &ConversationHead) -> anyhow:
            last_agent_text_at = excluded.last_agent_text_at",
         params![head.id, i64::from(head.agent_text_streak), head.last_agent_text_at],
     )?;
+    transaction
+        .execute("DELETE FROM agent_thread_guard WHERE conversation = ?1", params![head.id])?;
+    for (root, streak) in &head.thread_agent_streaks {
+        transaction.execute(
+            "INSERT INTO agent_thread_guard(conversation, thread_root, agent_text_streak)
+             VALUES(?1, ?2, ?3)",
+            params![head.id, root, i64::from(*streak)],
+        )?;
+    }
     for (participant, seq) in &head.read_cursors {
         transaction.execute(
             "INSERT INTO read_cursor(conversation, participant, seq) VALUES(?1, ?2, ?3)
@@ -714,6 +802,42 @@ pub enum ConversationEvent {
     /// `conversation.events` item, delivered only on that stream (never on
     /// the raw subscribe stream or the remote relay). Never stored.
     Draft { conversation: String, participant: String, item: Value },
+    /// A participant's own list state of one conversation changed (a pin, a
+    /// "marked unread"; `conversation-inbox-state-v1`). Not conversation
+    /// state: no rev, and `subscribe` delivers it only to connections whose
+    /// principal is `participant` (never the remote relay or
+    /// `conversation.events`).
+    Inbox {
+        conversation: String,
+        participant: String,
+        pinned: bool,
+        pin_position: Option<u64>,
+        marked_unread: bool,
+    },
+    /// An agent's run changed (`conversation-run-append`,
+    /// `conversation-runs-v1`): the run after the append and the steps it
+    /// wrote. Not a conversation change (no rev); `subscribe` delivers it
+    /// only to a connection that echoed `conversation-runs-v1` in
+    /// `set-client-info` (never the remote relay or `conversation.events`).
+    Run { conversation: String, run: Value, steps: Vec<Value> },
+    /// A live frame of a running run (`step.delta` or `run.activity`,
+    /// `chief-live-v1`): never stored; `subscribe` delivers it only to a
+    /// connection that echoed the capability in `set-client-info` (never the
+    /// remote relay or `conversation.events`).
+    Live { conversation: String, frame: Value },
+    /// A participant's avatar changed (`participant-avatars-v1`): the stored
+    /// reference, or none. Not conversation state (no conversation, no rev);
+    /// `subscribe` delivers it only to a connection that echoed the
+    /// capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Avatar { participant: String, avatar: Option<Value> },
+    /// A Chief was created, edited (a picture too) or deleted
+    /// (`chief-events-v1`, cx-ebm.60.4): its id and `created`, `updated` or
+    /// `deleted`; a client reads the record with `chief.profile.get`. Not
+    /// conversation state; `subscribe` delivers it only to a connection that
+    /// echoed the capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Chief { chief: String, change: &'static str },
 }
 
 impl ConversationEvent {
@@ -734,10 +858,65 @@ impl ConversationEvent {
                 "on": on,
             }),
             Self::Draft { item, .. } => item.clone(),
+            Self::Inbox { conversation, participant, pinned, pin_position, marked_unread } => {
+                let mut value = json!({
+                    "event": "conversation-inbox-changed",
+                    "conversation": conversation,
+                    "participant": participant,
+                    "pinned": pinned,
+                    "marked_unread": marked_unread,
+                });
+                if let Some(position) = pin_position {
+                    value.set("pin_position", json!(position));
+                }
+                value
+            }
+            Self::Run { conversation, run, steps } => json!({
+                "event": "conversation-run-changed",
+                "conversation": conversation,
+                "run": run,
+                "steps": steps,
+            }),
+            Self::Live { conversation, frame } => json!({
+                "event": "conversation-live",
+                "conversation": conversation,
+                "frame": frame,
+            }),
+            Self::Avatar { participant, avatar } => json!({
+                "event": "participant-avatar-changed",
+                "participant": participant,
+                "avatar": avatar,
+            }),
+            Self::Chief { chief, change } => json!({
+                "event": "chief-changed",
+                "chief": chief,
+                "change": change,
+            }),
         }
     }
 
-    /// Drafts travel only on `conversation.events`.
+    /// Run events go on `subscribe` only to a connection that asked for them.
+    pub(crate) const fn is_run(&self) -> bool {
+        matches!(self, Self::Run { .. })
+    }
+
+    /// Live frames go on `subscribe` only to a connection that asked for them.
+    pub(crate) const fn is_live(&self) -> bool {
+        matches!(self, Self::Live { .. })
+    }
+
+    /// Avatar changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_avatar(&self) -> bool {
+        matches!(self, Self::Avatar { .. })
+    }
+
+    /// Chief changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_chief(&self) -> bool {
+        matches!(self, Self::Chief { .. })
+    }
+
+    /// Drafts travel on `conversation.events`, and on `subscribe` only to a
+    /// connection that asked for them (`conversation-draft-events-v1`).
     pub(crate) const fn is_draft(&self) -> bool {
         matches!(self, Self::Draft { .. })
     }
@@ -752,6 +931,8 @@ pub(crate) struct ConversationHost {
     pub(crate) store: Mutex<Option<ConversationStore>>,
     /// `conversation.draft` replay and rate state (memory only).
     pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
+    /// The live text of running runs (`chief-live-v1`, memory only).
+    pub(crate) live: Mutex<crate::conversation_live::LiveBuffers>,
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,

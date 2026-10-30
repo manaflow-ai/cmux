@@ -12,6 +12,14 @@
 //! The unix socket keeps its behavior: a local turn under `approve-all`
 //! still answers itself.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -61,13 +69,23 @@ impl Client {
         const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let _ = hub.person.install_spawn_key(KEY);
         let mut c = Self::new(hub, origin);
-        let r = c
-            .call(
-                "initialize",
-                json!({"protocolVersion": 1, "_meta": {"acpmux": {"personKey": KEY}}}),
-            )
-            .await;
+        let r = c.call("initialize", json!({"protocolVersion": 1})).await;
         assert!(r.get("error").is_none(), "{r}");
+        // The app's proof of the key for this connection's challenge
+        // (`hub/person.rs`); a Web or Peer connection gets no challenge.
+        let challenge = &r["result"]["_meta"]["acpmux"]["personChallenge"];
+        if let (Some(nonce), Some(conn)) =
+            (challenge["nonce"].as_str(), challenge["connection"].as_str())
+        {
+            let transport = if origin == Origin::LocalApp {
+                acpmux::hub::person::TRANSPORT_APP
+            } else {
+                acpmux::hub::person::TRANSPORT_UNIX
+            };
+            let proof = acpmux::hub::person::person_proof(KEY, transport, nonce, conn).unwrap();
+            let r = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
+            assert!(r.get("error").is_none(), "{r}");
+        }
         c
     }
 

@@ -9,7 +9,7 @@ impl WorkspaceRegistry {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT p.workspace_key, p.group_id, p.color, p.icon, p.title, p.pinned,
-                    p.marked_unread
+                    p.marked_unread, p.description, p.task_status
              FROM workspace_presentation AS p
              JOIN workspaces AS w ON w.workspace_key = p.workspace_key
              WHERE w.tombstoned = 0",
@@ -24,6 +24,8 @@ impl WorkspaceRegistry {
                     title: row.get(4)?,
                     pinned: row.get::<_, i64>(5)? != 0,
                     marked_unread: row.get::<_, i64>(6)? != 0,
+                    description: row.get(7)?,
+                    task_status: row.get(8)?,
                 },
             ))
         })?;
@@ -38,14 +40,19 @@ impl WorkspaceRegistry {
             }
         }
         let db = self.connection.get();
-        let pinned_tabs = db
+        let pins = db
             .prepare(
-                "SELECT p.tab_id FROM tab_presentation AS p
+                "SELECT p.tab_id, p.url FROM tab_presentation AS p
                  JOIN resource_tabs AS t ON t.public_id = p.tab_id
                  WHERE p.pinned = 1 AND t.deleted_revision IS NULL",
             )?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let pinned_urls = pins
+            .iter()
+            .filter_map(|(tab, url)| url.clone().map(|url| (tab.clone(), url)))
+            .collect::<HashMap<_, _>>();
+        let pinned_tabs = pins.into_iter().map(|(tab, _)| tab).collect::<HashSet<_>>();
         let mut frontend_browsers = HashMap::new();
         {
             let db = self.connection.get();
@@ -82,6 +89,7 @@ impl WorkspaceRegistry {
             super::super::screen_store::read_saved_screen_groups(&self.connection.get())?;
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection.get())?;
         let conversation_tabs = read_conversation_tabs(&self.connection.get())?;
+        let remote_terminals = read_remote_terminals(&self.connection.get())?;
         let home_workspace =
             crate::state::home_store::live_home(&self.connection.get())?.map(|h| h.1);
         let app_workspaces = crate::state::home_store::live_app_workspaces(&self.connection.get())?;
@@ -90,8 +98,10 @@ impl WorkspaceRegistry {
             groups,
             workspaces,
             pinned_tabs,
+            pinned_urls,
             frontend_browsers,
             conversation_tabs,
+            remote_terminals,
             home_workspace,
             app_workspaces,
             app_tabs,

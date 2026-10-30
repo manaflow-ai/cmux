@@ -83,10 +83,49 @@
    "/tmp/acpmux-501/eaf4eea38918181c.sock"
   ]
  ],
+ "configured_sockets": [
+  [
+   "/tmp/x/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/tmp/x/s.sock"
+  ],
+  [
+   "/fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/s.sock"
+  ],
+  [
+   "/Library/Application Support/cmux-build-worker/work/steps/efa0692bd81cf13857d13ae1/tmp/amd-clisid-43762/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/tmp/acpmux-501/67717e3a5f009619.sock"
+  ],
+  [
+   "/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/tmp/acpmux-501/587a75e9e1778888.sock"
+  ],
+  [
+   "rel/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "rel/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/s.sock"
+  ],
+  [
+   "",
+   "/Users/me/.acpmux",
+   501,
+   "/Users/me/.acpmux/acpmux.sock"
+  ]
+ ],
  "resolve": [
   {
    "name": "default home",
-   "tag": null,
+   "bundle_id": null,
+   "bundled_tag": null,
    "bundled": "/App/bin",
    "env": {
     "PATH": "/usr/bin:/bin"
@@ -105,8 +144,9 @@
    }
   },
   {
-   "name": "tagged home",
-   "tag": "Feature X",
+   "name": "a tagged DEV build's own home",
+   "bundle_id": "com.cmuxterm.app.debug.feature-x",
+   "bundled_tag": "Feature X",
    "bundled": null,
    "env": {
     "PATH": ""
@@ -118,8 +158,8 @@
    ],
    "expect": {
     "executable": "/Users/me/.cargo/bin/acpmux",
-    "home": "/Users/me/.acpmux/tags/feature-x",
-    "socket": "/Users/me/.acpmux/tags/feature-x/acpmux.sock",
+    "home": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.feature-x",
+    "socket": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.feature-x/acpmux.sock",
     "args": [
      "--listen",
      "127.0.0.1:0"
@@ -128,7 +168,8 @@
   },
   {
    "name": "ACPMUX_HOME and ACPMUX_SOCKET win",
-   "tag": "t",
+   "bundle_id": "com.cmuxterm.app.debug",
+   "bundled_tag": "t",
    "bundled": null,
    "env": {
     "ACPMUX_HOME": "/h",
@@ -152,7 +193,8 @@
   },
   {
    "name": "empty overrides are ignored",
-   "tag": null,
+   "bundle_id": null,
+   "bundled_tag": null,
    "bundled": null,
    "env": {
     "ACPMUX_HOME": "",
@@ -172,8 +214,55 @@
    }
   },
   {
+   "name": "an inherited ACPMUX_SOCKET without ACPMUX_HOME is another daemon's",
+   "bundle_id": "com.cmuxterm.app.debug.cgstrip",
+   "bundled_tag": "cgstrip",
+   "bundled": null,
+   "env": {
+    "ACPMUX_SOCKET": "/Users/me/.acpmux/acpmux.sock",
+    "PATH": "/p"
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/p/acpmux"
+   ],
+   "expect": {
+    "executable": "/p/acpmux",
+    "home": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.cgstrip",
+    "socket": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.cgstrip/acpmux.sock",
+    "args": [
+     "--listen",
+     "127.0.0.1:0"
+    ]
+   }
+  },
+  {
+   "name": "ACPMUX_SOCKET past the Unix socket limit",
+   "bundle_id": null,
+   "bundled_tag": null,
+   "bundled": "/App/bin",
+   "env": {
+    "PATH": "",
+    "ACPMUX_HOME": "/Users/me/.acpmux",
+    "ACPMUX_SOCKET": "/Library/Application Support/cmux-build-worker/work/steps/efa0692bd81cf13857d13ae1/tmp/amd-clisid-43762/s.sock"
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/App/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/App/bin/acpmux",
+    "home": "/Users/me/.acpmux",
+    "socket": "/tmp/acpmux-501/67717e3a5f009619.sock",
+    "args": []
+   }
+  },
+  {
    "name": "no executable",
-   "tag": null,
+   "bundle_id": null,
+   "bundled_tag": null,
    "bundled": null,
    "env": {},
    "user_home": "/Users/me",

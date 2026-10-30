@@ -30,7 +30,7 @@ extension AppServices {
         if let tab = cache.tabModel(key) { return machines.daemon(forTab: tab) }
         for window in windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? []
-            where window.state.localBrowserTabs[pane.paneKey]?.contains(where: { $0.id == key }) == true {
+            where window.state.localBrowserTabs[pane.paneKey].contains(where: { $0.id == key }) {
                 return pane.daemon
             }
         }
@@ -68,6 +68,19 @@ extension AppServices {
         browserTabs.daemonForTab = { tab in machines.daemon(forTab: tab) }
         browserTabs.daemons = { machines.daemons }
         browserTabs.machineName = { daemon in machines.machineName(daemon.machineID) ?? daemon.machineID }
+        // Built now so it reads each machine's browser status when the machine connects.
+        let hosts = machineBrowserHosts
+        browserTabs.browserHostAvailable = { [weak hosts] machine in hosts?.available(machine) ?? false }
+        // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
+        let localhost = remoteLocalhost
+        browserTabs.localhostRoute = { [weak localhost] daemon, pane, engine in
+            localhost?.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
+        }
+        // A forgotten Cloud machine's Dedicated agent machine state goes too (read again if it comes back).
+        machines.onDaemonRemoved = { [weak localhost, weak self] daemon in
+            localhost?.closeClient(of: daemon)
+            self?.cloudVmHost.forget(daemon.machineID)
+        }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)

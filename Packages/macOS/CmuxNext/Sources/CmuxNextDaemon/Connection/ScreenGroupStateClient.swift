@@ -20,7 +20,8 @@ public struct ScreenGroupStateClient: Sendable {
         case create(screens: [String], name: String?, color: String?)
         case addScreens(group: String, screens: [String])
         case removeScreens([String])
-        case update(group: String, name: String?, color: String?, collapsed: Bool?)
+        /// `icon` (`screen-group-icon-v1`): `.clear` sends `null`, which removes it.
+        case update(group: String, name: String?, color: String?, collapsed: Bool?, icon: FieldUpdate<String> = .unchanged)
         case ungroup(group: String)
 
         public var name: String {
@@ -47,11 +48,12 @@ public struct ScreenGroupStateClient: Sendable {
                 params["screens"] = ids(screens)
             case .removeScreens(let screens):
                 params["screens"] = ids(screens)
-            case .update(let group, let name, let color, let collapsed):
+            case .update(let group, let name, let color, let collapsed, let icon):
                 params["screen_group"] = .string(group)
                 if let name { params["name"] = .string(name) }
                 if let color { params["color"] = .string(color) }
                 if let collapsed { params["collapsed"] = .bool(collapsed) }
+                StateResourceClient.field(icon, into: &params, "icon") { .string($0) }
             case .ungroup(let group):
                 params["screen_group"] = .string(group)
             }

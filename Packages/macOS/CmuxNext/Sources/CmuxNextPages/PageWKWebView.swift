@@ -11,8 +11,12 @@ import WebKit
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
 @MainActor
+// webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
+    /// Whether the page now shown accepts the first mouse (``PageDescriptor/acceptsFirstMouse``);
+    /// read per click, so a pooled view rebound to another page answers for that page.
+    var pageAcceptsFirstMouse: (() -> Bool)?
     /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
     static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
 
@@ -47,8 +51,12 @@ final class PageWKWebView: WKWebView {
 
     private var menuActionObserver: (any NSObjectProtocol)?
 
-    isolated deinit {
-        if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
+        }
     }
 
     /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly
@@ -58,12 +66,22 @@ final class PageWKWebView: WKWebView {
 
     /// Whether a key or mouse event reached the view within `seconds`.
     func hasRecentUserGesture(within seconds: TimeInterval = 1, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
-        guard let last = lastUserEventUptime else { return false }
-        return now - last <= seconds
+        recentUserGestureEvent(within: seconds, now: now) != nil
+    }
+
+    /// The uptime of the key or mouse event that reached the view within `seconds`, else nil.
+    func recentUserGestureEvent(within seconds: TimeInterval = 1, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> TimeInterval? {
+        guard let last = lastUserEventUptime, now - last <= seconds else { return nil }
+        return last
     }
 
     func noteUserEvent(_ event: NSEvent) {
         noteUserActivation(at: event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// A choice in a host-owned native menu is real input even when the menu outlived the opener.
+    func noteNativeMenuSelection(at uptime: TimeInterval) {
+        noteUserActivation(at: uptime)
     }
 
     /// Drops the recorded activation and the opened menu: the view now shows another document
@@ -94,20 +112,63 @@ final class PageWKWebView: WKWebView {
         ObjectIdentifier(menu) == id || menu.items.contains { item in item.submenu.map { Self.menu($0, contains: id) } ?? false }
     }
 
+    /// On a page that opts in (``PageDescriptor/acceptsFirstMouse``, off by default), a first click
+    /// in an inactive window reaches the page, as on the native controls (sidebar rows, dividers,
+    /// toasts, popup rows): WebKit accepts a first mouse only to drag a selection, so a person's
+    /// click on a page button only activated the window. Every other page, and a view with no
+    /// owner, keeps WebKit's answer.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        if pageAcceptsFirstMouse?() ?? false { return true }
+        // WebKit reads the event (its location); without one it has no first mouse to accept.
+        guard let event else { return false }
+        return super.acceptsFirstMouse(for: event)
+    }
+
+    /// Called each time this view becomes first responder (pane focus, a click, a restore); the
+    /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
+    var onBecameFirstResponder: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onBecameFirstResponder?() }
+        return became
+    }
+
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
-    override func mouseDown(with event: NSEvent) { noteUserEvent(event); super.mouseDown(with: event) }
+    override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
-    override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); super.rightMouseDown(with: event) }
+    override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
 
     /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
 
+    /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
+    private let menuAutoFill = PageMenuAutoFill()
+
+    override var inputContext: NSTextInputContext? {
+        menuAutoFill.hidesInputContext() ? nil : super.inputContext
+    }
+
+    /// No caret accessory on a cmux page. Since macOS 14 the system draws a small glass bubble
+    /// beside the caret of the focused field (the input source, Caps Lock, dictation); in the
+    /// composer the caret of an empty prompt sits just above the + button, which the bubble covered
+    /// (Leo, 2026-10-21). AppKit asks the focused `NSTextInputClient` (this view) for its placement
+    /// and draws nothing for `.invisible`. Browser tabs use their own views and keep the bubble;
+    /// Chromium's view of a cmux page answers the same (`ChromiumPageTextAccessory`).
+    @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         openedMenu = menu
+        menuAutoFill.menuWillOpen()
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
         super.willOpenMenu(menu, with: event)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        menuAutoFill.menuDidClose()
+        super.didCloseMenu(menu, with: event)
     }
 
     /// Removes every item but Copy (and the separators around removed items).
@@ -131,25 +192,86 @@ final class PageWKWebView: WKWebView {
     /// every drag to WebKit.
     var fileDrop: PageFileDrop?
 
+    /// Reads the first file URL of a drag's pasteboard: a round trip to the pasteboard server.
+    var readDroppedFileURL: @MainActor (NSPasteboard) -> URL? = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.first as? URL
+    }
+
+    /// Reads every file URL of a drop's pasteboard, once, as the page takes the drop.
+    var readDroppedFileURLs: @MainActor (NSPasteboard) -> [URL] = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    /// The answer for the current drag: its pasteboard does not change during the drag, and AppKit
+    /// waits for every `draggingUpdated`, so the file is read once per drag, not on every move.
+    private var dragAnswer: (sequence: Int, url: URL?)?
+
     private func droppedFile(_ info: any NSDraggingInfo) -> URL? {
-        guard let fileDrop,
-              let url = info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                            options: [.urlReadingFileURLsOnly: true])?.first as? URL,
-              fileDrop.accepts(url) else { return nil }
+        guard let fileDrop else { return nil }
+        if let answer = dragAnswer, answer.sequence == info.draggingSequenceNumber { return answer.url }
+        let url = readDroppedFileURL(info.draggingPasteboard).flatMap { fileDrop.accepts($0) ? $0 : nil }
+        dragAnswer = (info.draggingSequenceNumber, url)
         return url
     }
 
+    /// The `NSDraggingDestination` methods WebKit implements. They are optional and NSView has no
+    /// default for every one (no WKWebView has `draggingEnded:`), so `super` for a missing one throws
+    /// "unrecognized selector" and ends the app. Each override calls `super` only when WebKit has it.
+    private enum WebKitDrag {
+        static let entered = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingEntered(_:)))
+        static let updated = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingUpdated(_:)))
+        static let exited = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingExited(_:)))
+        static let ended = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingEnded(_:)))
+        static let perform = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.performDragOperation(_:)))
+    }
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+        dragAnswer = nil
+        if droppedFile(sender) != nil { return .copy }
+        return WebKitDrag.entered ? super.draggingEntered(sender) : []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dragAnswer = nil
+        if WebKitDrag.exited { super.draggingExited(sender) }
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dragAnswer = nil
+        if WebKitDrag.ended { super.draggingEnded(sender) }
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        droppedFile(sender) != nil ? .copy : super.draggingUpdated(sender)
+        if droppedFile(sender) != nil { return .copy }
+        return WebKitDrag.updated ? super.draggingUpdated(sender) : []
     }
 
+    /// Files dropped on the page itself (not a ``fileDrop`` the host opens), with their URLs: a real
+    /// gesture page script can't make. It runs before WebKit hands the files to the page.
+    var onFilesDropped: (@MainActor ([URL]) -> Void)?
+
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let url = droppedFile(sender), let fileDrop else { return super.performDragOperation(sender) }
+        let url = droppedFile(sender)
+        dragAnswer = nil
+        guard let url, let fileDrop else {
+            if let onFilesDropped {
+                let urls = readDroppedFileURLs(sender.draggingPasteboard)
+                if !urls.isEmpty { onFilesDropped(urls) }
+            }
+            return WebKitDrag.perform ? super.performDragOperation(sender) : false
+        }
         fileDrop.open(url)
         return true
+    }
+
+    // MARK: Paste
+
+    /// A paste (Cmd-V, Edit > Paste, a page's own Paste item) is about to reach the page; WebKit
+    /// pastes right after.
+    var onPaste: (@MainActor () -> Void)?
+
+    @objc func paste(_ sender: Any?) {
+        onPaste?()
+        webKitPaste(sender)
     }
 }

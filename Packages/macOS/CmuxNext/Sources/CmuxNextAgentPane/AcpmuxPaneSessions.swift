@@ -3,7 +3,7 @@ import CmuxNextCompat
 
 /// The sessions this pane started or shows (b, ad349): `_acpmux/kill`, `permission_respond` and
 /// `permission_group_respond` are allowed only for them. A session is the pane's when it came back
-/// from the pane's own `session/new`, `acp.session.fork` or `_acpmux/handoff_start` (their replies
+/// from the pane's own `session/new`, `acp.session.fork`, `_acpmux/handoff_start` or `_acpmux/btw` (their replies
 /// are read off the main thread), when the user opened it in this pane by a gesture (an attach made
 /// with one, a click in the session list), or when the host itself opened the tab on it (restore,
 /// a session link). An attach alone adds nothing; attach and watch stay open.
@@ -13,7 +13,7 @@ import CmuxNextCompat
 /// replies, and the handoffs a click let the pane take from a session outside its scope.
 public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// The requests whose reply names a session the pane started.
-    public static let starting: Set<String> = ["session/new", "acp.session.fork", "_acpmux/handoff_start"]
+    public static let starting: Set<String> = ["session/new", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw"]
 
     private struct State {
         var sessions: Set<String> = []
@@ -28,6 +28,10 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
         var awaitingHandoff: [String: Bool] = [:]
         /// sessionId -> the folder the daemon reported for it (bounded; ``observeFolder(_:replyTo:)``).
         var folders: [String: String] = [:]
+        /// sessionId -> the agent acpmux reports it runs (bounded; ``observeFolder(_:replyTo:)``).
+        var harnesses: [String: String] = [:]
+        /// Told each harness the daemon reports for a session (``onHarness(_:)``).
+        var harnessObserver: (@Sendable (_ session: String, _ harness: String) -> Void)?
     }
 
     private let state = Mutex(State())
@@ -44,22 +48,61 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// The folder (cwd) the daemon reported for `session`, from ``observeFolder(_:replyTo:)``.
     public func folder(of session: String) -> String? { state.withLock { $0.folders[session] } }
 
+    /// The agent acpmux reports `session` runs (its summary's `harness`, else its `family`), from
+    /// ``observeFolder(_:replyTo:)``: what the tab records so its brand mark shows (cx-w4bbw).
+    public func harness(of session: String) -> String? { state.withLock { $0.harnesses[session] } }
+
+    /// Calls `observer` (off the main thread) with each session and harness a daemon reply names.
+    public func onHarness(_ observer: @escaping @Sendable (_ session: String, _ harness: String) -> Void) {
+        state.withLock { $0.harnessObserver = observer }
+    }
+
     /// The replies whose result names a session and its folder: `_acpmux/attach`
     /// (`result.session.{sessionId, cwd}`) and `session/new` (`result.sessionId`,
     /// `result._meta.acpmux.cwd`). Read only from those fixed places, never from content.
     static let folderReplies: Set<String> = ["_acpmux/attach", "session/new"]
 
-    /// A daemon reply to `method`: the session folder it reports (an absolute path).
+    /// A daemon reply to `method`: the session folder it reports (an absolute path) and the agent
+    /// the session runs.
     func observeFolder(_ object: [String: Any], replyTo method: String?) {
         guard let method, Self.folderReplies.contains(method), let result = object["result"] as? [String: Any] else { return }
         let session: [String: Any]? = method == "_acpmux/attach"
             ? result["session"] as? [String: Any]
             : ((result["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]).map { $0.merging(["sessionId": result["sessionId"] ?? NSNull()]) { _, new in new } }
-        guard let id = session?["sessionId"] as? String, let cwd = session?["cwd"] as? String, cwd.hasPrefix("/") else { return }
+        guard let id = session?["sessionId"] as? String else { return }
+        if let harness = [session?["harness"], session?["family"]].lazy.compactMap({ ($0 as? String).flatMap(Self.recordable) }).first {
+            let observer = state.withLock { state in
+                if state.harnesses.count >= 1024, state.harnesses[id] == nil { state.harnesses.removeAll() }
+                state.harnesses[id] = harness
+                return state.harnessObserver
+            }
+            observer?(id, harness)
+        }
+        guard let cwd = session?["cwd"] as? String, cwd.hasPrefix("/") else { return }
         state.withLock { state in
             if state.folders.count >= 1024, state.folders[id] == nil { state.folders.removeAll() }
             state.folders[id] = cwd
         }
+    }
+
+    /// A chat on another machine: that machine's daemon attached the session its store records for
+    /// the tab, and the remote wire's `_acpmux/watch` reply names it by acpmux's id (`tabSessionId`,
+    /// ``RemoteAcpmuxWire``). The page opens that session (direct.ts `tabSession`) even when the tab
+    /// recorded another name for it, so it is the pane's like the one the host opened the tab on.
+    /// Only a remote wire's frames are read for it (``AcpmuxPaneSocket``).
+    func observeTabSession(_ object: [String: Any], replyTo method: String?) {
+        guard method == "_acpmux/watch", object["method"] == nil, let result = object["result"] as? [String: Any],
+              let session = result["tabSessionId"] as? String, !session.isEmpty else { return }
+        add(session)
+    }
+
+    /// The form of acpmux's harness the store records (cmux-tui `validate_harness`): a profile such
+    /// as `providers/deepseek` by its last part (the brand catalog reads that part too), then 1 to
+    /// 64 ASCII letters, digits or `_ . -`; nil otherwise, so a bind never fails on it.
+    static func recordable(_ value: String) -> String? {
+        let last = String(value.split(separator: "/", omittingEmptySubsequences: false).last ?? "")
+        let valid = last.unicodeScalars.allSatisfy { ($0.isASCII && $0.properties.isAlphabetic) || ("0"..."9").contains($0) || "_.-".unicodeScalars.contains($0) }
+        return (1...64).contains(last.utf8.count) && valid ? last : nil
     }
 
     /// The requests whose reply is a handoff record (`handoffId`, `source.sessionId`).

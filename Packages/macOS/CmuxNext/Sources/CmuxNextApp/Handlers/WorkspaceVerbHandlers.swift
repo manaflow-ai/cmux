@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -12,26 +13,31 @@ import CmuxNextSidebar
 enum WorkspaceVerbHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("workspace.newAbove", run: { try create(context, $0) { .above($0.id) } })
-        registry.bind("workspace.newBelow", run: { try create(context, $0) { .below($0.id) } })
+        // On one of several selected rows: below the last of them (Chrome's New Tab Below).
+        registry.bind("workspace.newBelow", run: { invocation in
+            let anchor = try WindowMembershipHandlers.rowTargets(invocation, context).last ?? context.workspace(invocation).model
+            try spawn(context, anchor: anchor, cwd: nil, slot: .below(anchor.id), newTabPage: invocation.origin == .user)
+        })
         registry.bind("workspace.newAtTop", run: { try create(context, $0, anchorFree: .top(anchor: nil)) })
         registry.bind("workspace.newAtBottom", run: { try create(context, $0, anchorFree: .bottom(anchor: nil)) })
-        registry.bind("workspace.newInGroup", run: { invocation in
-            try create(context, invocation) { workspace in
-                guard let group = try group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
-                return .endOfGroup(group.id)
-            }
+        // Its directory, its place (below it, so in its group) and its first tab's kind
+        // (cmuxterm-hq#1829); also what New Workspace in This Group and in Same Directory ran.
+        registry.bind("workspace.newLikeThis", run: { invocation in
+            let anchor = try context.workspace(invocation).model
+            let cwd = directory(of: anchor, context)
+            let first = firstTab(like: anchor, cwd: cwd, user: invocation.origin == .user, context)
+            try spawn(context, anchor: anchor, cwd: cwd, slot: .below(anchor.id), newTabPage: first.newTabPage, firstChat: first.chat)
         })
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
+            // The group forms in one write at `workspaces.newPlacement` (first under `top`, the default; last
+            // under `bottom`), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
+            let index = NewWorkspacePlacements.newGroupIndex(context.services)
             try create(context, invocation, anchorFree: nil) { id, bridge in
-                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser)
+                guard let bridge = bridge as? SidebarBridge else { return }
+                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser, index: index)
             }
-        })
-        registry.bind("workspace.newInSameDirectory", run: { invocation in
-            let workspace = try context.workspace(invocation).model
-            guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noDirectory) }
-            try create(context, invocation, cwd: cwd) { .below($0.id) }
         })
         registry.bind("workspace.newOnMachine", run: { invocation in
             guard let machine = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue,
@@ -39,22 +45,24 @@ enum WorkspaceVerbHandlers {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
             guard daemon.connection != nil else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected) }
-            // Born in the window's room, so it shows even when that room
-            // does not follow the machine's session (data-model.md 3.2).
-            context.services.windows.newWorkspace(in: context.activeWindow?.state, on: daemon)
+            newWorkspace(on: daemon, invocation, context)
         })
 
+        // Top or bottom of the row's container: its group, else the loose rows. A grouped row's
+        // menu says so ("Move to Top of Group", u2418); a multi-selection moves as one block.
         registry.bind("palette.moveWorkspaceToTop", run: { try place(context, $0) { .top(anchor: $0.id) } })
         registry.bind("workspace.moveToBottom", run: { try place(context, $0) { .bottom(anchor: $0.id) } })
+        ActionTargetTitles.set("palette.moveWorkspaceToTop", in: registry) { invocation in
+            isGrouped(invocation, context) ? WorkspaceVerbStrings.moveToTopOfGroup : nil
+        }
+        ActionTargetTitles.set("workspace.moveToBottom", in: registry) { invocation in
+            isGrouped(invocation, context) ? WorkspaceVerbStrings.moveToBottomOfGroup : nil
+        }
         registry.bind("workspace.moveToNewGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
-            try sidebar(showing: workspace, context).groupFlow.newGroup(of: [SidebarWorkspaceID(workspace.id)], name: invocation["name"]?.stringValue ?? "",
+            let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
+            try sidebar(showing: workspace, context).groupFlow.newGroup(of: ids, name: invocation["name"]?.stringValue ?? "",
                                                               byUser: invocation.origin == .user)
-        })
-        registry.bind("workspace.closeOthersInGroup", run: { invocation in
-            let workspace = try context.workspace(invocation).model
-            guard let group = try group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
-            close(group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }, context)
         })
 
         registry.bind("workspace.selectFirst", run: { _ in try select(context) { $0.first } })
@@ -67,8 +75,12 @@ enum WorkspaceVerbHandlers {
             context.services.windows.show(workspaceID: previous, in: window.state)
         })
         for key in WorkspaceSortKey.allCases {
-            let id = ActionID(rawValue: "workspace.sortBy" + key.rawValue.prefix(1).uppercased() + key.rawValue.dropFirst())
-            registry.bind(id, run: { _ in try sort(by: key, context) })
+            let suffix = key.rawValue.prefix(1).uppercased() + key.rawValue.dropFirst()
+            registry.bind(ActionID(rawValue: "workspace.sortBy" + suffix), run: { _ in try sort(by: key, context) })
+            // The same sort, on the targeted group's members only.
+            registry.bind(ActionID(rawValue: "workspaceGroup.sortBy" + suffix), run: { invocation in
+                try sort(by: key, only: context.sidebar().model.groupID(personal: context.group(invocation).id.rawValue), context)
+            })
         }
         registry.bind("workspaceGroup.collapseAll", run: { _ in try setAllCollapsed(true, context) })
         registry.bind("workspaceGroup.expandAll", run: { _ in try setAllCollapsed(false, context) })
@@ -87,14 +99,17 @@ enum WorkspaceVerbHandlers {
 
     /// New workspace in the target workspace's window (else the active
     /// one) at an anchor-free `slot`; `then` runs once it is listed.
-    private static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
-                               then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
+    /// `fromCurrent` false: with no `slot`, `workspaces.newPlacement` places it as if the window
+    /// showed no workspace (`WorkspaceSpawn.placesFromCurrent`).
+    static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
+                       fromCurrent: Bool = true, then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
-                  then: then)
+                  fromCurrent: fromCurrent, then: then)
     }
 
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
-                              newTabPage: Bool, then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
+                              newTabPage: Bool, firstChat: AgentPaneSeed? = nil, fromCurrent: Bool = true,
+                              then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
         let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
         let target = windows.targetWindow(preferring: window)
@@ -103,7 +118,9 @@ enum WorkspaceVerbHandlers {
         spawn.onListed = then
         // `then` places it itself (New Workspace in New Group): no second write.
         spawn.placesBySetting = then == nil
+        spawn.placesFromCurrent = fromCurrent
         spawn.opensNewTabPage = newTabPage
+        spawn.firstChat = firstChat
         let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }
         context.services.registry.track(Task {
             do {
@@ -115,17 +132,97 @@ enum WorkspaceVerbHandlers {
         })
     }
 
+    /// New Workspace on Machine: a new workspace on `daemon` in the active window, born in that
+    /// window's room so it shows even when the room does not follow the machine's session
+    /// (data-model.md 3.2). A person gets the New Tab page; a CLI, MCP or script run gets a
+    /// terminal and waits for the create, so `action.run` answers with what it made
+    /// (``createdFields``) and lists it in `created`.
+    static func newWorkspace(on daemon: DaemonService, _ invocation: ActionInvocation, _ context: AppActionContext) {
+        let services = context.services, windows = services.windows
+        let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
+        let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
+        services.registry.track(result: Task {
+            do {
+                let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                // The store lists it (its `ws_` id and name) once it applied the create's events.
+                if let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
+                return .success(createdFields(id, on: daemon, services: services))
+            } catch {
+                daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+                return .failure(ActionWorkFailure("new workspace on machine", error))
+            }
+        })
+    }
+
+    /// `action.run`'s `result` for a workspace made on `daemon`: its public id (`ws_…` on
+    /// registry daemons, else its key), its name once the store lists it, and the machine.
+    static func createdFields(_ id: String, on daemon: DaemonService, services: AppServices) -> [String: ActionResultValue] {
+        let workspace = services.workspace(id: id)
+        var fields: [String: ActionResultValue] = [
+            "workspace_id": .string(workspace?.resourceID?.rawValue ?? id),
+            "machine_id": .string(daemon.machineID),
+        ]
+        if let workspace { fields["name"] = .string(workspace.displayName) }
+        return fields
+    }
+
+    /// The first tab of a workspace like `anchor`, by the kind of its first tab: a terminal, the
+    /// New Tab page or a new agent chat in `cwd`. A browser tab has no first-tab spawn: the
+    /// New Tab page for a person, else a terminal, as for an empty workspace.
+    private static func firstTab(like anchor: WorkspaceModel, cwd: String?, user: Bool,
+                                 _ context: AppActionContext) -> (newTabPage: Bool, chat: AgentPaneSeed?) {
+        guard let tab = anchor.screens.first?.panes.first?.tabs.first else { return (user, nil) }
+        switch NewTabKind.of(tab.id, tab: tab, services: context.services) {
+        case .terminal: return (false, nil)
+        case .page: return (true, nil)
+        case .agent: return (false, AgentPaneSeed(cwd: cwd))
+        case .browser: return (user, nil)
+        }
+    }
+
     // MARK: Place
 
-    /// Moves the target workspace to `slot` in its window's sidebar, with
-    /// the sidebar's optimistic update.
+    /// Moves the target workspace, or the multi-selection it belongs to, to
+    /// `slot` in its window's sidebar, with the sidebar's optimistic update.
     private static func place(_ context: AppActionContext, _ invocation: ActionInvocation, _ slot: (WorkspaceModel) -> WorkspaceSlot) throws {
         let workspace = try context.workspace(invocation).model
-        let bridge = try sidebar(showing: workspace, context)
-        guard let machine = context.services.machines.daemon(forWorkspace: workspace.id)?.machineID,
-              let position = slot(workspace).position(moving: [workspace.id], section: .machine(MachineID(machine)), in: bridge.model.sections)
+        let ids = try WindowMembershipHandlers.workspaces(invocation, context)
+        guard place(ids, anchor: workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
         else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-        bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position))
+    }
+
+    /// Moves `workspace` to `slot` in `bridge`'s sidebar, as the Move
+    /// Workspace verbs do; false when that sidebar does not list it.
+    @discardableResult
+    static func place(_ workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge, services: AppServices) -> Bool {
+        place([workspace.id], anchor: workspace, slot, in: bridge, services: services)
+    }
+
+    /// Moves `ids` (rows of `anchor`'s section; others stay) to `slot`, which names
+    /// `anchor`'s container, as one block in sidebar order. False when `bridge`'s
+    /// sidebar does not list `anchor`: the move would land it loose, out of its group.
+    @discardableResult
+    static func place(_ ids: [String], anchor workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge,
+                      services: AppServices) -> Bool {
+        let sections = bridge.model.sections, anchor = SidebarWorkspaceID(workspace.id)
+        guard services.machines.daemon(forWorkspace: workspace.id) != nil,
+              let home = SidebarEdits.locate(anchor, in: sections)?.section else { return false }
+        var moving = SidebarEdits.treeOrder(ids.map(SidebarWorkspaceID.init), in: sections).filter {
+            SidebarEdits.locate($0, in: sections)?.section == home
+        }
+        if moving.isEmpty { moving = [anchor] }
+        guard let position = slot.position(moving: Set(moving.map(\.rawValue)), besides: workspace.id, in: sections)
+        else { return false }
+        // Pinned and custom sections move only on the sidebar document; off it, a reorder there would pin the rows.
+        if sections[home].machine == nil, !SidebarDocWiring.isActive { return false }
+        bridge.handle(.reorder(moving, to: position))
+        return true
+    }
+
+    /// Whether the targeted workspace sits in a group of its window's sidebar.
+    private static func isGrouped(_ invocation: ActionInvocation, _ context: AppActionContext) -> Bool {
+        guard let workspace = try? context.workspace(invocation).model else { return false }
+        return (try? group(of: workspace, context)) != nil
     }
 
     /// The sidebar of the window that lists `workspace`, else the active one.
@@ -158,14 +255,6 @@ enum WorkspaceVerbHandlers {
 
     // MARK: Close, select, sort, collapse
 
-    static func close(_ ids: [String], _ context: AppActionContext) {
-        for id in ids {
-            guard let (workspace, daemon) = context.services.machines.workspace(id: id), let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
-        }
-    }
-
     private static func select(_ context: AppActionContext, _ pick: ([SidebarWorkspaceID]) -> SidebarWorkspaceID?) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
         guard let id = pick(window.sidebar.model.selectableWorkspaces.map(\.id)) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
@@ -173,8 +262,8 @@ enum WorkspaceVerbHandlers {
     }
 
     /// Sorts every container (the loose rows, each group) of the active
-    /// window's sidebar; groups keep their place and members.
-    private static func sort(by key: WorkspaceSortKey, _ context: AppActionContext) throws {
+    /// window's sidebar, or only group `only`; groups keep their place and members.
+    private static func sort(by key: WorkspaceSortKey, only: GroupID? = nil, _ context: AppActionContext) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
         let bridge = window.sidebar
         let before = bridge.model.sections
@@ -185,12 +274,7 @@ enum WorkspaceVerbHandlers {
             if let model = context.services.workspace(id: id) { directories[id] = directory(of: model, context) }
         }
         for section in before where section.machine != nil {
-            var containers: [(GroupID?, [String])] = [(nil, section.nodes.compactMap { node in
-                if case let .workspace(workspace) = node { return workspace.id.rawValue }
-                return nil
-            })]
-            for case let .group(group) in section.nodes { containers.append((group.id, group.workspaces.map(\.id.rawValue))) }
-            for (group, ids) in containers where ids.count > 1 {
+            for (group, ids) in WorkspaceSortKey.containers(of: section, only: only) where ids.count > 1 {
                 let sorted = key.sorted(ids, names: names, directories: directories, recency: window.state.workspaceRecency)
                 guard sorted != ids else { continue }
                 let moving = sorted.map(SidebarWorkspaceID.init)

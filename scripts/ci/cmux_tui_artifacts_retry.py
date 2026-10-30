@@ -8,6 +8,10 @@ cmux-tui-artifacts-retry workflow calls this after the run completes.
 "Re-run failed jobs" also reruns the jobs that depend on them, so the publish
 jobs are evaluated again.
 
+Only tree-publishing runs (feat-cmux-next's workflow, with its tree preflight
+job) are retried; main's own cmux-tui artifacts runs share the workflow name
+and are left alone.
+
 An immutable R2 conflict (annotation title immutable-r2-conflict, written by
 scripts/ci/upload-r2-object.py) is never retried: a rebuild is not
 byte-identical, so a retry cannot succeed. The run stays red and this script
@@ -27,6 +31,8 @@ import urllib.request
 
 MAX_ATTEMPTS = 3
 CONFLICT_TITLE = "immutable-r2-conflict"
+TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
+TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui",)
 
 
 @dataclass(frozen=True)
@@ -39,6 +45,19 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
     """Pure policy: what to do with one workflow run."""
     if run.get("status") != "completed" or run.get("conclusion") != "failure":
         return Decision("skip", f"run is {run.get('status')}/{run.get('conclusion')}, not a completed failure")
+    # The pushes nightly-next promotes from; a red lane branch or PR is usually a real failure.
+    branch = run.get("head_branch") or ""
+    if run.get("event") != "push" or branch != "feat-cmux-next":
+        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only feat-cmux-next pushes are retried")
+    # main's cmux-tui artifacts workflow has the same name but publishes no tree;
+    # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
+    if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):
+        return Decision("skip", f"no {TREE_PREFLIGHT_JOB!r} job: not a tree-publishing run")
+    # The macOS fallback publishes the tree while its Linux-cross legs stay red:
+    # nothing is left to rescue, and a rerun would only rerun publish.
+    published = [job["name"] for job in jobs if job.get("name") in TREE_PUBLISH_JOBS and job.get("conclusion") == "success"]
+    if published:
+        return Decision("skip", f"{published[0]} succeeded: the tree is published")
     attempt = int(run.get("run_attempt") or 1)
     if attempt >= MAX_ATTEMPTS:
         return Decision("skip", f"attempt {attempt} reached the cap of {MAX_ATTEMPTS}")

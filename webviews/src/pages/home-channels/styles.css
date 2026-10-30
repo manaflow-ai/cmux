@@ -1,21 +1,31 @@
 /* The channels Home. Colors come only from the shared web theme (Ghostty-derived `--cmux-app-*`
-   and `--page-*`); the accent is the theme's own, never a fixed blue. Compact density: the type scale's
-   chrome steps, content at the user's reading size, 26 px rail rows. */
+   and `--page-*`), so light and dark follow the theme; color marks only real state (new, mention,
+   danger). Sizes come only from the type tokens. The Channels layout itself is ledger.css; this
+   file keeps the shared parts (avatar, message, hover card, composer, popovers, chips, gate).
+   Surfaces: hairline borders and a slightly lighter fill, radii nested (composer 10, popovers 10,
+   hover card 8, buttons 6). Rows never move when their actions show. */
 :root {
   --hc-accent: var(--cmux-app-accent, var(--page-text));
-  --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-background, Canvas));
-  --hc-rail-bg: var(--cmux-app-sidebar, color-mix(in srgb, var(--page-text) 3%, transparent));
-  --hc-danger: var(--cmux-app-danger, var(--page-text));
+  --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-solid, Canvas));
+  --hc-danger: var(--cmux-app-danger, #e5484d);
+  /* Ink on a text-colored fill: the opaque surface (the page background is clear in a translucent
+     window). */
+  --hc-on-text: var(--cmux-surface-solid, Canvas);
+  --hc-fill: color-mix(in srgb, var(--page-text) 4%, transparent);
+  --hc-fill-strong: color-mix(in srgb, var(--page-text) 8%, transparent);
+  --hc-line-strong: color-mix(in srgb, var(--page-text) 24%, transparent);
+  --hc-gutter: 20px;
   /* The agent pane's Markdown tokens, mapped to the page theme at chat density. */
   --agent-text: var(--page-text);
   --agent-muted: var(--page-text-2);
   --agent-soft: var(--page-text-3);
   --agent-accent: var(--hc-accent);
+  --agent-on-accent: var(--hc-on-accent);
   --agent-border: var(--page-separator);
   --agent-page-bg: transparent;
   --agent-danger: var(--hc-danger);
-  --cv-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  --cv-para-after: 6px;
+  --cv-font: var(--font-ui);
+  --cv-para-after: 4px;
   --cv-column: none;
 }
 
@@ -26,113 +36,63 @@ body,
   overflow: hidden;
 }
 
-.hc-page {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  height: 100%;
+.hc-icon {
+  display: block;
+  flex: none;
 }
-.hc-page.with-thread {
-  grid-template-columns: 240px minmax(0, 1fr) minmax(300px, 380px);
+.hc-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+  cursor: default;
 }
-
-/* ---------- Rail ---------- */
-.hc-rail {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--hc-rail-bg);
-  border-inline-end: 1px solid var(--page-separator);
+.hc-icon-button:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
 }
-.hc-rail-header {
-  height: 44px;
-  display: flex;
-  align-items: center;
-  padding: 0 14px;
-}
-.hc-rail-title {
-  font-weight: 700;
-  font-size: var(--text-title);
-}
-.hc-jump {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 10px 8px;
-  padding: 4px 8px;
+.hc-text-button {
+  height: 28px;
+  padding: 0 12px;
   border: 1px solid var(--page-separator);
   border-radius: 6px;
   background: transparent;
-  color: var(--page-text-3);
-  cursor: default;
-}
-.hc-jump:hover {
-  background: var(--page-hover);
-}
-.hc-jump kbd {
+  color: var(--page-text);
   font: inherit;
-  font-size: var(--text-caption);
-}
-.hc-rail-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding-bottom: 12px;
-}
-.hc-rail-empty {
-  padding: 8px 14px;
-  color: var(--page-text-3);
-}
-.hc-rail-section h2 {
-  margin: 12px 0 2px;
-  padding: 0 14px;
   font-size: var(--text-detail);
   font-weight: 600;
-  color: var(--page-text-2);
-}
-.hc-rail-section ul {
-  list-style: none;
-  margin: 0;
-  padding: 0 6px;
-}
-.hc-rail-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 26px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--page-text-2);
-  text-align: start;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
-.hc-rail-row:hover {
+/* The quiet hover is for outline buttons only: a filled button keeps its fill under the pointer. */
+.hc-text-button:not(.primary, .danger):hover:not(:disabled) {
   background: var(--page-hover);
 }
-.hc-rail-row.active {
-  background: var(--page-selection);
-  color: var(--page-text);
+.hc-text-button.primary {
+  border-color: transparent;
+  background: var(--page-text);
+  color: var(--hc-on-text);
 }
-.hc-rail-row.unread {
-  color: var(--page-text);
-  font-weight: 700;
+.hc-text-button.danger {
+  border-color: transparent;
+  background: var(--hc-danger);
+  /* Danger is fitted against the app theme's window, so that is its ink. */
+  color: var(--cmux-app-window, var(--cmux-surface-solid, Canvas));
 }
-.hc-rail-row.muted {
-  opacity: 0.6;
+/* Hover makes a filled button a little stronger: the same fill with a soft ring of its own color. */
+.hc-text-button.primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--page-text) 28%, transparent);
 }
-.hc-rail-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.hc-text-button.danger:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hc-danger) 35%, transparent);
 }
-.hc-hash {
-  width: 16px;
-  text-align: center;
-  color: var(--page-text-3);
-  font-weight: 400;
+.hc-text-button.primary:disabled,
+.hc-text-button.danger:disabled {
+  opacity: 0.4;
 }
 .hc-tag {
   padding: 0 5px;
@@ -141,24 +101,9 @@ body,
   font-weight: 600;
   line-height: 16px;
   color: var(--page-text-2);
-  background: var(--page-hover);
+  background: var(--hc-fill-strong);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
-.hc-badge {
-  min-width: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  font-size: var(--text-caption);
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-  color: var(--hc-on-accent);
-  background: var(--hc-accent);
-}
-.hc-badge.subtle {
-  color: var(--page-text-2);
-  background: var(--page-hover);
-}
-
 /* ---------- Avatar ---------- */
 .hc-avatar {
   font-size: var(--text-caption);
@@ -170,48 +115,34 @@ body,
   font-weight: 600;
   color: var(--page-text);
   background: color-mix(in srgb, var(--page-text) 14%, transparent);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-avatar.large {
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-avatar.agent {
-  border-radius: 25%;
+  border-radius: 28%;
 }
 .hc-avatar.chief {
   box-shadow: inset 0 0 0 1.5px var(--hc-accent);
 }
-
-/* ---------- Main ---------- */
-.hc-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
+/* A picture fills the tile's shape (circle for people, rounded square for agents). */
+.hc-avatar.picture {
+  background: none;
 }
-.hc-main-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 44px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--page-separator);
-}
-.hc-main-title {
-  font-weight: 700;
-  font-size: var(--text-title);
-}
-.hc-main-sub,
-.hc-connection {
-  color: var(--page-text-3);
-}
-.hc-connection {
-  margin-inline-start: auto;
+.hc-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
 }
 .hc-error {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 6px 16px;
+  padding: 6px var(--hc-gutter);
   color: var(--hc-danger);
   border-bottom: 1px solid var(--page-separator);
 }
@@ -219,6 +150,7 @@ body,
   margin-inline-start: auto;
   border: 0;
   background: transparent;
+  color: inherit;
   text-decoration: underline;
 }
 
@@ -232,7 +164,7 @@ body,
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 8px 0 4px;
 }
 .hc-timeline-space {
   position: relative;
@@ -252,25 +184,42 @@ body,
 }
 .hc-older {
   position: absolute;
-  top: 4px;
+  top: 6px;
   inset-inline: 0;
   pointer-events: none;
   z-index: var(--layer-sticky);
   text-align: center;
   color: var(--page-text-3);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
-.hc-day {
+.hc-new-line {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px 4px;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  font-weight: 600;
+  padding: 4px var(--hc-gutter);
+  color: var(--hc-danger);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
-.hc-day::before,
-.hc-day::after {
+.hc-new-line::before {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+.hc-replies-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px var(--hc-gutter);
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.hc-replies-line::after {
   content: "";
   flex: 1;
   height: 1px;
@@ -281,19 +230,63 @@ body,
 .hc-msg {
   position: relative;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 8px;
-  padding: 2px 16px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 3px var(--hc-gutter);
   user-select: text;
 }
 .hc-msg.head {
-  padding-top: 8px;
+  padding-top: 10px;
 }
-.hc-msg:hover {
-  background: var(--page-hover);
+.hc-msg:hover,
+.hc-msg:focus-within,
+.hc-msg:has(.hc-msg-actions.pinned) {
+  background: var(--hc-fill);
+}
+.hc-msg.editing {
+  background: color-mix(in srgb, var(--hc-accent) 6%, transparent);
 }
 .hc-msg.mention {
+  background: color-mix(in srgb, var(--hc-accent) 7%, transparent);
   box-shadow: inset 2px 0 0 var(--hc-accent);
+}
+.hc-msg.mention:dir(rtl) {
+  box-shadow: inset -2px 0 0 var(--hc-accent);
+}
+.hc-msg.highlighted {
+  background: color-mix(in srgb, var(--hc-accent) 14%, transparent);
+}
+/* Thread replies indent by depth (capped at MAX_THREAD_INDENT): a reply of a reply moves in one
+   step and shows a rail line on its start edge. */
+.hc-msg[data-depth="2"],
+.hc-msg[data-depth="3"],
+.hc-msg[data-depth="4"] {
+  border-inline-start: 2px solid var(--page-separator);
+}
+.hc-msg[data-depth="2"] {
+  margin-inline-start: 18px;
+}
+.hc-msg[data-depth="3"] {
+  margin-inline-start: 36px;
+}
+.hc-msg[data-depth="4"] {
+  margin-inline-start: 54px;
+}
+.hc-msg-parent {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hc-thread-replying {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px var(--hc-gutter) 0;
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-msg-gutter {
   display: flex;
@@ -303,24 +296,32 @@ body,
 .hc-msg-hover-time {
   visibility: hidden;
   font-size: var(--text-caption);
-  line-height: 20px;
+  line-height: 22px;
   color: var(--page-text-3);
+  white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
-.hc-msg:hover .hc-msg-hover-time {
+.hc-msg:hover .hc-msg-hover-time,
+.hc-msg:focus-within .hc-msg-hover-time {
   visibility: visible;
 }
 .hc-msg-head {
   display: flex;
   align-items: baseline;
   gap: 6px;
+  min-width: 0;
 }
 .hc-msg-author {
   font-weight: 700;
+}
+.hc-msg-head .hc-tag {
+  align-self: center;
 }
 .hc-msg-time,
 .hc-msg-edited {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-msg-retracted,
 .hc-msg-other {
@@ -331,45 +332,95 @@ body,
 .hc-md {
   overflow-wrap: anywhere;
 }
+.hc-writing {
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hc-writing {
+    animation: hc-writing 1.4s ease-in-out infinite;
+  }
+}
+/* Static status indicators (cx-sya4n), where a page gets the pane's theme: no pulse. */
+:root[data-status-indicators="static"] .hc-writing {
+  animation: none;
+}
+@keyframes hc-writing {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* The row's content, as one right-click target that keeps the row's layout. */
+.hc-msg-menu-host {
+  display: contents;
+}
+/* The hover card: on the row's top edge at the end, over the row above, never in the flow. */
+/* Hidden by opacity only, so Tab still reaches it (one stop per row; the arrows move inside). */
 .hc-msg-actions {
   position: absolute;
-  top: -10px;
+  top: -14px;
   inset-inline-end: 16px;
-  display: none;
-  gap: 2px;
+  z-index: var(--layer-raised);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cmux-motion-quick) ease-out;
+}
+.hc-msg:hover .hc-msg-actions,
+.hc-msg:focus-within .hc-msg-actions,
+.hc-msg-actions.pinned {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* The first rendered row has no row above to overlap: its card sits inside it. */
+.hc-timeline-row:first-child .hc-msg-actions {
+  top: 2px;
+}
+.hc-msg-toolbar {
   padding: 2px;
+  gap: 0;
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
-  background: var(--page-elevated);
+  border-radius: 8px;
+  background: var(--surface-popup);
+  box-shadow: var(--elevation-2);
 }
-.hc-msg:hover .hc-msg-actions {
-  display: flex;
-}
-.hc-msg-actions button,
-.hc-icon-button {
-  border: 0;
-  border-radius: 4px;
-  padding: 1px 6px;
-  background: transparent;
-  cursor: default;
-}
-.hc-msg-actions button:hover,
-.hc-icon-button:hover {
-  background: var(--page-hover);
-}
-.hc-thread-link {
-  margin-top: 2px;
+.hc-tool.ui-toolbar-button,
+.hc-tool {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  font-size: var(--text-detail);
-  font-weight: 600;
-  color: var(--hc-accent);
-  cursor: default;
+  color: var(--page-text-2);
 }
-.hc-thread-link:hover {
-  text-decoration: underline;
+.hc-tool:hover:not([data-disabled]) {
+  background: var(--page-hover);
+  color: var(--page-text);
 }
+.hc-tool[aria-pressed="true"] {
+  background: var(--hc-fill-strong);
+  color: var(--page-text);
+}
+/* The hover-actions experiment's "one" arm: More alone, framed as the card. */
+.hc-tool.hc-msg-more {
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--surface-popup);
+  box-shadow: var(--elevation-2);
+}
+.hc-tool-glyph {
+  display: inline-grid;
+  place-items: center;
+}
+.hc-quick {
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
 .hc-reactions {
   display: flex;
   flex-wrap: wrap;
@@ -378,32 +429,46 @@ body,
 }
 .hc-reaction {
   display: inline-flex;
-  gap: 4px;
+  gap: 5px;
   align-items: center;
-  padding: 0 6px;
-  border: 1px solid var(--page-separator);
-  border-radius: 10px;
-  background: transparent;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--hc-fill-strong);
+  color: var(--page-text);
+  font: inherit;
   font-size: var(--text-detail);
-  line-height: 18px;
+  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.hc-reaction:hover {
+  border-color: var(--hc-line-strong);
 }
 .hc-reaction.mine {
   border-color: var(--hc-accent);
+  background: color-mix(in srgb, var(--hc-accent) 14%, transparent);
+}
+.hc-reaction-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .hc-chip {
   display: flex;
   gap: 8px;
   align-items: baseline;
-  max-width: 520px;
+  max-width: 560px;
   margin: 4px 0;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
+  border-radius: 8px;
+  background: var(--hc-fill);
 }
 .hc-chip-status {
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-chip.work.failed .hc-chip-status {
   color: var(--hc-danger);
@@ -418,95 +483,290 @@ body,
   white-space: nowrap;
   color: var(--page-text-3);
 }
-
-/* ---------- Composer ---------- */
-.hc-typing {
-  height: 16px;
-  padding: 0 16px;
-  font-size: var(--text-caption);
-  color: var(--page-text-3);
-}
-.hc-composer {
-  margin: 0 16px 14px;
+.hc-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
   padding: 8px 10px;
   border: 1px solid var(--page-separator);
   border-radius: 8px;
-  max-height: 40vh;
-  overflow-y: auto;
+  background: var(--hc-fill);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.hc-confirm > span {
+  flex: 1;
+}
+.hc-composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin: 0 var(--hc-gutter) 16px;
+  border: 1px solid var(--page-separator);
+  border-radius: 10px;
+  background: var(--hc-fill);
+  transition: border-color 120ms ease-out;
 }
 .hc-composer:focus-within {
-  border-color: color-mix(in srgb, var(--page-text) 30%, transparent);
+  border-color: var(--hc-line-strong);
 }
 .hc-composer.disabled {
   opacity: 0.6;
 }
-
-/* ---------- Thread ---------- */
-.hc-thread {
+.hc-format {
   display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-inline-start: 1px solid var(--page-separator);
+  padding: 4px 6px 0;
+  gap: 0;
+  transition: opacity 120ms ease-out;
 }
-.hc-thread-header {
+.hc-composer:not(:focus-within) .hc-format {
+  opacity: 0.55;
+}
+.hc-format-group {
+  display: inline-flex;
+  align-items: center;
+}
+.hc-format .ui-separator {
+  height: 18px;
+  margin: 0 6px;
+}
+.hc-composer-field {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: var(--text-content);
+}
+.hc-composer-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 44px;
-  padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--page-separator);
+  gap: 2px;
+  padding: 0 6px 6px;
 }
-.hc-thread-title {
-  font-weight: 700;
+.hc-composer-spacer {
+  flex: 1;
+}
+.hc-composer-hint {
+  margin-inline-end: 8px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hc-send.ui-toolbar-button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--page-text-3);
+}
+.hc-send.ready.ui-toolbar-button {
+  background: var(--page-text);
+  color: var(--hc-on-text);
+}
+.hc-send.ready.ui-toolbar-button:hover {
+  background: color-mix(in srgb, var(--page-text) 86%, transparent);
+}
+.hc-send[data-disabled] {
+  opacity: 1;
+}
+:dir(rtl) .hc-send .hc-icon {
+  transform: scaleX(-1);
+}
+.hc-composer.hc-edit {
+  margin: 4px 0;
+  background: var(--cmux-surface-solid, Canvas);
 }
 
-/* ---------- Switcher ---------- */
-.hc-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--layer-overlay);
-  display: flex;
-  justify-content: center;
-  padding-top: 12vh;
-  background: var(--cmux-scrim, rgb(0 0 0 / 0.2));
-}
-.hc-switcher {
-  width: min(560px, 90vw);
-  max-height: 60vh;
+/* Composer popovers (ui/Popover places them on the dropdown layer). */
+.hc-emoji.ui-popover {
+  width: 324px;
+  max-height: 340px;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--page-separator);
-  border-radius: 10px;
-  background: var(--page-elevated);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
+  padding: 8px;
   overflow: hidden;
 }
-.hc-switcher-input {
-  padding: 12px 14px;
-  border: 0;
-  border-bottom: 1px solid var(--page-separator);
-  background: transparent;
-  font-size: var(--text-title);
+/* The search's Return key wrapper (ui/KeyboardScope) adds no box. */
+.hc-emoji-search-keys {
+  display: contents;
+}
+
+.hc-emoji-search,
+.hc-link-field {
+  box-sizing: border-box;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  background: var(--hc-fill);
+  color: var(--page-text);
+  font: inherit;
   outline: none;
 }
-.hc-switcher-list {
-  list-style: none;
-  margin: 0;
-  padding: 4px;
+.hc-emoji-search:focus,
+.hc-link-field:focus {
+  border-color: var(--hc-line-strong);
+}
+.hc-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  margin-top: 8px;
   overflow-y: auto;
 }
-.hc-switcher-row {
+.hc-emoji-cell {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: var(--text-heading);
+  cursor: default;
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+.hc-emoji-cell:hover,
+.hc-emoji-cell:focus-visible {
+  background: var(--page-hover);
+  outline: none;
+}
+.hc-emoji-none {
+  grid-column: 1 / -1;
+  margin: 12px 0;
+  text-align: center;
+  color: var(--page-text-3);
+}
+.hc-pick.ui-popover {
+  min-width: 220px;
+  padding: 4px;
+}
+.hc-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hc-pick-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
-  padding: 0 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
   border-radius: 6px;
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
 }
-.hc-switcher-row.active {
-  background: var(--page-selection);
+.hc-pick-row:hover,
+.hc-pick-row:focus-visible {
+  background: var(--page-hover);
+  outline: none;
 }
-.hc-switcher-none {
-  padding: 10px;
-  color: var(--page-text-3);
+.hc-link.ui-popover {
+  padding: 8px;
+}
+.hc-link form {
+  display: flex;
+  gap: 6px;
+  width: 300px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hc-thread {
+    animation: hc-thread-in var(--cmux-motion-micro) ease-out;
+  }
+}
+@keyframes hc-thread-in {
+  from {
+    opacity: 0;
+  }
+}
+/* The next page of a long thread's replies (the owner's thread read). */
+.hc-thread-more {
+  flex: none;
+  margin: 4px var(--hc-gutter);
+  padding: 4px 8px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.hc-thread-more:hover:not(:disabled),
+.hc-thread-more:focus-visible {
+  background: var(--cmux-surface-solid, Canvas);
+  color: var(--page-text);
+}
+
+/* ---------- Danger rows in menus ---------- */
+.ui-menu-item.danger {
+  color: var(--hc-danger);
+}
+
+/* The page on a cmux instance's daemon (?daemon=): the connect gate. */
+.hc-daemon {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.hc-daemon > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+/* The Home page's link router (homeLinks.ts): a plain box the page fills. */
+.hc-links {
+  display: flex;
+  flex-direction: column;
+}
+.hc-links > * {
+  flex: 1;
+  min-height: 0;
+}
+.hc-gate {
+  max-width: 420px;
+  margin: 15vh auto 0;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hc-gate h1 {
+  font-size: var(--text-heading);
+  margin: 0;
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+.hc-gate label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hc-gate-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hc-gate-endpoint {
+  opacity: 0.7;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-detail);
+}
+.hc-gate-code {
+  font-size: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+.hc-gate-error {
+  color: var(--hc-danger);
+}
+/* The field's right-click menu host adds no box of its own. */
+.hc-composer-field-menu {
+  display: contents;
 }

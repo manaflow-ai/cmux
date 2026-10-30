@@ -1,0 +1,70 @@
+{
+  "$comment": "HAND-EDITED source of the GitHub Inbox settings (cx-d5b5d); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "feed",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.githubInbox",
+        "text": "GitHub Inbox"
+      },
+      "note": "GitHub inbox preferences under Notifications. The schema supplies the Settings window, palette setting editor, and validated config writes.",
+      "rows": [
+        {
+          "key": "feed.github.enabled",
+          "note": "The opt-in connection: this Mac reads GitHub notifications and review requests with the gh login.",
+          "title": {
+            "key": "settings.feed.github.enabled",
+            "text": "Connect GitHub"
+          },
+          "help": {
+            "key": "settings.feed.github.enabled.help",
+            "text": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          },
+          "summary": {
+            "key": "settings.feed.github.enabled.summary",
+            "text": "Inbox shows your GitHub notifications"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "github",
+            "inbox",
+            "review",
+            "pull request",
+            "connection",
+            "gh"
+          ]
+        },
+        {
+          "key": "feed.github.pollIntervalSeconds",
+          "name": "pollInterval",
+          "note": "Seconds between background refreshes, bounded to protect the GitHub API quota. Manual refresh runs immediately.",
+          "title": {
+            "key": "settings.feed.github.pollInterval",
+            "text": "Refresh Interval"
+          },
+          "help": {
+            "key": "settings.feed.github.pollInterval.help",
+            "text": "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          },
+          "kind": "number",
+          "range": {
+            "min": 60,
+            "max": 900,
+            "step": 30,
+            "unit": "seconds"
+          },
+          "default": 120,
+          "keywords": [
+            "github",
+            "inbox",
+            "poll",
+            "refresh",
+            "interval"
+          ]
+        }
+      ]
+    }
+  ]
+}

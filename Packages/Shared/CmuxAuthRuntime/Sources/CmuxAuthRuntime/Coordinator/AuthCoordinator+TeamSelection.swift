@@ -8,12 +8,19 @@ public extension AuthCoordinator {
     /// request is bounded by the coordinator's network timeout.
     /// - Parameter id: A team id from ``availableTeams``.
     func selectTeam(id: String?) async throws {
-        guard !isCreatingTeam else {
+        guard !isCreatingTeam, !isDeletingTeam else {
             throw AuthTeamChangeInProgressError()
         }
         if let id, !availableTeams.contains(where: { $0.id == id }) {
             throw AuthClientError.teamNotAvailable
         }
+        try await persistTeamSelection(id: id)
+    }
+
+    /// Saves the selection a delete of the active team falls back to, under
+    /// the delete's own exclusion claim.
+    internal func persistDeleteFallback(id: String) async throws {
+        guard availableTeams.contains(where: { $0.id == id }) else { throw AuthClientError.teamNotAvailable }
         try await persistTeamSelection(id: id)
     }
 
@@ -50,7 +57,7 @@ public extension AuthCoordinator {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AuthClientError.invalidTeamName }
         guard isAuthenticated else { throw AuthError.unauthorized }
-        guard !isSelectingTeam, !isCreatingTeam else {
+        guard !isSelectingTeam, !isCreatingTeam, !isDeletingTeam else {
             throw AuthTeamChangeInProgressError()
         }
         isCreatingTeam = true
@@ -67,9 +74,11 @@ public extension AuthCoordinator {
               isAuthenticated else {
             throw AuthError.unauthorized
         }
-        var refreshed = try await runPhase(.listTeams, timeout: timeouts.network) {
+        // The team already exists; a failed membership read must not fail the
+        // create, or a retry would make a second team.
+        var refreshed = (try? await runPhase(.listTeams, timeout: timeouts.network) {
             try await client.listTeams()
-        }
+        }) ?? availableTeams
         guard generation == sessionGeneration,
               mutationGeneration == teamMutationGeneration,
               isAuthenticated else {

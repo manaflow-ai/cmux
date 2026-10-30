@@ -4,7 +4,10 @@
 //! opened on its own as a root; the store reads no disk (projects.md rule 4),
 //! so a root named like a source file is left out by its name.
 
-use super::{Layout, SourceScan, open_read_only};
+use super::{
+    Layout, MAX_SOURCE_ENTRIES, MAX_SOURCE_LIST_BYTES, MAX_SOURCE_PATH_BYTES,
+    MAX_SOURCE_TIMESTAMP_BYTES, MAX_SOURCE_TOTAL_BYTES, SourceScan, open_read_only, utc_ms,
+};
 use crate::state::projects::Observation;
 
 /// Extensions of the files people open on their own in an editor.
@@ -18,29 +21,53 @@ pub(crate) fn scan_zed(layout: &Layout) -> Option<SourceScan> {
     let connection = open_read_only(&layout.zed_db())?;
     let mut statement = connection
         .prepare(
-            "SELECT paths, timestamp FROM workspaces
-             WHERE remote_connection_id IS NULL AND paths IS NOT NULL
-             ORDER BY timestamp DESC",
+            "SELECT CAST(substr(CAST(paths AS BLOB), 1, ?1) AS TEXT),
+                    CAST(substr(CAST(timestamp AS BLOB), 1, ?2) AS TEXT)
+             FROM (
+               SELECT paths, timestamp FROM workspaces
+               WHERE remote_connection_id IS NULL AND paths IS NOT NULL LIMIT ?3
+             ) ORDER BY timestamp DESC",
         )
         .ok()?;
-    let rows = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+    let mut rows = statement
+        .query(rusqlite::params![
+            i64::try_from(MAX_SOURCE_LIST_BYTES + 1).ok()?,
+            i64::try_from(MAX_SOURCE_TIMESTAMP_BYTES + 1).ok()?,
+            i64::try_from(MAX_SOURCE_ENTRIES + 1).ok()?
+        ])
         .ok()?;
     let mut newest = std::collections::BTreeMap::<String, i64>::new();
     let mut order = Vec::new();
+    let mut row_count = 0_usize;
+    let mut retained_bytes = 0_usize;
     // A row that fails (busy mid-step) would make the list partial, and a
     // partial list sent as complete drops projects: report nothing instead.
-    let rows = rows.collect::<Result<Vec<_>, _>>().ok()?;
-    for (paths, timestamp) in rows {
+    while let Some(row) = rows.next().ok()? {
+        row_count += 1;
+        if row_count > MAX_SOURCE_ENTRIES {
+            return None;
+        }
+        let paths = row.get::<_, String>(0).ok()?;
+        let timestamp = row.get::<_, String>(1).ok()?;
+        if paths.len() > MAX_SOURCE_LIST_BYTES || timestamp.len() > MAX_SOURCE_TIMESTAMP_BYTES {
+            return None;
+        }
+        retained_bytes = retained_bytes.saturating_add(paths.len()).saturating_add(timestamp.len());
+        if retained_bytes > MAX_SOURCE_TOTAL_BYTES {
+            return None;
+        }
         let Some(used) = utc_ms(&timestamp) else { continue };
-        for root in
-            paths.lines().map(str::trim).filter(|root| !root.is_empty() && !is_file_name(root))
-        {
+        for root in paths.lines().map(str::trim).filter(|root| {
+            !root.is_empty() && root.len() <= MAX_SOURCE_PATH_BYTES && !is_file_name(root)
+        }) {
             let slot = newest.entry(root.to_string()).or_insert_with(|| {
                 order.push(root.to_string());
                 used
             });
             *slot = (*slot).max(used);
+            if order.len() > MAX_SOURCE_ENTRIES {
+                return None;
+            }
         }
     }
     let entries =
@@ -53,26 +80,4 @@ fn is_file_name(root: &str) -> bool {
     name.rsplit_once('.').is_some_and(|(stem, extension)| {
         !stem.is_empty() && FILE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
     })
-}
-
-/// `YYYY-MM-DD HH:MM:SS` (UTC) as ms since the epoch.
-fn utc_ms(text: &str) -> Option<i64> {
-    let (date, time) = text.trim().split_once([' ', 'T'])?;
-    let mut date = date.split('-').map(str::parse::<i64>);
-    let (year, month, day) = (date.next()?.ok()?, date.next()?.ok()?, date.next()?.ok()?);
-    let mut time = time.trim_end_matches('Z').split(':');
-    let hour: i64 = time.next()?.parse().ok()?;
-    let minute: i64 = time.next()?.parse().ok()?;
-    let second: f64 = time.next().unwrap_or("0").parse().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    // Days from the civil date (Howard Hinnant's algorithm).
-    let shifted = if month <= 2 { year - 1 } else { year };
-    let era = shifted.div_euclid(400);
-    let year_of_era = shifted - era * 400;
-    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-    Some(((days * 24 + hour) * 60 + minute) * 60_000 + (second * 1000.0) as i64)
 }

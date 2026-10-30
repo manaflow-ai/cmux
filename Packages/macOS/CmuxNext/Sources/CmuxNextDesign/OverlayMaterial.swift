@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxTheme
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// How an app overlay that floats over content (palette, hover card, find
 /// and prompt bars, the tab drag's drop target) is drawn. One decision for
@@ -49,6 +50,9 @@ public final class ReduceTransparency {
         changes: NSWorkspace.shared.notificationCenter
     )
 
+    /// Always opaque: for a card floating over content that must not show through it.
+    public static let alwaysOpaque = ReduceTransparency(system: { true }, changes: NotificationCenter())
+
     /// Pins the state (tests, Debug); nil follows `system`. Changing it
     /// redraws every live surface at once.
     public var override: Bool? {
@@ -61,6 +65,7 @@ public final class ReduceTransparency {
     private let system: @MainActor () -> Bool
     private let changes: NotificationCenter
     private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
+    private let cards = NSHashTable<CardSurfaceView>.weakObjects()
     private var observer: (any NSObjectProtocol)?
 
     /// `system` reads the setting; `changes` posts
@@ -74,6 +79,16 @@ public final class ReduceTransparency {
     /// Makes `surface` follow this state until it is deallocated.
     func register(_ surface: OverlaySurfaceView) {
         surfaces.add(surface)
+        observeChanges()
+    }
+
+    /// Makes a sidebar card's surface follow this state until it is deallocated.
+    func register(_ card: CardSurfaceView) {
+        cards.add(card)
+        observeChanges()
+    }
+
+    private func observeChanges() {
         guard observer == nil else { return }
         observer = changes.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil
@@ -85,13 +100,30 @@ public final class ReduceTransparency {
 
     private func refreshSurfaces() {
         for surface in surfaces.allObjects { surface.refreshMaterial() }
+        for card in cards.allObjects { card.needsDisplay = true }
     }
 }
 
 extension ThemeTokens {
-    /// The Reduce Transparency overlay fill: the window background moved
-    /// `lift` toward the primary text, both opaque.
+    /// The popup surface (`Palette.popupSurface`): the window background,
+    /// opaque, lifted by up to `lift` toward white on a light theme (a white
+    /// page gets a white popup, set apart by its hairline and shadow, like
+    /// native light menus) and toward the text on a dark one (a lighter
+    /// card). A dark lift stops where secondary text would drop below 4.5:1
+    /// on a hovered row.
     nonisolated public func opaqueOverlayFill(lift: Double) -> ThemeRGB {
-        windowBackground.withAlpha(1).mixed(toward: textPrimary.withAlpha(1), lift)
+        let page = windowBackground.withAlpha(1)
+        let text = textPrimary.withAlpha(1)
+        // A dark theme whose text is darker than its page (Hot Dog Stand's red takes dark text)
+        // lifts toward white too: lifting toward the text would darken the card under it.
+        guard isDark, text.relativeLuminance >= page.relativeLuminance else { return page.mixed(toward: .white, lift) }
+        let secondary = textSecondary.withAlpha(1)
+        var step = (lift * 100).rounded() / 100
+        while step > 0 {
+            let fill = page.mixed(toward: text, step)
+            if secondary.contrast(with: hoverFill.composited(over: fill)) >= ThemeTokens.minimumTextContrast { return fill }
+            step -= 0.01
+        }
+        return page
     }
 }

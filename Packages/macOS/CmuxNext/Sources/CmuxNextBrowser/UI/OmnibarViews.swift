@@ -2,44 +2,47 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The omnibar's rounded background: at rest the glass material
-/// (`OmnibarGlassLook`, the theme fill when glass is off), a stronger tint
-/// on hover, a neutral ring while editing, and the plain card fill while it
+/// The omnibar's rounded background (`OmnibarGlassLook`): at rest the flat
+/// theme fill (the default), the glass material or nothing (transparent); a
+/// hover lift; a neutral ring while editing; and the plain card fill while it
 /// is the top of the suggestion card (the card is opaque, so the bar joins
 /// it).
 final class OmnibarPillView: NSView {
     enum State { case idle, editing, card }
 
-    var state: State = .idle { didSet { if oldValue != state { refresh(animated: true) } } }
-    private var isHovering = false { didSet { if oldValue != isHovering { refresh(animated: true) } } }
-    private var tracking: NSTrackingArea?
-    /// The look in effect; follows the design picker live.
+    /// Focus, blur and the card switch the look at once, on the frame of the
+    /// press, as Chrome's omnibox does; only the pointer's hover eases. A
+    /// fade here kept the focusing click's editing fill from showing for
+    /// several frames after the press (omnibar mouse-down latency).
+    var state: State = .idle { didSet { if oldValue != state { refresh(animated: false) } } }
+    /// Where the pointer is now (`OmnibarPointer`): a hide, a tab switch or
+    /// a window change under a still pointer clears it.
+    private var hover: PointerHover?
+    private var isHovering: Bool { hover?.isHovering ?? false }
+    /// Whether the pointer is over the bar (`debug.omnibar`).
+    var debugHovering: Bool { isHovering }
+    /// A fill, ring or shadow animation is still running on the bar's layer.
+    var debugIsFading: Bool { !(layer?.animationKeys() ?? []).isEmpty }
+    /// The look in effect; follows cmux.json live.
     private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
     /// The glass under the bar, built while the look has a material.
     private var glass: GlassPanelView?
     /// Ends with the view (the loop holds it weakly).
     private var lookLoop: ObservationLoop?
-    /// The Debug backdrop under the glass (`browser.omnibar.glass.backdrop`).
-    private let backdropView = OmnibarGlassBackdropView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
-        backdropView.frame = bounds
-        backdropView.autoresizingMask = [.width, .height]
-        addSubview(backdropView)
         rebuildMaterial()
+        // The bar's hover eases in and clears at once (`ChromeHover.fade`).
+        hover = PointerHover(self) { [weak self] hovering in
+            self?.refresh(animated: true, fade: ChromeHover.fade(showing: hovering))
+        }
         lookLoop = ObservationLoop { [weak self] in
             let next = OmnibarGlassLook.current
-            let backdrop = OmnibarGlassKnobs.backdrop.value
-            guard let self else { return }
-            look = next
-            if backdropView.style != backdrop {
-                backdropView.style = backdrop
-                refresh(animated: false)
-            }
+            self?.look = next
         }
     }
 
@@ -48,21 +51,30 @@ final class OmnibarPillView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        // Hover is tracked on the whole bar, which sits above this view.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    // Hover is the pill's frame under the pointer (the bar above it takes
+    // the clicks); hiding with the pane or leaving the window clears it.
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover?.refresh()
+        // A theme repaint skips a pill outside the window (a dark-to-dark
+        // theme switch brings no appearance change on return).
+        refresh(animated: false)
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        refresh(animated: false)
+        // Reduce Transparency may have changed since the material was built.
+        if drawsGlass != (glass != nil) { rebuildMaterial() } else { refresh(animated: false) }
     }
 
     override func layout() {
@@ -72,7 +84,7 @@ final class OmnibarPillView: NSView {
 
     /// Glass draws only with a material and without Reduce Transparency.
     private var drawsGlass: Bool {
-        look.material != .off && !ReduceTransparency.shared.isEnabled
+        (look.material == .regular || look.material == .clear) && !ReduceTransparency.shared.isEnabled
     }
 
     private func rebuildMaterial() {
@@ -83,7 +95,7 @@ final class OmnibarPillView: NSView {
             } else {
                 let panel = GlassPanelView(style: style, cornerRadius: 0)
                 panel.translatesAutoresizingMaskIntoConstraints = false
-                addSubview(panel, positioned: .above, relativeTo: backdropView)
+                addSubview(panel, positioned: .below, relativeTo: nil)
                 NSLayoutConstraint.activate([
                     panel.leadingAnchor.constraint(equalTo: leadingAnchor),
                     panel.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -100,17 +112,32 @@ final class OmnibarPillView: NSView {
         refresh(animated: false)
     }
 
+    /// The flat fill's state now.
+    private var barState: AddressBarSurface.State { isHovering ? .hover : .rest }
+
+    /// `debug.omnibar` `pointer.bar_style`: the resolved look (fill RGBA in
+    /// sRGB 0...1, corner radius, ring width, state and material).
+    var debugStyle: [String: Any] {
+        let fill = layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
+        let rgba: [Double] = fill.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent].map(Double.init) } ?? [0, 0, 0, 0]
+        let coverage = performWithTheme { Palette.addressBar.resolvedCoverage(look.backgroundOpacity) }
+        return ["fill": rgba, "corner_radius": Double(layer?.cornerRadius ?? 0), "ring_width": Double(layer?.borderWidth ?? 0),
+                "state": state == .idle ? barState.rawValue : (state == .card ? "card" : "editing"), "material": look.material.rawValue,
+                "background_opacity": look.backgroundOpacity, "resolved_coverage": coverage, "glass": glass != nil]
+    }
+
     private func applyShape() {
         let radius = look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.cornerRadius = radius
         glass?.cornerRadius = radius
-        backdropView.cornerRadius = radius
         if look.shadow && drawsGlass && state != .card {
-            layer?.shadowOpacity = 0.18
-            layer?.shadowRadius = 6
-            layer?.shadowOffset = CGSize(width: 0, height: -1)
+            // The raised elevation step (PopupStyle.elevation2), as every floating surface.
+            let elevation = PopupStyle.elevation2
+            layer?.shadowOpacity = Float(elevation.alpha)
+            layer?.shadowRadius = elevation.layerRadius
+            layer?.shadowOffset = elevation.layerOffset()
             layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
         } else {
             layer?.shadowOpacity = 0
@@ -119,12 +146,14 @@ final class OmnibarPillView: NSView {
         CATransaction.commit()
     }
 
-    private func refresh(animated: Bool) {
+    /// `fade`: how the ring shows on a hover change (`ChromeHover.fade`); a
+    /// state change (editing, card) eases. The fill eases in and out
+    /// (`ChromeHover.paint`).
+    private func refresh(animated: Bool, fade: MotionFade? = .hover) {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         let glassy = drawsGlass && state != .card
         glass?.isHidden = !glassy
-        backdropView.isHidden = !glassy || backdropView.style == .none
-        Motion.transaction(animated ? .hover : nil) {
+        Motion.feedback.transaction(animated ? fade : nil) {
             performWithTheme {
                 let fill: NSColor
                 if glassy {
@@ -133,13 +162,27 @@ final class OmnibarPillView: NSView {
                     fill = isHovering && state == .idle ? OmnibarStyle.chipHoverFill : .clear
                     glass?.tintColor = look.tintColor(boost: state == .editing ? 0.15 : 0)
                     layer?.shadowColor = Palette.shadow.cgColor
-                } else {
+                } else if look.material == .transparent {
+                    // Flat and clear: no fill at rest or while editing (the
+                    // ring shows focus); on hover the toolbar buttons' see-through
+                    // hover fill, not the opaque lift; the opaque card top.
                     fill = switch state {
-                    case .idle: isHovering ? OmnibarStyle.barHoverFill : OmnibarStyle.barFill
-                    case .editing, .card: OmnibarStyle.cardFill
+                    case .idle: isHovering && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : .clear
+                    case .editing: .clear
+                    case .card: OmnibarStyle.cardFill
                     }
+                } else {
+                    // The flat fill (`AddressBarSurface`): a tonal step over the
+                    // toolbar that keeps a see-through window's transparency.
+                    fill = state == .idle ? OmnibarStyle.barFill(barState, coverage: look.backgroundOpacity) : OmnibarStyle.cardFill
                 }
-                layer?.backgroundColor = fill.cgColor
+                // The backing layer takes no implicit action, so the fill
+                // fades with an explicit animation: it eases between rest,
+                // hover and editing (Reduce Motion: at once); the card top
+                // shows at once with the card.
+                if let layer {
+                    ChromeHover.paint(layer, fill.alphaComponent > 0 ? fill : nil, animated: animated && state != .card, clearing: .hover)
+                }
                 layer?.borderColor = OmnibarStyle.ring.cgColor
             }
             layer?.borderWidth = Metrics.lineWidth(ring)
@@ -148,22 +191,29 @@ final class OmnibarPillView: NSView {
     }
 }
 
-/// The part of the suggestion card that surrounds the bar: 3 pt above and
-/// 6 pt past each side, rounded at the top only. The dropdown panel continues
-/// it below the bar, so bar and rows read as one card.
+/// The part of the suggestion card behind the bar: the bar's own frame and
+/// corners, rounded at the top only. The dropdown panel continues it below
+/// the bar, so bar and rows read as one card. With the toolbar at the bottom
+/// (`browser.toolbarPosition`) the card opens upward: rounded at the bottom
+/// only, the rows above.
 final class OmnibarCardTopView: NSView {
-    private let card = CALayer()
+    let card = CALayer()
+    /// The rows sit above the bar.
+    var opensUpward = false {
+        didSet { if opensUpward != oldValue { needsLayout = true } }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false
-        card.cornerRadius = OmnibarStyle.cardCornerRadius
         card.cornerCurve = .continuous
         card.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        card.shadowOpacity = 0.16
-        card.shadowRadius = 8
-        card.shadowOffset = CGSize(width: 0, height: -2)
+        // The one popup shadow (PopupStyle), as the panel of rows below.
+        let elevation = PopupStyle.elevation2
+        card.shadowOpacity = Float(elevation.alpha)
+        card.shadowRadius = elevation.layerRadius
+        card.shadowOffset = elevation.layerOffset()
         layer?.addSublayer(card)
         refresh()
     }
@@ -178,9 +228,12 @@ final class OmnibarCardTopView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         card.frame = bounds
-        // Extend the shadow shape down past the seam, where the panel's
-        // own shadow takes over, so no line shows between the two.
-        let shape = CGRect(x: 0, y: -40, width: bounds.width, height: bounds.height + 40)
+        card.cornerRadius = OmnibarStyle.cardCornerRadius
+        // The corners away from the rows (the layer's y points up).
+        card.maskedCorners = opensUpward ? [.layerMinXMinYCorner, .layerMaxXMinYCorner] : [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        // Extend the shadow shape past the seam toward the rows, so no line shows
+        // between the two halves (the panel of rows casts no shadow of its own).
+        let shape = CGRect(x: 0, y: opensUpward ? 0 : -40, width: bounds.width, height: bounds.height + 40)
         card.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
         CATransaction.commit()
     }
@@ -193,58 +246,6 @@ final class OmnibarCardTopView: NSView {
     private func refresh() {
         performWithTheme {
             card.backgroundColor = OmnibarStyle.cardFill.cgColor
-        }
-    }
-}
-
-/// Theme colors behind the omnibar glass while Lawrence compares looks
-/// (Debug `browser.omnibar.glass.backdrop`): the toolbar is one flat color,
-/// so the glass needs something to refract. Drawn once per change.
-final class OmnibarGlassBackdropView: NSView {
-    var style: OmnibarGlassBackdrop = .none { didSet { if oldValue != style { needsDisplay = true } } }
-    var cornerRadius: CGFloat = 0 { didSet { if oldValue != cornerRadius { needsDisplay = true } } }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        isHidden = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard style != .none else { return }
-        performWithTheme {
-            let colors = [Palette.highlight, Palette.success, Palette.attention, Palette.danger]
-            NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius).addClip()
-            switch style {
-            case .none: break
-            case .gradient:
-                NSGradient(colors: colors)?.draw(in: bounds, angle: 0)
-            case .stripes:
-                let width: CGFloat = 14
-                var x = -bounds.height
-                var index = 0
-                while x < bounds.width {
-                    let stripe = NSBezierPath()
-                    stripe.move(to: NSPoint(x: x, y: 0))
-                    stripe.line(to: NSPoint(x: x + width, y: 0))
-                    stripe.line(to: NSPoint(x: x + width + bounds.height, y: bounds.height))
-                    stripe.line(to: NSPoint(x: x + bounds.height, y: bounds.height))
-                    stripe.close()
-                    (index % 2 == 0 ? colors[(index / 2) % colors.count] : Palette.textPrimary).setFill()
-                    stripe.fill()
-                    x += width
-                    index += 1
-                }
-            }
         }
     }
 }

@@ -19,14 +19,14 @@ test("the second line order lists every item and writes the moved order", async 
   const page = await renderPage({ path: "/settings/appearance", mock: { values: { [key]: ["branch"] } } });
   const row = () => rowElement(page.container, key);
   const order = () => [...row().querySelectorAll("[data-choice]")].map((item) => item.getAttribute("data-choice"));
-  expect(order()).toEqual(["branch", "directory", "process", "agentStatus", "ports", "lastActivity"]);
+  expect(order()).toEqual(["branch", "notification", "directory", "process", "agentStatus", "ports", "lastActivity"]);
   const down = row().querySelector<HTMLButtonElement>('[data-choice="branch"] button[aria-label^="Move Down"]')!;
   await act(async () => down.click());
   await settle();
   const sets = page.provider.log.filter((entry) => entry.op === "cmux.settings.set");
   expect(sets.at(-1)!.params).toMatchObject({
     key,
-    value: ["directory", "branch", "process", "agentStatus", "ports", "lastActivity"],
+    value: ["notification", "branch", "directory", "process", "agentStatus", "ports", "lastActivity"],
   });
   page.unmount();
 });

@@ -121,7 +121,9 @@ const RENDERER: &[&str] = &["terminal.renderer_grant.create"];
 
 const FILE_SYSTEM: &[&str] = &[
     "git.status",
+    "git.branches",
     "git.diff",
+    "git.files.list",
     "git.files.search",
     "git.checkpoint.create",
     "git.checkpoint.diff",

@@ -1,45 +1,24 @@
 import AppKit
 import CmuxNextDesign
 
-/// A ready-made screen layout variants can use: title, one sentence, the
-/// control, and the footer ("2 of 4", Skip, Continue). Every measure is on
-/// the 4 pt grid; `Style` picks alignment, title scale and spacing.
+/// The screen layout: title, one sentence, the control, and the footer
+/// (Skip, then the primary button). Every measure is on the 4 pt grid.
 @MainActor
 enum OnboardingScaffold {
-    struct Style: Sendable {
-        enum Alignment: Sendable { case leading, center }
-        var alignment: Alignment = .leading
-        var titleSize: CGFloat = 22
-        var titleWeight: NSFont.Weight = .semibold
-        var margin: CGFloat = 40
-        var titleTop: CGFloat = 52
-        /// Space between the sentence and the control.
-        var bodyGap: CGFloat = 28
-        /// Continue with a glass bezel (else a plain push button).
-        var glassContinue = true
-
-        init() {}
-    }
-
     /// The whole screen: `body` fills the space between the text and the footer.
-    static func make(title: String, subtitle: String?, body: NSView, context: OnboardingStepContext, style: Style = Style()) -> NSView {
+    static func make(title: String, subtitle: String?, body: NSView, context: OnboardingStepContext) -> NSView {
         let root = FlippedView()
-        let titleLabel = OnboardingLabel.make(title, font: .systemFont(ofSize: style.titleSize, weight: style.titleWeight), lines: 2)
+        let titleLabel = OnboardingLabel.make(title, font: OnboardingMetrics.titleFont, lines: 2)
         let sentence = OnboardingLabel.make(subtitle ?? "", color: Palette.textSecondary, lines: 2)
         sentence.isHidden = subtitle == nil
-        let footer = OnboardingFooter(context: context, glassContinue: style.glassContinue)
+        let footer = OnboardingFooter(context: context)
         body.translatesAutoresizingMaskIntoConstraints = false
         for view in [titleLabel, sentence, body, footer] as [NSView] { root.addSubview(view) }
-        let centered = style.alignment == .center
-        if centered {
-            titleLabel.alignment = .center
-            sentence.alignment = .center
-        }
-        let margin = style.margin
+        let margin = OnboardingMetrics.margin
         var constraints = [
-            titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: style.titleTop),
+            titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 52),
             sentence.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            body.topAnchor.constraint(equalTo: (subtitle == nil ? titleLabel : sentence).bottomAnchor, constant: style.bodyGap),
+            body.topAnchor.constraint(equalTo: (subtitle == nil ? titleLabel : sentence).bottomAnchor, constant: 28),
             body.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
             body.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -margin),
             body.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -16),
@@ -48,57 +27,61 @@ enum OnboardingScaffold {
             footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -28),
         ]
         for label in [titleLabel, sentence] {
-            if centered {
-                constraints += [label.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-                                label.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, constant: -2 * margin)]
-            } else {
-                constraints += [label.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
-                                label.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -margin)]
-            }
+            constraints += [label.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
+                            label.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -margin)]
         }
         NSLayoutConstraint.activate(constraints)
         return root
     }
 }
 
-/// "2 of 4" on the left, Skip and Continue (Done on the last step, Import
-/// while the import step has a choice to run) on the right.
+/// One trailing row: Back (on the import explainers), Skip, and the primary
+/// button (Done, Find Browsers, Import, Continue or Begin Importing; Return).
+/// Back and Skip are bordered secondary buttons, the primary is filled.
 final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
     private var loop: RenderLoop?
 
-    /// A counter only helps on a long run; two or three screens need none.
-    static func showsCounter(count: Int) -> Bool { count > 3 }
-
-    init(context: OnboardingStepContext, glassContinue: Bool = true, showsCounter: Bool = true) {
+    init(context: OnboardingStepContext) {
         self.context = context
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count, step: context.model.step),
-                                           font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
-        counter.isHidden = !showsCounter || !Self.showsCounter(count: context.count)
-        let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
-        let next = OnboardingControl.button(context.model.primaryTitle, prominent: glassContinue, target: self, action: #selector(nextPressed))
-        for view in [counter, skip, next] as [NSView] { addSubview(view) }
+        let back = OnboardingControl.button(OnboardingStrings.back, target: self, action: #selector(backPressed))
+        back.setAccessibilityIdentifier("cmux.onboarding.footer.back")
+        let skip = OnboardingControl.button(context.model.skipTitle, target: self, action: #selector(skipPressed))
+        skip.setAccessibilityIdentifier("cmux.onboarding.footer.skip")
+        let next = OnboardingControl.button(context.model.primaryTitle, prominent: true, target: self, action: #selector(nextPressed))
+        next.setAccessibilityIdentifier("cmux.onboarding.footer.next")
+        let row = NSStackView(views: [back, skip, next])
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
         NSLayoutConstraint.activate([
-            counter.leadingAnchor.constraint(equalTo: leadingAnchor), counter.centerYAnchor.constraint(equalTo: centerYAnchor),
-            next.trailingAnchor.constraint(equalTo: trailingAnchor), next.centerYAnchor.constraint(equalTo: centerYAnchor),
-            skip.trailingAnchor.constraint(equalTo: next.leadingAnchor, constant: -20), skip.centerYAnchor.constraint(equalTo: centerYAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor), row.centerYAnchor.constraint(equalTo: centerYAnchor),
+            row.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
             heightAnchor.constraint(equalToConstant: 40),
         ])
         let model = context.model
-        loop = RenderLoop { [weak next] in
+        loop = RenderLoop { [weak next, weak skip, weak back] in
             let title = model.primaryTitle
             if next?.title != title {
                 next?.title = title
                 (next as? OnboardingAccentButton)?.refreshAppearance()
             }
+            // Skip Importing on the Keychain explainer.
+            if skip?.title != model.skipTitle { skip?.title = model.skipTitle }
+            let showsBack = model.flowProgress != nil
+            if back?.isHidden == showsBack { back?.isHidden = !showsBack }
+            if back?.isEnabled != model.canGoBack { back?.isEnabled = model.canGoBack }
+            if next?.isEnabled != model.canAdvance { next?.isEnabled = model.canAdvance }
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    @objc private func backPressed() { context.back() }
     @objc private func skipPressed() { context.skip() }
     @objc private func nextPressed() { context.next() }
 }

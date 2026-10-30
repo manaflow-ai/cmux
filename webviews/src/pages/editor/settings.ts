@@ -6,8 +6,9 @@
 // `<config dir>/editor/theme.css` (rule 4). Fonts follow the terminal by default (the Ghostty rule):
 // with no `fontFamily` or `fontSize` the editor uses the terminal font the host sends in
 // `appearance`. Every key is optional; an invalid value keeps its default. Pure: no Monaco import.
-import type { DiffViewerAppearance } from "../../appearance";
+import { hostTerminalFontFamily, type DiffViewerAppearance } from "../../appearance";
 import { monacoScrollerOptions, type ScrollerStyle } from "../../scrollers";
+import { keybindingEntries, type KeybindingEntry } from "./vscodeKeys";
 
 export type WordWrap = "off" | "on" | "bounded" | "wordWrapColumn";
 export type LineNumbers = "on" | "off" | "relative" | "interval";
@@ -16,6 +17,11 @@ export type CursorStyle = "line" | "block" | "underline" | "line-thin" | "block-
 export type CursorBlinking = "blink" | "smooth" | "phase" | "expand" | "solid";
 export type AutoSave = "off" | "afterDelay";
 export type AccessibilitySupport = "auto" | "on" | "off";
+export type MatchBrackets = "always" | "near" | "never";
+export type CaretAnimation = "off" | "explicit" | "on";
+export type MultiCursorModifier = "alt" | "ctrlCmd";
+export type AcceptSuggestion = "on" | "smart" | "off";
+export type FindSeed = "always" | "selection" | "never";
 
 /** The keys a language may override (`editor.languages.<id>.<key>`). */
 export interface LanguageOverride {
@@ -48,7 +54,26 @@ export interface EditorSettings extends Required<Omit<LanguageOverride, "rulers"
   renderLineHighlight: "none" | "gutter" | "line" | "all";
   scrollBeyondLastLine: boolean;
   autoClosingBrackets: boolean;
+  autoClosingQuotes: boolean;
   indentGuides: boolean;
+  bracketPairGuides: boolean;
+  letterSpacing: number;
+  renderControlCharacters: boolean;
+  matchBrackets: MatchBrackets;
+  mouseWheelZoom: boolean;
+  cursorSmoothCaretAnimation: CaretAnimation;
+  cursorSurroundingLines: number;
+  multiCursorModifier: MultiCursorModifier;
+  linkedEditing: boolean;
+  quickSuggestions: boolean;
+  wordBasedSuggestions: boolean;
+  acceptSuggestionOnEnter: AcceptSuggestion;
+  emptySelectionClipboard: boolean;
+  findSeed: FindSeed;
+  trimTrailingWhitespace: boolean;
+  insertFinalNewline: boolean;
+  /** `editor.keybindings`: VS Code's `keybindings.json` entries (Monaco command ids). */
+  keybindings: KeybindingEntry[];
   autoSave: AutoSave;
   autoSaveDelay: number;
   largeFileThreshold: number;
@@ -82,7 +107,25 @@ export const EDITOR_DEFAULTS: EditorSettings = {
   renderLineHighlight: "line",
   scrollBeyondLastLine: false,
   autoClosingBrackets: true,
+  autoClosingQuotes: true,
   indentGuides: true,
+  bracketPairGuides: false,
+  letterSpacing: 0,
+  renderControlCharacters: true,
+  matchBrackets: "always",
+  mouseWheelZoom: false,
+  cursorSmoothCaretAnimation: "off",
+  cursorSurroundingLines: 0,
+  multiCursorModifier: "alt",
+  linkedEditing: false,
+  quickSuggestions: false,
+  wordBasedSuggestions: true,
+  acceptSuggestionOnEnter: "on",
+  emptySelectionClipboard: true,
+  findSeed: "always",
+  trimTrailingWhitespace: false,
+  insertFinalNewline: false,
+  keybindings: [],
   formatOnSave: false,
   autoSave: "afterDelay",
   autoSaveDelay: 1000,
@@ -165,9 +208,13 @@ const enabled = (value: unknown): boolean | undefined =>
  * `detectIndentation`, `wordWrap`, `wordWrapColumn`, `minimap.enabled`, `lineNumbers`, `rulers`,
  * `renderWhitespace`, `cursorStyle`, `cursorBlinking`, `smoothScrolling`,
  * `bracketPairColorization.enabled`, `stickyScroll.enabled`, `folding`, `renderLineHighlight`,
- * `scrollBeyondLastLine`, `autoClosingBrackets`, `guides.indentation`, `formatOnSave`, `autoSave`,
- * `autoSaveDelay`, `largeFileThreshold`, `accessibilitySupport`, `toolbar`, `statusBar`,
- * `languages.<id>`.
+ * `scrollBeyondLastLine`, `autoClosingBrackets`, `autoClosingQuotes`, `guides.indentation`,
+ * `guides.bracketPairs`, `letterSpacing`, `renderControlCharacters`, `matchBrackets`, `mouseWheelZoom`,
+ * `cursorSmoothCaretAnimation`, `cursorSurroundingLines`, `multiCursorModifier`, `linkedEditing`,
+ * `quickSuggestions`, `wordBasedSuggestions`, `acceptSuggestionOnEnter`, `emptySelectionClipboard`,
+ * `find.seedSearchStringFromSelection`, `trimTrailingWhitespace`, `insertFinalNewline`, `formatOnSave`,
+ * `autoSave`, `autoSaveDelay`, `largeFileThreshold`, `accessibilitySupport`, `toolbar`, `statusBar`,
+ * `keybindings`, `languages.<id>`.
  */
 export function resolveEditorSettings(section: unknown): EditorSettings {
   const root = object(section);
@@ -229,7 +276,52 @@ export function resolveEditorSettings(section: unknown): EditorSettings {
     scrollBeyondLastLine: bool(root.scrollBeyondLastLine) ?? d.scrollBeyondLastLine,
     autoClosingBrackets:
       bool(closing) ?? (typeof closing === "string" ? closing !== "never" : undefined) ?? d.autoClosingBrackets,
+    // Unset: follows Close Brackets, as before the key existed.
+    autoClosingQuotes:
+      bool(root.autoClosingQuotes) ??
+      (typeof root.autoClosingQuotes === "string" ? root.autoClosingQuotes !== "never" : undefined) ??
+      bool(closing) ??
+      (typeof closing === "string" ? closing !== "never" : undefined) ??
+      d.autoClosingQuotes,
     indentGuides: bool(object(root.guides).indentation) ?? d.indentGuides,
+    bracketPairGuides: bool(object(root.guides).bracketPairs) ?? d.bracketPairGuides,
+    letterSpacing: num(root.letterSpacing, -5, 20) ?? d.letterSpacing,
+    renderControlCharacters: bool(root.renderControlCharacters) ?? d.renderControlCharacters,
+    matchBrackets: oneOf(root.matchBrackets, ["always", "near", "never"] as const) ?? d.matchBrackets,
+    mouseWheelZoom: bool(root.mouseWheelZoom) ?? d.mouseWheelZoom,
+    cursorSmoothCaretAnimation:
+      oneOf(root.cursorSmoothCaretAnimation, ["off", "explicit", "on"] as const) ??
+      (bool(root.cursorSmoothCaretAnimation) === undefined
+        ? undefined
+        : root.cursorSmoothCaretAnimation
+          ? "on"
+          : "off") ??
+      d.cursorSmoothCaretAnimation,
+    cursorSurroundingLines: int(root.cursorSurroundingLines, 0, 50) ?? d.cursorSurroundingLines,
+    multiCursorModifier: oneOf(root.multiCursorModifier, ["alt", "ctrlCmd"] as const) ?? d.multiCursorModifier,
+    linkedEditing: bool(root.linkedEditing) ?? d.linkedEditing,
+    // VS Code also takes `{other, comments, strings}`: on when any is on.
+    quickSuggestions:
+      bool(root.quickSuggestions) ??
+      (root.quickSuggestions && typeof root.quickSuggestions === "object"
+        ? Object.values(root.quickSuggestions as Record<string, unknown>).some(
+            (value) => value === true || value === "on",
+          )
+        : undefined) ??
+      d.quickSuggestions,
+    // VS Code's values are "off", "currentDocument", "matchingDocuments", "allDocuments".
+    wordBasedSuggestions:
+      bool(root.wordBasedSuggestions) ??
+      (typeof root.wordBasedSuggestions === "string" ? root.wordBasedSuggestions !== "off" : undefined) ??
+      d.wordBasedSuggestions,
+    acceptSuggestionOnEnter:
+      oneOf(root.acceptSuggestionOnEnter, ["on", "smart", "off"] as const) ?? d.acceptSuggestionOnEnter,
+    emptySelectionClipboard: bool(root.emptySelectionClipboard) ?? d.emptySelectionClipboard,
+    findSeed:
+      oneOf(object(root.find).seedSearchStringFromSelection, ["always", "selection", "never"] as const) ?? d.findSeed,
+    trimTrailingWhitespace: bool(root.trimTrailingWhitespace) ?? d.trimTrailingWhitespace,
+    insertFinalNewline: bool(root.insertFinalNewline) ?? d.insertFinalNewline,
+    keybindings: keybindingEntries(root.keybindings),
     formatOnSave: base.formatOnSave ?? d.formatOnSave,
     autoSave: oneOf(root.autoSave, ["off", "afterDelay"] as const) ?? d.autoSave,
     autoSaveDelay: int(root.autoSaveDelay, 100, 60_000) ?? d.autoSaveDelay,
@@ -265,7 +357,9 @@ export function editorFont(
   appearance: DiffViewerAppearance | undefined,
 ): { family: string; size: number } {
   const terminal =
-    typeof appearance?.fontFamily === "string" && appearance.fontFamily.trim() ? appearance.fontFamily : null;
+    typeof appearance?.fontFamily === "string" && appearance.fontFamily.trim()
+      ? appearance.fontFamily
+      : hostTerminalFontFamily();
   const family =
     settings.fontFamily ??
     `${terminal ? `${JSON.stringify(terminal.trim())}, ` : ""}ui-monospace, SFMono-Regular, Menlo, Monaco, monospace`;
@@ -297,28 +391,44 @@ export function monacoOptions(
     fontWeight: settings.fontWeight,
     fontLigatures: settings.fontLigatures,
     lineHeight: settings.lineHeight,
+    letterSpacing: settings.letterSpacing,
     wordWrap: settings.wordWrap,
     wordWrapColumn: settings.wordWrapColumn,
     minimap: { enabled: settings.minimap && !large },
     lineNumbers: settings.lineNumbers,
     rulers: settings.rulers,
     renderWhitespace: settings.renderWhitespace,
+    renderControlCharacters: settings.renderControlCharacters,
     cursorStyle: settings.cursorStyle,
     cursorBlinking: settings.cursorBlinking,
+    cursorSmoothCaretAnimation: settings.cursorSmoothCaretAnimation,
+    cursorSurroundingLines: settings.cursorSurroundingLines,
+    multiCursorModifier: settings.multiCursorModifier,
+    matchBrackets: settings.matchBrackets,
+    mouseWheelZoom: settings.mouseWheelZoom,
+    linkedEditing: settings.linkedEditing,
+    acceptSuggestionOnEnter: settings.acceptSuggestionOnEnter,
+    emptySelectionClipboard: settings.emptySelectionClipboard,
+    find: { seedSearchStringFromSelection: settings.findSeed },
     smoothScrolling: settings.smoothScrolling,
     bracketPairColorization: { enabled: settings.bracketPairColorization && !large },
-    guides: { indentation: settings.indentGuides && !large, bracketPairs: false },
+    guides: { indentation: settings.indentGuides && !large, bracketPairs: settings.bracketPairGuides && !large },
     stickyScroll: { enabled: settings.stickyScroll && !large },
     folding: settings.folding && !large,
     renderLineHighlight: settings.renderLineHighlight,
     scrollBeyondLastLine: settings.scrollBeyondLastLine,
     autoClosingBrackets: settings.autoClosingBrackets ? "languageDefined" : "never",
-    autoClosingQuotes: settings.autoClosingBrackets ? "languageDefined" : "never",
+    autoClosingQuotes: settings.autoClosingQuotes ? "languageDefined" : "never",
     accessibilitySupport: settings.accessibilitySupport,
     ariaLabel: context.ariaLabel,
     readOnly: context.readOnly,
     readOnlyMessage: { value: context.readOnlyMessage ?? "" },
     domReadOnly: false,
+    // Typing goes through Monaco's hidden textarea, never Chromium's EditContext: the app holds a
+    // page's printable keys until it reports an input, textarea or contenteditable focused
+    // (PageInputReadiness), and an EditContext element is none of them, so in a Chromium page no
+    // typed key reached the editor until another field had taken focus once.
+    editContext: false,
     // A file is written only by the user's edits: Monaco never rewrites line terminators itself.
     unusualLineTerminators: "off",
     // Large files: everything that walks the whole document stays off.
@@ -326,7 +436,7 @@ export function monacoOptions(
     selectionHighlight: !large,
     links: !large,
     colorDecorators: !large,
-    wordBasedSuggestions: large ? "off" : "currentDocument",
+    wordBasedSuggestions: large || !settings.wordBasedSuggestions ? "off" : "currentDocument",
     unicodeHighlight: { ambiguousCharacters: !large, invisibleCharacters: !large },
     largeFileOptimizations: true,
     maxTokenizationLineLength: 20_000,
@@ -336,9 +446,10 @@ export function monacoOptions(
     ...scrollerOptions,
     // The page is the scroller's only owner; the native view handles the window.
     scrollbar: { ...scrollerOptions.scrollbar, alwaysConsumeMouseWheel: false },
-    // Monaco's own context menu inside the editor (R139 allows it); no popup while typing.
+    // Monaco's own context menu, only where the page has no native menu (the dev loop): in the app
+    // a right-click opens the app's macOS menu (nativeEditorMenu.ts). No popup while typing.
     contextmenu: true,
-    quickSuggestions: false,
+    quickSuggestions: settings.quickSuggestions && !large,
     padding: { top: 4 },
   };
   return options;
@@ -354,7 +465,8 @@ export const EDITOR_STYLE_DEFAULTS = {
   "--cmux-editor-background": "transparent",
   "--cmux-editor-foreground": "var(--cmux-editor-terminal-foreground, var(--page-text))",
   "--cmux-editor-line-highlight": "color-mix(in srgb, var(--cmux-editor-foreground) 5%, transparent)",
-  "--cmux-editor-selection": "var(--cmux-editor-terminal-selection, color-mix(in srgb, #0a84ff 30%, transparent))",
+  "--cmux-editor-selection":
+    "var(--cmux-editor-terminal-selection, color-mix(in srgb, var(--cmux-accent, currentColor) 28%, transparent))",
   "--cmux-editor-cursor": "var(--cmux-editor-foreground)",
   "--cmux-editor-line-number": "color-mix(in srgb, var(--cmux-editor-foreground) 40%, transparent)",
   "--cmux-editor-line-number-active": "color-mix(in srgb, var(--cmux-editor-foreground) 80%, transparent)",
@@ -363,7 +475,7 @@ export const EDITOR_STYLE_DEFAULTS = {
   "--cmux-editor-ruler": "color-mix(in srgb, var(--cmux-editor-foreground) 12%, transparent)",
   "--cmux-editor-scrollbar": "color-mix(in srgb, var(--cmux-editor-foreground) 18%, transparent)",
   "--cmux-editor-scrollbar-hover": "color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent)",
-  "--cmux-editor-widget-background": "var(--page-elevated)",
+  "--cmux-editor-widget-background": "var(--surface-popup)",
   "--cmux-editor-widget-border": "var(--page-separator)",
   "--cmux-editor-chrome-font-size": "12px",
   "--cmux-editor-toolbar-height": "30px",

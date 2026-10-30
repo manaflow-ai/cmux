@@ -3276,268 +3276,6 @@
         }
       }
     },
-    "verb.export": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export Bookmarks…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تصدير الإشارات…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izvezi oznake…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eksportér bogmærker…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lesezeichen exportieren…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Exportar marcadores…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Exporter les favoris…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esporta preferiti…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ブックマークをエクスポート…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នាំចេញចំណាំ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "북마크 내보내기…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eksporter bokmerker…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eksportuj zakładki…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Exportar favoritos…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Экспортировать закладки…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ส่งออกบุ๊กมาร์ก…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yer işaretlerini dışa aktar…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Експортувати закладки…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xuất dấu trang…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "导出书签…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "匯出書籤…"
-          }
-        }
-      }
-    },
-    "verb.import": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import Bookmarks…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "استيراد الإشارات…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uvezi oznake…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importér bogmærker…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lesezeichen importieren…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importar marcadores…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importer des favoris…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importa preferiti…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ブックマークをインポート…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នាំចូលចំណាំ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "북마크 가져오기…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importer bokmerker…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importuj zakładki…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importar favoritos…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Импортировать закладки…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "นำเข้าบุ๊กมาร์ก…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yer işaretlerini içe aktar…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Імпортувати закладки…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhập dấu trang…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "导入书签…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "匯入書籤…"
-          }
-        }
-      }
-    },
     "verb.open": {
       "extractionState": "manual",
       "localizations": {
@@ -4324,133 +4062,264 @@
         }
       }
     },
-    "verb.importBrowser": {
+    "verb.setIcon": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import from Browser…"
+            "value": "Set Icon…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "استيراد من متصفح…"
+            "value": "تعيين أيقونة…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uvezi iz preglednika…"
+            "value": "Postavi ikonu…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importér fra browser…"
+            "value": "Angiv ikon…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aus Browser importieren …"
+            "value": "Symbol festlegen …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importar de un navegador…"
+            "value": "Establecer icono…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importer d'un navigateur…"
+            "value": "Définir l’icône…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importa da browser…"
+            "value": "Imposta icona…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ブラウザから読み込む…"
+            "value": "アイコンを設定…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "នាំចូលពីកម្មវិធីរុករក…"
+            "value": "កំណត់រូបតំណាង…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "브라우저에서 가져오기…"
+            "value": "아이콘 설정…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importer fra nettleser …"
+            "value": "Angi ikon …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importuj z przeglądarki…"
+            "value": "Ustaw ikonę…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Importar de navegador…"
+            "value": "Definir Ícone…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Импорт из браузера…"
+            "value": "Задать значок…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "นำเข้าจากเบราว์เซอร์…"
+            "value": "ตั้งไอคอน…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tarayıcıdan İçe Aktar…"
+            "value": "Simge Ayarla…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Імпорт із браузера…"
+            "value": "Задати піктограму…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nhập từ trình duyệt…"
+            "value": "Đặt biểu tượng…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从浏览器导入…"
+            "value": "设置图标…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "從瀏覽器匯入…"
+            "value": "設定圖示…"
+          }
+        }
+      }
+    },
+    "verb.removeIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Icon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة الأيقونة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni ikonu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern ikon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbol entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitar icono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer l’icône"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi icona"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アイコンを削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដករូបតំណាងចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아이콘 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern ikon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń ikonę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover Ícone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить значок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบไอคอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simgeyi Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити піктограму"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa biểu tượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除圖示"
           }
         }
       }

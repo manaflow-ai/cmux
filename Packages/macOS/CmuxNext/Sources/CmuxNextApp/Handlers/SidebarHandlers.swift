@@ -1,37 +1,22 @@
 import CmuxNextActions
 
 /// Sidebar actions (category `sidebar`) beyond `toggleSidebar` (bound in
-/// `AppActions`). cmux-next has no right sidebar, file explorer, session
-/// vault, or minimal mode yet, and the daemon has no checklist records, so
-/// these report the missing capability instead of doing nothing.
+/// `AppActions`), the right sidebar (`RightSidebarHandlers`) and the session
+/// vault (`VaultHandlers`): the file explorer's actions (`FileExplorerHandlers`,
+/// on the active window's Files section) and Open Find as Pane. The checklist
+/// actions are `WorkspaceChecklistHandlers`.
 enum SidebarHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let features: [(String, [ActionID])] = [
-            ("right-sidebar", [
-                "toggleRightSidebar", "focusRightSidebar", "switchRightSidebarToFiles", "switchRightSidebarToFind",
-                "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
-                "switchRightSidebarToMachines",
-            ]),
-            ("file-explorer", [
-                "fileExplorerOpenSelection", "fileExplorerOpenSelectionFinderAlias", "fileExplorerOpenInCmux",
-                "fileExplorerReveal", "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith",
-            ]),
-            ("session-vault", [
-                "vaultFocusSession", "vaultOpenSession", "vaultResumeInNewWorkspace", "vaultCopyResumeCommand",
-                "vaultOpenPullRequest",
-            ]),
-            ("minimal-mode", ["palette.enableMinimalMode", "palette.disableMinimalMode"]),
-            ("match-terminal-background", ["palette.toggleMatchTerminalBackground"]),
-        ]
-        for (feature, ids) in features {
-            for id in ids { registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature)) }
-        }
-        let checklist: [ActionID] = [
-            "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem",
-            "checklistOpenAsPane", "checklistAttachImages",
-        ]
-        for id in checklist {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("workspace-checklist-v1"))
-        }
+        let services = context.services
+        FileExplorerHandlers.bind(into: registry, explorer: { [weak services] in services?.fileExplorers.runTarget(for: $0) },
+                                  effects: services.fileExplorers.effects)
+        // Open Find as Pane: the Find section in a tab, on the focused terminal's folder
+        // (or the CLI's `--pane` or `--path`).
+        let findPanes = services.fileExplorers.findPanes
+        services.pages.register(findPanes) // at launch, so a restored tab finds it
+        registry.bind("palette.openFindPane", run: { invocation in
+            guard let folder = context.openAsPaneFolder(invocation) else { return }
+            try findPanes.open(folder: folder, focus: invocation.allowsViewChange)
+        })
     }
 }

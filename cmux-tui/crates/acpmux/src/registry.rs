@@ -601,6 +601,8 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
     if std::fs::read(&path).is_ok_and(|old| old == body) {
         return Ok(false);
     }
+    crate::config::refuse_lost_home(&dir).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::DirBuilder::new()
@@ -609,6 +611,8 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
             .create(&dir)
             .map_err(|e| e.to_string())?;
     }
+    #[cfg(windows)]
+    crate::owner_only::create_dir_all(&dir).map_err(|e| e.to_string())?;
     crate::config::write_atomic(&path, body).map_err(|e| e.to_string())?;
     Ok(true)
 }

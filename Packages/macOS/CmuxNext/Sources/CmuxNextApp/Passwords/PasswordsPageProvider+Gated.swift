@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import CmuxNextBrowser
 
 /// The gated ops: removals behind a native confirmation, and the three ops that release a
 /// secret (reveal, copy, export) behind device owner authentication. The secret never enters a
@@ -78,6 +79,7 @@ extension PasswordsPageProvider {
         guard await store.capabilities().export else {
             throw PageError(code: PasswordOps.unavailableCode, message: PasswordStrings.availableAfterUpdate)
         }
+        guard allowExport() else { throw PageError(code: PasswordOps.unavailableCode, message: PasswordStrings.exportOff) }
         return try await once(params, context) {
             try await self.confirm(PageConfirmation(kind: .custom, name: String(format: PasswordStrings.exportTitle, profile.name),
                                                     detail: PasswordStrings.exportDetail))

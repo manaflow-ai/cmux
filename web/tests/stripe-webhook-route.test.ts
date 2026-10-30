@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeStripeWebhookHandler } from "../app/api/stripe/webhook/route";
+import { AccountDeletionUserMutationInProgressError } from "../services/account/deletionLock";
 
 let currentEvent: Record<string, unknown>;
 let constructThrows = false;
@@ -32,7 +33,12 @@ let applySubscriptionUpdateResult: unknown = {
   stackUserId: "user_1",
   isActive: true,
 };
-const applySubscriptionUpdate = mock(async () => applySubscriptionUpdateResult);
+let applySubscriptionUpdateError: Error | null = null;
+const applySubscriptionUpdate = mock(async () => {
+  if (applySubscriptionUpdateError) throw applySubscriptionUpdateError;
+  return applySubscriptionUpdateResult;
+});
+const markTeamSeatsDirty = mock(async () => {});
 const revokeCoderouterRouteTokens = mock(async () => {});
 const revokeCoderouterTeamRouteTokens = mock(async () => {});
 const captureStripeBillingEvent = mock(async () => {});
@@ -116,6 +122,7 @@ const POST = makeStripeWebhookHandler({
   recordCheckoutCompletion: recordCheckoutCompletion as never,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
+  markTeamSeatsDirty,
   sendProSignupWelcome,
   isPersonalWelcomeConfigured: () => personalWelcomeConfigured,
   revokeCoderouterRouteTokens,
@@ -142,6 +149,7 @@ describe("Stripe billing webhook route", () => {
     selectedEventRows = [];
     updates.length = 0;
     recordCheckoutShouldFail = false;
+    applySubscriptionUpdateError = null;
     proWelcomeShouldFail = false;
     personalWelcomeConfigured = true;
     recordCheckoutCompletionResult = {
@@ -172,6 +180,7 @@ describe("Stripe billing webhook route", () => {
     recordCheckoutCompletion.mockClear();
     recordFoundersCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
+    markTeamSeatsDirty.mockClear();
     revokeCoderouterRouteTokens.mockClear();
     revokeCoderouterTeamRouteTokens.mockClear();
     captureStripeBillingEvent.mockClear();
@@ -599,6 +608,7 @@ describe("Stripe billing webhook route", () => {
     expect(response.status).toBe(200);
     expect(applySubscriptionUpdate).toHaveBeenCalledWith(
       retrievedSubscription,
+      { markTeamSeatsDirty: false },
     );
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
     expect(captureStripeBillingEvent).not.toHaveBeenCalled();
@@ -676,7 +686,7 @@ describe("Stripe billing webhook route", () => {
 
     expect(response.status).toBe(200);
     expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
-    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription);
+    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty: false });
     expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
     await deferredTasks[0]();
     expect(captureStripeBillingEvent).toHaveBeenCalledWith(currentEvent, {
@@ -801,6 +811,48 @@ describe("Stripe billing webhook route", () => {
 
     expect(response.status).toBe(500);
     expect(updates.at(-1)).toMatchObject({ error: "db down" });
+  });
+
+  test("defers a subscription event that lost the account mutation lease to a sibling event", async () => {
+    // Stripe delivers customer.subscription.created, invoice.paid, and
+    // checkout.session.completed for one purchase within a second. The losers
+    // of the per-account lease must be retried, not reported as failures.
+    currentEvent = {
+      id: "evt_1",
+      type: "customer.subscription.created",
+      data: { object: { id: "sub_1" } },
+    };
+    applySubscriptionUpdateError = new AccountDeletionUserMutationInProgressError("user_1");
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(503);
+    expect(updates.at(-1)).toMatchObject({
+      error: "retryable: Another account mutation is still in progress.",
+    });
+  });
+
+  test("queues Team seat reconciliation for subscription create and update events", async () => {
+    for (const type of ["customer.subscription.created", "customer.subscription.updated"]) {
+      applySubscriptionUpdate.mockClear();
+      currentEvent = {
+        id: `evt_${type}`,
+        type,
+        data: { object: { id: "sub_team" } },
+      };
+      retrievedSubscription = {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_1", app: "cmux", plan: "team" },
+        cancel_at_period_end: false,
+        items: { data: [{ quantity: 2, price: { id: "price_team" } }] },
+      };
+      applySubscriptionUpdateResult = { scope: "team", stackTeamId: "team_1", isActive: true };
+
+      expect((await POST(webhookRequest())).status).toBe(200);
+      expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty });
+    }
   });
 });
 

@@ -1,6 +1,8 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextBrowserTabs
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
@@ -71,7 +73,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
                 targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: entry.workspace.id,
                 profile: (page?.profileID ?? cache.browserProfile?(tab.id) ?? .default).rawValue.uuidString,
                 url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id))
+                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
         }
     }
 
@@ -86,7 +88,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     // MARK: ProviderAccessSource
 
     /// The interim extension rule (plans/cmux-next/passwords.md, section 3.4),
-    /// the same formula as `AppBrowserPage.agentExtensionRefusal`.
+    /// reported to the host for display only: since #24413 it gates nothing.
     func access(forTab targetID: String) -> ProviderTabAccess {
         guard let services else { return ProviderTabAccess(extensionHostAccess: false, userOverride: false, extensions: []) }
         let cache: TabContentCache = services.cache
@@ -178,7 +180,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
                                                  url: url ?? "about:blank", activate: false)
         // The create reply can come before the store shows the tab.
         let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor in
-            for await found in Observations({ services.locateTab(surface: surface) != nil }) where found { return true }
+            for await found in ObservationStream({ services.locateTab(surface: surface) != nil }) where found { return true }
             return false
         }
         guard appeared == true, let tab = services.locateTab(surface: surface) else {
@@ -208,6 +210,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
         guard !browserTabs.isIncognitoPane(pane) else { throw .noPane }
         return pane
+    }
+
+    /// A hibernated tab a WebKit session calls is restored in the background
+    /// and awaited (``AppBrowserPage/awakePage(_:page:cache:within:)``).
+    func wakeIfHibernated(_ targetID: String) async {
+        guard let services, isDrivable(targetID), let page = services.cache.existingBrowser(targetID)?.tab,
+              page.engineKind == .webkit else { return }
+        services.cache.hibernation?.noteAgentUse(targetID)
+        _ = await AppBrowserPage.awakePage(targetID, page: page, cache: services.cache, within: AppBrowserPage.actionWait)
     }
 
     /// A WebKit tab no pane shows moves its chrome into an off-screen render
@@ -245,7 +256,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func endSessionTab(_ id: String) async -> Bool {
         guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
         let daemon = services.daemon
-        guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return false }
+        guard daemon.supports(DaemonCapability.closeReason.rawValue) else { return false }
         let surface = tab.surface
         let cache: TabContentCache = services.cache
         // One store close; the page goes with it, as after a person's close.
@@ -256,7 +267,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         cache.release(id)
         // The store's update can come after the close reply.
         _ = try? await ControlDeadline.shared.run(method: "tabs.close", deadline: .now + .seconds(5)) { @MainActor [weak self] in
-            for await gone in Observations({ self?.isDrivable(id) != true }) where gone { return true }
+            for await gone in ObservationStream({ self?.isDrivable(id) != true }) where gone { return true }
             return false
         }
         return true

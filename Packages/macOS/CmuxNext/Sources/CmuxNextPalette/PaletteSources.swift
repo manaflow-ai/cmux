@@ -8,7 +8,12 @@ import Foundation
 public struct PaletteSources {
     public var workspaces: (any PaletteWorkspaceSource)?
     public var tabs: (any PaletteTabSource)?
+    /// The groups, panes and tabs Go to Workspace (Cmd-P) also searches.
+    public var navigation: (any PaletteNavigationSource)?
     public var openIn: (any PaletteOpenInSource)?
+    /// Opens a path or web address typed into Cmd-P or Cmd-Shift-P, or asks
+    /// an agent about it (`GoToPaletteRows`). Nil: no such rows.
+    public var goTo: (any PaletteGoToSource)?
     public var settings: (any PaletteSettingsSource)?
     public var recentDirectories: (any PaletteRecentDirectorySource)?
     /// Lists objects for target arguments (tab groups, windows, ...).
@@ -34,13 +39,20 @@ public struct PaletteSources {
     /// Scopes beyond the built-in ones (browser history, app scopes): each
     /// joins the scope graph and makes its page on entry.
     public var scopes: [PaletteScopeContribution] = []
+    /// The App's pages whose rows join Search (scope `search`, the sidebar's
+    /// Search button): browser history, agent chats. Each page's rows keep
+    /// their own section, or take the contribution's.
+    public var searchContributions: [PaletteSearchContribution] = []
     /// Prefixes the user assigned (cmux.json `palette.scopes.<id>.prefix`):
     /// a character, or nil to turn a scope's prefix off. Read on every open.
     public var scopePrefixes: (@MainActor () -> [PaletteScopeID: String?])?
+    /// The user's aliases and pins (cmux.json `palette.aliases`, `palette.pins`). Read on every open.
+    public var rankSettings: (@MainActor () -> PaletteRankSettings)?
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,
         tabs: (any PaletteTabSource)? = nil,
+        navigation: (any PaletteNavigationSource)? = nil,
         openIn: (any PaletteOpenInSource)? = nil,
         settings: (any PaletteSettingsSource)? = nil,
         recentDirectories: (any PaletteRecentDirectorySource)? = nil,
@@ -51,6 +63,7 @@ public struct PaletteSources {
     ) {
         self.workspaces = workspaces
         self.tabs = tabs
+        self.navigation = navigation
         self.openIn = openIn
         self.settings = settings
         self.recentDirectories = recentDirectories

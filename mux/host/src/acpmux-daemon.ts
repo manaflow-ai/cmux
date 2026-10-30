@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { connect } from "node:net";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 
@@ -42,7 +43,11 @@ export function waitForReady(pipe: Readable, options: { timeoutMs: number; exite
     };
     const onData = (chunk: Buffer | string) => {
       text += chunk.toString();
-      if (text.includes("\n")) finish();
+      if (!text.includes("\n")) return;
+      // A daemon that refused to start (acpmux exe_path.rs: the shared home from a runner's
+      // _work or a temp folder) says why on this line: that text is the error.
+      const refused = readyRefusal(text.slice(0, text.indexOf("\n")));
+      finish(refused === undefined ? undefined : new Error(refused));
     };
     const onClose = () => finish(new Error("acpmux daemon closed its ready pipe before it was ready"));
     pipe.on("data", onData);
@@ -50,6 +55,34 @@ export function waitForReady(pipe: Readable, options: { timeoutMs: number; exite
     const timer = setTimeout(() => finish(new Error(`acpmux daemon not ready after ${options.timeoutMs} ms`)), options.timeoutMs);
     options.exited?.then((why) => finish(new Error(`acpmux daemon exited before it was ready: ${why}`)));
   });
+}
+
+/** The refusal on a daemon's ready line (`{"ready":false,"refused":"..."}`), if any. */
+export function readyRefusal(line: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (parsed && typeof parsed === "object" && typeof (parsed as { refused?: unknown }).refused === "string") {
+      return (parsed as { refused: string }).refused;
+    }
+  } catch {
+    // Not JSON: a plain ready line.
+  }
+  return undefined;
+}
+
+/**
+ * The home a started daemon gets: ACPMUX_HOME, else the configured socket's folder, else the
+ * socket's own, except the shared short alias folder a long path resolves to (acpmuxSocketPath):
+ * acpmux creates that one private, so a home there would be `~/.acpmux`.
+ */
+export function acpmuxDaemonHome(
+  env: Record<string, string | undefined>,
+  socket: string,
+  uid: number = process.getuid?.() ?? 0,
+): string {
+  if (env.ACPMUX_HOME) return env.ACPMUX_HOME;
+  const folder = dirname(env.ACPMUX_SOCKET || socket);
+  return folder === `/tmp/acpmux-${uid}` ? join(env.HOME ?? homedir(), ".acpmux") : folder;
 }
 
 /**
@@ -60,7 +93,7 @@ export async function ensureAcpmuxDaemon(env: Record<string, string | undefined>
   if (await socketReachable(socket)) return undefined;
   const bin = env.ACPMUX_BIN;
   if (!bin) throw new Error(`acpmux is not reachable at ${socket} and ACPMUX_BIN is not set`);
-  const home = env.ACPMUX_HOME ?? dirname(socket);
+  const home = acpmuxDaemonHome(env, socket);
   mkdirSync(home, { recursive: true });
   const out = openSync(join(home, "daemon.log"), "a");
   // The daemon writes one line to fd 3 once its socket listens (acpmux --ready-fd): a

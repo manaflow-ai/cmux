@@ -88,10 +88,32 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
     } else {
         std::env::temp_dir().join("acpmux-unattended")
     };
-    if let Err(e) = std::fs::create_dir_all(&dir) {
+    if let Err(e) = owner_only_dir(&dir) {
         tracing::warn!(dir = %dir.display(), "unattended agent folder: {e}");
     }
     dir
+}
+
+/// Makes `dir` (and missing parents) owner-only whatever the umask: under 002 it would be
+/// group-writable. One an older build made with the umask is narrowed when it is this user's own
+/// folder; a link or another user's folder is left alone.
+fn owner_only_dir(dir: &Path) -> std::io::Result<()> {
+    let mut made = std::fs::DirBuilder::new();
+    made.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+    made.create(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = std::fs::symlink_metadata(dir)?;
+        // SAFETY: getuid has no preconditions.
+        let mine = meta.uid() == unsafe { libc::getuid() };
+        if meta.is_dir() && mine && meta.mode() & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    Ok(())
 }
 
 fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {
@@ -128,91 +150,22 @@ fn fold(path: &Path) -> String {
     if trimmed.is_empty() { "/".to_owned() } else { trimmed.to_owned() }
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(all(test, unix))]
+mod owner_only_tests {
     use super::*;
 
+    /// The unattended folder is owner-only whatever the umask, and one an older build made with
+    /// the umask (775 under 002) is narrowed (ergo-walk2, 2026-10-25).
     #[test]
-    fn the_shared_list_parses_and_holds_the_guarded_folders() {
-        let list = protected_list().unwrap();
-        let home: Vec<&str> = list.in_home.iter().map(|e| e.path.as_str()).collect();
-        for path in [
-            "Desktop",
-            "Documents",
-            "Downloads",
-            "Library/Mobile Documents",
-            "Library/CloudStorage",
-        ] {
-            assert!(home.contains(&path), "{path} missing from data/protected-folders.json");
-        }
-        let roots: Vec<&str> = list.roots.iter().map(|e| e.path.as_str()).collect();
-        assert_eq!(roots, ["/Volumes", "/Network", "/net"]);
-    }
-
-    #[test]
-    fn refuses_home_root_and_guarded_folders_as_spelled() {
-        let home = Path::new("/Users/me");
-        for cwd in [
-            "/",
-            "/Users/me",
-            "/Users/me/",
-            "/Users/me/Desktop",
-            "/Users/me/documents/app",
-            "/Users/me/Downloads/x",
-            "/Users/me/Pictures/x",
-            "/Users/me/Music",
-            "/Users/me/Movies/x",
-            "/Users/me/Library/Mobile Documents/com~apple~CloudDocs",
-            "/Users/me/Library/CloudStorage/Dropbox",
-            "/Users/me/Library/Containers/com.apple.Notes",
-            "/Users/me/Library/Group Containers/g",
-            "/Users/me/Library/Mail",
-            "/Users/me/Library/Messages",
-            "/Users/me/Library/Safari",
-            "/Users/me/Library/Calendars",
-            "/Volumes/External/x",
-            "/Network/Servers/x",
-        ] {
-            assert!(refusal_in(Path::new(cwd), Some(home)).is_some(), "{cwd} must be refused");
-        }
-        for cwd in [
-            "/Users/me/code/app",
-            "/Users/me/Desktopish",
-            "/opt/work",
-            "/Users/me/Library/Application Support/x",
-        ] {
-            assert_eq!(refusal_in(Path::new(cwd), Some(home)), None, "{cwd} must be allowed");
-        }
-        assert!(refusal_in(Path::new("relative"), Some(home)).is_some());
-    }
-
-    #[test]
-    fn the_unattended_folder_is_acpmux_own_and_never_guarded() {
-        let root = std::env::temp_dir().join(format!("acpmux-unattended-{}", uuid::Uuid::now_v7()));
-        let home = root.join("me");
-        let dir = unattended_cwd_in(&home.join(".acpmux"), Some(&home));
-        assert_eq!(dir, home.join(".acpmux/unattended"));
-        assert!(dir.is_dir());
-        assert_eq!(refusal_in(&dir, Some(&home)), None);
-        // An acpmux home inside Documents: the folder moves out of it.
-        let guarded = unattended_cwd_in(&home.join("Documents/acpmux"), Some(&home));
-        assert!(!guarded.starts_with(home.join("Documents")), "{}", guarded.display());
-        assert_eq!(refusal_in(&guarded, Some(&home)), None);
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn refuses_a_symlink_into_a_guarded_folder() {
-        let home = std::env::temp_dir().join(format!("acpmux-guarded-{}", uuid::Uuid::now_v7()));
-        let documents = home.join("Documents/app");
-        std::fs::create_dir_all(&documents).unwrap();
-        let code = home.join("code");
-        std::fs::create_dir_all(&code).unwrap();
-        let link = code.join("linked");
-        std::os::unix::fs::symlink(&documents, &link).unwrap();
-        assert!(refusal_in(&link, Some(&home)).is_some());
-        assert_eq!(refusal_in(&code, Some(&home)), None);
+    fn the_unattended_folder_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-unatt-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(home.join("unattended")).unwrap();
+        let wide = std::fs::Permissions::from_mode(0o775);
+        std::fs::set_permissions(home.join("unattended"), wide).unwrap();
+        let dir = unattended_cwd_in(&home, None);
+        assert_eq!(dir, home.join("unattended"));
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
         let _ = std::fs::remove_dir_all(&home);
     }
 }

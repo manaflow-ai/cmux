@@ -19,11 +19,16 @@ public nonisolated struct AppSceneColors: Sendable, Equatable {
     public var attention: Color
     public var danger: Color
 
-    /// Before the first resolve (system colors).
-    public static let fallback = AppSceneColors(
-        background: .clear, elevated: Color(nsColor: .controlBackgroundColor), primary: .primary, secondary: .secondary,
-        tertiary: Color(nsColor: .tertiaryLabelColor), separator: Color(nsColor: .separatorColor), hover: .primary.opacity(0.06),
-        selection: .primary.opacity(0.1), badge: .primary.opacity(0.1), success: .green, attention: .orange, danger: .red)
+    /// Before the first resolve: the app theme's (`ThemeTokens.unresolved`), never macOS's grays.
+    public static var fallback: AppSceneColors {
+        let tokens = ThemeTokens.unresolved
+        return AppSceneColors(
+            background: .clear, elevated: tokens.elevatedBackground.swiftUIColor, primary: tokens.textPrimary.swiftUIColor,
+            secondary: tokens.textSecondary.swiftUIColor, tertiary: tokens.textTertiary.swiftUIColor,
+            separator: tokens.separator.swiftUIColor, hover: tokens.hoverFill.swiftUIColor, selection: tokens.selectionFill.swiftUIColor,
+            badge: tokens.badgeFill.swiftUIColor, success: tokens.success.swiftUIColor, attention: tokens.attention.swiftUIColor,
+            danger: tokens.danger.swiftUIColor)
+    }
 
     public init(background: Color, elevated: Color, primary: Color, secondary: Color, tertiary: Color, separator: Color, hover: Color,
                 selection: Color, badge: Color, success: Color, attention: Color, danger: Color) {

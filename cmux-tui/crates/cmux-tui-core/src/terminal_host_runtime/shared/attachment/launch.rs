@@ -44,7 +44,7 @@ pub fn launch_terminal_host_with_identity(
     terminal_id: TerminalId,
 ) -> anyhow::Result<HostAttachment> {
     let (colors, kitty) = (default_colors, kitty_graphics_limits);
-    launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None)
+    launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None, "")
 }
 
 /// A one-shot owner connection (for example to terminate a host no
@@ -113,7 +113,9 @@ pub(crate) fn adopt_terminal_host_with_kitty_limits(
 /// [`launch_terminal_host_with_identity`] on `standby`, a host process
 /// started ahead of its terminal ([`StandbyTerminalHost`]), or on a fresh
 /// process when `standby` is `None`. The terminal's directory, command,
-/// environment and size reach the host only now, in its Launch frame.
+/// environment and size reach the host only now, in its Launch frame, with
+/// the workspace its first record names (`workspace_key`, empty for none).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_terminal_host_from(
     options: &SurfaceOptions,
     root: &Path,
@@ -122,9 +124,18 @@ pub(crate) fn launch_terminal_host_from(
     kitty_graphics_limits: KittyGraphicsLimits,
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
+    workspace_key: &str,
 ) -> anyhow::Result<HostAttachment> {
     let presentation = (default_colors, cell_pixels, kitty_graphics_limits);
-    launch_terminal_host_seeded(options, root, presentation, terminal_id, standby, &[])
+    launch_terminal_host_seeded_in(
+        options,
+        root,
+        presentation,
+        terminal_id,
+        standby,
+        &[],
+        workspace_key,
+    )
 }
 
 /// The default colors, cell pixel size and Kitty limits a host starts with.
@@ -136,10 +147,32 @@ pub(crate) type HostPresentation = (DefaultColors, (u16, u16), KittyGraphicsLimi
 pub(crate) fn launch_terminal_host_seeded(
     options: &SurfaceOptions,
     root: &Path,
+    presentation: HostPresentation,
+    terminal_id: TerminalId,
+    standby: Option<StandbyTerminalHost>,
+    (seed, workspace_key): (&[u8], &str),
+) -> anyhow::Result<HostAttachment> {
+    launch_terminal_host_seeded_in(
+        options,
+        root,
+        presentation,
+        terminal_id,
+        standby,
+        seed,
+        workspace_key,
+    )
+}
+
+/// [`launch_terminal_host_seeded`] whose host's first record names
+/// `workspace_key` (empty: none yet).
+fn launch_terminal_host_seeded_in(
+    options: &SurfaceOptions,
+    root: &Path,
     (default_colors, cell_pixels, kitty_graphics_limits): HostPresentation,
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
     seed: &[u8],
+    workspace_key: &str,
 ) -> anyhow::Result<HostAttachment> {
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     crate::debug_spans::mark("host.publication_reserved");
@@ -150,9 +183,9 @@ pub(crate) fn launch_terminal_host_seeded(
     // endpoint short; the private durable record still carries its full
     // canonical identity and owner capability.
     let uid = sys::file_owner(root)?;
-    let endpoint_root = sys::endpoint_dir(uid);
-    prepare_endpoint_dir(&endpoint_root)?;
-    let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
+    prepare_endpoint_dir(&sys::endpoint_dir(uid))?;
+    prepare_endpoint_dir(&sys::host_endpoint_dir(uid, root))?;
+    let endpoint = sys::host_endpoint(uid, root, &terminal_hex);
     let record_path =
         crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
     if record_path.exists() || endpoint.exists() {
@@ -175,13 +208,14 @@ pub(crate) fn launch_terminal_host_seeded(
         cols: options.cols,
         rows: options.rows,
         cell_pixels,
-        scrollback: options.scrollback,
+        scrollback: HostLaunch::host_scrollback(options.scrollback),
         cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
         command,
         extra_env: shell_launch.env,
         default_colors,
         kitty_graphics_limits,
         seed: seed.to_vec(),
+        workspace_key: workspace_key.to_owned(),
     };
 
     let StandbyTerminalHost { process, mut stdin, mut stdout, host_pid } = match standby {

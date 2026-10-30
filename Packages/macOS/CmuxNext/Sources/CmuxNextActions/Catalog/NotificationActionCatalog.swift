@@ -24,11 +24,19 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 category: .notifications, symbol: "bell.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification jump-to-latest-unread", mainMenu: .window
             ),
+            // Classic's Jump to Last Prompt (hq#1870 P1 7); classic's ⇧⌘B is the bookmarks bar here.
+            ActionDescriptor(
+                id: "jumpToLastPrompt",
+                title: String(localized: "action.jumpToLastPrompt", defaultValue: "Jump to Last Prompt", bundle: .module),
+                keywords: ["agent", "prompt", "submitted", "back"], defaultShortcut: Shortcut("b", modifiers: [.command, .control]),
+                category: .notifications, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard, .menu],
+                mainMenu: .window
+            ),
             ActionDescriptor(
                 id: "toggleUnread",
-                title: String(localized: "action.toggleUnread", defaultValue: "Toggle Unread", bundle: .module),
+                title: String(localized: "action.toggleUnread", defaultValue: "Mark Tab Read/Unread", bundle: .module),
                 keywords: ["notifications", "read"], defaultShortcut: Shortcut("u", modifiers: [.option, .command]),
-                category: .notifications, symbol: "circle.badge", surfaces: [.palette, .keyboard, .menu],
+                category: .notifications, symbol: "envelope.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification toggle-unread", mainMenu: .window
             ),
             ActionDescriptor(
@@ -58,7 +66,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notificationCopy",
-                title: String(localized: "action.notificationCopy", defaultValue: "Copy Notification", bundle: .module),
+                title: String(localized: "action.notificationCopy", defaultValue: "Copy Notification Text", bundle: .module),
                 keywords: ["notifications", "clipboard"], category: .notifications, symbol: "doc.on.doc",
                 surfaces: [.contextMenu], cliName: "notification copy"
             ),
@@ -76,7 +84,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notifications.toggleWorkspaceMute",
-                title: String(localized: "action.notifications.toggleWorkspaceMute", defaultValue: "Mute or Unmute Workspace Notifications", bundle: .module),
+                title: String(localized: "action.notifications.toggleWorkspaceMute", defaultValue: "Mute/Unmute Workspace Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "workspace"], category: .notifications, symbol: "bell.slash.circle",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "notification toggle-workspace-mute"
             ),

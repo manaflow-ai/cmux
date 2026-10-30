@@ -65,12 +65,6 @@ public final class ResourceCardSampler {
         Task { await self.take(generation) }
     }
 
-    /// Replaces the receiver of reports without restarting.
-    public func setUpdate(_ onUpdate: Update?) {
-        self.onUpdate = onUpdate
-        if let onUpdate, let report { onUpdate(report) }
-    }
-
     /// Stops: cancels the pending deadline and drops every sample.
     public func close() {
         timer.cancel()

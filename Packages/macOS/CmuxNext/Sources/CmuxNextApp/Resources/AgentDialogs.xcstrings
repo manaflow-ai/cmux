@@ -1,0 +1,1578 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "agentDialogs.allowRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only a deny can be sent here; a person approves permissions in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでは拒否のみ送信できます。権限の許可は cmux で本人が行います"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن إرسال الرفض فقط هنا؛ يوافق الشخص على الأذونات في cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovdje se može poslati samo odbijanje; osoba odobrava dozvole u cmux-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her kan kun et afslag sendes; en person godkender tilladelser i cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hier kann nur eine Ablehnung gesendet werden; Berechtigungen genehmigt eine Person in cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aquí solo se puede enviar una denegación; una persona aprueba los permisos en cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seul un refus peut être envoyé ici ; une personne approuve les autorisations dans cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qui si può inviare solo un rifiuto; i permessi li approva una persona in cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅទីនេះអាចផ្ញើបានតែការបដិសេធប៉ុណ្ណោះ; មនុស្សម្នាក់អនុម័តការអនុញ្ញាតនៅក្នុង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기서는 거부만 보낼 수 있습니다. 권한 승인은 사람이 cmux에서 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her kan bare et avslag sendes; en person godkjenner tillatelser i cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tutaj można wysłać tylko odmowę; uprawnienia zatwierdza osoba w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aqui só é possível enviar uma negação; uma pessoa aprova as permissões no cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здесь можно отправить только отказ; разрешения одобряет человек в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งได้เฉพาะการปฏิเสธที่นี่ การอนุมัติสิทธิ์ต้องทำโดยบุคคลใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burada yalnızca ret gönderilebilir; izinleri cmux'ta bir kişi onaylar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тут можна надіслати лише відмову; дозволи схвалює людина в cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ở đây chỉ có thể gửi từ chối; quyền do một người phê duyệt trong cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此处只能发送拒绝；权限需由本人在 cmux 中批准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此處只能傳送拒絕；權限需由本人在 cmux 中核准"
+          }
+        }
+      }
+    },
+    "agentDialogs.badAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The answer does not fit the question: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答が質問に合いません: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإجابة لا تناسب السؤال: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odgovor ne odgovara pitanju: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret passer ikke til spørgsmålet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Antwort passt nicht zur Frage: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La respuesta no encaja con la pregunta: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La réponse ne correspond pas à la question : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La risposta non corrisponde alla domanda: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លើយមិនត្រូវនឹងសំណួរ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답변이 질문에 맞지 않습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret passer ikke til spørsmålet: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odpowiedź nie pasuje do pytania: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A resposta não corresponde à pergunta: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ответ не подходит к вопросу: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำตอบไม่ตรงกับคำถาม: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıt soruya uymuyor: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповідь не відповідає запитанню: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Câu trả lời không khớp với câu hỏi: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "答案与问题不符：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "答案與問題不符：%@"
+          }
+        }
+      }
+    },
+    "agentDialogs.encodeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The answer could not be encoded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答をエンコードできませんでした"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر ترميز الإجابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odgovor nije moguće kodirati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret kunne ikke kodes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Antwort konnte nicht kodiert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo codificar la respuesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La réponse n’a pas pu être encodée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile codificare la risposta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអ៊ិនកូដចម្លើយបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답변을 인코딩할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret kunne ikke kodes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można zakodować odpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível codificar a resposta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось закодировать ответ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเข้ารหัสคำตอบได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıt kodlanamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося закодувати відповідь"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể mã hóa câu trả lời"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法编码答案"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法編碼答案"
+          }
+        }
+      }
+    },
+    "agentDialogs.nameTheItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This question has several items; give each selection as ITEM=CHOICE (the item's id, prompt or header)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この質問には複数の項目があります。各選択を ITEM=CHOICE（項目の ID、質問文、または見出し）の形で指定してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لهذا السؤال عدة عناصر؛ اكتب كل اختيار بالشكل ITEM=CHOICE (معرّف العنصر أو نصه أو عنوانه)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo pitanje ima više stavki; navedite svaki izbor kao ITEM=CHOICE (ID, tekst ili naslov stavke)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette spørgsmål har flere punkter; angiv hvert valg som ITEM=CHOICE (punktets id, tekst eller overskrift)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Frage hat mehrere Punkte; gib jede Auswahl als ITEM=CHOICE an (ID, Text oder Überschrift des Punkts)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pregunta tiene varios elementos; indica cada selección como ITEM=CHOICE (el id, el texto o el encabezado del elemento)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette question comporte plusieurs éléments ; indiquez chaque choix sous la forme ITEM=CHOICE (id, texte ou titre de l’élément)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa domanda ha più elementi; indica ogni scelta come ITEM=CHOICE (id, testo o intestazione dell’elemento)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណួរនេះមានធាតុច្រើន; សូមផ្ដល់ជម្រើសនីមួយៗជា ITEM=CHOICE (id, អត្ថបទ ឬចំណងជើងរបស់ធាតុ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 질문에는 항목이 여러 개 있습니다. 각 선택을 ITEM=CHOICE(항목의 ID, 질문문 또는 제목) 형식으로 지정하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette spørsmålet har flere punkter; oppgi hvert valg som ITEM=CHOICE (punktets id, tekst eller overskrift)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To pytanie ma kilka elementów; podaj każdy wybór jako ITEM=CHOICE (id, treść lub nagłówek elementu)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pergunta tem vários itens; informe cada seleção como ITEM=CHOICE (o id, o texto ou o cabeçalho do item)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этом вопросе несколько пунктов; укажите каждый выбор как ITEM=CHOICE (id, текст или заголовок пункта)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำถามนี้มีหลายรายการ ให้ระบุแต่ละตัวเลือกเป็น ITEM=CHOICE (id ข้อความ หรือหัวข้อของรายการ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sorunun birden çok öğesi var; her seçimi ITEM=CHOICE biçiminde verin (öğenin kimliği, metni veya başlığı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цьому запитанні кілька пунктів; вкажіть кожен вибір як ITEM=CHOICE (id, текст або заголовок пункту)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Câu hỏi này có nhiều mục; hãy ghi mỗi lựa chọn dạng ITEM=CHOICE (id, nội dung hoặc tiêu đề của mục)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此问题有多个条目；请将每个选择写成 ITEM=CHOICE（条目的 ID、问题文本或标题）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此問題有多個項目；請將每個選擇寫成 ITEM=CHOICE（項目的 ID、問題文字或標題）"
+          }
+        }
+      }
+    },
+    "agentDialogs.noAcpmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent daemon (acpmux) answers in this app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリではエージェントデーモン（acpmux）が応答しません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستجيب أي برنامج وكيل (acpmux) في هذا التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan agentski daemon (acpmux) ne odgovara u ovoj aplikaciji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agentdæmon (acpmux) svarer i denne app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In dieser App antwortet kein Agent-Daemon (acpmux)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún daemon de agentes (acpmux) responde en esta app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun démon d’agents (acpmux) ne répond dans cette app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun daemon degli agenti (acpmux) risponde in questa app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន daemon ភ្នាក់ងារ (acpmux) ឆ្លើយតបក្នុងកម្មវិធីនេះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 앱에서 응답하는 에이전트 데몬(acpmux)이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agentdemon (acpmux) svarer i denne appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W tej aplikacji nie odpowiada żaden demon agentów (acpmux)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum daemon de agentes (acpmux) responde neste app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этом приложении не отвечает ни один демон агентов (acpmux)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีเดมอนเอเจนต์ (acpmux) ตอบสนองในแอปนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu uygulamada yanıt veren bir ajan arka plan programı (acpmux) yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цьому застосунку не відповідає жоден демон агентів (acpmux)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có daemon tác nhân (acpmux) nào phản hồi trong ứng dụng này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此应用中没有响应的代理守护进程（acpmux）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 中沒有回應的代理常駐程式（acpmux）"
+          }
+        }
+      }
+    },
+    "agentDialogs.noRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reply needs `request_id`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信には `request_id` が必要です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج الرد إلى `request_id`"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odgovor treba `request_id`"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret kræver `request_id`"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Antwort benötigt `request_id`"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La respuesta necesita `request_id`"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La réponse nécessite `request_id`"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La risposta richiede `request_id`"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការឆ្លើយតបត្រូវការ `request_id`"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "응답에는 `request_id`가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret trenger `request_id`"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odpowiedź wymaga `request_id`"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A resposta precisa de `request_id`"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для ответа нужен `request_id`"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตอบกลับต้องมี `request_id`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıt için `request_id` gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для відповіді потрібен `request_id`"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phản hồi cần `request_id`"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回复需要 `request_id`"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回覆需要 `request_id`"
+          }
+        }
+      }
+    },
+    "agentDialogs.noSelections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.question.reply needs `selections`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed.question.reply には `selections` が必要です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج feed.question.reply إلى `selections`"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply treba `selections`"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply kræver `selections`"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply benötigt `selections`"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply necesita `selections`"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply nécessite `selections`"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply richiede `selections`"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply ត្រូវការ `selections`"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply에는 `selections`가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply trenger `selections`"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply wymaga `selections`"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply precisa de `selections`"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для feed.question.reply нужен `selections`"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply ต้องมี `selections`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply için `selections` gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для feed.question.reply потрібен `selections`"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply cần `selections`"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply 需要 `selections`"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "feed.question.reply 需要 `selections`"
+          }
+        }
+      }
+    },
+    "agentDialogs.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pending dialog %@; it may have been answered or ended"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留中のダイアログ %@ はありません。すでに回答されたか終了した可能性があります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد مربع حوار معلّق %@؛ ربما تمت الإجابة عنه أو انتهى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema dijaloga na čekanju %@; možda je odgovoren ili završen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen ventende dialog %@; den kan være besvaret eller afsluttet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein ausstehender Dialog %@; er wurde vielleicht beantwortet oder beendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ningún diálogo pendiente %@; puede que se haya respondido o terminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune boîte de dialogue en attente %@ ; elle a peut-être reçu une réponse ou pris fin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna finestra in attesa %@; potrebbe essere stata risposta o chiusa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានប្រអប់កំពុងរង់ចាំ %@ ទេ; វាអាចត្រូវបានឆ្លើយ ឬបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대기 중인 대화 상자 %@이(가) 없습니다. 이미 응답되었거나 종료되었을 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen ventende dialog %@; den kan være besvart eller avsluttet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak oczekującego okna %@; mogło zostać już obsłużone lub zakończone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma caixa de diálogo pendente %@; ela pode ter sido respondida ou encerrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет ожидающего диалога %@; возможно, на него уже ответили или он завершился"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีกล่องโต้ตอบที่รออยู่ %@ อาจได้รับคำตอบหรือสิ้นสุดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bekleyen %@ iletişim kutusu yok; yanıtlanmış veya sona ermiş olabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає очікуваного діалогу %@; можливо, на нього вже відповіли або він завершився"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có hộp thoại đang chờ %@; có thể nó đã được trả lời hoặc đã kết thúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有待处理的对话框 %@；它可能已被回答或已结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有待處理的對話框 %@；它可能已被回答或已結束"
+          }
+        }
+      }
+    },
+    "agentDialogs.notPerson": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux did not take this app's person proof; answer the question in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux がこのアプリの本人証明を受け付けませんでした。cmux で質問に回答してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يقبل acpmux إثبات الشخص لهذا التطبيق؛ أجب عن السؤال في cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux nije prihvatio dokaz osobe ove aplikacije; odgovorite na pitanje u cmux-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux accepterede ikke denne apps personbevis; besvar spørgsmålet i cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux hat den Personennachweis dieser App nicht angenommen; beantworte die Frage in cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux no aceptó la prueba de persona de esta app; responde la pregunta en cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux n’a pas accepté la preuve de personne de cette app ; répondez à la question dans cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux non ha accettato la prova di persona di questa app; rispondi alla domanda in cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux មិនបានទទួលភស្តុតាងមនុស្សរបស់កម្មវិធីនេះទេ; សូមឆ្លើយសំណួរនៅក្នុង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 이 앱의 본인 증명을 받아들이지 않았습니다. cmux에서 질문에 답하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux godtok ikke denne appens personbevis; svar på spørsmålet i cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux nie przyjął dowodu osoby tej aplikacji; odpowiedz na pytanie w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux não aceitou a prova de pessoa deste app; responda à pergunta no cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux не принял подтверждение человека от этого приложения; ответьте на вопрос в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ไม่ยอมรับหลักฐานบุคคลของแอปนี้ โปรดตอบคำถามใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux bu uygulamanın kişi kanıtını kabul etmedi; soruyu cmux'ta yanıtlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux не прийняв підтвердження особи від цього застосунку; дайте відповідь у cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux không chấp nhận bằng chứng người dùng của ứng dụng này; hãy trả lời câu hỏi trong cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 未接受此应用的本人证明；请在 cmux 中回答问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 未接受此 App 的本人證明；請在 cmux 中回答問題"
+          }
+        }
+      }
+    },
+    "agentDialogs.notQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This dialog is a permission, not a question; it can only be denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このダイアログは質問ではなく権限です。拒否のみできます"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مربع الحوار هذا إذن وليس سؤالًا؛ يمكن رفضه فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj dijalog je dozvola, a ne pitanje; može se samo odbiti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne dialog er en tilladelse, ikke et spørgsmål; den kan kun afvises"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Dialog ist eine Berechtigung, keine Frage; er kann nur abgelehnt werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este diálogo es un permiso, no una pregunta; solo se puede denegar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette boîte de dialogue est une autorisation, pas une question ; elle ne peut qu’être refusée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa finestra è un permesso, non una domanda; può solo essere rifiutata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់នេះជាការអនុញ្ញាត មិនមែនជាសំណួរទេ; អាចបដិសេធបានតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 대화 상자는 질문이 아니라 권한입니다. 거부만 할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne dialogen er en tillatelse, ikke et spørsmål; den kan bare avslås"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To okno to uprawnienie, a nie pytanie; można je tylko odrzucić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta caixa de diálogo é uma permissão, não uma pergunta; só pode ser negada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот диалог — разрешение, а не вопрос; его можно только отклонить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กล่องโต้ตอบนี้เป็นสิทธิ์ ไม่ใช่คำถาม ปฏิเสธได้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu iletişim kutusu bir soru değil, izindir; yalnızca reddedilebilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей діалог — дозвіл, а не запитання; його можна лише відхилити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hộp thoại này là quyền, không phải câu hỏi; chỉ có thể từ chối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此对话框是权限而非问题；只能拒绝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此對話框是權限而非問題；只能拒絕"
+          }
+        }
+      }
+    },
+    "agentDialogs.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent daemon refused the reply to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントデーモンが %@ への返信を拒否しました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض البرنامج الوكيل الرد على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentski daemon je odbio odgovor na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentdæmonen afviste svaret på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Agent-Daemon hat die Antwort auf %@ abgelehnt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El daemon de agentes rechazó la respuesta a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le démon d’agents a refusé la réponse à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il daemon degli agenti ha rifiutato la risposta a %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "daemon ភ្នាក់ងារបានបដិសេធការឆ្លើយតបទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 데몬이 %@에 대한 응답을 거부했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentdemonen avviste svaret på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demon agentów odrzucił odpowiedź na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O daemon de agentes recusou a resposta a %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Демон агентов отклонил ответ на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เดมอนเอเจนต์ปฏิเสธการตอบกลับถึง %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan arka plan programı %@ yanıtını reddetti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Демон агентів відхилив відповідь на %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daemon tác nhân đã từ chối phản hồi cho %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理守护进程拒绝了对 %@ 的回复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理常駐程式拒絕了對 %@ 的回覆"
+          }
+        }
+      }
+    },
+    "agentDialogs.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is not an option of %2$@; choose from: %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は %2$@ の選択肢ではありません。次から選んでください: %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ليس خيارًا في %2$@؛ اختر من: %3$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije opcija za %2$@; izaberite od: %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke en mulighed for %2$@; vælg mellem: %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ist keine Option von %2$@; wähle aus: %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no es una opción de %2$@; elige entre: %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ n’est pas une option de %2$@ ; choisissez parmi : %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non è un’opzione di %2$@; scegli tra: %3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនមែនជាជម្រើសរបស់ %2$@ ទេ; ជ្រើសពី: %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@은(는) %2$@의 선택지가 아닙니다. 다음 중에서 고르세요: %3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke et alternativ for %2$@; velg blant: %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nie jest opcją dla %2$@; wybierz spośród: %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não é uma opção de %2$@; escolha entre: %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ — не вариант для %2$@; выберите из: %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ไม่ใช่ตัวเลือกของ %2$@ เลือกจาก: %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@, %2$@ için bir seçenek değil; şunlardan seçin: %3$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ — не варіант для %2$@; виберіть із: %3$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ không phải là lựa chọn của %2$@; hãy chọn từ: %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 不是 %2$@ 的选项；请从以下选择：%3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 不是 %2$@ 的選項；請從以下選擇：%3$@"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

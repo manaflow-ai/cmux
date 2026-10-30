@@ -21,7 +21,7 @@ import {
 } from "./repository";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { isProviderTunnelNetworkOverlap } from "./providerErrors";
-import type { ProviderNetwork, ProviderTunnel } from "./drivers";
+import type { ProviderNetwork, ProviderTunnel, ProviderCredential } from "./drivers";
 
 /**
  * Private networking: one provider network per cmux account, and one WireGuard
@@ -239,13 +239,15 @@ type PrivateAccessRepo = PrivateNetworkingRepo & {
  * here means "this composition has no private networking", not an error.
  */
 function privateNetworkGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkGateway | null {
-  if (!gateway.supportsPrivateNetworking?.(provider)) return null;
+  const supportsProvisioning = gateway.supportsNetworkProvisioning ?? gateway.supportsPrivateNetworking;
+  if (!supportsProvisioning?.(provider)) return null;
   const { ensureNetwork, getNetwork } = gateway;
   if (!ensureNetwork) return null;
   return { ensureNetwork, getNetwork };
 }
 
 function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkingGateway | null {
+  if (!gateway.supportsPrivateNetworking?.(provider)) return null;
   const network = privateNetworkGateway(gateway, provider);
   const { createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
   if (!network || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
@@ -362,6 +364,8 @@ function resolveTeamNetwork(input: {
   readonly teamDirectory?: VmTeamDirectory;
   readonly directoryTimeoutMs?: number;
   readonly provider: ProviderId;
+  readonly providerCredential?: ProviderCredential;
+  readonly providerMetadata?: Record<string, unknown>;
   readonly providers: PrivateNetworkGateway;
 }): Effect.Effect<TeamNetworkResolution, import("./errors").VmProviderOperationError> {
   return Effect.gen(function* () {
@@ -391,6 +395,9 @@ function resolveTeamNetwork(input: {
       slug,
       displayName: slug,
       membersRule: false,
+      providerCredential: input.providerCredential,
+      providerProject: providerProject(input.providerMetadata),
+      providerRegion: providerRegion(input.providerMetadata),
     });
     return { network: teamNetworkFromProvider(network, slug), fallbackReason: null };
   });
@@ -410,6 +417,8 @@ export function resolveOwnerNetwork(input: {
   readonly billingTeamId?: string | null;
   readonly teamDirectory?: VmTeamDirectory;
   readonly directoryTimeoutMs?: number;
+  readonly providerCredential?: ProviderCredential;
+  readonly providerMetadata?: Record<string, unknown>;
 }): Effect.Effect<
   (CloudVmNetworkRow | TeamNetwork) & { readonly memberIngress: boolean; readonly scope: "user" | "team" },
   VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError,
@@ -465,7 +474,7 @@ function requireOwnerNetworkComposition(provider: ProviderId) {
 }
 
 function resolveUserNetwork(
-  input: { readonly userId: string; readonly provider: ProviderId },
+  input: { readonly userId: string; readonly provider: ProviderId; readonly providerCredential?: ProviderCredential; readonly providerMetadata?: Record<string, unknown> },
   providers: PrivateNetworkGateway,
   repo: PrivateNetworkRepo,
   preloaded?: CloudVmNetworkRow | null,
@@ -477,7 +486,11 @@ function resolveUserNetwork(
     // dev database created before namespaces holds a row for the user's
     // production network. The upsert below replaces that row. Production
     // reuses its row whatever slug it stores.
-    if (existing && (vmNetworkNamespace() === null || existing.slug === slug)) return existing;
+    // A provider whose network lives in the user's own project (its calls
+    // carry the user's credential) is revalidated on every resolve: the
+    // project, region, VPC, firewall and NAT can change outside cmux, and only
+    // a credentialed call can see or repair them.
+    if (existing && (vmNetworkNamespace() === null || existing.slug === slug) && !input.providerCredential) return existing;
 
     // Production networks get a /20 (see userNetworkCidr). A namespaced
     // deployment keeps the platform's derived /24, which is unique within the
@@ -490,6 +503,9 @@ function resolveUserNetwork(
       slug,
       displayName: "cmux machines",
       ...(cidr ? { cidr } : {}),
+      providerCredential: input.providerCredential,
+      providerProject: providerProject(input.providerMetadata),
+      providerRegion: providerRegion(input.providerMetadata),
     });
     // The provider call is idempotent by slug and the upsert is idempotent by
     // (user, provider), so two machines created at once converge on one row
@@ -503,6 +519,18 @@ function resolveUserNetwork(
       cidrV6: network.cidrV6,
     });
   });
+}
+
+function providerProject(metadata: Record<string, unknown> | undefined): string | undefined {
+  const value = metadata?.project ?? metadata?.gcpProject;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function providerRegion(metadata: Record<string, unknown> | undefined): string | undefined {
+  const zone = metadata?.zone ?? metadata?.gcpZone;
+  if (typeof zone !== "string") return undefined;
+  const parts = zone.trim().split("-");
+  return parts.length > 1 ? parts.slice(0, -1).join("-") : undefined;
 }
 
 /**
@@ -571,7 +599,13 @@ export function enrollVmTunnel(input: {
       cmuxBuild: input.cmuxBuild,
       cmuxChannel: input.cmuxChannel,
     });
-    return yield* withAccessGrantMutationLease(repo, accessGrant.id, Effect.gen(function* () {
+    // The lease covers only this tunnel's peer mutation. Team network
+    // reconciliation runs after it is released: it makes several provider
+    // calls per team, and every build and tunnel role on this Mac waits on
+    // the same lease, so holding it there answered them `vm_access_grant_busy`.
+    // Attach and detach are idempotent per tunnel and network, and a revoke
+    // that wins meanwhile deletes the tunnel, so a late attach is harmless.
+    const enrolled = yield* withAccessGrantMutationLease(repo, accessGrant.id, Effect.gen(function* () {
       // Recheck after the lease. A revoke can win between the first session
       // check and the access-grant upsert; an old login must not continue.
       if (input.stackSessionId && input.sessionIssuedAt) {
@@ -624,8 +658,7 @@ export function enrollVmTunnel(input: {
             addressV6: current.addressV6,
             configIssued: true,
           });
-          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: current, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
-          return describeTunnel(current, row, network, { created: false, rotated }, teamNetworks);
+          return { tunnel: current, row, flags: { created: false, rotated } };
         }
         // The control plane has a row for a tunnel the provider no longer has.
         yield* repo.revokeTunnel(existing.id);
@@ -650,9 +683,21 @@ export function enrollVmTunnel(input: {
         addressV4: created.tunnel.addressV4,
         addressV6: created.tunnel.addressV6,
       });
-      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: created.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
-      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated }, teamNetworks);
+      return { tunnel: created.tunnel, row, flags: { created: true, rotated: created.rotated } };
     }));
+    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: enrolled.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
+    // A revoke can win while the networks reconcile outside the lease. Never hand
+    // back a config for a tunnel it deleted: the client enrolls again, and that
+    // enrollment answers from the current grant (a new tunnel or `vm_access_revoked`).
+    const current = yield* repo.findTunnel({
+      userId: input.userId,
+      deviceFingerprint: input.deviceFingerprint,
+      tunnelPurpose: input.tunnelPurpose,
+    });
+    if (current?.id !== enrolled.row.id) {
+      return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    }
+    return describeTunnel(enrolled.tunnel, enrolled.row, network, enrolled.flags, teamNetworks);
   });
 }
 
@@ -902,6 +947,12 @@ export function revokeVmAccessGrant(input: {
   readonly userId: string;
   readonly accessGrantId?: string;
   readonly deviceId?: string;
+  /**
+   * Also revoke the grant's Stack sessions: they are queued in the same
+   * transaction as the grant revocation; the first retry is due at this time.
+   * The Mac's own sign-out path omits it and revokes only its own session.
+   */
+  readonly revokeStackSessions?: { readonly firstRetryAt: Date };
 }) {
   return Effect.gen(function* () {
     const repo = yield* requirePrivateAccessRepo("freestyle");
@@ -910,10 +961,9 @@ export function revokeVmAccessGrant(input: {
       accessGrantId: input.accessGrantId,
       deviceId: input.deviceId,
     });
-    if (!grant) return { revoked: false, stackSessionIds: [] as string[] } as const;
+    if (!grant) return { revoked: false, accessGrantId: null, stackSessionIds: [] as string[] } as const;
     return yield* withAccessGrantMutationLease(repo, grant.id, Effect.gen(function* () {
       const gateway = yield* VmProviderGateway;
-      const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
       const tunnels = yield* repo.listAccessGrantTunnels(grant.id);
       for (const tunnel of tunnels) {
         if (gateway.deleteTunnel) {
@@ -921,8 +971,13 @@ export function revokeVmAccessGrant(input: {
         }
         yield* repo.revokeTunnel(tunnel.id);
       }
-      const revoked = yield* repo.revokeAccessGrant(grant.id);
-      return { revoked, stackSessionIds } as const;
+      const { revoked, stackSessionIds } = yield* repo.revokeAccessGrant({
+        id: grant.id,
+        revokeStackSessions: input.revokeStackSessions
+          ? { userId: input.userId, firstRetryAt: input.revokeStackSessions.firstRetryAt }
+          : null,
+      });
+      return { revoked, accessGrantId: grant.id, stackSessionIds: [...stackSessionIds] } as const;
     }));
   });
 }

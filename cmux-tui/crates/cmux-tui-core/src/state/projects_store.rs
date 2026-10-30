@@ -9,6 +9,10 @@ use super::projects::{Project, Projects, Refusals};
 
 /// `project.list|observe|add|update|remove|sync`.
 pub const CAPABILITY: &str = "project-list-v1";
+/// `project.source.update` and `sources` in the `project.list` result: a client
+/// gates per-source toggles on it, since a daemon with only `project-list-v1`
+/// has neither.
+pub const SOURCES_CAPABILITY: &str = "project-sources-v1";
 /// The resource kind of a project on `session.events`.
 pub(crate) const RESOURCE: &str = "project";
 /// The most projects a list returns at once.
@@ -19,6 +23,9 @@ pub(crate) fn create_projects_schema(transaction: &Transaction<'_>) -> anyhow::R
         "CREATE TABLE IF NOT EXISTS projects (
            path TEXT PRIMARY KEY NOT NULL,
            project_json TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS project_sources_off (
+           source TEXT PRIMARY KEY NOT NULL
          );",
     )?;
     Ok(())
@@ -43,7 +50,22 @@ pub(crate) fn load(connection: &Connection) -> anyhow::Result<Projects> {
             }
         }
     }
-    Ok(Projects::from_projects(projects))
+    let mut statement = connection.prepare("SELECT source FROM project_sources_off")?;
+    let disabled =
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+    Ok(Projects::from_projects(projects).with_disabled(disabled))
+}
+
+/// The sources the user turned off, as they are now.
+pub(crate) fn write_disabled(
+    transaction: &Transaction<'_>,
+    projects: &Projects,
+) -> anyhow::Result<()> {
+    transaction.execute("DELETE FROM project_sources_off", [])?;
+    for source in projects.disabled() {
+        transaction.execute("INSERT INTO project_sources_off(source) VALUES(?1)", [source])?;
+    }
+    Ok(())
 }
 
 /// Writes `paths` of `projects`: their current rows, or a delete for a path
@@ -117,7 +139,12 @@ pub(crate) fn list_value(
         .take(limit)
         .map(project_value)
         .collect();
-    Ok(json!({"projects": listed}))
+    let sources: Vec<Value> = projects
+        .source_summaries()
+        .into_iter()
+        .map(|(id, enabled, count)| json!({"id": id, "enabled": enabled, "projects": count}))
+        .collect();
+    Ok(json!({"projects": listed, "sources": sources}))
 }
 
 /// The refusals of this daemon: the user's home, and the agent homes no

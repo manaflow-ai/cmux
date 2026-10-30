@@ -1,0 +1,57 @@
+/* GHOST BUTTON (cx-s6zvc): an icon and a label, no fill until hover. New Tab's tools, the
+   composer footer's folder and branch, and any other icon+label control use it, so they share one
+   geometry. Optical balance: a 14 px stroke icon's ink starts about 2 px inside its box (its side
+   bearing), so the inset before an icon is the inset after a label minus that, and the hover pill
+   looks even. The icon sits 6 px from its label. A row of them (`.ui-ghost-row`) is 2 px apart,
+   tighter than their own inset, so neighboring hover pills nearly touch and the row reads as one
+   control. Labels: medium weight, Apple's tracking for the size (12 px: 0; 13 px: -0.08 px).
+   `.ui-ghost-sm` is the 22 px size of a footer. The caller keeps its colors. Its own file, as the
+   agent pane does not load ui.css. */
+:root { --ui-ghost-icon-size: 14px; }
+.ui-ghost {
+  --ui-ghost-inset: 8px;
+  --ui-ghost-bearing: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--ui-ghost-inset);
+  border-radius: 7px;
+  font-size: var(--text-detail);
+  font-weight: 500;
+  line-height: var(--text-detail--line-height);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.ui-ghost:has(> .ui-ghost-icon:first-child) {
+  padding-inline-start: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing));
+}
+/* A trailing icon (a disclosure chevron) can carry more bearing than a leading one: the caller
+   sets --ui-ghost-end-bearing. */
+.ui-ghost:has(> .ui-ghost-icon:last-child) {
+  padding-inline-end: calc(var(--ui-ghost-inset) - var(--ui-ghost-end-bearing, var(--ui-ghost-bearing)));
+}
+.ui-ghost-sm {
+  --ui-ghost-inset: 6px;
+  --ui-ghost-bearing: 1.5px;
+  gap: 4px;
+  height: 22px;
+  border-radius: 6px;
+}
+.ui-ghost-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--ui-ghost-icon-size);
+  height: var(--ui-ghost-icon-size);
+}
+/* Lowest specificity, so a caller's own hover color wins. */
+.ui-ghost:where(:hover:not(:disabled, [data-disabled])) {
+  background: var(--ui-hover, color-mix(in srgb, currentcolor 8%, transparent));
+}
+.ui-ghost-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}

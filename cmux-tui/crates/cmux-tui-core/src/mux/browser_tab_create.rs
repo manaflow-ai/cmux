@@ -3,8 +3,11 @@
 //! to an existing pane without making it the active tab
 //! (`frontend-browser-activate-v1`); `after` puts it right after another tab
 //! of that pane, as Chrome places a link's tab next to its opener
-//! (`frontend-browser-insert-after-v1`).
+//! (`frontend-browser-insert-after-v1`). A tab put after a grouped tab
+//! joins that tab group in its slot, as Chrome groups a link's tab with its
+//! opener (cx-d0d.55).
 
+use super::tab_strip::StripRequest;
 use super::*;
 use crate::resource::BrowserPublicId;
 
@@ -23,6 +26,17 @@ pub(crate) const ACTIVATE_FIELD: &str = "frontend_browser_activate";
 /// the surface the new tab goes right after (`frontend-browser-insert-after-v1`).
 pub(crate) const AFTER_FIELD: &str = "frontend_browser_after";
 
+/// Internal `tab.create_browser` field (never accepted from a v2 client):
+/// the client transaction the created tab's own `tab-added` carries
+/// (`conversation-tab-transaction-v1`), so a client sees one `tab-added` per
+/// tab and settles its provisional tab on it.
+pub(crate) const TRANSACTION_FIELD: &str = "frontend_browser_transaction";
+
+/// The client transaction of a `tab.create_browser` ([`TRANSACTION_FIELD`]).
+pub(crate) fn effect_transaction(fields: &Map<String, Value>) -> Option<Arc<str>> {
+    fields.get(TRANSACTION_FIELD).and_then(Value::as_str).map(Arc::from)
+}
+
 /// Where a new frontend browser tab lands in its pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FrontendTabPlacement {
@@ -30,11 +44,14 @@ pub(crate) struct FrontendTabPlacement {
     pub(crate) activate: bool,
     /// The tab goes right after this tab of the pane, else at the end.
     pub(crate) after: Option<SurfaceId>,
+    /// The tab goes at this index of the pane's strip (clamped), before
+    /// `after` ([`super::tab_strip::tab_slot`]: Reopen Closed puts a tab back in place).
+    pub(crate) index: Option<usize>,
 }
 
 impl Default for FrontendTabPlacement {
     fn default() -> Self {
-        Self { activate: true, after: None }
+        Self { activate: true, after: None, index: None }
     }
 }
 
@@ -58,9 +75,25 @@ pub(crate) fn frontend_fields(
     fields
 }
 
+/// The tab group `after` belongs to in `pane`, and the index inside the
+/// group right after it: where a tab put after it joins.
+fn joined_group(
+    state: &State,
+    presentation: &crate::workspace_registry::PresentationSnapshot,
+    pane: PaneId,
+    after: Option<SurfaceId>,
+) -> Option<(String, usize)> {
+    let after = after?;
+    pane_tab_groups(state, presentation, pane).into_iter().find_map(|run| {
+        let index = run.members.iter().position(|member| *member == after)?;
+        Some((run.group.id, index + 1))
+    })
+}
+
 /// The index of `pane`'s strip a new tab takes: right after `after` when it
 /// is a tab of the pane, else the end. A slot inside a tab group's run moves
-/// to the end of that run, so the new (ungrouped) tab never splits a group.
+/// to the end of that run, so the still ungrouped tab never splits a group;
+/// one that joins the group then moves into its slot.
 fn insertion_index(
     state: &State,
     presentation: &crate::workspace_registry::PresentationSnapshot,
@@ -93,14 +126,24 @@ impl Mux {
         let placement = FrontendTabPlacement {
             activate: fields.get(ACTIVATE_FIELD).and_then(Value::as_bool).unwrap_or(true),
             after: fields.get(AFTER_FIELD).and_then(Value::as_u64),
+            index: tab_strip::tab_slot::effect_index(fields),
         };
-        self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement)
+        let transaction = effect_transaction(fields);
+        // `pinned-dock-v1`: a pinned column that takes no tabs refuses
+        // before the page starts, and again when the tab attaches.
+        let operation = ResourceOperation::TabCreateBrowser.wire_name();
+        self.with_state(|state| ensure_pane_takes_tabs(operation, state, pane))?;
+        self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, transaction)
     }
 
     /// A browser tab under a reserved identity. With `activate` false
     /// (`frontend-browser-activate-v1`) a tab added to an existing pane does
     /// not become its active tab and does not bump the pane's focus order;
-    /// with `after` it lands right after that tab of the pane.
+    /// with `after` it lands right after that tab of the pane. A client
+    /// `transaction` rides on the tab's one `tab-added`; a tab that arrives
+    /// inside a new workspace or screen delta gets a `tab-added` carrying it
+    /// after that delta.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_browser_tab_reserved(
         self: &Arc<Self>,
         url: String,
@@ -109,6 +152,7 @@ impl Mux {
         resource_identity: TabResourceIdentity,
         workspace_key: Option<String>,
         placement: FrontendTabPlacement,
+        transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
         self.new_browser_tab_with_resource_identity(
             url,
@@ -117,9 +161,11 @@ impl Mux {
             Some(resource_identity),
             workspace_key,
             placement,
+            transaction,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_browser_tab_with_resource_identity(
         self: &Arc<Self>,
         url: String,
@@ -128,8 +174,9 @@ impl Mux {
         resource_identity: Option<TabResourceIdentity>,
         workspace_key: Option<String>,
         placement: FrontendTabPlacement,
+        transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let FrontendTabPlacement { activate, after } = placement;
+        let FrontendTabPlacement { activate, after, index: strip_index } = placement;
         let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -156,6 +203,7 @@ impl Mux {
                     url,
                     size,
                     resource_identity,
+                    transaction,
                 );
             }
             let workspace_key = match workspace_key {
@@ -219,6 +267,9 @@ impl Mux {
                     }
                 };
                 self.emit(MuxEvent::TreeDelta(delta));
+                if let Some(transaction) = transaction {
+                    self.emit_tab_added_for_transaction(surface.id, transaction);
+                }
                 self.reap_if_dead(&surface);
                 return Ok(surface);
             }
@@ -227,7 +278,7 @@ impl Mux {
             let mut registry = self.workspace_registry.lock().unwrap();
             let delta = {
                 let mut state = self.lock_state_pinned(&registry).unwrap();
-                let name = Self::default_workspace_name(&state);
+                let name = self.default_workspace_name(&state);
                 let index = state.workspaces.len();
                 let mut desired = self.registry_projection(&state);
                 desired.push(RegistryWorkspace {
@@ -235,6 +286,8 @@ impl Mux {
                     public_id: workspace_public_id.clone(),
                     key: workspace_key.clone(),
                     name: name.clone(),
+                    name_source: crate::resource_name::NameSource::Auto,
+                    name_revision: 0,
                     group_key: self.session.clone(),
                 });
                 let commit = match registry.commit(
@@ -272,6 +325,8 @@ impl Mux {
                     public_id: workspace_public_id,
                     key: workspace_key,
                     name,
+                    name_source: crate::resource_name::NameSource::Auto,
+                    name_revision: 0,
                     screens: vec![Screen {
                         id: screen_id,
                         public_id: ScreenPublicId::random()?,
@@ -313,6 +368,9 @@ impl Mux {
             let selection_resync = delta.index.is_some_and(|index| index > 0);
             self.emit_committed_workspace_delta(&registry, delta, selection_resync);
             drop(registry);
+            if let Some(transaction) = transaction {
+                self.emit_tab_added_for_transaction(surface.id, transaction);
+            }
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
@@ -322,13 +380,34 @@ impl Mux {
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
         let mut active_index_moved = false;
+        let joins;
         let attached = {
             let mut state = self.state.lock().unwrap();
-            let slot = insertion_index(&state, &notifications.presentation, target, after);
+            // `pinned-dock-v1`: the column may have become pinned meanwhile.
+            let operation = ResourceOperation::TabCreateBrowser.wire_name();
+            if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
+                state.surfaces.remove(&surface.id);
+                drop(state);
+                surface.kill();
+                return Err(error);
+            }
+            let slot = match strip_index {
+                Some(_) => {
+                    joins = None;
+                    None
+                }
+                None => {
+                    joins = joined_group(&state, &notifications.presentation, target, after);
+                    insertion_index(&state, &notifications.presentation, target, after)
+                }
+            };
             match state.panes.get_mut(&target) {
                 Some(pane) => {
                     let end = pane.tabs.len();
-                    let index = slot.unwrap_or(end);
+                    let index = match strip_index {
+                        Some(index) => tab_strip::tab_slot::slot(Some(index), end),
+                        None => slot.unwrap_or(end),
+                    };
                     pane.tabs.insert(index, surface.id);
                     if activate {
                         pane.active_tab = index;
@@ -358,7 +437,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
-                        transaction: None,
+                        transaction,
                     })
                 }
                 None => {
@@ -374,6 +453,17 @@ impl Mux {
         // A background tab changes no pane's selection; one inserted before
         // the active tab moves its index, so index-based clients resync.
         self.emit_tree_delta(delta, activate || active_index_moved);
+        if let Some((group, index)) = joins {
+            let added = surface.id;
+            let request = StripRequest::local(&Actor::Daemon, "tab.group.add");
+            match self.tab_group_add(request, &group, move |_| Ok(vec![added]), Some(index)) {
+                Ok(_) => self.emit_tab_group_members(&[added], None),
+                // The tab stays, ungrouped after the group's run.
+                Err(error) => {
+                    eprintln!("cmux-tui: browser tab {added} did not join {group}: {error:#}");
+                }
+            }
+        }
         self.reap_if_dead(&surface);
         Ok(surface)
     }

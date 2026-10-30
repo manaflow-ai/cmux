@@ -1,38 +1,129 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 
 /// The chat header and right-click menu (``AgentChatTabActions``), its toggling quick actions
-/// (``AgentChatSplitToggles``), the tab state the header menu's labels read, and New side chat's
-/// split.
+/// (``AgentChatSplitToggles``), the header's state, pushed when it changes (``AgentChatHeaderWatch``),
+/// and the side pane New side chat and `/btw` open in (``AgentSidePanes``).
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry })
-        let toggles = AgentChatSplitToggles()
-        model.header = AgentPaneHeaderHooks(run: actions.run, toggle: { [weak self] id, cwd in
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) }, local: { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true })
+        let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
+        let watch = AgentChatHeaderWatch(state: { [weak self] in
+            guard let self else { return AgentPaneHeaderState() }
+            let chat = resolve(provisional)
+            return toggles.headerState(chat: chat, store: lookup(chat)?.store, pullRequest: gitLink?(chat)?.isLocal == true ? pullRequest : nil)
+        }, push: { [weak self] state in
+            guard let view = self?.existingView(provisional) else { return }
+            AgentPaneHeaderState.push(state, to: view)
+        })
+        // Watching from the wiring on: a tab rekeyed after the page's first read is wired again,
+        // and its new watch must push without waiting for another read.
+        watch.read()
+        // The page names the chat's folder once its session summary came; until then (and for a
+        // split beside another split) the chat's exact folder from here (terminalFolder).
+        model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
             let chat = self?.resolve(provisional) ?? provisional
-            toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
-        }, tabState: { [weak self] in
-            guard let self else { return [:] }
-            let key = resolve(provisional)
-            return ["pinned": lookup(key)?.store.tab(id: key)?.pinned ?? false]
-        }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) })
+            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+        }, toggle: { [weak self] id, cwd in
+            let chat = self?.resolve(provisional) ?? provisional
+            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+        }, tabState: {
+            // The page reads the state when a chat opens; its changes are pushed.
+            watch.read()
+        }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) picks the side pane's tab or a new split; the app opens there
+            guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }) { [weak self] anchor, created, finished in
+                self?.openBeside(anchor ?? provisional, split: anchor == nil, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork) }, created: created, finished: { _ in finished() }) ?? false }
+        }, openRight: { [weak self] session in guard let self else { return false }; return openRight?(resolve(provisional), session) ?? false
+        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
+            guard let self else { return nil }
+            let chat = resolve(provisional)
+            return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
+                self?.openNewTabColumn(beside: provisional) ?? false
+            }
+        }, preview: { [weak self] url, toggle in
+            let chat = self?.resolve(provisional) ?? provisional
+            let store = self?.lookup(chat)?.store, id = AgentPaneModel.previewAction
+            if toggle { toggles.toggle(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
+            else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
+        }, saveQuickActions: { [weak self] list in
+            await self?.customization.saveQuickActions(list) ?? false
+        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in guard let self, let shown = tab(showing: session, host: lookup(resolve(provisional))?.record.host) else { return false }; _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user)); return true }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }, moveTargets: { [weak self] in
+            self?.machineTargets() ?? []
+        }, moveToMachine: { [weak self] machine, session in
+            guard let self else { return false }
+            // Bound to the chat whose menu the page opened: a tab that shows another chat by now
+            // (the person switched before this was handled) moves nothing.
+            let tab = self.resolve(provisional)
+            guard Self.tabStillShows(self.session(of: tab), requested: session) else { return false }
+            return self.moveAgentToMachine(tab, machine)
+        }, showsChat: { [weak self] session in
+            guard let self else { return false }
+            return Self.tabStillShows(self.session(of: self.resolve(provisional)), requested: session)
+        }) // a chat streams in one tab: an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown; a chat opens only its family (startedBy)
+        // Changes with the chat's turn (D1, D2): the diff beside the chat offers it as Last turn.
+        model.header?.diffTurn = { [weak self] cwd, turn, toggle in
+            let chat = self?.resolve(provisional) ?? provisional
+            let store = self?.lookup(chat)?.store, id = AgentChatSplitToggles.changes, extra = DiffTurnArgument.arguments(turn)
+            if toggle { toggles.toggle(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
+            else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
+        }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }
 
-    /// A tab on `session` in the chat's pane, then moved to a new split on its right
-    /// (`tab.moveToNewSplit`), so the chat stays where it is.
-    private func openSide(_ session: String, beside provisional: String) {
-        guard let (pane, daemon) = locate(resolve(provisional)),
-              let pending = try? open(in: pane, of: daemon, session: session) else { return }
-        // task-owner: one tab creation, then one move of that tab
+    /// [+] New tab's column: a New Tab page in the chat's folder (or `cwd`, New Chat Here), moved to
+    /// a new split on its right unless not `split`. The page's choices
+    /// replace it in whichever pane it is in then. Returns whether the page was started.
+    private func openNewTabColumn(beside provisional: String, cwd: String? = nil, split: Bool = true) -> Bool {
+        let chat = resolve(provisional)
+        // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
+        guard let newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
+        return openBeside(provisional, split: split) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
+    }
+
+    private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
+        AgentSubagentPanes.session(session).open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] in self?.locate($0) != nil }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
+            // The first subagent beside the chat (anchor: the chat) goes through main pane layout before any width check: a chat that is
+            // its screen's main pane reuses the column on its right. Elsewhere the placement stands; the one below splits the subagent's pane.
+            // An unfocused tab in a subagent pane is selected there (shown, focus stays); in the chat's own pane it waits in the strip.
+            place: { [weak self] anchor, placement, created, finished in
+                guard let self else { return false }
+                let open: (PaneID, DaemonService) throws -> AgentTabPending = { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try self.open(in: pane, of: daemon, session: session) }
+                let made: @MainActor (String) -> Void = { [weak self] in created($0); self?.revealTurn(AgentSubagentPanes.reveal(agent), in: $0); if placement == .tab, !focus, anchor != provisional { self?.selectInPane($0) } }
+                if anchor == provisional, let placed = openInMainPane(resolve(provisional), focus, open, made, finished) { return placed }
+                return openBeside(anchor, split: placement != .tab, direction: placement == .down ? "down" : "right", origin: focus ? .user : .script, open: open, created: made, finished: finished) },
+            pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, width: { [weak self] in self?.paneWidth(self?.resolve($0) ?? $0) }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
+    /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
+    /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
+    @discardableResult
+    func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
+        if split, let main, let placed = openInMainPane(resolve(main), origin == .user, open, created, finished) { return placed }
+        guard let (pane, daemon) = locate(resolve(provisional)), let pending = try? open(pane, daemon) else { return false }
+        guard split || created != nil else { return true }
+        // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
         Task { [weak self] in
-            guard let created = try? await pending.value() else { return }
-            let target = ActionTargetRef(kind: .tab, id: created.key)
-            _ = self?.actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(
-                target: target, arguments: ["direction": .string("right")], origin: .user))
+            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { finished?(false); return }; created?(tab.key)
+            // An unfocused (script) tab open, a subagent's past the column's two panes, leaves focus where it is.
+            guard split else { if origin == .user { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin)) }; finished?(false); return }
+            _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction), "keep_focus": .bool(origin == .script)], origin: origin)) // script: an unfocused subagent open
+            if let finished { finished(await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } })) } // stacking waits for the move
         }
+        return true
+    }
+
+    /// Whether a title-menu move for `requested` may run on a tab now showing `shown`: only the
+    /// chat whose menu was opened moves; a tab with no chat or another chat moves nothing.
+    nonisolated static func tabStillShows(_ shown: String?, requested: String) -> Bool {
+        guard let shown, !requested.isEmpty else { return false }
+        return shown == requested
+    }
+
+    /// Whether the title menu may list Cloud move targets: signed in, with the machine list loaded
+    /// for the account signed in now (``CloudService/hasLoadedCurrentMachines``).
+    nonisolated static func offersMoveTargets(signedIn: Bool, loadedCurrent: Bool) -> Bool {
+        signedIn && loadedCurrent
     }
 }

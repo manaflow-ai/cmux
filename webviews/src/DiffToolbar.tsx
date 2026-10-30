@@ -162,12 +162,8 @@ export function SourceMenu({
         <Icon name="chevronDown" />
       </button>
       <span className="source-pill-stats" aria-label={label("diffStats")}>
-        <span className="source-pill-additions" title={label("additions")}>
-          +{additions}
-        </span>
-        <span className="source-pill-deletions" title={label("deletions")}>
-          -{deletions}
-        </span>
+        <span className="source-pill-additions">+{additions}</span>
+        <span className="source-pill-deletions">-{deletions}</span>
       </span>
       {open && style
         ? createPortal(
@@ -298,6 +294,7 @@ function SourceMenuRow({
       data-source-id={entry.id}
       aria-checked={entry.checked}
       aria-disabled={unavailable || undefined}
+      // tooltip-allow: why the option is unavailable
       title={unavailable ? label("optionNeedsHostSupport") : undefined}
       onClick={() => {
         if (!unavailable) onChoose();
@@ -530,11 +527,14 @@ export function FloatingToolbar({
             aria-label={label(button.labelKey)}
             aria-pressed={button.pressed}
             aria-expanded={button.expanded}
+            aria-disabled={button.unavailable || undefined}
             aria-haspopup={button.id === "options" ? "menu" : undefined}
             aria-controls={button.id === "options" && button.expanded ? "options-menu" : undefined}
             tabIndex={index === focusIndex ? 0 : -1}
             onFocus={() => setFocusIndex(index)}
-            onClick={() => onButton(button.id)}
+            onClick={() => {
+              if (!button.unavailable) onButton(button.id);
+            }}
           >
             <Icon name={button.icon} />
           </button>
@@ -562,7 +562,8 @@ function OverflowMenuRow({
       data-option={item.id}
       aria-checked={toggle ? item.checked : undefined}
       aria-disabled={item.available ? undefined : true}
-      title={item.available ? undefined : label("optionNeedsHostSupport")}
+      // tooltip-allow: why the option is unavailable
+      title={item.available ? undefined : label(item.unavailableKey ?? "optionNeedsHostSupport")}
       onClick={() => {
         if (item.available) onChoose();
       }}
@@ -634,7 +635,6 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
         type="button"
         className="file-header-menu-button"
         data-file-header-control=""
-        title={label}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}

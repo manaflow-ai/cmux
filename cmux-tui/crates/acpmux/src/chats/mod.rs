@@ -9,11 +9,14 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+use cmux_json::JsonSet as _;
+
 mod activity;
+pub(crate) mod brand;
 mod open;
 mod query;
 mod settings;
-mod sources;
+pub(crate) mod sources;
 mod watch;
 
 use std::collections::{HashMap, HashSet};
@@ -28,19 +31,30 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 pub use activity::{ChatActivity, activity_change, changes_activity};
+pub use brand::brand_for;
+pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
-pub use query::ChatQuery;
+pub use query::{ChatCursor, ChatQuery};
 pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 
 /// Work run once the chat index has started.
 pub type ChatsWaiter = Box<dyn FnOnce(&Arc<ChatService>) + Send>;
 
+/// One index change and its sequence number: numbered under the index lock
+/// in the order the index applied them, so a page's `seq` (the last change it
+/// contains) and the changes after it never overlap or leave a gap.
+#[derive(Clone, Debug)]
+pub struct SeqChange {
+    pub seq: u64,
+    pub change: ChatChange,
+}
+
 /// The index, its roots and the watcher over them.
 pub struct ChatService {
     sources: ChatSources,
     state: Mutex<State>,
-    changes: broadcast::Sender<Arc<Vec<ChatChange>>>,
+    changes: broadcast::Sender<Arc<Vec<SeqChange>>>,
     /// Connection ids with a live `_acpmux/chats_watch`, each with the
     /// generation of its forwarding task (a re-enable starts a new one).
     watching: Mutex<(u64, HashMap<String, u64>)>,
@@ -55,6 +69,8 @@ struct State {
     settings_refused: Vec<SettingsRefusal>,
     watcher: Option<watch::RootWatcher>,
     watch_errors: Vec<String>,
+    /// The sequence number of the last published change (0: none yet).
+    seq: u64,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -80,6 +96,7 @@ impl ChatService {
                 settings_refused,
                 watcher: None,
                 watch_errors: Vec::new(),
+                seq: 0,
             }),
             changes,
             watching: Mutex::new((0, HashMap::new())),
@@ -89,26 +106,38 @@ impl ChatService {
         let mut state = lock(&service.state);
         state.index.rescan_all();
         service.save(&state.index);
+        state.index.take_structural_change();
         drop(state);
         service
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<Vec<ChatChange>>> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Arc<Vec<SeqChange>>> {
         self.changes.subscribe()
     }
 
     /// One page of chats, newest first, and the cursor of the next page.
     pub fn list(&self, query: &ChatQuery) -> (Vec<Value>, Option<String>) {
+        let (page, next, _) = self.list_at(query);
+        (page, next)
+    }
+
+    /// `list` and the sequence number of the last change the page contains
+    /// (read under the same lock): a watcher applies only changes after it.
+    pub fn list_at(&self, query: &ChatQuery) -> (Vec<Value>, Option<String>, u64) {
         let state = lock(&self.state);
+        let seq = state.seq;
         if !state.settings.enabled {
-            return (Vec::new(), None);
+            return (Vec::new(), None, seq);
         }
         let matching: Vec<&IndexedChat> =
             state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
-        let page: Vec<Value> =
-            matching.iter().skip(query.cursor).take(query.limit).map(|c| chat_value(c)).collect();
-        let next = query.cursor + page.len();
-        (page, (next < matching.len()).then(|| next.to_string()))
+        let start = query.cursor.start(&matching);
+        let held = matching.get(start..).unwrap_or_default();
+        let held = &held[..held.len().min(query.limit)];
+        let page: Vec<Value> = held.iter().map(|c| chat_value(c)).collect();
+        let more = start + held.len() < matching.len();
+        let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
+        (page, next, seq)
     }
 
     pub fn get(&self, key: &ChatKey) -> Option<IndexedChat> {
@@ -123,7 +152,7 @@ impl ChatService {
             .roots()
             .map(|root| {
                 let mut value = serde_json::to_value(root).unwrap_or(Value::Null);
-                value["id"] = Value::String(root.id());
+                value.set("id", Value::String(root.id()));
                 value
             })
             .collect();
@@ -240,10 +269,11 @@ impl ChatService {
         state.watch_errors = errors;
         let old = std::mem::replace(&mut state.watcher, watcher);
         self.save(&state.index);
+        state.index.take_structural_change();
+        self.publish(&mut state, changes);
         drop(state);
         // Stopping a watcher may wait for its event thread: never under the lock.
         drop(old);
-        self.publish(changes);
     }
 
     /// Applies one debounced batch of watcher events. `rescan`: the watcher
@@ -251,8 +281,6 @@ impl ChatService {
     /// roots that hold `paths` (all roots when there are none) scan again.
     pub(crate) fn paths_changed(&self, paths: &[PathBuf], rescan: bool) {
         let mut state = lock(&self.state);
-        let before: HashSet<ChatKey> =
-            state.index.chats().into_iter().map(|chat| chat.entry.key()).collect();
         let mut changes = Vec::new();
         if rescan {
             let ids: Vec<String> = state
@@ -270,20 +298,13 @@ impl ChatService {
                 changes.extend(state.index.rescan_root(&id));
             }
         }
-        for path in paths {
-            changes.extend(state.index.path_changed(path));
-        }
+        changes.extend(state.index.paths_changed(paths));
         // The cache keeps read offsets with their counts, so a restart is
         // correct from any saved state; save only when the chat set changed.
-        let structural = changes.iter().any(|change| match change {
-            ChatChange::Removed { .. } => true,
-            ChatChange::Upsert { chat } => !before.contains(&chat.entry.key()),
-        });
-        if structural {
+        if state.index.take_structural_change() {
             self.save(&state.index);
         }
-        drop(state);
-        self.publish(changes);
+        self.publish(&mut state, changes);
     }
 
     /// Marks `conn` watching. Returns the generation of a new forwarding
@@ -313,10 +334,21 @@ impl ChatService {
         lock(&self.watching).1.get(conn) == Some(&generation)
     }
 
-    fn publish(&self, changes: Vec<ChatChange>) {
-        if !changes.is_empty() {
-            let _ = self.changes.send(Arc::new(changes));
+    /// Numbers `changes` and sends them, under the index lock (a broadcast
+    /// send never blocks), so a page read under the lock sees exactly the
+    /// changes up to its `seq`.
+    fn publish(&self, state: &mut State, changes: Vec<ChatChange>) {
+        if changes.is_empty() {
+            return;
         }
+        let numbered = changes
+            .into_iter()
+            .map(|change| {
+                state.seq += 1;
+                SeqChange { seq: state.seq, change }
+            })
+            .collect();
+        let _ = self.changes.send(Arc::new(numbered));
     }
 
     fn save(&self, index: &ChatIndex) {
@@ -394,19 +426,25 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
     (!session_id.is_empty()).then(|| ChatKey { harness, session_id: session_id.to_owned() })
 }
 
+/// A chat as clients get it: the index entry, its `key`, and its `brand`
+/// (the agent mark id from design/agent-icons, or null), so no client maps
+/// harness ids to marks per chat.
 pub fn chat_value(chat: &IndexedChat) -> Value {
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
-    value["key"] = Value::String(key_text(&chat.entry.key()));
+    let key = chat.entry.key();
+    value.set("brand", json!(brand::harness_brand(key.harness)));
+    value.set("key", Value::String(key_text(&key)));
     value
 }
 
-/// The `_acpmux/chat_changed` params of one change.
-pub fn change_value(change: &ChatChange) -> Value {
-    match change {
-        ChatChange::Upsert { chat } => {
-            json!({"kind": "upsert", "key": key_text(&chat.entry.key()), "chat": chat_value(chat)})
-        }
-        ChatChange::Removed { key } => json!({"kind": "removed", "key": key_text(key)}),
+/// The `_acpmux/chat_changed` params of one change, with its `seq`.
+pub fn change_value(numbered: &SeqChange) -> Value {
+    let seq = numbered.seq;
+    match &numbered.change {
+        ChatChange::Upsert { chat } => json!({
+            "kind": "upsert", "seq": seq, "key": key_text(&chat.entry.key()), "chat": chat_value(chat)
+        }),
+        ChatChange::Removed { key } => json!({"kind": "removed", "seq": seq, "key": key_text(key)}),
     }
 }
 

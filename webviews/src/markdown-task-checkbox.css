@@ -15,8 +15,7 @@
   );
   border-radius: 4px;
   background: transparent;
-  color: #fff;
-  cursor: default;
+  color: var(--cmux-markdown-checkbox-ink, Canvas);
   pointer-events: none;
   vertical-align: top;
 }
@@ -32,7 +31,7 @@
   width: 10px;
   height: 10px;
   overflow: visible;
-  color: #fff;
+  color: var(--cmux-markdown-checkbox-ink, Canvas);
   stroke: currentColor;
   stroke-width: 1.8;
   stroke-linecap: round;

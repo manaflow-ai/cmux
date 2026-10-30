@@ -15,6 +15,11 @@ impl ReaderCompletion {
         *self.finished.lock().unwrap() = false;
     }
 
+    /// Whether the reader thread has ended.
+    pub(super) fn is_complete(&self) -> bool {
+        *self.finished.lock().unwrap()
+    }
+
     pub(super) fn complete(&self) {
         let mut finished = self.finished.lock().unwrap();
         *finished = true;
@@ -57,6 +62,9 @@ impl PtyTerminalRuntime {
         bytes: &[u8],
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         let mut metadata = self.terminal_metadata.lock().unwrap();
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
         metadata.observe_output(bytes);
         metadata.take_admitted_notifications(Instant::now())
     }
@@ -65,13 +73,21 @@ impl PtyTerminalRuntime {
     /// `recording` false (the default) marks are dropped, any running command
     /// is forgotten, and nothing is read from the screen. The command line
     /// comes from Ghostty's semantic input cells, so a command typed before
-    /// recording turned on is still read whole at `C`.
+    /// recording turned on is still read whole at `C`. It also notes whether
+    /// a running command set the terminal up for interactive use
+    /// (`terminal-activity-v1` `in_use`), recording or not.
     pub(super) fn observe_shell_marks(
         &self,
         term: &mut Terminal,
         recording: impl FnOnce() -> bool,
     ) -> Vec<crate::shell_history::FinishedCommand> {
-        let marks = self.terminal_metadata.lock().unwrap().take_shell_marks();
+        let marks = {
+            let mut metadata = self.terminal_metadata.lock().unwrap();
+            // The modes after this output: a running command that took the
+            // terminal for interaction is `in_use`, not `running`.
+            metadata.observe_modes(|| crate::terminal_activity::terminal_modes(term));
+            metadata.take_shell_marks()
+        };
         if marks.is_empty() {
             return Vec::new();
         }
@@ -148,7 +164,8 @@ impl PtyTerminalRuntime {
 /// projectable into any number of panes without cloning its PTY or VT state.
 ///
 /// Lock order (outer first): `Mux::state` -> `kitty_limits_request` ->
-/// `geometry` -> `term` -> `runtime` -> `kitty_graphics_limits` -> `taps` ->
+/// `geometry` -> local output parser (direct PTYs only) -> `term` ->
+/// `runtime` -> `kitty_graphics_limits` -> `taps` ->
 /// leaf locks (`render`, `title`, `mouse_encoders`, `last_attach_colors`,
 /// `Mux::default_colors`, ...). These locks carry the ranks
 /// `LockRank::{MuxState, KittyLimitsRequest, Geometry, Terminal, Runtime,
@@ -172,6 +189,11 @@ pub struct PtyTerminalRuntime {
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
+    /// Shared read/parser state for a direct PTY. A geometry transaction drains
+    /// its queued bytes before TIOCSWINSZ, using the reader's normalizer and
+    /// observer path. Holder streams and byte backends are not direct PTYs.
+    #[cfg(unix)]
+    pub(super) local_output: Option<Arc<Mutex<local_output::LocalOutput>>>,
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     pub(super) journal_capture_epoch: AtomicU64,
@@ -195,7 +217,7 @@ pub struct PtyTerminalRuntime {
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
     pub(super) terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
-    /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
+    /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
     pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
@@ -206,9 +228,9 @@ pub struct PtyTerminalRuntime {
     pub(super) lifetime: PtyLifetime,
     pub(super) supports_clear_history_key_fallback: AtomicBool,
     pub(super) host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) host_exit_record_path: Option<PathBuf>,
     pub(super) pid: Option<u32>,
     pub(super) command: Vec<String>,
@@ -225,6 +247,10 @@ pub struct PtyTerminalRuntime {
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,
+    /// Why this terminal runs in the daemon process although terminal hosts
+    /// are on (cx-ko2e); unset for a hosted terminal and for every terminal
+    /// where hosts are off. Set before the surface is published.
+    pub(super) host_fallback: std::sync::OnceLock<TerminalHostFallback>,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,
@@ -276,7 +302,7 @@ pub struct PtyTerminalRuntime {
     /// every protocol-v7 render attachment.
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
-    pub(super) frame_requests: SyncSender<u64>,
+    pub(super) frame_requests: frame_producer::FrameRequests,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }
@@ -292,10 +318,14 @@ pub(super) enum PtyRuntime {
         writer: Box<dyn Write + Send>,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
+        /// The holder runs this terminal's shell (`holder_runtime`): a
+        /// daemon shutdown detaches instead of killing it.
+        #[cfg(unix)]
+        holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
     },
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     ExitedHosted,
 }
 

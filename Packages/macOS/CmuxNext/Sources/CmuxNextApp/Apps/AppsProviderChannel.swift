@@ -2,59 +2,8 @@ import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
+import Observation
 import os
-
-/// One `apps-provider-request` from the app supervisor (app-op-routing.md):
-/// an app's call to an op the daemon does not own, already checked against
-/// the app's scopes, grants and gesture tokens. The Mac answers it with its
-/// owner handler (``AppHostCapabilities``) and replies with
-/// `apps-provider-result`.
-nonisolated struct RoutedAppCall: Sendable, Equatable {
-    var requestID: UInt64
-    var app: String
-    var op: String
-    var params: AppJSON
-    /// `user` inside a gesture, else `script` (the supervisor's stamp; any other value counts as `script`).
-    var origin: String
-
-    /// Reads the event; nil when a field is missing.
-    init?(_ payload: AppJSON) {
-        guard let id = payload["request_id"]?.numberValue.flatMap({ UInt64(exactly: $0) }), let app = payload["app"]?.stringValue,
-              let op = payload["op"]?.stringValue else { return nil }
-        requestID = id
-        self.app = app
-        self.op = op
-        params = payload["params"] ?? .object([:])
-        origin = payload["origin"]?.stringValue == "user" ? "user" : "script"
-    }
-
-    /// The `{ok, body}` of the answer: the ABI result body `{value}` around
-    /// the handler's value, or the ABI error body `{code, message,
-    /// retryable, details?}` (an op without a handler is
-    /// `operation.unsupported`). The app's `cmux.call` resolves to
-    /// `body.value` and the daemon passes an object body through as is, so a
-    /// bare object answer resolved every Mac-side op to `undefined` (the
-    /// CodeRouter page stayed on "Loading…").
-    func answer(with capabilities: AppHostCapabilities) async -> (ok: Bool, body: AppJSON) {
-        do throws(AppHostCapabilityError) {
-            let value = try await capabilities.handle(AppHostCapabilityRequest(app: app, op: op, params: params, origin: origin))
-            return (true, .object(["value": value]))
-        } catch {
-            return (false, Self.errorBody(code: error.code, message: error.message, retryable: error.retryable, details: error.details))
-        }
-    }
-
-    /// The answer while an administrator turned apps off on this Mac.
-    static func disabledAnswer(_ reason: String) -> (ok: Bool, body: AppJSON) {
-        (false, errorBody(code: "apps.disabled", message: reason, retryable: false, details: nil))
-    }
-
-    static func errorBody(code: String, message: String, retryable: Bool, details: AppJSON?) -> AppJSON {
-        var body: [String: AppJSON] = ["code": .string(code), "message": .string(message), "retryable": .bool(retryable)]
-        if let details { body["details"] = details }
-        return .object(body)
-    }
-}
 
 /// How the provider channel reaches the supervisor (the local daemon's
 /// connection; a fake in tests). A connection is an opaque object: a call is
@@ -68,27 +17,47 @@ struct AppsProviderLink {
     var register: (_ connection: AnyObject, _ families: [String]) async -> String?
     /// `apps-provider-result` on `connection`.
     var answer: (_ connection: AnyObject, _ requestID: UInt64, _ ok: Bool, _ body: AppJSON) async -> Void
+    /// Invalidates the inventory generation synchronously when this provider changes carrier.
+    var reset: () -> Void = {}
+    /// Whether an original event belongs to the captured registration carrier.
+    var accepts: (DaemonEventEnvelope) -> Bool = { _ in true }
 
     /// Over `daemon`'s connections.
-    static func daemon(_ daemon: DaemonService) -> AppsProviderLink {
-        AppsProviderLink(connection: { [weak daemon] in daemon?.connection }, register: { connection, families in
-            guard let connection = connection as? DaemonConnection else { return "not_connected" }
+    static func daemon(_ daemon: DaemonService, inventory: AgentInventoryProviderBridge) -> AppsProviderLink {
+        var registered: AppProviderSession?
+        return AppsProviderLink(connection: { [weak daemon] in (registered as AnyObject?) ?? daemon?.connection }, register: { [weak daemon] connection, families in
+            var session: AppProviderSession?
             do {
-                _ = try await connection.request(AppsProviderRegisterRequest(families: families))
+                guard let stamp = daemon?.store.sideEvents.controlStamp else { return "not_connected" }
+                let captured: AppProviderSession
+                if let pinned = connection as? AppProviderSession { captured = pinned }
+                else if let connection = connection as? DaemonConnection { captured = try await AppProviderSession(connection: connection, expectedStamp: stamp) }
+                else { return "not_connected" }
+                session = captured
+                guard !Task.isCancelled, daemon?.store.sideEvents.controlStamp == stamp,
+                      captured.sourceID == stamp.sourceID, captured.serial == stamp.serial else { return "not_connected" }
+                registered = captured
+                inventory.begin(captured)
+                let snapshot = try await captured.register(families: families)
+                inventory.registered(captured, snapshot: snapshot)
                 return nil
             } catch DaemonError.command(_, _, let code, _, _) {
+                inventory.rejected(session)
                 return code ?? "refused"
             } catch DaemonError.timedOut {
+                inventory.rejected(session)
                 return "timeout"
             } catch DaemonError.notConnected, DaemonError.connectionClosed, DaemonError.daemonShutdown {
+                inventory.rejected(session)
                 return "not_connected"
             } catch {
+                inventory.rejected(session)
                 return "failed"
             }
         }, answer: { connection, id, ok, body in
-            guard let connection = connection as? DaemonConnection else { return }
-            _ = try? await connection.request(AppsProviderResultRequest(requestID: id, ok: ok, body: body.daemonValue))
-        })
+            guard let connection = connection as? AppProviderSession else { return }
+            try? await connection.answer(requestID: id, ok: ok, body: body.daemonValue)
+        }, reset: { registered = nil; inventory.reset() }, accepts: { registered?.matches($0) == true })
     }
 }
 
@@ -103,9 +72,13 @@ struct AppsProviderLink {
 /// holds a family (`apps.provider.taken`) or by a transient failure is tried
 /// again on the same connection with exponential backoff, one at a time.
 @MainActor
+@Observable
 final class AppsProviderChannel {
     /// Refusals tried again on the same connection.
     static let retried: Set<String> = ["apps.provider.taken", "failed", "not_connected", "timeout"]
+    /// Families newer daemons know (`apps/provider.rs` `FAMILIES`); an older daemon's
+    /// `bad-request` registers again without them.
+    static let newerFamilies: Set<String> = ["memory"]
 
     /// Spacing of registration retries: 0.5 s doubling, at most 30 s, jittered.
     nonisolated static let registerBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
@@ -122,7 +95,7 @@ final class AppsProviderChannel {
     /// The connection epoch the families are registered on (set on success only).
     private var registeredEpoch: Int?
     /// The registration in flight or waiting for its retry (one at a time).
-    private var registering: Task<Void, Never>?
+    @ObservationIgnored private var registering: Task<Void, Never>?
     private var epoch: Int?
     /// DisabledFeatures `apps`: the reason every call is refused with.
     var turnedOff: String? {
@@ -146,6 +119,7 @@ final class AppsProviderChannel {
     /// families registered again.
     func connectionChanged(epoch: Int?) {
         if epoch != self.epoch {
+            link.reset()
             for call in running.values { call.task.cancel() }
             running.removeAll()
             registering?.cancel()
@@ -176,7 +150,13 @@ final class AppsProviderChannel {
     }
 
     var isRegistered: Bool { registeredEpoch != nil && registeredEpoch == epoch }
-    var runningCount: Int { running.count }
+
+    /// Source-aware production entrypoint; a retained old event cannot become a new call.
+    func handle(_ envelope: DaemonEventEnvelope) -> Bool {
+        guard case .unknown(let name, let payload) = envelope.event else { return false }
+        guard link.accepts(envelope) else { return name.hasPrefix("apps-provider-") }
+        return handle(name: name, payload: payload)
+    }
 
     /// The policy turned apps off: every running call ends with `apps.disabled`, on its own connection.
     private func answerRunningDisabled(_ reason: String) {
@@ -193,16 +173,25 @@ final class AppsProviderChannel {
 
     private func register() {
         guard let capabilities, let epoch, registeredEpoch != epoch, registering == nil else { return }
-        let families = capabilities.families.sorted()
+        let all = capabilities.families.sorted()
         // task-owner: the connection's registration with its retries; a new epoch cancels it
         registering = Task { [weak self, link, backoff, logger] in
             var backoff = backoff
+            var families = all
             while let connection = link.connection() {
                 guard let refused = await link.register(connection, families) else {
                     guard !Task.isCancelled, let self, self.epoch == epoch else { return }
                     registeredEpoch = epoch
                     registering = nil
                     return
+                }
+                // A daemon from before a family existed refuses the whole registration; keep the
+                // families it knows rather than losing them all (it restarts on the next handoff).
+                if refused == "bad-request", families.contains(where: AppsProviderChannel.newerFamilies.contains) {
+                    families.removeAll(where: AppsProviderChannel.newerFamilies.contains)
+                    logger.info("apps-provider-register refused: bad-request; registering without the newer families")
+                    if families.isEmpty { return }
+                    continue
                 }
                 guard AppsProviderChannel.retried.contains(refused) else {
                     logger.error("apps-provider-register refused: \(refused, privacy: .public); next connection tries again")

@@ -18,10 +18,6 @@ public nonisolated enum AppTier: String, Sendable, Hashable, Codable, CaseIterab
         case .unverified: .contained
         }
     }
-
-    /// Whether the install shows a consent sheet (first-party installs
-    /// grant required scopes without one and list them in Settings).
-    public var showsConsentSheet: Bool { self != .firstParty }
 }
 
 /// How a sandbox profile caps a grant (section 5.2). Ordered from the

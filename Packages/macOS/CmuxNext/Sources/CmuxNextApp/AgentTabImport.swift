@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -24,7 +25,7 @@ enum AgentTabImport {
         let store = services.daemon.store
         // task-owner: one-shot, ends after the first load
         Task {
-            for await loaded in Observations({ store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
                 guard let windowState = services.daemon.windowState else { return }
                 await run(services, windowState: windowState)
                 return
@@ -36,7 +37,7 @@ enum AgentTabImport {
         guard let document = try? await windowState.load(), !document.legacyAgentTabs.isEmpty else { return }
         // A pane no tree lists is dropped only when every machine's tree is live, so a remote
         // machine that has not loaded yet keeps its records for the next launch.
-        let everyTreeLive = services.machines.daemons.allSatisfy { AgentTabStore.liveTabs($0.store) != nil }
+        let everyTreeLive = services.machines.daemons.allSatisfy { $0.store.liveTabListRevision != nil }
         var renamed: [String: String] = [:]
         var remaining: [String: [AgentTabRecord]] = [:]
         for (paneKey, records) in document.legacyAgentTabs {

@@ -1,4 +1,5 @@
 import SwiftUI
+import CmuxNextDesign
 
 /// Why a task needs attention, as a colored dot.
 struct AttentionDot: View {
@@ -8,7 +9,7 @@ struct AttentionDot: View {
     var body: some View {
         if let attention {
             Circle().fill(color(attention)).frame(width: 7, height: 7)
-                .help(label(attention))
+                .themedHelp(label(attention))
         }
     }
 

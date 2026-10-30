@@ -23,7 +23,8 @@ impl Daemon {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-projects-{name}-{}-{stamp}", std::process::id()));
-        fs::create_dir_all(dir.join("home")).unwrap();
+        // The Codex home exists at start, so the daemon watches it.
+        fs::create_dir_all(dir.join("home/.codex")).unwrap();
         let socket = dir.join("mux.sock");
         let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["--headless", "--socket"])
@@ -35,6 +36,7 @@ impl Daemon {
             .env("HOME", dir.join("home"))
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("XDG_DATA_HOME")
+            .env_remove("CODEX_HOME")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -76,6 +78,23 @@ impl Daemon {
                 } else {
                     Err(reply["error"].clone())
                 };
+            }
+        }
+    }
+
+    /// The daemon's build-level capabilities from a raw `identify`.
+    fn capabilities(&self) -> Vec<Value> {
+        let stream = transport::connect(&self.socket).unwrap();
+        let mut writer = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(stream);
+        writeln!(writer, "{}", json!({"id": 1, "cmd": "identify"})).unwrap();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            assert!(reader.read_line(&mut line).unwrap() > 0, "identify: connection closed");
+            let reply: Value = serde_json::from_str(line.trim()).unwrap();
+            if reply["id"] == 1 {
+                return reply["data"]["capabilities"].as_array().cloned().unwrap_or_default();
             }
         }
     }
@@ -301,4 +320,346 @@ fn projects_daemon_sync_imports_vscode_family_and_zed_recents() {
     let web = projects.iter().find(|project| project["path"] == "/srv/cx-m0p7-editors/My Web");
     assert!(web.is_none_or(|web| web["sources"]["cursor"].is_null()), "{projects:?}");
     assert!(find(&projects, "/srv/cx-m0p7-editors/app")["sources"]["cursor"].is_object());
+}
+
+#[test]
+fn projects_daemon_sync_imports_codex_app_t3code_and_conductor_projects() {
+    let daemon = Daemon::start("apps");
+    let home = daemon.dir.join("home");
+    let (config, _) = editor_dirs(&home);
+
+    // The Codex desktop app: a project made there, and a folder opened without one.
+    fs::create_dir_all(home.join(".codex")).unwrap();
+    fs::write(
+        home.join(".codex/.codex-global-state.json"),
+        r#"{"local-projects":{"local-1":{"id":"local-1","name":"Site","rootPaths":["/srv/cx-m0p7-apps/site"],
+            "createdAt":1784592037656,"updatedAt":1784592037656}},
+            "electron-saved-workspace-roots":["/srv/cx-m0p7-apps/site","/srv/cx-m0p7-apps/loose"]}"#,
+    )
+    .unwrap();
+    // t3code: a live project and a deleted one.
+    fs::create_dir_all(home.join(".t3/userdata")).unwrap();
+    let db = rusqlite::Connection::open(home.join(".t3/userdata/statev2.sqlite")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, title TEXT NOT NULL,
+           workspace_root TEXT NOT NULL, scripts_json TEXT NOT NULL, created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL, deleted_at TEXT);
+         INSERT INTO projection_projects VALUES ('p1', 'T3', '/srv/cx-m0p7-apps/t3', '[]',
+           '2026-03-25T03:56:09.344Z', '2026-10-06T09:20:40.009Z', NULL);
+         INSERT INTO projection_projects VALUES ('p2', 'Old', '/srv/cx-m0p7-apps/old', '[]',
+           '2026-03-25T03:56:09.344Z', '2026-03-25T03:56:09.344Z', '2026-04-01T00:00:00.000Z');",
+    )
+    .unwrap();
+    drop(db);
+    // Conductor: a shown repo and a hidden one.
+    fs::create_dir_all(config.join("com.conductor.app")).unwrap();
+    let db = rusqlite::Connection::open(config.join("com.conductor.app/conductor.db")).unwrap();
+    db.execute_batch(
+        "CREATE TABLE repos (id TEXT PRIMARY KEY, name TEXT, root_path TEXT,
+           created_at TEXT NOT NULL, updated_at TEXT NOT NULL, hidden INTEGER DEFAULT 0);
+         INSERT INTO repos VALUES ('r1', 'cond', '/srv/cx-m0p7-apps/cond', '2026-04-16 08:50:04', '2026-04-16 08:50:04', 0);
+         INSERT INTO repos VALUES ('r2', 'hid', '/srv/cx-m0p7-apps/hid', '2026-04-16 08:50:04', '2026-04-16 08:50:04', 1);",
+    )
+    .unwrap();
+    drop(db);
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "a-1");
+    let projects = daemon.list(json!({}));
+    let mut paths: Vec<&str> =
+        projects.iter().filter_map(|project| project["path"].as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![
+            "/srv/cx-m0p7-apps/cond",
+            "/srv/cx-m0p7-apps/loose",
+            "/srv/cx-m0p7-apps/site",
+            "/srv/cx-m0p7-apps/t3"
+        ],
+        "{projects:?}"
+    );
+    let site = find(&projects, "/srv/cx-m0p7-apps/site");
+    assert_eq!(site["sources"]["codex-app"]["last_used_ms"], "1784592037656", "{site}");
+    assert_eq!(
+        find(&projects, "/srv/cx-m0p7-apps/t3")["sources"]["t3code"]["last_used_ms"],
+        "1791278440009"
+    );
+    assert!(find(&projects, "/srv/cx-m0p7-apps/cond")["sources"]["conductor"].is_object());
+}
+
+#[test]
+fn projects_daemon_rejects_an_oversized_codex_project_source() {
+    let daemon = Daemon::start("oversized-codex");
+    let state = daemon.dir.join("home/.codex/.codex-global-state.json");
+    let mut file = fs::File::create(&state).unwrap();
+    file.write_all(
+        br#"{"local-projects":{"p":{"rootPaths":["/srv/cx-m0p7-oversized/codex"],"updatedAt":1}},"padding":""#,
+    )
+    .unwrap();
+    let block = vec![b'x'; 1024 * 1024];
+    for _ in 0..33 {
+        file.write_all(&block).unwrap();
+    }
+    file.write_all(br#""}"#).unwrap();
+    drop(file);
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "oversized-codex");
+    let projects = daemon.list(json!({"include_hidden": true}));
+    assert!(
+        projects.iter().all(|project| project["path"] != "/srv/cx-m0p7-oversized/codex"),
+        "an oversized source must not be materialized: {projects:?}"
+    );
+}
+
+#[test]
+fn projects_daemon_keeps_the_last_complete_conductor_list_when_the_next_one_is_overfull() {
+    let daemon = Daemon::start("overfull-conductor");
+    let (config, _) = editor_dirs(&daemon.dir.join("home"));
+    let folder = config.join("com.conductor.app");
+    fs::create_dir_all(&folder).unwrap();
+    let database = folder.join("conductor.db");
+    let db = rusqlite::Connection::open(&database).unwrap();
+    db.execute_batch(
+        "CREATE TABLE repos (id TEXT PRIMARY KEY, name TEXT, root_path TEXT,
+           created_at TEXT NOT NULL, updated_at TEXT NOT NULL, hidden INTEGER DEFAULT 0);
+         INSERT INTO repos VALUES ('keep', 'keep', '/srv/cx-m0p7-overfull/keep',
+           '2026-10-20 00:00:00', '2026-10-20 00:00:00', 0);",
+    )
+    .unwrap();
+    drop(db);
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "conductor-complete");
+    assert!(
+        find(&daemon.list(json!({})), "/srv/cx-m0p7-overfull/keep")["sources"]["conductor"]
+            .is_object()
+    );
+
+    let db = rusqlite::Connection::open(&database).unwrap();
+    db.execute_batch(
+        "WITH RECURSIVE numbers(value) AS (
+           VALUES(1) UNION ALL SELECT value + 1 FROM numbers WHERE value <= 10000
+         )
+         INSERT INTO repos(id, name, root_path, created_at, updated_at, hidden)
+         SELECT 'overflow-' || value, 'overflow', '/srv/cx-m0p7-overfull/' || value,
+                '2026-10-20 00:00:00', '2026-10-20 00:00:00', 0 FROM numbers;",
+    )
+    .unwrap();
+    drop(db);
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "conductor-overfull");
+
+    let projects = daemon.list(json!({"include_hidden": true}));
+    let paths: Vec<&str> = projects.iter().filter_map(|project| project["path"].as_str()).collect();
+    assert_eq!(
+        paths,
+        ["/srv/cx-m0p7-overfull/keep"],
+        "the incomplete scan replaced the last good list"
+    );
+}
+
+#[test]
+fn projects_daemon_keeps_the_last_complete_lists_when_source_cells_exceed_their_budgets() {
+    let daemon = Daemon::start("oversized-source-cells");
+    let (config, zed) = editor_dirs(&daemon.dir.join("home"));
+
+    let conductor_folder = config.join("com.conductor.app");
+    fs::create_dir_all(&conductor_folder).unwrap();
+    let conductor_path = conductor_folder.join("conductor.db");
+    let conductor = rusqlite::Connection::open(&conductor_path).unwrap();
+    conductor
+        .execute_batch(
+            "CREATE TABLE repos (id TEXT PRIMARY KEY, root_path TEXT, updated_at TEXT NOT NULL,
+               hidden INTEGER DEFAULT 0);
+             INSERT INTO repos VALUES ('keep', '/srv/cx-m0p7-cell/conductor',
+               '2026-10-20 00:00:00', 0);",
+        )
+        .unwrap();
+
+    let zed_folder = zed.join("db/0-stable");
+    fs::create_dir_all(&zed_folder).unwrap();
+    let zed_path = zed_folder.join("db.sqlite");
+    let zed = rusqlite::Connection::open(&zed_path).unwrap();
+    zed.execute_batch(
+        "CREATE TABLE workspaces (workspace_id INTEGER PRIMARY KEY, paths TEXT,
+           remote_connection_id INTEGER, timestamp TEXT NOT NULL);
+         INSERT INTO workspaces VALUES (1, '/srv/cx-m0p7-cell/zed', NULL,
+           '2026-10-20 00:00:00');",
+    )
+    .unwrap();
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "cells-complete");
+    let complete = daemon.list(json!({}));
+    assert!(find(&complete, "/srv/cx-m0p7-cell/conductor")["sources"]["conductor"].is_object());
+    assert!(find(&complete, "/srv/cx-m0p7-cell/zed")["sources"]["zed"].is_object());
+
+    // Each store changes in one transaction: the daemon's source watch may
+    // read between two statements, and an emptied table is a complete, empty
+    // list (the source's projects gone), not the oversized cell under test.
+    conductor.execute_batch("BEGIN IMMEDIATE; DELETE FROM repos;").unwrap();
+    conductor
+        .execute(
+            "INSERT INTO repos VALUES ('large', ?1, '2026-10-20 00:00:00', 0)",
+            [format!("/{}", "x".repeat(4096))],
+        )
+        .unwrap();
+    conductor.execute_batch("COMMIT").unwrap();
+    drop(conductor);
+
+    zed.execute_batch("BEGIN IMMEDIATE; DELETE FROM workspaces;").unwrap();
+    let large_cell = format!("/{}", "x".repeat(4 * 1024 * 1024 - 1));
+    for id in 1..=9 {
+        zed.execute(
+            "INSERT INTO workspaces VALUES (?1, ?2, NULL, '2026-10-20 00:00:00')",
+            rusqlite::params![id, large_cell],
+        )
+        .unwrap();
+    }
+    zed.execute_batch("COMMIT").unwrap();
+    drop(zed);
+
+    daemon.mutate("project.sync", json!({"existing": [], "gone": []}), "cells-oversized");
+    let projects = daemon.list(json!({"include_hidden": true}));
+    assert!(
+        find(&projects, "/srv/cx-m0p7-cell/conductor")["sources"]["conductor"].is_object(),
+        "an oversized Conductor cell replaced its last complete list: {projects:?}"
+    );
+    assert!(
+        find(&projects, "/srv/cx-m0p7-cell/zed")["sources"]["zed"].is_object(),
+        "an oversized aggregate Zed result replaced its last complete list: {projects:?}"
+    );
+}
+
+#[test]
+fn projects_daemon_watch_picks_up_a_new_codex_app_project_and_keeps_user_edits() {
+    let daemon = Daemon::start("watch");
+    let state = daemon.dir.join("home/.codex/.codex-global-state.json");
+    let write_projects = |roots: &[&str]| {
+        let projects: serde_json::Map<String, Value> = roots
+            .iter()
+            .enumerate()
+            .map(|(index, root)| {
+                (format!("local-{index}"), json!({"id": format!("local-{index}"), "name": "p",
+                    "rootPaths": [root], "createdAt": 1_784_592_037_656_i64, "updatedAt": 1_784_592_037_656_i64}))
+            })
+            .collect();
+        // The app writes a temporary file and renames it over the state file.
+        let temporary = daemon.dir.join("home/.codex/..codex-global-state.json.tmp-1");
+        fs::write(&temporary, json!({"local-projects": projects}).to_string()).unwrap();
+        fs::rename(&temporary, &state).unwrap();
+    };
+    let wait_for = |what: &str, done: &dyn Fn(&[Value]) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let projects = daemon.list(json!({"include_hidden": true}));
+            if done(&projects) {
+                return projects;
+            }
+            assert!(Instant::now() < deadline, "{what}: {projects:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+
+    // The chat index already reported the folder (source codex).
+    let app = "/srv/cx-m0p7-watch/app";
+    daemon.mutate(
+        "project.observe",
+        json!({"source": "codex", "entries": [{"path": app, "last_used_ms": "5"}], "complete": true}),
+        "w-1",
+    );
+    // A project made in the app after the import: it appears, merged with the
+    // chat index's row (no duplicate).
+    write_projects(&[app, "/srv/cx-m0p7-watch/new"]);
+    let projects = wait_for("the new project appears", &|projects| {
+        projects.iter().any(|project| project["path"] == "/srv/cx-m0p7-watch/new")
+    });
+    assert_eq!(projects.iter().filter(|project| project["path"] == app).count(), 1, "{projects:?}");
+    let merged = find(&projects, app);
+    assert!(
+        merged["sources"]["codex"].is_object() && merged["sources"]["codex-app"].is_object(),
+        "{merged}"
+    );
+
+    // The user's rename and removal win over the next resync.
+    daemon.mutate("project.update", json!({"path": app, "rename": "Mine"}), "w-2");
+    daemon.mutate("project.remove", json!({"path": "/srv/cx-m0p7-watch/new"}), "w-3");
+    write_projects(&[app, "/srv/cx-m0p7-watch/new", "/srv/cx-m0p7-watch/third"]);
+    let projects = wait_for("the third project appears", &|projects| {
+        projects.iter().any(|project| project["path"] == "/srv/cx-m0p7-watch/third")
+    });
+    assert_eq!(find(&projects, app)["name"], "Mine");
+    assert_eq!(find(&projects, "/srv/cx-m0p7-watch/new")["overlay"]["hidden"], true);
+    assert!(
+        daemon.list(json!({})).iter().all(|project| project["path"] != "/srv/cx-m0p7-watch/new")
+    );
+}
+
+#[test]
+fn projects_daemon_a_source_turned_off_leaves_and_is_ignored_until_turned_on() {
+    let daemon = Daemon::start("toggles");
+    let capabilities = daemon.capabilities();
+    for capability in ["project-list-v1", "project-sources-v1"] {
+        assert!(capabilities.contains(&json!(capability)), "{capability} in {capabilities:?}");
+    }
+    let both = "/srv/cx-m0p7-toggles/both";
+    let only = "/srv/cx-m0p7-toggles/only-claude";
+    let edited = "/srv/cx-m0p7-toggles/edited";
+    let report = |entries: Value, key: &str| {
+        daemon.mutate(
+            "project.observe",
+            json!({"source": "claude-code", "entries": entries, "complete": true}),
+            key,
+        )
+    };
+    report(
+        json!([{"path": both, "last_used_ms": "1"}, {"path": only, "last_used_ms": "1"}, {"path": edited, "last_used_ms": "1"}]),
+        "t-1",
+    );
+    daemon.mutate(
+        "project.observe",
+        json!({"source": "codex", "entries": [{"path": both, "last_used_ms": "2"}]}),
+        "t-2",
+    );
+    daemon.mutate("project.update", json!({"path": edited, "pinned": true}), "t-3");
+
+    daemon.mutate(
+        "project.source.update",
+        json!({"source": "claude-code", "enabled": false}),
+        "t-4",
+    );
+    let list = daemon.send("project.list", json!({"include_hidden": true}), None).unwrap();
+    let projects = list["projects"].as_array().cloned().unwrap();
+    assert!(
+        projects.iter().all(|project| project["path"] != only),
+        "only Claude listed it: it goes: {projects:?}"
+    );
+    assert_eq!(
+        find(&projects, both)["sources"],
+        json!({"codex": find(&projects, both)["sources"]["codex"]})
+    );
+    assert!(
+        find(&projects, edited)["overlay"]["pinned"] == true,
+        "an edited project keeps its edits"
+    );
+    let sources = list["sources"].as_array().cloned().unwrap();
+    let claude = sources.iter().find(|source| source["id"] == "claude-code").unwrap();
+    assert_eq!(claude["enabled"], false, "{sources:?}");
+    assert_eq!(claude["projects"], 0);
+    assert_eq!(sources.iter().find(|source| source["id"] == "codex").unwrap()["projects"], 1);
+
+    // Its reports are ignored while it is off (the user wins), and count again once on.
+    report(json!([{"path": only, "last_used_ms": "3"}]), "t-5");
+    assert!(daemon.list(json!({})).iter().all(|project| project["path"] != only));
+    daemon.mutate(
+        "project.source.update",
+        json!({"source": "claude-code", "enabled": true}),
+        "t-6",
+    );
+    report(json!([{"path": only, "last_used_ms": "4"}]), "t-7");
+    assert!(find(&daemon.list(json!({})), only)["sources"]["claude-code"].is_object());
+
+    // The user source cannot be turned off.
+    let refused = daemon.send(
+        "project.source.update",
+        json!({"source": "user", "enabled": false}),
+        Some("t-8"),
+    );
+    assert_eq!(refused.unwrap_err()["code"], "validation.invalid");
 }

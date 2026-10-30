@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// Connection tabs and compact inbox triage controls, driven by host callbacks.
 struct FeedInboxHeader: View {
@@ -37,9 +38,8 @@ struct FeedInboxHeader: View {
             FeedHairline()
             HStack(spacing: 10) {
                 Icon(.search, size: Self.glyphSide).foregroundStyle(colors.tertiary)
-                TextField(FeedStrings.filterInbox, text: $filter.query)
-                    .textFieldStyle(.plain).font(.system(size: 12))
-                    .foregroundStyle(colors.primary)
+                ThemedField(text: $filter.query, placeholder: FeedStrings.filterInbox, font: .systemFont(ofSize: 12),
+                            height: 18, boxed: false)
                 Menu {
                     Picker(FeedStrings.filterInbox, selection: $filter.category) {
                         Text(FeedStrings.allItems).tag(FeedInboxFilter.Category.all)
@@ -53,12 +53,15 @@ struct FeedInboxHeader: View {
                         .renderingMode(.template)
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
-                .frame(width: 16).help(FeedStrings.filterInbox)
-                Button(action: markRead) { Image(systemName: "checkmark.circle") }
-                    .buttonStyle(.plain).disabled(!hasUnread).help(FeedStrings.markAllRead)
+                .frame(width: 16).themedHelp(FeedStrings.filterInbox)
+                .accessibilityLabel(FeedStrings.filterInbox).accessibilityIdentifier("cmux.feed.filter")
+                Button(action: markRead) { Icon(.actionConfirm, size: Self.glyphSide) }
+                    .buttonStyle(.plain).disabled(!hasUnread).themedHelp(FeedStrings.markAllRead)
+                    .accessibilityLabel(FeedStrings.markAllRead).accessibilityIdentifier("cmux.feed.markAllRead")
                 if canRefresh {
                     Button(action: refresh) { Icon(.actionReload, size: Self.glyphSide) }
-                        .buttonStyle(.plain).help(FeedStrings.refresh)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(FeedStrings.refresh).accessibilityIdentifier("cmux.feed.refresh")
                 }
             }
             .font(.system(size: 12)).foregroundStyle(colors.secondary)

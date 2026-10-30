@@ -32,7 +32,7 @@ final class BrowserPromptDialogs {
         bar.isHidden = true
         if shown?.prompt == ObjectIdentifier(prompt) { return }
         dismissShown()
-        guard view.window != nil else { return }
+        guard view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
         let key = ObjectIdentifier(prompt)
         let id = center.present(spec, in: .tab(view)) { [weak self, weak prompt] answer in
             if self?.shown?.prompt == key { self?.shown = nil }
@@ -42,14 +42,15 @@ final class BrowserPromptDialogs {
         shown = (key, id)
     }
 
-    /// The dialog for a JavaScript dialog; nil for a permission request.
+    /// The dialog for a JavaScript dialog; nil for a permission request or a
+    /// link to another app, which stay in the prompt bar.
     static func spec(for prompt: BrowserPrompt) -> CmuxDialogSpec? {
         let title = Strings.dialogFrom(prompt.origin)
         let ok = CmuxDialogButton(id: "ok", title: Strings.ok, role: .default)
         let cancel = CmuxDialogButton(id: "cancel", title: Strings.cancel, role: .cancel)
         let identifier = "browser.dialog.javascript"
         switch prompt.kind {
-        case .permission:
+        case .permission, .openExternalApp, .savePassword, .verificationOffer:
             return nil
         case .credentials(let host, let realm):
             return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)
@@ -60,6 +61,11 @@ final class BrowserPromptDialogs {
         case .textInput(let message, let defaultText):
             return CmuxDialogSpec(title: title, lines: [message],
                                   fields: [.text("text", initial: defaultText ?? "")], buttons: [cancel, ok], identifier: identifier)
+        case .beforeUnload(let isReload):
+            // Chrome's dialog: the page's own text never shows (spec).
+            let leave = CmuxDialogButton(id: "ok", title: isReload ? Strings.beforeUnloadReload : Strings.beforeUnloadLeave, role: .default)
+            return CmuxDialogSpec(title: isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle,
+                                  lines: [Strings.beforeUnloadMessage], buttons: [cancel, leave], identifier: "browser.dialog.beforeunload")
         }
     }
 

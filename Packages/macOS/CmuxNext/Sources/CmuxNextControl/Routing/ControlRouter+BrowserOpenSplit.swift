@@ -17,6 +17,9 @@ import Foundation
 /// - `terminal_id`: the caller's terminal (`CMUX_TUI_TERMINAL_ID`): its pane
 ///   gets the tab when no workspace is named. An unknown terminal (another
 ///   session's) falls through to the focused pane.
+/// - `caller`: `{agent_session}` of the agent that asks (`CMUX_AGENT_SESSION`):
+///   with no workspace named, the tab opens beside its chat (beside_caller,
+///   ControlCaller), ahead of `terminal_id`.
 /// - `focus` (default false): true lets the run change the view and then
 ///   shows the new tab (`tab.focus`), as `action.run focus: true` does.
 /// - `transparent_background`: cmux-next browser tabs are always opaque, so
@@ -59,6 +62,8 @@ struct BrowserOpenSplitRun {
         ]
         if let origin = request.origin { params["origin"] = .string(origin) }
         if let tab = placement.targetTab { params["target"] = .string("tab:" + tab) }
+        // action.run aims it beside the caller's chat, or at a new column there.
+        if placement.kind.isBesideCaller, let session = request.agentSession { params["caller"] = ["agent_session": .string(session)] }
         if let key = request.idempotencyKey { params["idempotency_key"] = .string(key) }
         let opened = try await router.runAction(forwarding(call, method: "action.run", params))
         let topology = router.snapshots.current.topology
@@ -101,7 +106,7 @@ struct BrowserOpenSplitRun {
     private func forwarding(_ call: ControlCall, method: String, _ params: [String: JSONValue],
                             snapshot: ControlSnapshot? = nil) -> ControlCall {
         ControlCall(request: ControlRequest(id: call.request.id, method: method, params: params), snapshot: snapshot ?? call.snapshot,
-                    connection: call.connection, deadline: call.deadline, progress: call.progress)
+                    connection: call.connection, deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark)
     }
 }
 
@@ -109,12 +114,14 @@ struct BrowserOpenSplitRun {
 struct BrowserOpenSplitRequest: Sendable, Equatable {
     /// `after` is the router's read barrier (applied before the body runs);
     /// the CLI sends it with every request.
-    static let parameters: Set<String> = ["url", "workspace_id", "terminal_id", "focus", "transparent_background", "idempotency_key",
-                                          "origin", "after"]
+    static let parameters: Set<String> = ["url", "workspace_id", "terminal_id", "caller", "focus", "transparent_background",
+                                          "idempotency_key", "origin", "after"]
 
     var url: String
     var workspaceID: String?
     var terminalID: String?
+    /// `caller.agent_session`: the agent whose chat the tab opens beside.
+    var agentSession: String?
     var focus: Bool
     var idempotencyKey: String?
     var origin: String?
@@ -136,6 +143,7 @@ struct BrowserOpenSplitRequest: Sendable, Equatable {
         self.url = url
         workspaceID = try Self.string(params, "workspace_id")
         terminalID = try Self.string(params, "terminal_id")
+        agentSession = try ControlCaller(params)?.agentSession
         focus = try Self.bool(params, "focus") ?? false
         if try Self.bool(params, "transparent_background") == true {
             throw ControlError(code: "unsupported",
@@ -186,20 +194,38 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
         case focusedPane = "focused_pane"
         /// The window shows a page: the default pane of its workspace, then revealed.
         case windowWorkspace = "window_workspace"
+        /// The column right of the agent caller's chat.
+        case besideCaller = "beside_caller"
+        /// No column is right of the chat: a new one there.
+        case besideCallerNewColumn = "beside_caller_new_column"
+
+        var isBesideCaller: Bool { self == .besideCaller || self == .besideCallerNewColumn }
     }
 
     var kind: Kind
     var targetTab: String?
 
     static func resolve(_ request: BrowserOpenSplitRequest, in topology: ControlTopology, method: String) throws -> Self {
-        if let id = request.workspaceID {
+        try resolve(workspaceID: request.workspaceID, agentSession: request.agentSession, terminalID: request.terminalID,
+                    in: topology, method: method)
+    }
+
+    /// The placement for a named workspace, an agent caller or the caller's terminal (`file.open` too).
+    static func resolve(workspaceID: String?, agentSession: String?, terminalID: String?,
+                        in topology: ControlTopology, method: String) throws -> Self {
+        if let id = workspaceID {
             guard let workspace = topology.workspace(id: id) else {
                 throw ControlError(code: "not_found", message: ControlStrings.format("control.error.targetNotFound", "No %1$@ matches %2$@", "workspace", id),
                                    data: ["param": "workspace_id"])
             }
             return Self(kind: .workspace, targetTab: try tab(in: workspace, topology: topology, method: method))
         }
-        if let terminal = request.terminalID, let tab = terminalTab(terminal, in: topology) {
+        // An agent's tab opens beside its chat; action.run picks the pane (ControlCaller).
+        if let session = agentSession,
+           let location = ControlCallerLocation.resolve(ControlCaller(agentSession: session), in: topology) {
+            return Self(kind: location.beside == nil ? .besideCallerNewColumn : .besideCaller, targetTab: nil)
+        }
+        if let terminal = terminalID, let tab = terminalTab(terminal, in: topology) {
             return Self(kind: .callerTerminal, targetTab: tab)
         }
         if topology.focus.paneID != nil { return Self(kind: .focusedPane, targetTab: nil) }
@@ -219,12 +245,7 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
 
     /// The tab of `terminal` (daemon id or public `term_…` id).
     static func terminalTab(_ terminal: String, in topology: ControlTopology) -> String? {
-        for workspace in topology.workspaces {
-            for pane in workspace.panes {
-                if let tab = pane.tabs.first(where: { $0.terminalID == terminal || $0.terminalResourceID == terminal }) { return tab.id }
-            }
-        }
-        return nil
+        topology.tabID(ofTerminal: terminal)
     }
 
     /// A tab of `workspace`'s pane for a new tab: the pane a window shows

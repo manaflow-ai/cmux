@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import Observation
@@ -16,6 +17,7 @@ final class NotificationsPanelController {
 
     private let context: AppActionContext
     private var panel: NotificationsPanel?
+    private let motion = CornerPanelMotion()
     private let card = NotificationsPanelView()
     private(set) var rows: [NotificationsPanelRow] = []
     /// Whether the open panel has its first ledger reply.
@@ -31,7 +33,7 @@ final class NotificationsPanelController {
         card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
     }
 
-    var isShown: Bool { panel?.isVisible ?? false }
+    var isShown: Bool { (panel?.isVisible ?? false) && !motion.isClosing }
 
     func toggle() {
         if isShown { close() } else { show() }
@@ -63,7 +65,7 @@ final class NotificationsPanelController {
         }
         panel.onResignKey = { [weak self] in self?.close(restoringKey: false) }
         panel.onKeyElsewhere = { [weak self] in self?.close(restoringKey: false) }
-        panel.orderFront(nil)
+        motion.open(panel)
         panel.makeKey()
         panel.makeFirstResponder(card)
         reload()
@@ -76,11 +78,14 @@ final class NotificationsPanelController {
         watch?.cancel()
         watch = nil
         rows = []
-        guard let panel, panel.isVisible else { return }
+        guard let panel, isShown else { return }
         panel.onResignKey = nil
         if restoringKey, panel.isKeyWindow, let parent = panel.parent, parent.isVisible { parent.makeKey() }
-        panel.parent?.removeChildWindow(panel)
-        panel.orderOut(nil)
+        motion.close(panel) { [weak panel] in
+            guard let panel else { return }
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+        }
     }
 
     private func makePanel() -> NotificationsPanel {
@@ -109,7 +114,7 @@ final class NotificationsPanelController {
         // task-owner: NotificationsPanelController.watch, cancelled in close()
         watch = Task { [weak self] in
             var first = true
-            for await _ in Observations({ (store.notifications.last?.notification.rawValue ?? 0, NotificationCenterService.unreadCount(store)) }) {
+            for await _ in ObservationStream({ (store.notifications.last?.notification.rawValue ?? 0, NotificationCenterService.unreadCount(store)) }) {
                 // The open itself already reloaded.
                 if first { first = false; continue }
                 self?.reload()
@@ -169,7 +174,10 @@ final class NotificationsPanelController {
         card.select(selection.index(in: rows))
         guard let panel, panel.isVisible else { return }
         let top = panel.frame.maxY
-        panel.setFrame(NSRect(x: panel.frame.minX, y: top - height, width: NotificationsPanelView.width, height: height), display: true)
+        let frame = NSRect(x: panel.frame.minX, y: top - height, width: NotificationsPanelView.width, height: height)
+        guard frame != panel.frame else { return }
+        panel.setFrame(frame, display: true)
+        motion.resized(panel)
     }
 
     // MARK: Actions
@@ -181,10 +189,9 @@ final class NotificationsPanelController {
 
     private func menu(for row: NotificationsPanelRow) -> NSMenu {
         let menu = NSMenu()
-        // The rows come from the catalog's `.notification` placements; a
-        // read row has nothing to mark.
-        let catalog = ContextMenuCatalog.shared
-        let ids = catalog.referencedIDs(catalog.entries(for: .notification)).filter { row.unread || $0 != "notificationToggleRead" }
+        // The rows come from the catalog's `.notification` placements, as the person arranged
+        // them (Settings > Menus); a read row has nothing to mark.
+        let ids = ContextMenuCatalog.shared.referencedIDs(context.registry.contextMenuEntries(for: .notification)).filter { row.unread || $0 != "notificationToggleRead" }
         for id in ids {
             let handler = MenuHandler { [weak self] in self?.perform(id, row) }
             let item = NSMenuItem(title: context.registry.descriptor(for: id)?.title ?? id.rawValue,
@@ -194,6 +201,7 @@ final class NotificationsPanelController {
             item.representedObject = handler
             menu.addItem(item)
         }
+        context.registry.appendCustomizeItem(to: menu, for: .notification)
         return menu
     }
 
@@ -201,7 +209,8 @@ final class NotificationsPanelController {
 
     /// Escape closes; Up and Down select; Return opens; Delete dismisses.
     private func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
+        // A closing panel that kept the keys (no visible window to hand them to) takes none.
+        guard isShown, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
         let selected = selection.index(in: rows).map { rows[$0] }
         switch event.keyCode {
         case 53:

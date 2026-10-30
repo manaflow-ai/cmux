@@ -6,7 +6,9 @@
     "CmuxAgentBrands": "Packages/Shared/CmuxAgentBrands",
     "CmuxAgentCursor": "Packages/Shared/CmuxAgentCursor",
     "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
+    "CmuxAppAttest": "Packages/Shared/CmuxAppAttest",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
+    "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
@@ -15,9 +17,11 @@
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
+    "CmuxScreenKit": "Packages/Shared/CmuxScreenKit",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
-    "CmuxUpdater": "Packages/macOS/CmuxUpdater"
+    "CmuxUpdater": "Packages/macOS/CmuxUpdater",
+    "CmuxVNC": "Packages/Shared/CmuxVNC"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -30,17 +34,24 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
       "targets": [
+        "CmuxNextCloud",
         "CmuxNextCodeRouter",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
       ],
       "packages": [
+        "CMUXAuthCore",
         "CmuxAgentBrands"
       ]
     },
     "CmuxNextActions": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextActions",
-      "targets": [],
+      "targets": [
+        "CmuxNextSignposts",
+        "CmuxNextWakeups"
+      ],
       "packages": []
     },
     "CmuxNextActionsTests": {
@@ -52,7 +63,9 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextActions/",
-        "plans/cmux-next/"
+        "plans/cmux-next/",
+        "schemas/deeplinks/agent-link.json",
+        "schemas/keybindings/ghostty-reserved-keys.json"
       ]
     },
     "CmuxNextAgentActivity": {
@@ -61,6 +74,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -85,19 +99,66 @@
       ],
       "packages": []
     },
+    "CmuxNextAgentIntegrations": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextAgentIntegrationsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentIntegrationsTests",
+      "targets": [
+        "CmuxNextAgentIntegrations",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextAgentLanes": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentActivity",
+        "CmuxNextAgentPane",
+        "CmuxNextApps",
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextHome",
+        "CmuxNextHomeEngine",
+        "CmuxNextIcons",
+        "CmuxNextSidebar",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextAgentPane": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCloud",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
+        "CmuxNextErrorJournal",
         "CmuxNextPages",
+        "CmuxNextRemoteFetch",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxAppAttest"
+      ]
     },
     "CmuxNextAgentPaneTests": {
       "kind": "test",
@@ -105,10 +166,42 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentPane",
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextPagesTestSupport",
+        "CmuxNextRemoteFetch",
+        "CmuxNextSettings",
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
+      ],
+      "packages": [],
+      "reads": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift",
+        "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
+        "cmux-tui/spec/",
+        "scripts/cmux-next/pin-cmux-tui.sh"
+      ]
+    },
+    "CmuxNextAgentPermissions": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextAgentPermissionsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPermissionsTests",
+      "targets": [
+        "CmuxNextAgentPermissions",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -117,79 +210,167 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": [
         "CmuxAgentQuestion"
       ]
     },
+    "CmuxNextAgentUpdates": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextApp": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextAccounts",
         "CmuxNextActions",
         "CmuxNextAgentActivity",
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
+        "CmuxNextAgentIntegrations",
+        "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
+        "CmuxNextAgentPermissions",
         "CmuxNextAgentQuestion",
+        "CmuxNextAgentUpdates",
+        "CmuxNextAppCore",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
         "CmuxNextBrowser",
         "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
+        "CmuxNextBrowserTabs",
+        "CmuxNextCLIInstall",
+        "CmuxNextChiefMemory",
+        "CmuxNextChiefPetWiring",
+        "CmuxNextChiefViews",
+        "CmuxNextChromiumRuntime",
+        "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
+        "CmuxNextCloudCredentials",
+        "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
+        "CmuxNextComputerUse",
         "CmuxNextControl",
+        "CmuxNextCookieImport",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonRecovery",
+        "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
+        "CmuxNextDevices",
+        "CmuxNextDictation",
+        "CmuxNextDiff",
+        "CmuxNextErrorJournal",
+        "CmuxNextFavicons",
         "CmuxNextFeed",
+        "CmuxNextFiles",
+        "CmuxNextFilesUI",
+        "CmuxNextFloating",
+        "CmuxNextFocus",
+        "CmuxNextFocusUI",
+        "CmuxNextHangReports",
+        "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextHomeEngine",
+        "CmuxNextHostPressure",
+        "CmuxNextHostedChief",
         "CmuxNextIcons",
+        "CmuxNextImportCards",
+        "CmuxNextImportSuggestions",
+        "CmuxNextKeepAwake",
         "CmuxNextLayout",
+        "CmuxNextMacScreen",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
+        "CmuxNextMobileHost",
+        "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextPhone",
+        "CmuxNextPhoneAccess",
+        "CmuxNextPopups",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteFetch",
         "CmuxNextRemoteLocalhost",
+        "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
+        "CmuxNextRemoteViewSessions",
         "CmuxNextResources",
+        "CmuxNextScreenshots",
         "CmuxNextServer",
         "CmuxNextServerHelper",
+        "CmuxNextSessionTransfer",
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
+        "CmuxNextSidebarActions",
+        "CmuxNextSignposts",
+        "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
+        "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
-        "CmuxNextWakeups"
+        "CmuxNextVSCodeServer",
+        "CmuxNextWakeups",
+        "CmuxNextWebUpdates",
+        "CmuxNextWorkspaceNaming",
+        "CmuxNextWorkspaceRepair"
       ],
       "packages": [
         "CmuxAgentBrands",
         "CmuxAgentCursor",
         "CmuxAgentQuestion",
+        "CmuxAppAttest",
+        "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ]
+    },
+    "CmuxNextAppCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppCore",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextBridge",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextSidebar"
+      ],
+      "packages": []
     },
     "CmuxNextAppPermissions": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions",
       "targets": [
         "CmuxNextApps",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
@@ -198,23 +379,104 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentCursor",
+        "CmuxNextAgentLanes",
+        "CmuxNextAgentPermissions",
+        "CmuxNextAgentUpdates",
         "CmuxNextApp",
+        "CmuxNextAppCore",
+        "CmuxNextApps",
+        "CmuxNextBrowserHistory",
+        "CmuxNextBrowserImport",
+        "CmuxNextBrowserTabs",
+        "CmuxNextChiefMemory",
+        "CmuxNextChiefPetWiring",
+        "CmuxNextChromiumRuntime",
+        "CmuxNextCloudCredentials",
+        "CmuxNextCloudUI",
+        "CmuxNextCompat",
+        "CmuxNextComputerUse",
+        "CmuxNextCookieImport",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonRecovery",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextDiff",
+        "CmuxNextFeed",
+        "CmuxNextFileGrid",
+        "CmuxNextFiles",
+        "CmuxNextFilesUI",
+        "CmuxNextFloating",
+        "CmuxNextFocus",
+        "CmuxNextFocusUI",
+        "CmuxNextHangReports",
+        "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextHomeEngine",
+        "CmuxNextHostedChief",
+        "CmuxNextImportCards",
+        "CmuxNextImportSuggestions",
+        "CmuxNextLayout",
+        "CmuxNextMacScreen",
+        "CmuxNextMobile",
+        "CmuxNextMobileHost",
+        "CmuxNextNowPlaying",
+        "CmuxNextOnboarding",
+        "CmuxNextPagesTestSupport",
+        "CmuxNextPalette",
         "CmuxNextProcessEnvironment",
-        "CmuxNextWakeups"
+        "CmuxNextRemote",
+        "CmuxNextRemoteLocalhostService",
+        "CmuxNextRemoteViewSessions",
+        "CmuxNextScreenshots",
+        "CmuxNextServer",
+        "CmuxNextSessionTransfer",
+        "CmuxNextSettings",
+        "CmuxNextSidebar",
+        "CmuxNextSignposts",
+        "CmuxNextStash",
+        "CmuxNextTabs",
+        "CmuxNextTasks",
+        "CmuxNextTerminalGeometry",
+        "CmuxNextTestExitTrace",
+        "CmuxNextTestSupport",
+        "CmuxNextUpdater",
+        "CmuxNextVSCodeServer",
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport",
+        "CmuxNextWorkspaceNaming"
       ],
       "packages": [
         "CmuxAgentQuestion",
+        "CmuxGhosttyKit",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxInstallAuthCore",
+        "CmuxMessagesLab",
+        "CmuxTheme",
+        "CmuxUpdater",
+        "CmuxVNC"
       ],
       "reads": [
+        "Native/OptChat/optchat-chief/inspector/index.html",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/",
+        "Resources/cmux-themes/",
+        "Resources/ghostty/themes/",
+        "Resources/markdown-viewer/ondine.min.js",
         "plans/cmux-next/",
-        "scripts/cmux-next/pin-cmux-tui.sh"
+        "schemas/keybindings/keybinding-vectors.json",
+        "scripts/cmux-next/bundle-ghostty-resources.sh",
+        "scripts/cmux-next/pin-cmux-tui.sh",
+        "scripts/cmux-next/web-bundle-key.py",
+        "tests/fixtures/classic-to-next/",
+        "web/scripts/cloud-vm/cmux-tui-upgrade.sh",
+        "web/services/vms/images/devbox/agent-auth.sh",
+        "webviews/test/fixtures/new-tab-intents.json"
       ]
     },
     "CmuxNextApps": {
@@ -222,17 +484,32 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextAppsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests",
+      "targets": [
+        "CmuxNextApps",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
@@ -255,8 +532,12 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextRemoteFetch",
+        "CmuxNextRemoteLayer",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -267,6 +548,34 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserAutomationTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserAutomationTests",
+      "targets": [
+        "CmuxNextBrowserAutomation"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextBrowserCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserHistory": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHistory",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
       ],
       "packages": []
     },
@@ -281,11 +590,34 @@
       ],
       "packages": []
     },
+    "CmuxNextBrowserHostTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserHostTests",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHost",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextBrowserImport": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport",
       "targets": [
-        "CmuxNextCompat"
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserTabs": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextDaemon",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -293,12 +625,118 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
-        "CmuxNextBrowser"
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextRemoteFetch",
+        "CmuxNextTestSupport",
+        "CmuxNextWakeups"
       ],
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h"
       ]
+    },
+    "CmuxNextCLIInstall": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextChiefMemory": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory",
+      "targets": [
+        "CmuxNextDesign"
+      ],
+      "packages": []
+    },
+    "CmuxNextChiefMemoryTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextChiefMemoryTests",
+      "targets": [
+        "CmuxNextChiefMemory"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextChiefPetWiring": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextFloating",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextChiefViews": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChiefViews",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentActivity",
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextHome",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextChiefViewsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextChiefViewsTests",
+      "targets": [
+        "CmuxNextAgentActivity",
+        "CmuxNextChiefViews",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextChromiumRuntime": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextChromiumRuntimeTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumRuntimeTests",
+      "targets": [
+        "CmuxNextChromiumRuntime"
+      ],
+      "packages": [],
+      "reads": [
+        "scripts/cmux-next/malloc-zone-race/run.sh"
+      ]
+    },
+    "CmuxNextChromiumWarmup": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumWarmup",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextChromiumWarmupTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumWarmupTests",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextChromiumWarmup"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextCloud": {
       "kind": "regular",
@@ -313,6 +751,36 @@
         "CmuxInstallAuthCore"
       ]
     },
+    "CmuxNextCloudCredentials": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
+      ],
+      "packages": []
+    },
+    "CmuxNextCloudUI": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextDesign"
+      ],
+      "packages": []
+    },
+    "CmuxNextCloudUITests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextCloudUI",
+        "CmuxNextDesign"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextCodeRouter": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter",
@@ -322,10 +790,39 @@
       ],
       "packages": []
     },
+    "CmuxNextCodeRouterTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCodeRouterTests",
+      "targets": [
+        "CmuxNextCodeRouter"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextCompat": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat",
       "targets": [],
+      "packages": []
+    },
+    "CmuxNextCompatTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextComputerUse": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse",
+      "targets": [
+        "CmuxNextAgentActivity",
+        "CmuxNextCompat",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
       "packages": []
     },
     "CmuxNextControl": {
@@ -346,13 +843,27 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextControlTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextSettings",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextCookieImport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBrowser",
+        "CmuxNextBrowserImport",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextCopyMode": {
       "kind": "regular",
@@ -379,11 +890,43 @@
       ],
       "packages": []
     },
+    "CmuxNextDaemonRecovery": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonRecovery",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDaemonService": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextApps",
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextLayout",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxUpdater"
+      ]
+    },
     "CmuxNextDaemonTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests",
       "targets": [
-        "CmuxNextDaemon"
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -395,7 +938,10 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
+        "CmuxNextDesignTokens",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -406,19 +952,98 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextDesignTokens",
+        "CmuxNextTestSupport",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CMUXMobileCore",
         "CmuxTheme"
       ],
+      "reads": [
+        "Resources/cmux-themes/",
+        "Resources/ghostty/themes/",
+        "schemas/theme/orange-accent-allowlist.json",
+        "schemas/theme/theme-ink-vectors.json"
+      ]
+    },
+    "CmuxNextDesignTokens": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens",
+      "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxTheme"
+      ]
+    },
+    "CmuxNextDevices": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDevices",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDevicesTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDevicesTests",
+      "targets": [
+        "CmuxNextDevices",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
       "reads": []
     },
     "CmuxNextDictation": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDictation",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDiff": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDiff",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextCompat",
+        "CmuxNextDaemonService",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextErrorJournal": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal",
+      "targets": [
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextErrorJournalTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests",
+      "targets": [
+        "CmuxNextErrorJournal"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextFavicons": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextTabs"
       ],
       "packages": []
     },
@@ -426,9 +1051,108 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextFileGrid": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextFiles": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFiles",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextFilesTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFilesTests",
+      "targets": [
+        "CmuxNextFiles"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextFilesUI": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextFiles"
+      ],
+      "packages": []
+    },
+    "CmuxNextFloating": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFloating",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextFloatingTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextFloating",
+        "CmuxNextTestSupport"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextFocus": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocus",
+      "targets": [
+        "CCmuxAppFFI"
+      ],
+      "packages": []
+    },
+    "CmuxNextFocusUI": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextDesign",
+        "CmuxNextSignposts"
+      ],
+      "packages": []
+    },
+    "CmuxNextHangReports": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHangReports",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextHangReportsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHangReportsTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextHangReports"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextHibernation": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -436,7 +1160,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistory",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": [
         "CmuxAgentBrands"
@@ -446,7 +1171,9 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDictation",
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
@@ -456,6 +1183,64 @@
         "CmuxMessagesLab"
       ]
     },
+    "CmuxNextHomeEngine": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextHome",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxAgentQuestion",
+        "CmuxHomeCore"
+      ]
+    },
+    "CmuxNextHomeEngineTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextHome",
+        "CmuxNextHomeEngine"
+      ],
+      "packages": [
+        "CmuxHomeCore"
+      ],
+      "reads": []
+    },
+    "CmuxNextHostPressure": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextHostPressureTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHostPressureTests",
+      "targets": [
+        "CmuxNextHostPressure"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextHostedChief": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextHomeEngine"
+      ],
+      "packages": []
+    },
     "CmuxNextIcons": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextIcons",
@@ -463,6 +1248,59 @@
         "CmuxNextCompat"
       ],
       "packages": []
+    },
+    "CmuxNextImportCards": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBrowserImport",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextImportSuggestions",
+        "CmuxNextOnboarding",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextImportSuggestions": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextImportSuggestions",
+      "targets": [
+        "CmuxNextBrowserImport"
+      ],
+      "packages": []
+    },
+    "CmuxNextImportSuggestionsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextImportSuggestionsTests",
+      "targets": [
+        "CmuxNextBrowserImport",
+        "CmuxNextImportSuggestions"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextKeepAwake": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextKeepAwake",
+      "targets": [
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextKeepAwakeTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextKeepAwakeTests",
+      "targets": [
+        "CmuxNextKeepAwake",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextLayout": {
       "kind": "regular",
@@ -474,6 +1312,23 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextMacScreen": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDesign",
+        "CmuxNextDevices",
+        "CmuxNextRemoteView",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxScreenKit"
+      ]
     },
     "CmuxNextMallocZone": {
       "kind": "regular",
@@ -494,6 +1349,37 @@
         "CmuxIrxTransport"
       ]
     },
+    "CmuxNextMobileHost": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextKeepAwake",
+        "CmuxNextMobile",
+        "CmuxNextPages",
+        "CmuxNextRemoteBrowser",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextMobileHostTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileHostTests",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextMobileHost",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextMobileTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileTests",
@@ -510,12 +1396,29 @@
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
+    "CmuxNextNowPlaying": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextSettings",
+        "CmuxNextSidebar",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextOnboarding": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
       "targets": [
         "CmuxNextBrowserImport",
-        "CmuxNextDesign"
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -525,6 +1428,17 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextErrorJournal",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextPagesTestSupport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPagesTestSupport",
+      "targets": [
+        "CmuxNextPages",
         "CmuxNextSettings"
       ],
       "packages": []
@@ -533,17 +1447,22 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextPages",
+        "CmuxNextPagesTestSupport",
         "CmuxNextSettings"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "webviews/src/pages/*/main.tsx"
+      ]
     },
     "CmuxNextPalette": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPalette",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign"
@@ -556,7 +1475,74 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
-        "CmuxNextPalette"
+        "CmuxNextPalette",
+        "CmuxNextTestSupport"
+      ],
+      "packages": [
+        "CmuxTheme"
+      ],
+      "reads": []
+    },
+    "CmuxNextPhone": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextPhoneAccess": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextKeepAwake",
+        "CmuxNextMobile",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextPhoneAccessTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
+      "targets": [
+        "CmuxNextPhoneAccess"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextPhoneTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextPhone"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextPopups": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPopups",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextPopupsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPopupsTests",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextDesign",
+        "CmuxNextPopups"
       ],
       "packages": [],
       "reads": []
@@ -590,11 +1576,40 @@
       ],
       "packages": []
     },
+    "CmuxNextRemoteFetch": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteFetch",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextRemoteLayer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLayer",
+      "targets": [],
+      "packages": []
+    },
     "CmuxNextRemoteLocalhost": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextRemoteLocalhostService": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextRemoteLocalhost",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -606,9 +1621,35 @@
         "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextRemoteViewSessions": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteView",
+        "CmuxNextSettings"
+      ],
+      "packages": [
+        "CmuxVNC"
+      ]
+    },
+    "CmuxNextRemoteViewTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextRemoteViewTests",
+      "targets": [
+        "CmuxNextRemoteView"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextResources": {
       "kind": "regular",
@@ -619,11 +1660,33 @@
       ],
       "packages": []
     },
+    "CmuxNextScreenshots": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
+      "targets": [
+        "CmuxNextFileGrid",
+        "CmuxNextFiles",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextScreenshotsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
+      "targets": [
+        "CmuxNextFileGrid",
+        "CmuxNextFiles",
+        "CmuxNextScreenshots"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextServer": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServer",
       "targets": [
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
@@ -640,6 +1703,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServerHelperDaemon",
       "targets": [
         "CmuxNextServerHelper"
+      ],
+      "packages": []
+    },
+    "CmuxNextSessionTransfer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -665,6 +1737,8 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+        "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
+        "docs/configuration.md",
         "docs/mdm/",
         "schemas/settings/settings-schema.json"
       ]
@@ -675,6 +1749,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -695,6 +1770,43 @@
         "CmuxAgentBrands"
       ]
     },
+    "CmuxNextSidebarActions": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebarActions",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextSidebar"
+      ],
+      "packages": []
+    },
+    "CmuxNextSignposts": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSignposts",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextSignpostsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSignpostsTests",
+      "targets": [
+        "CmuxNextSignposts"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextStash": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextStash",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextHistory"
+      ],
+      "packages": []
+    },
     "CmuxNextTabs": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs",
@@ -713,7 +1825,9 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -727,6 +1841,7 @@
         "CmuxNextCompat",
         "CmuxNextCopyMode",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextProcessEnvironment",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
@@ -748,25 +1863,152 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextTerminalTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
+      "targets": [
+        "CmuxNextTerminal",
+        "CmuxNextTestSupport"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextTestExitTrace": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Tests/Support/CmuxNextTestExitTrace",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextTestSupport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextUiLayerPreview": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextIcons"
+      ],
+      "packages": []
+    },
+    "CmuxNextUiLayerPreviewTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextUiLayerPreviewTests",
+      "targets": [
+        "CmuxNextUiLayerPreview"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextUpdater": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater",
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": [
         "CmuxUpdater"
       ]
     },
+    "CmuxNextVSCodeServer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
+      "targets": [
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextVSCodeServerTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextVSCodeServerTests",
+      "targets": [
+        "CmuxNextVSCodeServer"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextWakeups": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups",
       "targets": [
-        "CmuxNextCompat"
+        "CmuxNextCompat",
+        "CmuxNextSignposts"
       ],
       "packages": []
+    },
+    "CmuxNextWakeupsTestSupport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeupsTestSupport",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextWebUpdates": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextControl",
+        "CmuxNextPages",
+        "CmuxNextSettings",
+        "CmuxNextUpdater",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextWorkspaceNaming": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWorkspaceNaming",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesignTokens"
+      ],
+      "packages": []
+    },
+    "CmuxNextWorkspaceNamingTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBridge",
+        "CmuxNextDaemon",
+        "CmuxNextSidebar",
+        "CmuxNextWorkspaceNaming"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextWorkspaceRepair": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWorkspaceRepair",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
+      ],
+      "packages": []
+    },
+    "CmuxNextWorkspaceRepairTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceRepairTests",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextWorkspaceRepair"
+      ],
+      "packages": [],
+      "reads": []
     }
   }
 }

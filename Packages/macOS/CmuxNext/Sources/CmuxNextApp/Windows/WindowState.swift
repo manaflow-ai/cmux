@@ -1,19 +1,8 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 import Observation
-
-/// A browser tab that lives only in this app session because the daemon
-/// lacks `frontend-browser-tabs-v1`. Not restored after relaunch.
-struct LocalBrowserTab: Hashable, Sendable {
-    static let prefix = "local-browser:"
-    let id: String
-    var url: URL?
-
-    static func make(url: URL?) -> LocalBrowserTab {
-        LocalBrowserTab(id: prefix + UUID().uuidString.lowercased(), url: url)
-    }
-}
 
 /// Everything one window owns (architecture.md 1, user requirement
 /// 2026-09-29 "each window needs its own state"): the workspace it shows,
@@ -37,6 +26,14 @@ final class WindowState {
     var workspaceID: String? {
         didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
     }
+    /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
+    /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
+    var viewSet: WorkspaceViewSet?
+    /// The window frame's docked workspaces (Debug Settings `window.dockedWorkspaces`,
+    /// plans/cmux-next/docked-workspace-DESIGN.md). Persisted in the record; empty while the prototype is off.
+    var docks = WindowDocks()
+    /// The workspace the frame's stage shows (W5): `workspaceID` unless that one is docked. Persisted.
+    var stageWorkspaceID: String?
     /// The top page this window shows in place of its workspace
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
@@ -51,12 +48,12 @@ final class WindowState {
     private(set) var workspaceRecency: [String] = []
     /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
     var machineID: String = MachineRegistry.localID
-    var selection = TabSelectionMemory()
+    let selection = TabSelectionMemory()
     /// This window's focus state machine: the only owner of focus, last
     /// focused pane per workspace, and browser focus mode. Never persisted.
     let focus = FocusCoordinator()
-    /// Session-only browser tabs per pane (`PaneModel.id`).
-    var localBrowserTabs: [String: [LocalBrowserTab]] = [:]
+    /// Session-only browser tabs per pane (`PaneModel.id`), observed per pane.
+    let localBrowserTabs = LocalBrowserTabs()
     /// Sidebar width in points (nil = default); kept while hidden, so the
     /// sidebar comes back at this width.
     var sidebarWidth: Double?
@@ -64,18 +61,42 @@ final class WindowState {
     var sidebarHidden = false
     /// Profile this window shows (plans/cmux-next/data-model.md 4). Its
     /// sidebar lists only the window's workspaces of this profile.
-    var profileID: ProfileID = .defaultProfile
+    var profileID: ProfileID = .defaultProfile {
+        didSet { if profileID != oldValue { refreshRoomBrowserProfile() } }
+    }
     /// The workspace last shown in each profile, restored on switching back.
     var profileWorkspaces: [ProfileID: String] = [:]
     /// Profiles this window showed, most recent first (the fallback when the
     /// current profile loses its last workspace here).
     var profileRecency: [ProfileID] = []
+    /// The browser profile of the room this window shows (its `ProfileModel.browserProfileID`),
+    /// changed only when that value changes (`showRoomBrowserProfile`). Tab badges read this, not
+    /// `profileID`: a room switch must not wake every tab of every mounted workspace when the
+    /// rooms share a browser profile (space-switch-fast).
+    private(set) var roomBrowserProfileID: String?
+
+    /// Reads a room's browser profile (the window's controller sets it from the home store).
+    @ObservationIgnored var roomBrowserProfileOf: (@MainActor (ProfileID) -> String?)? {
+        didSet { refreshRoomBrowserProfile() }
+    }
+
+    /// Re-reads the shown room's browser profile: on a room switch (in the same turn) and when the
+    /// room's record changes (`WindowController.observeRoom`).
+    func refreshRoomBrowserProfile() {
+        guard let roomBrowserProfileOf else { return }
+        let id = roomBrowserProfileOf(profileID)
+        if roomBrowserProfileID != id { roomBrowserProfileID = id }
+    }
     /// Durable id of the screen shown in this window's workspace, so a
     /// relaunch returns to it. Persisted.
     var activeScreenID: String?
     /// The focused pane last written to this window's record (or restored
     /// from it), so a focus change saves the record once.
     var savedFocusedPane: String?
+    /// The window was saved in full screen and has not entered it again
+    /// since the relaunch (`WindowManager.enterRestoredFullScreens`). Saves
+    /// keep `full_screen` while it is set.
+    var restoresFullScreen = false
 
     init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
         self.id = id
@@ -85,6 +106,13 @@ final class WindowState {
 }
 
 extension WindowState {
+    /// Workspace `id` is drawn beside the focused one: in the `sidebar.multiView` set, a shown docked workspace, or
+    /// the stage's workspace while a dock has the focus (`window.dockedWorkspaces`).
+    func isOnScreenBeside(_ id: String) -> Bool {
+        viewSet?.contains(id) == true
+            || (LayoutTunables.dockedWorkspaces.value && (docks.visible.contains { $0.workspace == id } || stageWorkspaceID == id))
+    }
+
     /// The state saved for one window.
     convenience init(record: WindowRecord) {
         self.init(id: record.id)
@@ -97,13 +125,20 @@ extension WindowState {
         id = record.id
         workspaceID = record.workspaceKey?.rawValue
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
+        viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
+        docks = WindowDocks(record: record)
+        stageWorkspaceID = record.stageKey?.rawValue
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth
         sidebarHidden = record.sidebarHidden
         activeScreenID = record.screenID?.rawValue
         savedFocusedPane = record.focusedPane
+        restoresFullScreen = record.isFullScreen
         if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
+        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID {
+            focus.send(.restoredPane(pane, workspace: workspace))
+        }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

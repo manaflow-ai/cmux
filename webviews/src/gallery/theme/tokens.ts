@@ -2,6 +2,7 @@
 // a line-for-line port of Packages/Shared/CmuxTheme (ThemeRGB.swift, ThemeInput.swift,
 // ThemeTokens.swift). The gallery paints every web page with these, so a theme here looks as it
 // does in the app.
+import { deriveAppTheme, type AppAccent } from "../../theme/appTheme";
 
 export type ThemeRGB = { red: number; green: number; blue: number; alpha: number };
 
@@ -67,6 +68,10 @@ export type ThemeInput = {
   selectionBackground?: ThemeRGB;
   selectionForeground?: ThemeRGB;
   backgroundOpacity: number;
+  /** `appearance.accent` (ThemeInput.accent); neutral when absent. */
+  accent?: AppAccent;
+  /** The theme's own accent (ThemeInput.accentColor); wins over `accent`. */
+  accentColor?: ThemeRGB | null;
 };
 
 export const GHOSTTY_DEFAULT: ThemeInput = {
@@ -111,6 +116,8 @@ export type ThemeTokens = {
   success: ThemeRGB;
   highlight: ThemeRGB;
   highlightText: ThemeRGB;
+  accent: ThemeRGB;
+  onAccent: ThemeRGB;
   hasThemeAccent: boolean;
   ansi: ThemeRGB[];
   backgroundOpacity: number;
@@ -129,6 +136,58 @@ export function readable(color: ThemeRGB, surface: ThemeRGB, minimum: number): T
   return candidate;
 }
 
+/** `color` walked toward `pole` until it reaches `minimum` contrast over every surface (or `pole`). */
+function readableOver(color: ThemeRGB, surfaces: ThemeRGB[], pole: ThemeRGB, minimum: number): ThemeRGB {
+  const reads = (ink: ThemeRGB) => surfaces.every((surface) => contrast(ink, surface) >= minimum);
+  let step = 0;
+  let candidate = color;
+  while (step < 1 && !reads(candidate)) {
+    step += 0.02;
+    candidate = mixed(color, pole, step);
+  }
+  return candidate;
+}
+
+/**
+ * What text sits on in a window of `opacity` below 1 (ThemeTokens.seeThroughSurfaces): the background
+ * at that opacity over the worst desktop for the theme, alone and under each of `fills`.
+ */
+function seeThroughSurfaces(bg: ThemeRGB, opacity: number, isDark: boolean, fills: ThemeRGB[]): ThemeRGB[] {
+  if (opacity >= 1) return [];
+  const tint = composited(withAlpha(bg, opacity), isDark ? WHITE : BLACK);
+  return [tint, ...fills.map((fill) => composited(fill, tint))];
+}
+
+/**
+ * ThemeTokens.inks: the primary, secondary and tertiary text for `foreground`, read on every surface in
+ * `rows` (the strongest row fill and the bare background). A foreground that reads keeps its color;
+ * otherwise it is walked toward white and toward black (the pole that reads better on the row fill
+ * first), and the candidate whose primary and secondary keep the higher least contrast over `rows`
+ * wins, capped at 4.5:1 (a tie keeps the first). Hot Dog Stand takes the dark ink, Grass white.
+ */
+export function inks(
+  foreground: ThemeRGB,
+  rows: ThemeRGB[],
+  seeThrough: ThemeRGB[],
+  bg: ThemeRGB,
+): [ThemeRGB, ThemeRGB, ThemeRGB] {
+  const least = (ink: ThemeRGB) => Math.min(...rows.map((row) => contrast(ink, row)));
+  const poles = contrast(BLACK, rows[0]!) > contrast(WHITE, rows[0]!) ? [BLACK, WHITE] : [WHITE, BLACK];
+  let chosen: { score: number; inks: [ThemeRGB, ThemeRGB, ThemeRGB] } | null = null;
+  for (const pole of poles) {
+    const primary = readableOver(foreground, rows, pole, MINIMUM_TEXT_CONTRAST);
+    // Swift's `min` keeps the first of equal elements; so does this reduce.
+    const inkSurface = [...rows, ...seeThrough].reduce((worst, next) =>
+      contrast(primary, next) < contrast(primary, worst) ? next : worst,
+    );
+    const secondary = muted(primary, bg, 0.38, inkSurface, MINIMUM_TEXT_CONTRAST);
+    const tertiary = muted(primary, bg, 0.55, inkSurface, MINIMUM_MARK_CONTRAST);
+    const score = Math.min(least(primary), least(secondary), MINIMUM_TEXT_CONTRAST);
+    if (!chosen || score > chosen.score) chosen = { score, inks: [primary, secondary, tertiary] };
+  }
+  return chosen!.inks;
+}
+
 function muted(color: ThemeRGB, target: ThemeRGB, limit: number, surface: ThemeRGB, minimum: number): ThemeRGB {
   let fraction = limit;
   while (fraction > 0) {
@@ -144,17 +203,34 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   const bg = input.background;
   const fg = input.foreground;
   const isDark = luminance(bg) < luminance(fg);
+  // The app theme when the setting or the theme names an accent; null keeps the neutral fills.
+  const app =
+    (input.accent && input.accent !== "neutral") || input.accentColor
+      ? deriveAppTheme(
+          {
+            background: hex(bg),
+            foreground: hex(fg),
+            palette: input.palette.map(hex),
+            accent: input.accentColor ? hex(input.accentColor) : null,
+          },
+          input.accent ?? "neutral",
+        )
+      : null;
+  const accent = app ? parseHex(app.tokens.accent) : null;
   const hover = withAlpha(fg, isDark ? 0.06 : 0.05);
-  const selection = withAlpha(fg, isDark ? 0.1 : 0.08);
+  const selection = accent ? withAlpha(accent, isDark ? 0.26 : 0.16) : withAlpha(fg, isDark ? 0.1 : 0.08);
   const pressed = withAlpha(fg, isDark ? 0.14 : 0.11);
-  const worstSurface = composited(pressed, bg);
-  const primary = readable(fg, worstSurface, MINIMUM_TEXT_CONTRAST);
-  const secondary = muted(primary, bg, 0.38, worstSurface, MINIMUM_TEXT_CONTRAST);
-  const tertiary = muted(primary, bg, 0.55, worstSurface, MINIMUM_MARK_CONTRAST);
+  // Swift's `min` keeps the first of equal elements; so does this reduce.
+  const worstSurface = [composited(pressed, bg), composited(selection, bg)].reduce((worst, next) =>
+    contrast(fg, next) < contrast(fg, worst) ? next : worst,
+  );
+  // In a see-through window the quieter inks also hold over the tint on the worst desktop.
+  const seeThrough = seeThroughSurfaces(bg, input.backgroundOpacity, isDark, [pressed, selection]);
+  const [primary, secondary, tertiary] = inks(fg, [worstSurface, bg], seeThrough, bg);
   const palette = input.palette.length >= 8 ? input.palette : GHOSTTY_DEFAULT.palette;
   const status = (index: number) => readable(palette[index]!, bg, MINIMUM_MARK_CONTRAST);
   const surface = withAlpha(bg, input.backgroundOpacity);
-  const highlight = status(4);
+  const highlight = accent ?? status(4);
   // Swift's `max` keeps the last of equal elements; so does this reduce.
   const best = (candidates: ThemeRGB[]) =>
     candidates.reduce((winner, next) => (contrast(winner, highlight) <= contrast(next, highlight) ? next : winner));
@@ -177,24 +253,72 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     textTertiary: tertiary,
     hoverFill: hover,
     selectionFill: selection,
-    secondarySelectionFill: withAlpha(fg, isDark ? 0.07 : 0.055),
+    secondarySelectionFill: accent ? withAlpha(accent, isDark ? 0.18 : 0.11) : withAlpha(fg, isDark ? 0.07 : 0.055),
     pressedFill: pressed,
     badgeFill: withAlpha(fg, isDark ? 0.14 : 0.1),
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),
-    focusRing: withAlpha(fg, 0.4),
+    focusRing: accent ?? withAlpha(fg, 0.4),
     glassTint: withAlpha(bg, isDark ? 0.4 : 0.3),
     shadow: mixed(bg, BLACK, 0.85),
-    textSelection: input.selectionBackground ?? mixed(bg, fg, 0.22),
+    // The config's selection only when text reads on it (ThemeTokens.swift: an inverse-video
+    // selection would hide the text).
+    textSelection:
+      input.selectionBackground && contrast(primary, composited(input.selectionBackground, bg)) >= MINIMUM_MARK_CONTRAST
+        ? input.selectionBackground
+        : mixed(bg, fg, 0.22),
     attention: status(3),
     danger: status(1),
     success: status(2),
     highlight,
     highlightText,
+    accent: accent ?? primary,
+    onAccent: (app && parseHex(app.tokens.onAccent)) || withAlpha(bg, 1),
     hasThemeAccent: input.palette.length >= 8,
     ansi: palette,
     backgroundOpacity: input.backgroundOpacity,
   };
+}
+
+/**
+ * The popup surface (OverlayMaterial.swift `ThemeTokens.opaqueOverlayFill`): the opaque window
+ * background lifted by up to `lift` toward white, or on a dark theme whose text is lighter than its
+ * page toward the text, stopping where secondary text would drop below 4.5:1 on a hovered row. A dark
+ * theme with dark text (Hot Dog Stand's red) lifts toward white: toward the text would darken the card.
+ */
+export function opaqueOverlayFill(tokens: ThemeTokens, lift: number): ThemeRGB {
+  const page = withAlpha(tokens.windowBackground, 1);
+  const text = withAlpha(tokens.textPrimary, 1);
+  if (!tokens.isDark || luminance(text) < luminance(page)) return mixed(page, WHITE, lift);
+  const secondary = withAlpha(tokens.textSecondary, 1);
+  // Swift's `rounded()` rounds half away from zero; the lift is positive, so Math.round agrees.
+  let step = Math.round(lift * 100) / 100;
+  while (step > 0) {
+    const fill = mixed(page, text, step);
+    if (contrast(secondary, composited(tokens.hoverFill, fill)) >= MINIMUM_TEXT_CONTRAST) return fill;
+    step -= 0.01;
+  }
+  return page;
+}
+
+/**
+ * ThemeTokens.litGlyph: a lit control's glyph, the accent lifted toward the primary text just far
+ * enough to contrast with the window at least as much as the rest ink (`textSecondary`).
+ */
+export function litGlyph(tokens: ThemeTokens): ThemeRGB {
+  const surface = withAlpha(tokens.windowBackground, 1);
+  const lit = composited(tokens.accent, surface);
+  const primary = composited(tokens.textPrimary, surface);
+  const floor = contrast(composited(tokens.textSecondary, surface), surface);
+  if (contrast(lit, surface) >= floor) return lit;
+  let low = 0;
+  let high = 1;
+  for (let step = 0; step < 12; step += 1) {
+    const mid = (low + high) / 2;
+    if (contrast(mixed(lit, primary, mid), surface) >= floor) high = mid;
+    else low = mid;
+  }
+  return mixed(lit, primary, high);
 }
 
 /** `rgba(r, g, b, a)` with 0-255 channels, as WebTheme.css and AgentPaneTheme.css write it. */

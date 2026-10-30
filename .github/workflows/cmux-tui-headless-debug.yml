@@ -1,0 +1,119 @@
+name: cmux-tui headless debug daemon
+
+# Builds the headless debug cmux-tui once per input key on feat-cmux-next and
+# saves it under the key cmux-tui-sdks.yml's live conformance job restores.
+# A pull request may restore a cache its base branch saved, so a feat-cmux-next
+# pull request whose cmux-tui tree and ghostty gitlinks equal its base's (one
+# that triggers the SDKs workflow through its workflow, test or installer
+# paths only) skips that job's six-minute debug build (365-395 s of about
+# 500 s, cmuxterm-hq#1279). One that changes cmux-tui still compiles it. Pull
+# request caches stay read-only, and main saves its own from cmux-tui-sdks.yml.
+# The daemon stays a debug build: lock-rank checks and the orphan exit are
+# debug-only, and conformance runs against them.
+#
+# Keep the key, the runner and the toolchains identical to the conformance
+# job's (tests/test_cmux_tui_headless_debug_workflow.py checks it).
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/**"
+      - "ghostty"
+      - "ghostty-next"
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-headless-debug.yml"
+  # Republishes a key a push missed (a cancelled or failed run).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Pull requests merge with the branch tip, so only its key is restored: a
+  # newer push cancels an older build, and the cache holds one live entry
+  # instead of one per push (about 45 a day touch cmux-tui).
+  group: cmux-tui-headless-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # As in cmux-tui-sdks.yml: libghostty-vt always builds from the ghostty-next
+  # gitlink the key names. An empty value overrides any runner-level
+  # CMUX_GHOSTTY_SRC (ghostty-vt-sys build.rs treats it as unset).
+  CMUX_GHOSTTY_SRC: ""
+
+jobs:
+  build:
+    name: headless debug cmux-tui
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Key the headless cmux-tui build
+        id: headless-key
+        run: |
+          set -euo pipefail
+          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+
+      - name: Check for a saved build
+        id: headless-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}
+          lookup-only: true
+
+      - name: Initialize Ghostty protocol submodule
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+
+      - name: Install Linux build dependencies
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Set up pinned cmux-tui Rust
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Set up Zig for Ghostty
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.16.0
+
+      # The exact binary's key names the whole cmux-tui tree, so a PR that changes
+      # cmux-tui never hits it. feat-cmux-next keeps its target dir
+      # under one shared key, and conformance builds a PR's tree from it incrementally.
+      - name: Cache the cmux-tui target dir
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-headless-debug
+          cache-workspace-crates: "true"
+
+      - name: Build exact headless cmux-tui
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+        run: |
+          test "$(zig version)" = "0.16.0"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+
+      - name: Save the headless cmux-tui build
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}

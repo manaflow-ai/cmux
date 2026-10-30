@@ -7,9 +7,10 @@ import Foundation
 /// web module's output for a sample of themes, and the Swift tests replay it.
 ///
 /// Every token is opaque `#rrggbb`. Each pair in ``contract`` meets its WCAG 2
-/// minimum: 4.5:1 for text, 3:1 for UI marks. The accent is neutral: the
-/// foreground's lightness without hue (the no-blue rule; never a palette
-/// slot such as ANSI 4). No hue is hard-coded.
+/// minimum: 4.5:1 for text, 3:1 for UI marks. By default the accent is
+/// neutral: the foreground's lightness without hue (the no-blue rule);
+/// ``ThemeAccent`` can give it the theme's own hue instead. No hue is
+/// hard-coded.
 ///
 /// ```swift
 /// let app = AppTheme.derive(from: ThemeInput(terminalTheme: .monokai))
@@ -59,17 +60,19 @@ public struct AppTheme: Hashable, Sendable {
     private static let statusSurfaces: [Token] = plainSurfaces + [.hover]
 
     /// Every pair the tokens are used in, with its minimum (the web module's `APP_THEME_CONTRACT`).
-    public static let contract: [Pair] = textSurfaces.map { Pair(token: .text, on: $0, minimum: textMinimum) }
-        + textSurfaces.map { Pair(token: .textSecondary, on: $0, minimum: textMinimum) }
-        + textSurfaces.map { Pair(token: .icon, on: $0, minimum: uiMinimum) }
-        + (plainSurfaces + [.control]).map { Pair(token: .controlStroke, on: $0, minimum: uiMinimum) }
-        + plainSurfaces.map { Pair(token: .accent, on: $0, minimum: uiMinimum) }
-        + plainSurfaces.map { Pair(token: .focusRing, on: $0, minimum: uiMinimum) }
-        + [Pair(token: .onAccent, on: .accent, minimum: textMinimum)]
-        + (statusSurfaces + [.selection]).map { Pair(token: .accentText, on: $0, minimum: textMinimum) }
-        + statusSurfaces.map { Pair(token: .danger, on: $0, minimum: textMinimum) }
-        + statusSurfaces.map { Pair(token: .warning, on: $0, minimum: textMinimum) }
-        + statusSurfaces.map { Pair(token: .success, on: $0, minimum: textMinimum) }
+    public static let contract: [Pair] = ([
+        textSurfaces.map { Pair(token: .text, on: $0, minimum: textMinimum) },
+        textSurfaces.map { Pair(token: .textSecondary, on: $0, minimum: textMinimum) },
+        textSurfaces.map { Pair(token: .icon, on: $0, minimum: uiMinimum) },
+        (plainSurfaces + [.control]).map { Pair(token: .controlStroke, on: $0, minimum: uiMinimum) },
+        plainSurfaces.map { Pair(token: .accent, on: $0, minimum: uiMinimum) },
+        plainSurfaces.map { Pair(token: .focusRing, on: $0, minimum: uiMinimum) },
+        [Pair(token: .onAccent, on: .accent, minimum: textMinimum)],
+        (statusSurfaces + [.selection]).map { Pair(token: .accentText, on: $0, minimum: textMinimum) },
+        statusSurfaces.map { Pair(token: .danger, on: $0, minimum: textMinimum) },
+        statusSurfaces.map { Pair(token: .warning, on: $0, minimum: textMinimum) },
+        statusSurfaces.map { Pair(token: .success, on: $0, minimum: textMinimum) },
+    ] as [[Pair]]).flatMap { $0 }
 
     /// Every contract pair whose measured ratio is below its minimum (empty for a derived theme).
     public var failures: [Pair] {
@@ -86,7 +89,8 @@ public struct AppTheme: Hashable, Sendable {
 
     /// The tokens of a terminal theme's colors.
     public static func derive(from input: ThemeInput) -> AppTheme {
-        derive(background: input.background, foreground: input.foreground, palette: input.palette)
+        derive(background: input.background, foreground: input.foreground, palette: input.palette.map { Optional($0) },
+               accent: input.accent, accentColor: input.accentColor)
     }
 
     /// The tokens of a terminal palette. Every pair in ``contract`` meets its minimum.
@@ -95,23 +99,52 @@ public struct AppTheme: Hashable, Sendable {
     ///   - background: The terminal background (alpha ignored).
     ///   - foreground: The terminal foreground (alpha ignored).
     ///   - palette: ANSI 0...15; a missing slot takes Ghostty's default.
-    public static func derive(background: ThemeRGB, foreground: ThemeRGB, palette: [ThemeRGB?]) -> AppTheme {
+    ///   - accent: Where the accent comes from; neutral by default.
+    ///   - accentColor: The theme's own accent (a per-theme edit or the file's `# cmux-accent`);
+    ///     when set it is the accent's starting color, whatever `accent` says.
+    public static func derive(background: ThemeRGB, foreground: ThemeRGB, palette: [ThemeRGB?],
+                              accent: ThemeAccent = .neutral, accentColor: ThemeRGB? = nil) -> AppTheme {
         let full = ghosttyDefaultPalette.enumerated().map { index, fallback in
             (index < palette.count ? palette[index] : nil).map(\.opaque) ?? ThemeRGB(hex: fallback)
         }
-        var theme = derive(background.opaque, foreground.opaque, full, tint: 1)
+        var theme = derive(background.opaque, foreground.opaque, full, accent: accentColor.map { .color($0.opaque) } ?? .named(accent), tint: 1)
         for scale in tintScales.dropFirst() where !theme.failures.isEmpty {
-            theme = derive(background.opaque, foreground.opaque, full, tint: scale)
+            theme = derive(background.opaque, foreground.opaque, full, accent: accentColor.map { .color($0.opaque) } ?? .named(accent), tint: scale)
         }
         return theme
     }
 
     /// See ``derive(background:foreground:palette:)``.
-    public static func derive(background: ThemeRGB, foreground: ThemeRGB, palette: [ThemeRGB]) -> AppTheme {
-        derive(background: background, foreground: foreground, palette: palette.map { Optional($0) })
+    public static func derive(background: ThemeRGB, foreground: ThemeRGB, palette: [ThemeRGB],
+                              accent: ThemeAccent = .neutral) -> AppTheme {
+        derive(background: background, foreground: foreground, palette: palette.map { Optional($0) }, accent: accent)
     }
 
-    private static func derive(_ bg: ThemeRGB, _ fg: ThemeRGB, _ palette: [ThemeRGB], tint: Double) -> AppTheme {
+    /// A slot reads as a hue (not a gray) at this OKLCH chroma or more.
+    private static let huedChroma = 0.05
+
+    /// Where the accent starts: `appearance.accent`, or the theme's own color.
+    private enum AccentSource { case named(ThemeAccent), color(ThemeRGB) }
+
+    /// The accent's starting color: see ``ThemeAccent``.
+    private static func accentSeed(_ source: AccentSource, _ fg: ThemeRGB, _ palette: [ThemeRGB]) -> ThemeRGB {
+        let accent: ThemeAccent
+        switch source {
+        case .color(let color): return color
+        case .named(let named): accent = named
+        }
+        let neutral = AppColor.fromOKLCH(AppColor.OKLCH(l: AppColor.oklch(fg).l, c: 0, h: 0))
+        if let slot = accent.slot { return colorful(palette, slot, slot + 8) }
+        guard accent == .theme else { return neutral }
+        for slot in [ThemeAccent.magenta, .blue, .cyan].compactMap(\.slot) {
+            let color = colorful(palette, slot, slot + 8)
+            if AppColor.oklch(color).c >= huedChroma { return color }
+        }
+        return neutral
+    }
+
+    private static func derive(_ bg: ThemeRGB, _ fg: ThemeRGB, _ palette: [ThemeRGB], accent accentSource: AccentSource,
+                               tint: Double) -> AppTheme {
         let isDark = AppColor.luminance(bg) < AppColor.luminance(fg)
         var t: [Token: ThemeRGB] = [:]
         let q = AppColor.quantized
@@ -130,9 +163,7 @@ public struct AppTheme: Hashable, Sendable {
         }
 
         let onAccentWanted = isDark ? window : ThemeRGB.white
-        let fgLightness = AppColor.oklch(fg).l
-        let seed = AppColor.fromOKLCH(AppColor.OKLCH(l: fgLightness, c: 0, h: 0))
-        let accent = AppColor.fit(seed, on(plainSurfaces, uiMinimum) + [AppColor.Constraint(on: onAccentWanted, minimum: textMinimum)],
+        let accent = AppColor.fit(accentSeed(accentSource, fg, palette), on(plainSurfaces, uiMinimum) + [AppColor.Constraint(on: onAccentWanted, minimum: textMinimum)],
                                   prefer: isDark ? .lighter : .darker)
         t[.accent] = accent
         t[.focusRing] = accent

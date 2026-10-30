@@ -41,8 +41,18 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_prompt: Option<String>,
+    /// One line for a list row: the reply's last line, else the prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<LastMessage>,
     #[serde(default)]
     pub tags: BTreeMap<String, String>,
+}
+
+/// A summary's `lastMessage`: who said it (`agent` or `user`) and its text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LastMessage {
+    pub role: String,
+    pub text: String,
 }
 
 /// One recorded acpmux event (`_acpmux/event`, attach replays, `events`).
@@ -233,6 +243,13 @@ impl TurnFolder {
                 out.push(TurnOutput::Started { turn: turn.clone(), seq: event.seq });
                 self.current = Some(turn);
             }
+            // A subagent's words (`_meta.acpmux.subagent`) are its own, never the turn's reply.
+            (_, "agent_message_chunk")
+                if event
+                    .msg
+                    .get("params")
+                    .and_then(|p| p.pointer("/_meta/acpmux/subagent"))
+                    .is_some() => {}
             (_, "agent_message_chunk") => {
                 let content = &event.msg.get("params").and_then(|p| p.get("update"));
                 let content = content.and_then(|u| u.get("content"));

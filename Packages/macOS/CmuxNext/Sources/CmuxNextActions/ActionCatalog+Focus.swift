@@ -10,17 +10,19 @@ nonisolated extension ActionCatalog {
         // Tabs
         "tab.focus", "pane.focus", "screen.focus", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber", "tab.search",
         // Panes and focus targets
-        "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
-        "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "focusTextBoxInput", "focusRightSidebar",
+        "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "focusSidebar",
+        "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "browser.focusSearch", "focusTextBoxInput", "focusRightSidebar",
         // Screens
         "screen.next", "screen.previous", "screen.select", "screen.selectLast",
         // Workspaces and rooms
         "nextSidebarTab", "prevSidebarTab", "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup", "selectWorkspaceByNumber",
-        "goToWorkspace", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
-        "space.next", "space.previous", "space.selectByNumber", "space.switch", "home.show", "home.openConversation", "home.previousConversation", "home.nextConversation",
+        "goToWorkspace", "search.chats", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
+        "space.next", "space.previous", "space.selectByNumber", "space.switch", "home.show", "home.switchView", "home.openConversation", "home.previousConversation", "home.nextConversation",
         // Focus history and notifications
-        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "markOldestUnreadAndJumpNext",
+        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "jumpToLastPrompt", "markOldestUnreadAndJumpNext",
         "notificationOpen", "vaultFocusSession", "computerUseFocus", "computerUseFocusCallingTerminal",
+        // Chief subagents: show a subagent's tab, else open a workspace on it
+        "chief.openSubagent",
         // Windows
         "showMainWindow", "showHideAllWindows",
     ]

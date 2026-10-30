@@ -1,6 +1,7 @@
 //! Resource topology lookups and change values: screen, pane and tab lookups, active screen, registry workspace, upsert and delete deltas, and workspace placement.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Registry position for a workspace created into `group` (`None` =
 /// ungrouped) at final index `index` among that section's members. Groups
@@ -121,6 +122,8 @@ pub(super) fn registry_workspace(state: &State, index: usize, session: &str) -> 
         public_id: workspace.public_id.clone(),
         key: workspace.key.clone(),
         name: workspace.name.clone(),
+        name_source: workspace.name_source,
+        name_revision: workspace.name_revision,
         group_key: session.to_string(),
     }
 }
@@ -162,10 +165,14 @@ pub(super) fn workspace_value(
         "name":workspace.name,
         "index":u32::try_from(index).context("workspace index exceeds uint32")?,
         "focused":topology.active_workspace.as_ref() == Some(id),
+        "extra":crate::resource_name::workspace_name_extra(
+            workspace.name_source,
+            workspace.name_revision,
+        ),
     }))
 }
 
-pub(super) fn pane_value(
+pub(in crate::mux) fn pane_value(
     state: &State,
     pane: &RegistryPane,
     topology: &ResourceTopologySnapshot,
@@ -187,7 +194,7 @@ pub(super) fn pane_value_with_zoom(
     zoomed: bool,
 ) -> anyhow::Result<Value> {
     let mut value = pane_value(state, pane, topology)?;
-    value["zoomed"] = json!(zoomed);
+    value.set("zoomed", json!(zoomed));
     Ok(value)
 }
 

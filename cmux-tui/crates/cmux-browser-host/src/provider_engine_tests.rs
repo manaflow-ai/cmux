@@ -16,6 +16,8 @@ pub(super) fn tab(target_id: &str, engine: &str) -> TabAnnounce {
         url: "https://a.test/".into(),
         title: "A".into(),
         visible: true,
+        input_scale: 1.0,
+        touch: false,
     }
 }
 
@@ -350,13 +352,12 @@ fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
 }
 
 #[test]
-fn a_refused_tab_never_opens_a_relay() {
+fn an_unreported_cef_tab_is_driven_and_a_missing_tab_is_not_found() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     let cef = engine(&provider, "cef");
-    // No tab.access report yet: refused, and the app saw no cdp.attach.
-    let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-    assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
-    assert_eq!(app.attaches("C"), 0);
+    // No tab.access report: the extension rule is no gate (#24413).
+    cef.call("tab.info", &json!({"targetId": "C"})).expect("an agent may drive the tab");
+    assert!(app.attaches("C") >= 1);
     let missing = cef.call("tab.info", &json!({"targetId": "X"})).unwrap_err();
     assert_eq!(missing.code, crate::protocol::ErrorCode::NotFound, "{missing}");
 }
@@ -830,4 +831,52 @@ fn a_source_event_cannot_write_the_policy_log() {
         "{:?}",
         seen.lock().unwrap()
     );
+}
+
+/// cx-mogig: Chromium reads CDP mouse coordinates in view points under the
+/// app's emulation scale (a fit, a device bigger than the pane), so an app
+/// CEF tab announced with `inputScale` gets its mouse input in CSS px times
+/// that scale; a re-announce at 1 (emulation off) sends CSS px as given.
+#[test]
+fn mouse_input_on_a_cef_tab_follows_the_apps_emulation_scale() {
+    let fitted = TabAnnounce { input_scale: 0.5, ..tab("C", "cef") };
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), fitted]);
+    app.access(&provider, "C");
+    let cef = engine(&provider, "cef");
+    let click = |x: f64, y: f64| {
+        for kind in ["down", "up"] {
+            let params = json!({"targetId": "C", "type": kind, "x": x, "y": y, "button": "left", "timeoutMs": 5000});
+            cef.call("input.mouse", &params).unwrap();
+        }
+    };
+    let sent = || -> Vec<(f64, f64)> {
+        app.cdp_messages("C")
+            .iter()
+            .filter(|m| m["method"] == "Input.dispatchMouseEvent")
+            .map(|m| (m["params"]["x"].as_f64().unwrap(), m["params"]["y"].as_f64().unwrap()))
+            .collect()
+    };
+    click(100.0, 40.0);
+    assert_eq!(sent(), vec![(50.0, 20.0), (50.0, 20.0)]);
+    // A wheel's position and deltas are view points too.
+    let wheel = json!({"targetId": "C", "type": "wheel", "x": 100.0, "y": 40.0, "deltaY": 300.0, "timeoutMs": 5000});
+    cef.call("input.mouse", &wheel).unwrap();
+    let last = app
+        .cdp_messages("C")
+        .into_iter()
+        .rev()
+        .find(|m| m["method"] == "Input.dispatchMouseEvent")
+        .unwrap();
+    assert_eq!(
+        (last["params"]["x"].as_f64(), last["params"]["deltaY"].as_f64()),
+        (Some(50.0), Some(150.0))
+    );
+    // The app ended the emulation: the tab is announced again at 1.
+    app.send(Frame::Event {
+        name: "tab.announced".into(),
+        payload: serde_json::to_value(tab("C", "cef")).unwrap(),
+    });
+    app.access(&provider, "C");
+    click(100.0, 40.0);
+    assert_eq!(sent()[3..], [(100.0, 40.0), (100.0, 40.0)]);
 }

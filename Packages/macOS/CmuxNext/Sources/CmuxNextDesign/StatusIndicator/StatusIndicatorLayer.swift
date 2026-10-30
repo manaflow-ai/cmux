@@ -1,5 +1,6 @@
 public import AppKit
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The one status indicator every surface draws (sidebar rows and group
 /// headers, sidebar section items, tabs, Home, pane headers). It owns one
@@ -21,13 +22,17 @@ public final class StatusIndicatorLayer {
         public var success: CGColor
         /// Agent work (`Tint.accent`); the loading color when nil.
         public var accent: CGColor?
+        /// The working dot (`Tint.working`, the theme accent); `accent` when nil.
+        public var working: CGColor?
 
-        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor, accent: CGColor? = nil) {
+        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor, accent: CGColor? = nil,
+                    working: CGColor? = nil) {
             self.loading = loading
             self.attention = attention
             self.danger = danger
             self.success = success
             self.accent = accent
+            self.working = working
         }
 
         /// The theme's colors (call inside `performWithTheme` / a theme
@@ -38,8 +43,30 @@ public final class StatusIndicatorLayer {
                    attention: Palette.attention.cgColor,
                    danger: Palette.danger.cgColor,
                    success: Palette.success.cgColor,
-                   accent: Palette.textPrimary.cgColor)
+                   accent: Palette.textPrimary.cgColor,
+                   working: Palette.accentFill.cgColor)
         }
+
+        /// The sidebar's status colors (Lawrence msg 11983: "blue, orange/yellow for needs attention,
+        /// and red for errors"): unread ``Palette/statusUnread``, needs attention
+        /// ``Palette/statusAttention`` and errors ``Palette/statusError``, the system colors, so
+        /// light and dark match and each color means one thing in every row. Call inside the
+        /// host's drawing appearance.
+        /// - Parameter color: Overrides the loading color (`appearance.statusIndicator.color`).
+        /// - Returns: The theme's colors with the three status colors replaced.
+        public static func status(loading color: ThemeRGB?) -> Colors {
+            var colors = current(loading: color)
+            colors.attention = Palette.statusAttention.cgColor
+            colors.danger = Palette.statusError.cgColor
+            colors.unread = Palette.statusUnread.cgColor
+            return colors
+        }
+
+        /// The unread dot's color; nil draws ``Palette/notificationBlue``.
+        public var unread: CGColor?
+
+        /// The default unread dot: ``Palette/notificationBlue``.
+        static var defaultUnread: CGColor { Palette.notificationBlue.cgColor }
 
         /// The color a plan's tint draws in.
         public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {
@@ -49,6 +76,9 @@ public final class StatusIndicatorLayer {
             case .danger: danger
             case .success: success
             case .accent: accent ?? loading
+            case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
+            case .unread: unread ?? Self.defaultUnread
+            case .working: working ?? accent ?? loading
             }
         }
     }
@@ -59,9 +89,9 @@ public final class StatusIndicatorLayer {
         didSet { if colors != oldValue { applyColors() } }
     }
 
-    private var glyphLayer: CAShapeLayer?
+    private(set) var glyphLayer: CAShapeLayer?
     private var trackLayer: CAShapeLayer?
-    private var nativeLayer: CALayer?
+    private(set) var nativeLayer: CALayer?
     /// The pixel side the native mask was rendered for.
     private var nativeSide: CGFloat = 0
     /// Braille spinner frames (masks) for the current size and font.
@@ -74,7 +104,12 @@ public final class StatusIndicatorLayer {
     var markLayer: CALayer?
     var markKey: StatusMarkKey?
 
-    public init() {
+    /// The time base every loop counts its phase from (``SpinnerClock``); tests pass fixed times.
+    public let clock: SpinnerClock
+
+    /// - Parameter clock: The shared phase clock; the default reads the system clocks.
+    public init(clock: SpinnerClock = SpinnerClock()) {
+        self.clock = clock
         layer.actions = Self.noActions
         layer.isHidden = true
     }
@@ -113,7 +148,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (markLayer, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (glyphLayer, "breathe"), (markLayer, "breathe"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -121,12 +156,14 @@ public final class StatusIndicatorLayer {
         return nil
     }
 
-    /// Number of sublayers alive (tests: idle must be zero).
-    public var liveSublayerCount: Int { layer.sublayers?.count ?? 0 }
-
-    /// Show `plan` with `config`. Cheap when nothing changed.
+    /// Show `plan` with `config`. Cheap when nothing changed; even then a loop the plan wants but
+    /// the layer lacks (refused while loops were off, or lost) starts again, so a host that applies
+    /// again repairs a still spinner (Leo 2026-10-20: rows whose spinners had stopped for a while).
     public func apply(_ plan: StatusIndicatorPlan, config: StatusIndicatorConfig) {
-        guard plan != self.plan || config != self.config else { return }
+        guard plan != self.plan || config != self.config else {
+            updateAnimation()
+            return
+        }
         let configChanged = config != self.config
         let glyphChanged = plan.glyph != self.plan.glyph || configChanged
         self.plan = plan
@@ -357,20 +394,29 @@ public final class StatusIndicatorLayer {
         removeAllAnimations()
         guard let wanted, let target = animationTarget(for: wanted) else { return }
         let animation: CAAnimation? = switch wanted {
-        case .spin: Motion.spinAnimation()
-        case .step: Motion.stepAnimation(steps: config.nativeSteps)
-        case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
-        case .frames: Motion.framesAnimation(brailleFrames)
+        case .spin: Motion.indicators.spinAnimation()
+        case .step: Motion.indicators.stepAnimation(steps: config.nativeSteps)
+        case .pulse: Motion.indicators.pulseAnimation(low: Float(config.pulseLow))
+        case .frames: Motion.indicators.framesAnimation(brailleFrames)
         case .wave: waveAnimation()
+        case .breathe: Motion.indicators.breathAnimation(low: Float(config.breathLow))
         }
-        if let animation { target.add(animation, forKey: wanted.key) }
+        guard let animation else { return }
+        // Every indicator loop runs on one clock (Lawrence 2026-10-14: "all spinners need to be
+        // synced", cx-qtgj2; 2026-10-20 "synced and spinning in the same direction"): its phase
+        // is Unix time mod its cycle (`SpinnerClock`), so a spinner that shows later, or resumes
+        // after its window was hidden, joins in step with the rest (sidebar rows, tabs, hover
+        // cards, chrome spinners) and with the web pages' spinners, which read the same clock.
+        let cycle = animation.duration * (animation.autoreverses ? 2 : 1)
+        animation.beginTime = target.convertTime(clock.beginTime(cycle: cycle), from: nil)
+        target.add(animation, forKey: wanted.key)
     }
 
     private func animationTarget(for animation: StatusIndicatorPlan.Animation?) -> CALayer? {
         switch animation {
         case .step?: nativeLayer
         case .frames?: brailleLayer?.mask
-        case .spin?, .pulse?: markLayer ?? glyphLayer
+        case .spin?, .pulse?, .breathe?: markLayer ?? glyphLayer
         case .wave?: dotsLayer?.sublayers?.first
         case nil: nil
         }

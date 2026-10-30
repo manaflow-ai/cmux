@@ -165,6 +165,7 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
             on_behalf_of: None,
             origin: "cli".into(),
             label: String::new(),
+            terminal: None,
             implicit_session: false,
             engine: "headless".into(),
         };
@@ -345,6 +346,7 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
             on_behalf_of: None,
             origin: origin.into(),
             label: String::new(),
+            terminal: None,
             implicit_session: false,
             engine: "headless".into(),
         };

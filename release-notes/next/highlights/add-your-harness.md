@@ -2,4 +2,4 @@ title: Add your own coding agent
 category: new
 action: palette.addHarness | Try it
 
-Run Add Harness… from the command palette, the File menu or the New Tab page. A chat walks you through describing your agent in one file, checks it, and the agent shows up in the model picker. A harness file inside a project runs only after you trust the folder and confirm the exact command on an Enable harness sheet.
+From the File menu, the command palette or + in the model picker, see the coding agents on this Mac, sign them in or start a chat. Custom harness… walks you through adding your own agent to the model picker.

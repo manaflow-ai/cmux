@@ -29,6 +29,10 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
     /// key to fix, cmux-tui to install): retrying on a timer cannot help,
     /// the next retry waits for an event (activation, wake, Reconnect).
     case endpointBlocked(String)
+    /// `server ensure` found the session owner alive but still restoring its
+    /// terminals after the daemon's restore bound (`server.restore_timeout`).
+    /// Carries the daemon's message. Retrying waits for the same owner.
+    case sessionRestoreTimedOut(String)
 
     public var description: String {
         switch self {
@@ -48,6 +52,24 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .terminalStartTimedOut(let what): "timed out: \(what); the terminal may still appear"
         case .invalidSessionName(let name): "invalid cmux-tui session name: \(name)"
         case .endpointBlocked(let reason): reason
+        case .sessionRestoreTimedOut(let message): "cmux-tui session restore timed out: \(message)"
         }
+    }
+}
+
+extension DaemonError {
+    /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
+    public var isLostConnection: Bool {
+        switch self {
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        default: false
+        }
+    }
+
+    /// cmux-tui refused the connection at its connection limit (`server.busy`): it is
+    /// alive and frees a slot when one of its connections ends, so a retry soon can work.
+    public var isBusyRefusal: Bool {
+        if case .connectionClosed(let reason) = self { return reason == LineTransport.busyRefusal }
+        return false
     }
 }

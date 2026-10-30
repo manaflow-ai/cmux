@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWorkspaceRepair
 
 // The last tab of the last pane takes its workspace along (coordinator
 // decision 2026-09-30, REWRITE.md round 3), the same way dragging a window's
@@ -34,8 +35,8 @@ extension TabDragSession {
             repair.endClosing(key)
             return
         }
-        // No terminal to end: every tab moved out.
-        daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: [], on: connection) }
+        // No terminal to end: every tab moved out; a tab opened there since keeps it, and repairs apply again (cx-nsiyx).
+        daemon.send("close-workspace", onFailure: { _ in repair.endClosing(key) }) { try await WorkspaceClose.close(key, terminals: [], on: $0, ifEmpty: true) }
     }
 
     /// `moveWorkspaceToNewWindow` / `moveWorkspace`: no tab moves; the
@@ -59,10 +60,10 @@ extension TabDragSession {
             switch sidebar?.lastDrop {
             case .newWorkspace(let section, let group, let index)?:
                 let raw = DropPosition(section: section, group: group, index: index)
-                bridge.accept(ids, at: WorkspaceMovePlan.excluding([id], from: raw, in: bridge.model.sections))
+                bridge.accept(ids, at: WorkspaceMovePlan(window: bridge.model.sections).excluding([id], from: raw))
             case .intoGroup(let group)?:
                 bridge.accept(ids, intoGroup: group)
-            case .intoWorkspace?, nil:
+            case .intoWorkspace?, .beforeTab?, nil:
                 bridge.accept(ids, at: nil)
             }
         default:

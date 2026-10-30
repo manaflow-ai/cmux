@@ -6,8 +6,8 @@
 //   the thread's first and over an hour old, or when it comes more than an hour after the
 //   previous turn's answer. A day change alone draws no line.
 // - wording: calendar days before now ≤ 1 → "Today" / "Yesterday", ≤ 7 → the weekday,
-//   ≤ 365 → "Sun, Sep 13", else "Sep 13, 2025"; then the time, joined by " at " only past
-//   seven days.
+//   ≤ 365 → "Sun, Sep 13", else "Sep 13, 2025"; dates past seven days use the locale's
+//   combined date and time format.
 
 const HOUR_MS = 36e5;
 
@@ -22,16 +22,23 @@ export function hasTimestamp(at: number | undefined): at is number {
 /// For each turn, whether a line shows above it. `loadedFromStart` is false when the first
 /// turn here is not the thread's first (rows before it, or older history not paged in).
 export function timestampTurns(turns: readonly TurnTimes[], now: number, loadedFromStart: boolean): boolean[] {
-  let previousAnswer: number | undefined;
-  return turns.map((turn, index) => {
-    const show =
-      hasTimestamp(turn.promptAt) &&
-      ((index === 0 && loadedFromStart && now - turn.promptAt > HOUR_MS) ||
-        (previousAnswer !== undefined && turn.promptAt - previousAnswer > HOUR_MS));
-    // The previous message is this turn's answer, or its prompt when it has none.
-    previousAnswer = hasTimestamp(turn.answerAt) ? turn.answerAt : undefined;
-    return show;
-  });
+  return turns.map((turn, index) => showsTimestamp(turn, turns[index - 1], now, loadedFromStart));
+}
+
+/// Whether a line shows above `turn`, which follows `previous` (undefined for the first turn).
+export function showsTimestamp(
+  turn: TurnTimes,
+  previous: TurnTimes | undefined,
+  now: number,
+  loadedFromStart: boolean,
+): boolean {
+  // The previous message is the previous turn's answer, or its prompt when it has none.
+  const previousAnswer = previous && hasTimestamp(previous.answerAt) ? previous.answerAt : undefined;
+  return (
+    hasTimestamp(turn.promptAt) &&
+    ((!previous && loadedFromStart && now - turn.promptAt > HOUR_MS) ||
+      (previousAnswer !== undefined && turn.promptAt - previousAnswer > HOUR_MS))
+  );
 }
 
 export type Clock = { now: number; timeZone?: string; locale?: string };
@@ -60,8 +67,13 @@ export function timestampText(ms: number, clock: Clock): string {
     const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day");
     date = locale.startsWith("en") ? relative[0]!.toUpperCase() + relative.slice(1) : relative;
   } else if (days <= 7) date = format({ weekday: "long" });
-  else if (days <= 365) date = format({ weekday: "short", month: "short", day: "numeric" });
-  else date = format({ month: "short", day: "numeric", year: "numeric" });
+  else {
+    const dateOptions: Intl.DateTimeFormatOptions =
+      days <= 365
+        ? { weekday: "short", month: "short", day: "numeric" }
+        : { month: "short", day: "numeric", year: "numeric" };
+    return format({ ...dateOptions, hour: "numeric", minute: "2-digit" });
+  }
   const time = format({ hour: "numeric", minute: "2-digit" });
-  return days > 7 ? `${date} at ${time}` : `${date} ${time}`;
+  return `${date} ${time}`;
 }

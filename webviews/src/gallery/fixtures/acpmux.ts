@@ -2,7 +2,12 @@
 // Builders for the agent pane's real data structures (model.ts AcpmuxRow, AcpmuxSnapshot,
 // sessionList.ts AcpmuxSessionEntry), placed on the gallery clock (clock.ts) so relative times
 // are stable. Pure data: gallery files and tests import these without a DOM.
-import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "../../agent-session/acpmux/model";
+import type {
+  AcpmuxActivity,
+  AcpmuxContextBreakdown,
+  AcpmuxRow,
+  AcpmuxSnapshot,
+} from "../../agent-session/acpmux/model";
 import type { AcpmuxSessionEntry } from "../../agent-session/acpmux/sessionList";
 import { minutesAgo } from "../clock";
 
@@ -32,8 +37,8 @@ export const CATALOG: AcpmuxSnapshot["catalog"] = [
     id: "codex",
     name: "Codex",
     models: [
-      { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: GPT_EFFORTS, fast: true },
-      { id: "gpt-6-luna", name: "GPT-6-Luna", efforts: GPT_EFFORTS, fast: true },
+      { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: GPT_EFFORTS, fast: true, inlineFast: true },
+      { id: "gpt-6-luna", name: "GPT-6-Luna", efforts: GPT_EFFORTS, fast: true, inlineFast: true },
       { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", efforts: GPT_EFFORTS, fast: false },
     ],
   },
@@ -80,7 +85,11 @@ export function tool(title: string, kind: string, status: string, fields: Partia
   return { kind: "tool", text: title, tool: { id: nextId("tool"), title, kind, status, ...fields } };
 }
 
-export const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text });
+export const thought = (text: string, fields: Partial<AcpmuxActivity> = {}): AcpmuxActivity => ({
+  kind: "thought",
+  text,
+  ...fields,
+});
 
 export const activity = (items: AcpmuxActivity[], minutes: number, fields: Partial<AcpmuxRow> = {}) =>
   row("activity", minutes, {
@@ -107,13 +116,21 @@ export function session(fields: Partial<AcpmuxSessionEntry> & { sessionId: strin
 /** A connected snapshot of one chat: `rows`, with its session in the list. */
 export function chat(
   rows: AcpmuxRow[],
-  fields: Partial<AcpmuxSnapshot> & { title?: string; harness?: string; model?: string; branch?: string } = {},
+  fields: Partial<AcpmuxSnapshot> & {
+    title?: string;
+    harness?: string;
+    model?: string;
+    branch?: string;
+    /// acpmux's Ctrl-B moves its work; acpmux says so for a Claude Code chat.
+    backgroundsWork?: boolean;
+  } = {},
 ): AcpmuxSnapshot {
   const {
     title = "Add retries to the fetch helper",
     harness = "claude",
     model = "claude-opus-5-5",
     branch = "main",
+    backgroundsWork = harness === "claude",
     ...rest
   } = fields;
   return {
@@ -134,6 +151,7 @@ export function chat(
       turnCount: rows.filter((candidate) => candidate.kind === "user").length,
       usage: { used: 48_000, size: 200_000 },
       promptCapabilities: { image: true },
+      backgroundsWork,
     },
     connection: "connected",
     origin: "local",
@@ -190,10 +208,69 @@ export function manySessions(count: number): AcpmuxSessionEntry[] {
       status: index === 0 ? "running" : index === 2 ? "waiting" : "idle",
       pendingPermissions: index === 2 ? 1 : 0,
       unread: index === 1,
+      indicator: index === 0 ? "working" : index === 2 ? "input" : "done",
       updatedAt: minutesAgo(3 + index * 47),
       cwd: index % 4 === 3 ? "/Users/you/src/cmux" : CWD,
       branch: index % 2 ? `feat-${index}` : "main",
       preview: "Updated the tests and the docs; all checks pass.",
     }),
   );
+}
+
+/// A Claude Code chat's /context as acpmux keeps it (`contextBreakdown`): 43% of a 400k window, as
+/// Claude Code desktop's Context card shows one, with three MCP tools, two memory files and a skill.
+export const CONTEXT_BREAKDOWN: AcpmuxContextBreakdown = {
+  categories: [
+    { id: "system_prompt", name: "System prompt", tokens: 10_700, kind: "used" },
+    { id: "system_tools", name: "System tools", tokens: 14_800, kind: "used" },
+    { id: "memory_files", name: "Memory files", tokens: 15_000, kind: "used" },
+    { id: "skills", name: "Skills", tokens: 10_000, kind: "used" },
+    { id: "messages", name: "Messages", tokens: 120_900, kind: "used" },
+    { id: "autocompact_buffer", name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+    { id: "free_space", name: "Free space", tokens: 195_600, kind: "free" },
+    { id: "system_tools_deferred", name: "System tools (deferred)", tokens: 20_800, kind: "deferred" },
+    { id: "mcp_tools_deferred", name: "MCP tools (deferred)", tokens: 431, kind: "deferred" },
+  ],
+  memoryFiles: [
+    { path: "/Users/you/src/atlas-web/CLAUDE.md", type: "Project", tokens: 11_200 },
+    { path: "/Users/you/.claude/CLAUDE.md", type: "User", tokens: 3_800 },
+  ],
+  mcpTools: [
+    { name: "mcp__linear__create_issue", serverName: "linear", tokens: 240 },
+    { name: "mcp__linear__search", serverName: "linear", tokens: 120 },
+    { name: "mcp__sentry__events", serverName: "sentry", tokens: 71 },
+  ],
+  skills: [{ name: "release-notes", tokens: 10_000 }],
+  totalTokens: 171_400,
+  maxTokens: 400_000,
+};
+
+/// What `acpmux host ls` lists on a Mac with a fleet (`_acpmux/status` peers as the relay passes
+/// them): four of the person's own (one offline), two numbered VM pools (three reconnecting, one in
+/// its handshake) and a cmux Cloud machine. 21 machines.
+export function fleetPeers(): Pick<AcpmuxSnapshot, "peers" | "peerKinds" | "peerConnected" | "peerStates"> {
+  const names = [
+    "build-mini",
+    "desk-linux",
+    "gpu-box",
+    "home-server",
+    ...Array.from({ length: 6 }, (_, index) => `agent-vm-${index + 1}`),
+    ...Array.from({ length: 10 }, (_, index) => `codex-vm-${index + 1}`),
+    "Cloud machine",
+  ];
+  const state = (name: string) =>
+    name === "gpu-box"
+      ? "offline"
+      : /^agent-vm-[3-5]$/.test(name)
+        ? "reconnecting"
+        : name === "agent-vm-6"
+          ? "degraded"
+          : "connected";
+  const by = <T>(value: (name: string) => T) => Object.fromEntries(names.map((name) => [name, value(name)]));
+  return {
+    peers: names,
+    peerKinds: by((name) => (name === "Cloud machine" ? "cloud" : "ssh")),
+    peerConnected: by((name) => state(name) === "connected" || state(name) === "degraded"),
+    peerStates: by(state),
+  };
 }

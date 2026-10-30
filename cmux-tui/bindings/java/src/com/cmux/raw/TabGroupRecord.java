@@ -12,7 +12,7 @@ import java.util.Objects;
 
 public final class TabGroupRecord implements WireValue {
     private final boolean collapsed;
-    /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+    /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
     private final String color;
     private final String id;
     /** May be empty: the group shows only its color. */

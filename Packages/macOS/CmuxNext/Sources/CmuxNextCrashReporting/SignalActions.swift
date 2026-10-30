@@ -28,12 +28,4 @@ public nonisolated struct SignalActions: Sendable {
             sigaction(signal, &action, nil)
         }
     }
-
-    /// Whether the saved action of `signal` is a handler (not the default
-    /// action or ignore).
-    public func hasHandler(for signal: Int32) -> Bool {
-        guard let index = signals.firstIndex(of: signal) else { return false }
-        // SIG_DFL is the handler value 0 and SIG_IGN is 1 (<sys/signal.h>).
-        return unsafeBitCast(actions[index].__sigaction_u, to: Int.self) > 1
-    }
 }

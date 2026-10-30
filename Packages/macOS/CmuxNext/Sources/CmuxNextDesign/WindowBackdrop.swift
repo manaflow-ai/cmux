@@ -1,4 +1,5 @@
 public import CoreGraphics
+public import CmuxNextDesignTokens
 
 /// How the window behind the terminal is drawn for the resolved
 /// `background-opacity` and `background-blur`: one ``WindowMaterial`` for
@@ -27,10 +28,15 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     public var art: BackdropArt? = nil
     /// Optional bundled or system image beneath the material.
     public var selection: BackdropSelection? = nil
-    /// The least tint over art at which every text role stays legible
-    /// (``ThemeTokens/legibleTintOpacity(over:requested:)``); 0 without art. Neither the opacity setting
-    /// nor the tuner thins the glass below it.
-    public var legibleTintOpacity: Double = 0
+    /// How far the art itself is blurred (Gaussian radius in points): Frosted's radius over art,
+    /// 0 otherwise. The window's own frost blurs only the desktop behind it, which opaque art
+    /// hides, so over art the material blurs the picture instead.
+    public var artBlurRadius: Int = 0
+    /// The art's own opacity: 1, or ``windowGlassArtOpacity`` under Window Glass (the Clear Glass
+    /// material over art, cx-t2x.6), so the desktop and the windows behind read through it.
+    public var artOpacity: Double = 1
+    /// How much of the art covers what is behind a Window Glass window.
+    public static let windowGlassArtOpacity = 0.55
     /// Live experimental adjustments applied to the tint.
     public var tuning: AppearanceTuning = .identity
     /// The one-time texture pass applied when artwork is loaded.
@@ -53,6 +59,9 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The frost radius Ghostty.app uses for the glass styles where Liquid
     /// Glass is missing.
     public static let glassFallbackBlurRadius = 20
+    /// The most a tint over art covers it (window, workspace or pane Opacity): at 1 the window
+    /// turns opaque and hides the art, so Opacity reaches 100% everywhere (2026-10-21).
+    public static let maximumWorkspaceTint = 1.0
 
     /// The backdrop for one resolved opacity and blur.
     ///
@@ -89,22 +98,35 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The window the tokens' resolved opacity and blur describe: the one
     /// place chrome, panes and the window root read painting from.
     ///
+    /// Over a picture, readability comes from the window's own controls, applied the same way
+    /// whatever the picture is (Leo, 2026-10-20): the tint is the Opacity asked for, the material
+    /// blurs (Frosted blurs the picture, glass refracts it). No picture raises the tint to a
+    /// legibility floor and no work brings a tint of its own.
+    ///
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter art: Bundled art below the window's material and tint.
+    /// - Parameter tintOpacity: The tint over art the user chose (`ThemeScope.backdropTintOpacity`:
+    ///   a workspace's own, else the window Opacity); at most ``maximumWorkspaceTint``. Unset,
+    ///   over art the theme's own ``ThemeTokens/wallpaperTintOpacity``.
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
-                texture: BackdropTexture = .default) {
+                texture: BackdropTexture = .default, tintOpacity workspaceTint: Double? = nil) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
-        let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
-            ? tokens.backgroundOpacity
-            : max(tokens.wallpaperTintOpacity, resolvedSelection?.minimumTintOpacity ?? 0)
+        let opacity = if resolvedSelection != nil, let workspaceTint {
+            min(max(workspaceTint, 0), Self.maximumWorkspaceTint)
+        } else if resolvedSelection == nil || tokens.backgroundOpacity < 1 {
+            tokens.backgroundOpacity
+        } else {
+            tokens.wallpaperTintOpacity
+        }
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
-        if resolvedSelection != nil, !isOpaque {
-            legibleTintOpacity = tokens.legibleTintOpacity(requested: 0)
-            tintOpacity = max(tintOpacity, legibleTintOpacity)
-        }
+        // Window Glass: the Clear Glass setting (`background-blur` -2, frosted where Liquid Glass
+        // is missing) over art; the desktop and the windows behind read through the art.
+        let windowGlass = resolvedSelection != nil && !isOpaque && tokens.backgroundBlur == -2
+        if windowGlass { artOpacity = Self.windowGlassArtOpacity }
+        if resolvedSelection != nil, material == .frosted { artBlurRadius = windowBlurRadius }
         self.art = art
         self.selection = resolvedSelection
         self.tuning = tuning

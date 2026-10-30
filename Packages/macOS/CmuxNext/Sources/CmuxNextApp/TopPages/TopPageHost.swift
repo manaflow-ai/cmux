@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHomeEngine
 
 /// One window's top pages: one view per route, made on first show and kept
 /// for the window's life, so a page keeps its state (scroll, search, the
@@ -18,17 +19,22 @@ final class TopPageHost {
 
     /// The page's view, made on first show; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController) -> NSView? {
-        if let view = views[route] { return view }
         guard let services else { return nil }
+        if case .page(let id) = route, InternalPageTabStore.isPreviewPage(id),
+           services.settings?.snapshot.previewFeatures != true { return nil }
+        if let view = views[route] { return view }
         let view: NSView
         switch route {
         case .home:
+            // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
+            guard HomeDock.classic else { return nil }
             view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
             keys[route] = key
-            let page = InternalPageView(key: key, page: id, content: provider.makeView(for: key, in: window))
+            let content = provider.makeView(for: key, in: window)
+            let page = InternalPageView(key: key, page: id, content: content, topBar: provider.makeTopBar(for: key))
             page.navigate = services.pages.navigate
             view = page
         }
@@ -61,7 +67,8 @@ final class TopPageHost {
     func teardown() {
         for (route, view) in views {
             view.removeFromSuperview()
-            if case .page(let id) = route, let key = keys[route] { services?.pages.provider(id)?.tabClosed(key) }
+            // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
+            if case .page(let id) = route, let key = keys.removeValue(forKey: route) { services?.pages.provider(id)?.tabClosed(key) }
         }
         views.removeAll()
         keys.removeAll()

@@ -24,7 +24,7 @@ struct IconPickerSession: Equatable {
     var tab: String { IconValue(wire: current).map(Self.tab) ?? "emoji" }
     /// Whether Remove Icon shows (the object has an icon now).
     var canClear: Bool { IconValue(wire: current) != nil }
-    /// Image and SVG tabs work only when the owner stores assets (the daemon blob store, later).
+    /// Whether the page shows its Image and SVG tabs: the owner stores assets (``IconAssetStore``).
     var assets = false
     /// The SF Symbol catalog this Mac ships (names, keywords, categories); sent with the first
     /// session of a page only.

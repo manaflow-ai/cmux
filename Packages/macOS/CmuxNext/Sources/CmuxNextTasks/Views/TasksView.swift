@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// The pane: one of three prototype layouts over the same model.
@@ -26,16 +27,8 @@ struct TasksView: View {
             }
         }
         .background(colors.surface)
-        .overlay(alignment: .bottom) {
-            if let reject = model.lastReject {
-                Text(reject)
-                    .font(.system(size: 11.5)).foregroundStyle(colors.primary)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(colors.elevated).shadow(color: colors.shadow, radius: 8, y: 2))
-                    .padding(12)
-                    .transition(.opacity)
-            }
-        }
+        // A refusal is a toast, the one toast component's.
+        .cmuxToast(id: "tasks.reject", message: model.lastReject) { model.clearReject() }
     }
 }
 

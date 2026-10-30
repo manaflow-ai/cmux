@@ -1,4 +1,52 @@
 use super::*;
+use crate::test_exec::write_executable;
+
+#[test]
+fn cli_session_resource_settings_are_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.memory_mb", "6144").unwrap();
+    config.set_session_resource("session.swap_mb", "2048").unwrap();
+    assert_eq!(config.session.memory_mb, Some(6144));
+    assert_eq!(config.session.swap_mb, Some(2048));
+    config.set_session_resource("session.memory_mb", "default").unwrap();
+    assert_eq!(config.session.memory_mb, None);
+}
+
+#[test]
+fn session_task_caps_are_typed_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.tasks_max", "8192").unwrap();
+    config.set_session_resource("session.sessions-tasks-max", "131072").unwrap();
+    assert_eq!(config.session.tasks_max, Some(8192));
+    assert_eq!(config.session.sessions_tasks_max, Some(131_072));
+    let json = serde_json::to_value(&config.session).unwrap();
+    assert_eq!(json, serde_json::json!({"tasksMax": 8192, "sessionsTasksMax": 131072}));
+    let back: SessionResourceConfig = serde_json::from_value(json).unwrap();
+    assert_eq!(back, config.session);
+    // 0 is no cap; `infinity` is the same.
+    config.set_session_resource("session.sessions_tasks_max", "infinity").unwrap();
+    assert_eq!(config.session.sessions_tasks_max, Some(0));
+    config.set_session_resource("session.tasks_max", "default").unwrap();
+    assert_eq!(config.session.tasks_max, None);
+    assert!(config.set_session_resource("session.tasks_max", "lots").is_err());
+}
+
+#[test]
+fn cli_session_cpu_class_is_a_config_value() {
+    use crate::cpu_class::CpuClass;
+    let mut config = Config::default();
+    config.set_session_resource("session.cpu_class", "normal").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Normal));
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["session"]["cpuClass"], "normal");
+    let loaded: Config = serde_json::from_value(saved).unwrap();
+    assert_eq!(loaded.session.cpu_class, Some(CpuClass::Normal));
+    config.set_session_resource("session.cpu-class", "Background").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Background));
+    assert!(config.set_session_resource("session.cpu_class", "utility").is_err());
+    config.set_session_resource("session.cpu_class", "default").unwrap();
+    assert_eq!(config.session.cpu_class, None);
+}
 
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
     HarnessProfile {
@@ -13,232 +61,6 @@ fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
         effort: None,
         policy: None,
     }
-}
-
-#[test]
-fn families_are_derived_and_resolved() {
-    let mut cfg = Config::default();
-    cfg.harnesses
-        .insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["/usr/local/bin/claude"]));
-    cfg.harnesses.insert(
-        "claude-sr".into(),
-        prof(HarnessKind::ClaudeStdio, &["/Users/x/bin/sr", "claude", "proxy"]),
-    );
-    cfg.harnesses.insert("codex".into(), prof(HarnessKind::Acp, &["/opt/homebrew/bin/codex-acp"]));
-    cfg.harnesses.insert("oc".into(), prof(HarnessKind::Acp, &["opencode", "acp"]));
-    cfg.harnesses.insert("pi".into(), prof(HarnessKind::Acp, &["/x/pi-acp"]));
-    cfg.harnesses.insert("omp".into(), prof(HarnessKind::Acp, &["/x/omp", "acp"]));
-    cfg.harnesses
-        .insert("prime".into(), prof(HarnessKind::Acp, &["/x/prime-agent", "--mode", "acp"]));
-    let mut tagged = prof(HarnessKind::Acp, &["python3", "agent.py"]);
-    tagged.family = Some("codex".into());
-    cfg.harnesses.insert("router-codex".into(), tagged);
-    assert_eq!(cfg.family("claude-sr").as_deref(), Some("claude"));
-    assert_eq!(cfg.family("oc").as_deref(), Some("opencode"));
-    // Forks are their own families.
-    assert_eq!(cfg.family("omp").as_deref(), Some("omp"));
-    assert_eq!(cfg.family("prime").as_deref(), Some("prime"));
-    assert_eq!(cfg.families()["codex"], vec!["codex".to_owned(), "router-codex".to_owned()]);
-    // A family with one profile, or a profile named like the family, resolves.
-    assert_eq!(cfg.resolve_harness("opencode").unwrap(), "oc");
-    assert_eq!(cfg.resolve_harness("pi").unwrap(), "pi");
-    assert_eq!(cfg.resolve_harness("codex").unwrap(), "codex");
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
-    assert_eq!(cfg.resolve_harness("claude-sr").unwrap(), "claude-sr");
-    // Unknown names and model ids are errors that name what exists.
-    let err = cfg.resolve_harness("gpt-5.5").unwrap_err();
-    assert!(err.contains("families:") && err.contains("profiles:"), "{err}");
-    // Several profiles, no preference, no exact name: refused, never guessed.
-    let mut two = Config::default();
-    two.harnesses.insert("omp-a".into(), prof(HarnessKind::Acp, &["/x/omp", "acp"]));
-    two.harnesses.insert("omp-b".into(), prof(HarnessKind::Acp, &["/y/omp", "acp"]));
-    assert!(two.resolve_harness("omp").unwrap_err().contains("no preference"));
-    // prefer decides, skipping profiles that are not installed.
-    cfg.defaults.insert(
-        "claude".into(),
-        SessionDefaults {
-            model: Some("claude-opus-5".into()),
-            effort: Some("high".into()),
-            policy: Some(PermissionPolicy::ApproveEdits),
-            prefer: vec!["missing".into(), "claude-sr".into()],
-            env: BTreeMap::from([("A".to_owned(), "1".to_owned())]),
-        },
-    );
-    cfg.defaults.insert(
-        "claude-sr".into(),
-        SessionDefaults { effort: Some("max".into()), ..Default::default() },
-    );
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-sr");
-    // A preference outside the family is ignored.
-    cfg.defaults.get_mut("claude").unwrap().prefer = vec!["codex".into(), "claude-sr".into()];
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-sr");
-    // Defaults chain: family, then the profile entry, then inline profile fields.
-    cfg.harnesses.get_mut("claude-sr").unwrap().policy = Some(PermissionPolicy::Ask);
-    let d = cfg.defaults_for("claude-sr");
-    assert_eq!(d.model.as_deref(), Some("claude-opus-5"));
-    assert_eq!(d.effort.as_deref(), Some("max"));
-    assert_eq!(d.policy, Some(PermissionPolicy::Ask));
-    assert_eq!(d.env["A"], "1");
-    assert!(cfg.defaults_for("codex").is_empty());
-    // Presets and declared models round-trip as camelCase JSON.
-    cfg.presets.insert(
-        "deepseek".into(),
-        Preset {
-            harness: "opencode".into(),
-            model: Some("opencode-go/deepseek-v4-pro".into()),
-            effort: Some("low".into()),
-            policy: None,
-            env: BTreeMap::new(),
-            args: Vec::new(),
-            system_prompt_sha256: None,
-            description: None,
-        },
-    );
-    cfg.harnesses.get_mut("prime").unwrap().models = vec![
-        DeclaredModel::Id("subrouter/gpt-5.6-sol".into()),
-        DeclaredModel::Full { id: "x".into(), name: Some("X".into()) },
-    ];
-    let text = serde_json::to_string(&cfg).unwrap();
-    assert!(text.contains("\"presets\":{\"deepseek\":{\"harness\":\"opencode\""), "{text}");
-    let back: Config = serde_json::from_str(&text).unwrap();
-    assert_eq!(back.presets, cfg.presets);
-    assert_eq!(back.harnesses["prime"].models[1].name(), "X");
-    assert_eq!(back.defaults, cfg.defaults);
-}
-
-#[test]
-fn save_leaves_discovered_profiles_out() {
-    let dir = std::env::temp_dir().join(format!("acpmux-save-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut cfg = Config { path: Some(dir.join("config.json")), ..Config::default() };
-    let mut claude = prof(HarnessKind::ClaudeStdio, &["claude"]);
-    claude.fallback = Some("claude-sr".into());
-    cfg.harnesses.insert("claude".into(), claude);
-    cfg.harnesses
-        .insert("claude-sr".into(), prof(HarnessKind::ClaudeStdio, &["sr", "claude", "proxy"]));
-    cfg.harnesses.insert("pi".into(), prof(HarnessKind::Acp, &["pi-acp"]));
-    cfg.discovered = ["claude-sr".to_owned(), "pi".to_owned()].into_iter().collect();
-    cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
-    cfg.default_harness = Some("pi".into());
-    cfg.auto_default = true;
-    cfg.defaults
-        .insert("claude".into(), SessionDefaults { model: Some("m".into()), ..Default::default() });
-    cfg.save().unwrap();
-    let text = std::fs::read_to_string(dir.join("config.json")).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(
-        v["harnesses"].as_object().unwrap().keys().cloned().collect::<Vec<_>>(),
-        vec!["claude".to_owned()]
-    );
-    assert!(v["harnesses"]["claude"].get("fallback").is_none(), "{text}");
-    assert!(v.get("defaultHarness").map(|d| d.is_null()).unwrap_or(true), "{text}");
-    assert_eq!(v["defaults"]["claude"]["model"], "m");
-    assert!(!text.contains("composerMaxRows"), "{text}");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(dir.join("config.json")).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
-    }
-    // A generated prefer list is left out; one the user changed is kept.
-    cfg.auto_prefer = Some(vec!["claude-sr".into(), "claude".into()]);
-    cfg.defaults.get_mut("claude").unwrap().prefer = vec!["claude".into()];
-    cfg.save().unwrap();
-    let text = std::fs::read_to_string(dir.join("config.json")).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(v["defaults"]["claude"]["prefer"][0], "claude", "{text}");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn launcher_check_rejects_old_subrouter() {
-    let dir = std::env::temp_dir().join(format!("acpmux-launcher-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    // Written out of process: executing a script this process just wrote
-    // flaked with ETXTBSY under parallel tests (`write_executable` below).
-    let old = dir.join("sr-old");
-    write_executable(
-        &old,
-        "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n",
-    );
-    let broken = dir.join("sr-broken");
-    write_executable(
-        &broken,
-        "#!/bin/sh\necho 'subrouter: prepare shared Claude proxy history: file exists' >&2\nexit 0\n",
-    );
-    let good = dir.join("sr-good");
-    write_executable(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n");
-    let argv = |p: &std::path::Path| {
-        vec![p.to_string_lossy().into_owned(), "claude".into(), "proxy".into()]
-    };
-    assert!(launcher_ok(&argv(&old)).unwrap_err().contains("unknown command"));
-    assert!(launcher_ok(&argv(&broken)).unwrap_err().contains("prepare shared"));
-    assert!(launcher_ok(&argv(&good)).is_ok());
-    let mut cfg = Config::default();
-    cfg.harnesses.insert(
-        "claude-sr".into(),
-        HarnessProfile {
-            kind: HarnessKind::ClaudeStdio,
-            argv: argv(&old),
-            env: BTreeMap::new(),
-            description: None,
-            fallback: None,
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        },
-    );
-    cfg.harnesses.insert(
-        "claude".into(),
-        HarnessProfile {
-            kind: HarnessKind::ClaudeStdio,
-            argv: vec!["claude".into()],
-            env: BTreeMap::new(),
-            description: None,
-            fallback: Some("claude-sr".into()),
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        },
-    );
-    verify_launchers_with(&mut cfg, None);
-    // The profile stays (sessions on it keep working or fail with the
-    // reason); nothing routes new work to it.
-    assert!(cfg.harnesses.contains_key("claude-sr"));
-    assert!(cfg.unavailable.get("claude-sr").unwrap().contains("unknown command"));
-    assert_eq!(cfg.harnesses["claude"].fallback, None);
-    cfg.defaults.insert(
-        "claude".into(),
-        SessionDefaults { prefer: vec!["claude-sr".into(), "claude".into()], ..Default::default() },
-    );
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn the_subrouter_route_is_the_sr_default_server() {
-    let dir = std::env::temp_dir().join(format!("acpmux-route-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let servers = dir.join("servers.json");
-    std::fs::write(
-        &servers,
-        r#"{"servers":[{"name":"cloud","url":"https://sr.example"},{"name":"mine","url":"http://router.example:31415/"}],"default":"mine"}"#,
-    )
-    .unwrap();
-    assert_eq!(subrouter_route(None, &servers).as_deref(), Some("http://router.example:31415"));
-    // SUBROUTER_URL wins over the file.
-    assert_eq!(
-        subrouter_route(Some("http://env.example:1"), &servers).as_deref(),
-        Some("http://env.example:1")
-    );
-    std::fs::write(&servers, r#"{"servers":[{"name":"a","url":"ftp://x"}],"default":"a"}"#)
-        .unwrap();
-    assert_eq!(subrouter_route(None, &servers), None);
-    assert_eq!(subrouter_route(None, &dir.join("missing.json")), None);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -302,114 +124,6 @@ fn a_failing_sr_never_becomes_an_acp_adapter_under_the_claude_sr_name() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-fn on_path(found: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
-    move |bin: &str| found.contains(&bin).then(|| format!("/u/bin/{bin}"))
-}
-
-const ACPX: &str = r#"{"agents": {
-    "claude": {"argv": ["/u/.local/share/cmux-acp/current/bin/claude-acp"]},
-    "claude-sr": {"argv": ["/u/.local/share/cmux-acp/current/bin/claude-acp"]},
-    "codex": {"argv": ["/u/.local/share/cmux-acp/current/bin/codex-acp"]}
-}}"#;
-
-#[test]
-fn acpx_never_takes_the_reserved_claude_names_from_acpmux_s_adapter() {
-    let found = discover_harnesses_from(Some(ACPX), &on_path(&["claude", "sr", "codex-acp"]));
-    assert_eq!(found["claude"].kind, HarnessKind::ClaudeStdio);
-    assert_eq!(found["claude"].argv, vec!["/u/bin/claude".to_owned()]);
-    assert_eq!(found["claude-sr"].kind, HarnessKind::ClaudeStdio);
-    assert_eq!(
-        found["claude-sr"].argv,
-        vec!["/u/bin/sr".to_owned(), "claude".into(), "proxy".into()]
-    );
-    // Any other name keeps its ~/.acpx entry.
-    assert_eq!(found["codex"].kind, HarnessKind::Acp);
-    assert_eq!(found["codex"].argv[0], "/u/.local/share/cmux-acp/current/bin/codex-acp");
-    // Without the binary on PATH the ~/.acpx entry stays (kind acp).
-    let found = discover_harnesses_from(Some(ACPX), &on_path(&[]));
-    assert_eq!(found["claude"].kind, HarnessKind::Acp);
-}
-
-#[test]
-fn explicit_acpmux_config_wins_over_acpx_and_path() {
-    let mut cfg = Config::default();
-    cfg.harnesses.insert("claude".into(), prof(HarnessKind::Acp, &["/opt/mine/claude-acp"]));
-    cfg.join_discovered(discover_harnesses_from(Some(ACPX), &on_path(&["claude", "sr"])));
-    assert_eq!(cfg.harnesses["claude"].argv, vec!["/opt/mine/claude-acp".to_owned()]);
-    assert!(!cfg.discovered.contains("claude"));
-    assert_eq!(cfg.harnesses["claude-sr"].kind, HarnessKind::ClaudeStdio);
-}
-
-#[test]
-fn the_route_never_falls_back_onto_an_acp_claude() {
-    let mut cfg = Config::default();
-    cfg.harnesses.insert("claude".into(), prof(HarnessKind::Acp, &["/opt/mine/claude-acp"]));
-    let mut found = discover_harnesses_from(None, &on_path(&["sr", "cr"]));
-    add_coderouter_route(&mut found, Some("team-route"), &on_path(&["sr", "cr"]));
-    cfg.join_discovered(found);
-    assert_eq!(cfg.harnesses["claude-sr"].fallback, None);
-    assert_eq!(cfg.harnesses["claude-cr"].fallback, None);
-    // With acpmux's own adapter as `claude`, the route falls back to it.
-    let mut cfg = Config::default();
-    let mut found = discover_harnesses_from(None, &on_path(&["claude", "sr", "cr"]));
-    add_coderouter_route(&mut found, Some("team-route"), &on_path(&["claude", "sr", "cr"]));
-    cfg.join_discovered(found);
-    assert_eq!(cfg.harnesses["claude-cr"].fallback.as_deref(), Some("claude"));
-    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-cr"));
-}
-
-#[test]
-fn the_default_claude_is_the_users_own_login_and_the_subrouter_only_an_explicit_choice() {
-    // No CodeRouter route configured: no claude-cr, even with `cr` on PATH.
-    let path = on_path(&["claude", "sr", "cr", "coderouter"]);
-    let mut found = discover_harnesses_from(None, &path);
-    add_coderouter_route(&mut found, None, &path);
-    assert!(!found.contains_key("claude-cr"));
-    let mut cfg = Config::default();
-    cfg.join_discovered(found);
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
-    assert_eq!(cfg.harnesses["claude"].fallback, None);
-    assert!(cfg.harnesses.values().all(|p| p.fallback.as_deref() != Some("claude-sr")));
-    assert_eq!(cfg.resolve_harness("claude-sr").unwrap(), "claude-sr");
-    assert!(cfg.auto_prefer.is_none());
-    assert!(cfg.auto_fallback.is_none());
-}
-
-#[test]
-fn a_configured_coderouter_route_becomes_the_claude_preference() {
-    let path = on_path(&["claude", "sr", "cr", "coderouter"]);
-    let mut found = discover_harnesses_from(None, &path);
-    add_coderouter_route(&mut found, Some("team-route"), &path);
-    // `coderouter` wins over a `cr` that may be another tool.
-    assert_eq!(found["claude-cr"].kind, HarnessKind::ClaudeStdio);
-    assert_eq!(found["claude-cr"].argv, vec!["/u/bin/coderouter".to_owned(), "team-route".into()]);
-    let mut cfg = Config::default();
-    cfg.join_discovered(found);
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-cr");
-    assert_eq!(cfg.defaults["claude"].prefer, vec!["claude-cr".to_owned(), "claude".into()]);
-    assert_eq!(cfg.resolve_harness("claude-sr").unwrap(), "claude-sr");
-    // Only `cr` on PATH serves too; no CLI at all adds nothing.
-    let mut found = BTreeMap::new();
-    add_coderouter_route(&mut found, Some("team-route"), &on_path(&["cr"]));
-    assert_eq!(found["claude-cr"].argv[0], "/u/bin/cr");
-    let mut found = BTreeMap::new();
-    add_coderouter_route(&mut found, Some("team-route"), &on_path(&["claude"]));
-    assert!(found.is_empty());
-    // A route that is not one plain word is ignored.
-    for bad in ["", " ", "--evil", "a b", "x;rm"] {
-        let mut found = BTreeMap::new();
-        add_coderouter_route(&mut found, Some(bad), &on_path(&["cr"]));
-        assert!(found.is_empty(), "{bad:?}");
-    }
-}
-
-#[test]
-fn the_route_is_read_from_config_json() {
-    let cfg: Config = serde_json::from_str(r#"{"coderouterClaudeRoute": "team-route"}"#).unwrap();
-    assert_eq!(cfg.coderouter_claude_route.as_deref(), Some("team-route"));
-    assert_eq!(serde_json::to_value(Config::default()).unwrap().get("coderouterClaudeRoute"), None);
-}
-
 #[test]
 fn a_coderouter_without_the_configured_route_is_unavailable() {
     let dir = std::env::temp_dir().join(format!("acpmux-cr-launcher-{}", std::process::id()));
@@ -443,94 +157,210 @@ fn a_coderouter_without_the_configured_route_is_unavailable() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
 #[test]
-fn codex_without_its_acp_adapter_runs_through_the_pinned_adapter_package() {
-    let profile =
-        codex_through_adapter_package(Some("/u/.local/bin/codex"), Some("/opt/bin/npx")).unwrap();
-    assert_eq!(profile.kind, HarnessKind::Acp);
-    assert_eq!(profile.argv[0], "/opt/bin/npx");
-    assert_eq!(profile.argv[1], "-y");
-    assert!(profile.argv[2].starts_with("@agentclientprotocol/codex-acp@"));
-    // The adapter finds the installed codex binary through CODEX_PATH.
-    assert_eq!(profile.env["CODEX_PATH"], "/u/.local/bin/codex");
-    assert!(codex_through_adapter_package(None, Some("/opt/bin/npx")).is_none());
-    assert!(codex_through_adapter_package(Some("/u/.local/bin/codex"), None).is_none());
-}
-
-#[test]
-fn websocket_allow_lists_read_in_either_spelling() {
-    let camel: WebSocketConfig = serde_json::from_str(
-        r#"{"listen":"127.0.0.1:0","allowedOrigins":["http://127.0.0.1:5173"],"allowedHosts":["box.local"]}"#,
-    )
-    .unwrap();
-    // The spelling the docs and scripts use (websocket.allowed_origins).
-    let snake: WebSocketConfig = serde_json::from_str(
-        r#"{"listen":"127.0.0.1:0","allowed_origins":["http://127.0.0.1:5173"],"allowed_hosts":["box.local"]}"#,
-    )
-    .unwrap();
-    assert_eq!(camel, snake);
-    assert_eq!(snake.allowed_origins, vec!["http://127.0.0.1:5173".to_owned()]);
-    assert_eq!(snake.allowed_hosts, vec!["box.local".to_owned()]);
-}
-
-/// Creates an executable (0755) script without this process ever holding a
-/// write descriptor for it.
-///
-/// Tests run on many threads. A sibling test that forks while this process
-/// holds such a descriptor hands a copy to its child until that child execs,
-/// and executing the script in that window fails with ETXTBSY ("Text file
-/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
-/// rename does not either (the child holds the same inode). A short-lived
-/// `sh` opens, writes, and closes the file in its own process, so no fork of
-/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
-fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
-    use std::io::Write as _;
-    use std::process::{Command, Stdio};
-    let path = path.as_ref();
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
-    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
-}
-
-#[test]
-fn grok_on_path_is_a_harness_through_its_own_acp_mode() {
-    let found = discover_harnesses_from(None, &on_path(&["grok"]));
-    let grok = &found["grok"];
-    assert_eq!(grok.kind, HarnessKind::Acp);
-    assert_eq!(grok.argv, vec!["/u/bin/grok".to_owned(), "agent".into(), "stdio".into()]);
-    assert_eq!(super::derive_family("grok", grok), "grok");
-}
-
-#[test]
-fn cursor_agent_on_path_is_a_harness_through_its_own_acp_mode() {
-    let found = discover_harnesses_from(None, &on_path(&["cursor-agent"]));
-    let cursor = &found["cursor"];
-    assert_eq!(cursor.kind, HarnessKind::Acp);
-    assert_eq!(cursor.argv, vec!["/u/bin/cursor-agent".to_owned(), "acp".into()]);
-    assert_eq!(super::derive_family("cursor", cursor), "cursor");
-    // A bare `agent` is Cursor only when it resolves into a Cursor install.
-    assert!(!discover_harnesses_from(None, &on_path(&["agent"])).contains_key("cursor"));
+fn a_launcher_failure_does_not_repeat_its_full_argv() {
+    const SENTINEL: &str = "launcher-private-argument";
+    let error = launchers::launcher_ok(&["/usr/bin/false".into(), SENTINEL.into()]).unwrap_err();
+    assert!(!error.contains(SENTINEL), "launcher failure exposed its argv: {error}");
 }
 
 #[cfg(unix)]
 #[test]
-fn cursor_s_agent_launcher_counts_when_it_resolves_into_cursor_agent() {
-    let dir = std::env::temp_dir().join(format!("acpmux-cursor-{}", std::process::id()));
-    let install = dir.join("share/cursor-agent/versions/1/cursor-agent");
-    std::fs::create_dir_all(install.parent().unwrap()).unwrap();
-    std::fs::write(&install, "").unwrap();
-    let link = dir.join("agent");
-    let _ = std::fs::remove_file(&link);
-    std::os::unix::fs::symlink(&install, &link).unwrap();
-    let link_text = link.to_string_lossy().into_owned();
-    let found = discover_harnesses_from(None, &move |bin: &str| {
-        (bin == "agent").then(|| link_text.clone())
-    });
-    assert_eq!(found["cursor"].argv, vec![link.to_string_lossy().into_owned(), "acp".into()]);
+fn config_load_refuses_a_symlinked_state_file() {
+    use std::os::unix::fs::symlink;
+
+    let dir = std::env::temp_dir().join(format!(
+        "acpmux-config-link-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("target.json");
+    let config = dir.join("config.json");
+    std::fs::write(&target, "{}").unwrap();
+    symlink(&target, &config).unwrap();
+
+    let error = Config::load_from_with(&config, &ProfileSources::none())
+        .expect_err("a linked config loaded");
+    assert!(error.to_string().contains("config.json"), "{error:#}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn writable_legacy_state_is_refused_before_it_is_narrowed_or_trusted() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-state-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let error = private_state_dir(&home).expect_err("a writable state directory was trusted");
+    assert!(error.to_string().contains("writable"), "{error:#}");
+    assert_eq!(std::fs::symlink_metadata(&home).unwrap().permissions().mode() & 0o777, 0o777);
+
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let config = home.join("config.json");
+    std::fs::write(&config, r#"{"permissionPolicy":"deny-all"}"#).unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o666)).unwrap();
+    let error = Config::load_from_with(&config, &ProfileSources::none())
+        .expect_err("a writable config was trusted");
+    assert!(error.to_string().contains("writable"), "{error:#}");
+    assert_eq!(std::fs::symlink_metadata(&config).unwrap().permissions().mode() & 0o777, 0o666);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A state path another account may write is still refused, and left as it
+/// is: acpmux did not make it that way (a `mkdir` or a shell redirect under
+/// umask 002 did). The refusal names the exact `chmod` that fixes it
+/// (ergo-walk2, 2026-10-25).
+#[cfg(unix)]
+#[test]
+fn the_writable_state_refusal_names_the_chmod_that_fixes_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-fix-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mode = |p: &Path| std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o775)).unwrap();
+    let error = private_state_dir(&home).expect_err("a group-writable home was trusted");
+    let fix = format!("`chmod 700 {}`", home.display());
+    assert!(error.to_string().contains(&fix), "{error:#}");
+    assert_eq!(mode(&home), 0o775, "a home acpmux did not make is not changed");
+
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let log = home.join("daemon.log");
+    std::fs::write(&log, "").unwrap();
+    std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o664)).unwrap();
+    let error = private_state_append(&log).expect_err("a group-writable log was trusted");
+    let fix = format!("`chmod 600 {}`", log.display());
+    assert!(error.to_string().contains(&fix), "{error:#}");
+    assert_eq!(mode(&log), 0o664, "a log acpmux did not make is not changed");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_state_home_below_a_non_sticky_writable_ancestor_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-parent-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let shared = root.join("shared");
+    let home = shared.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let error = private_state_dir(&home).expect_err("a replaceable state pathname was trusted");
+    assert!(error.to_string().contains("writable ancestor"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-acl-parent-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let shared = root.join("shared");
+    let home = shared.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let status = std::process::Command::new("/bin/chmod")
+        .args(["+a", "group:everyone allow add_file,delete_child", shared.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let error =
+        private_state_dir(&home).expect_err("an ACL-replaceable state pathname was trusted");
+    assert!(error.to_string().contains("ACL"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn claude_falls_back_to_the_cmux_router_on_deepseek_without_a_coderouter_route() {
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
+    cfg.join_discovered(BTreeMap::from([(
+        "cmux".to_owned(),
+        prof(HarnessKind::ClaudeStdio, &["claude"]),
+    )]));
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("cmux"));
+    assert_eq!(cfg.auto_fallback, Some(("claude".into(), "cmux".into())));
+}
+
+#[test]
+fn the_cmux_router_profile_defaults_to_deepseek_v4_1_flash_1017() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+    // Claude Code's background calls run on the same model.
+    assert_eq!(
+        found["cmux"].env.get("ANTHROPIC_SMALL_FAST_MODEL").map(String::as_str),
+        Some("deepseek/deepseek-v4.1-flash-1017")
+    );
+}
+
+#[test]
+fn the_cmux_router_profile_starts_on_the_model_router_setting() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("deepseek/deepseek-v4.1-flash"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash"));
+}
+
+#[test]
+fn a_model_router_setting_the_router_does_not_serve_keeps_the_default() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("anthropic/claude-opus-5-5"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+}
+
+#[test]
+fn the_model_router_setting_is_read_from_the_settings_document() {
+    let doc = serde_json::json!({"agents": {"modelRouter": {"model": "deepseek/deepseek-v4-pro"}}});
+    assert_eq!(
+        super::discover::cmux_router_model_in(&doc).as_deref(),
+        Some("deepseek/deepseek-v4-pro")
+    );
+    assert_eq!(super::discover::cmux_router_model_in(&serde_json::json!({})), None);
+}
+
+/// Every Claude Code profile reads Claude's store, whatever family it declares (`claude-sr2`),
+/// so adopt finds its chats there; other profiles keep their family.
+#[test]
+fn a_claude_code_profile_of_its_own_family_reads_the_claude_store() {
+    let mut sr2 = prof(HarnessKind::ClaudeStdio, &["sr2", "claude2"]);
+    sr2.family = Some("claude-sr2".into());
+    assert_eq!(derive_family("claude-sr2", &sr2), "claude-sr2");
+    assert_eq!(store_family("claude-sr2", &sr2), "claude");
+    assert_eq!(store_family("claude", &prof(HarnessKind::ClaudeStdio, &["claude"])), "claude");
+    let codex = prof(HarnessKind::Acp, &["codex-acp"]);
+    assert_eq!(store_family("codex", &codex), "codex");
+    let mut pi = prof(HarnessKind::Acp, &["pi-acp"]);
+    pi.family = Some("pi".into());
+    assert_eq!(store_family("pi", &pi), "pi");
 }

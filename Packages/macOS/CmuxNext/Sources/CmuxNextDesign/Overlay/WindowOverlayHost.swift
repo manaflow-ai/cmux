@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The one place app overlays draw above Chromium pages.
 ///
@@ -26,6 +27,8 @@ public final class WindowOverlayHost {
     public let panel: OverlayHostPanel
     let isAppHost: Bool
     var handles: [OverlayHandle] = []
+    /// Dialogs still fading out after their removal: the panel stays until they finish.
+    var fadingOut = 0
     var nextID = 1
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
@@ -71,6 +74,10 @@ public final class WindowOverlayHost {
     public var onOccludersChange: (() -> Void)?
     /// Carries `agentCursorLayer` (made on first use; `WindowOverlayHost+AgentCursor`).
     var agentCursorCarrier: AgentCursorCarrierView?
+    /// The window's clickable agent cursor tags (the app's source).
+    public weak var agentCursorTags: (any AgentCursorTagSource)? {
+        didSet { agentCursorCarrier?.tags = agentCursorTags }
+    }
 
     private static var hosts: [ObjectIdentifier: WindowOverlayHost] = [:]
     private static var app: WindowOverlayHost?
@@ -90,10 +97,14 @@ public final class WindowOverlayHost {
         }
     }
 
-    /// The host of `window`, made on first use; it goes away with the window.
+    /// The host of `window`, made on first use; it goes away with the window. A closed window keeps
+    /// its torn-down host (whose panel is closed and never attaches again) until it shows again:
+    /// work that reaches a closed window late (its controller's teardown, a task) makes no new
+    /// panel that nothing would close.
     public static func host(for window: NSWindow) -> WindowOverlayHost {
         let key = ObjectIdentifier(window)
-        if let host = hosts[key], host.window === window { return host }
+        if let host = hosts[key], host.window === window, !host.isTearingDown || !window.isVisible { return host }
+        hosts = hosts.filter { $0.value.window != nil }
         let host = WindowOverlayHost(window: window)
         hosts[key] = host
         host.observers.append(NotificationCenter.default.addObserver(
@@ -105,9 +116,17 @@ public final class WindowOverlayHost {
         return host
     }
 
+    /// `window` is closing (its controller tears down): its host tears down, also a host made
+    /// during the close (by that teardown), which came after the close notification and never
+    /// heard it, or for a window that never had a host before its close.
+    public static func windowIsClosing(_ window: NSWindow) {
+        guard let host = hosts[ObjectIdentifier(window)], host.window === window, !host.isTearingDown else { return }
+        host.tearDown()
+    }
+
     /// The host of `window` if one exists (never makes one).
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
-        hosts[ObjectIdentifier(window)].flatMap { $0.window === window ? $0 : nil }
+        hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
 
     /// The host for overlays with no window (its own small panel, centered on the main screen).
@@ -124,8 +143,6 @@ public final class WindowOverlayHost {
     public static func childWindowsDidChange(of window: NSWindow) {
         existingHost(for: window)?.reassertOrder()
     }
-
-    public var hasPresentations: Bool { !handles.isEmpty }
 
     /// Occluder rects (window coordinates), sorted by id.
     public var occluderRects: [NSRect] { occluders.sorted { $0.key < $1.key }.map(\.value) }
@@ -170,11 +187,11 @@ public final class WindowOverlayHost {
         keyObserver = nil
         stopObservingWindow()
         removeAgentCursor()
-        if let window {
-            if panel.parent === window { window.removeChildWindow(panel) }
-            Self.hosts[ObjectIdentifier(window)] = nil
-        }
-        panel.orderOut(nil)
+        // The host stays in `hosts` for the closed window (`host(for:)`) until the window is gone.
+        if let window, panel.parent === window { window.removeChildWindow(panel) }
+        // The window closed and the host goes with it: nothing orders this panel in again, so it
+        // closes (ordered out only, it stayed in the app's window list, open, for good).
+        panel.close()
     }
 
     // MARK: Attach and order
@@ -182,8 +199,8 @@ public final class WindowOverlayHost {
     /// Attaches the panel while something needs it, detaches it otherwise.
     func syncPanel() {
         if isAppHost { return syncAppPanel() }
-        guard let window else { return }
-        let wanted = planesWantPanel || !handles.isEmpty
+        guard let window, !isTearingDown else { return }
+        let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         if wanted {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
             if panel.parent !== window {
@@ -209,7 +226,8 @@ public final class WindowOverlayHost {
         guard !isReordering, let window, panel.parent === window else { return }
         isReordering = true
         defer { isReordering = false }
-        let children = window.childWindows ?? []
+        // AppKit places its own children (the full screen titlebar); they are never re-added.
+        let children = (window.childWindows ?? []).filter { !Self.isAppKitChrome($0) }
         guard let index = children.firstIndex(where: { $0 === panel }) else { return }
         let visible = children.enumerated().filter { $0.element.isVisible || $0.element === panel }
         let pageAbove = visible.contains { $0.offset > index && Self.isPageWindow($0.element) }
@@ -237,9 +255,28 @@ public final class WindowOverlayHost {
 
     /// Page windows are the child windows that are not panels (Chromium),
     /// and content panels (`ContentChildPanel`: remote browser popups).
+    /// AppKit's own child windows are not pages (`isAppKitChrome`).
     public nonisolated static func isPageWindow(_ child: NSWindow) -> Bool {
-        !(child is NSPanel) || child is ContentChildPanel
+        if child is ContentChildPanel { return true }
+        return !(child is NSPanel) && !isAppKitChrome(child)
     }
+
+    /// A child window AppKit adds by itself: the full screen titlebar
+    /// (`NSToolbarFullScreenWindow`, a plain `NSWindow` that is a child of
+    /// every full screen window for as long as it stays in full screen).
+    /// Counted as a page, it put the window in page mode for the whole of
+    /// full screen: overlay planes moved into the panel, mouse-catcher panels
+    /// covered every divider, pages re-synced on every layout, and the child
+    /// order was checked on every event, so divider drags, sidebar hovers,
+    /// group toggles and tab switches lagged (fullscreen-lag, user 2026-10-20).
+    public nonisolated static func isAppKitChrome(_ child: NSWindow) -> Bool {
+        appKitChromeClassNames.contains { name in
+            NSClassFromString(name).map { child.isKind(of: $0) } ?? false
+        }
+    }
+
+    /// AppKit's private child window classes (`isAppKitChrome`).
+    public nonisolated static let appKitChromeClassNames = ["NSToolbarFullScreenWindow"]
 
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
@@ -271,7 +308,7 @@ public final class WindowOverlayHost {
     }
 
     private func syncAppPanel() {
-        if handles.isEmpty {
+        if handles.isEmpty, fadingOut == 0 {
             panel.orderOut(nil)
         } else {
             layoutAppPanel()

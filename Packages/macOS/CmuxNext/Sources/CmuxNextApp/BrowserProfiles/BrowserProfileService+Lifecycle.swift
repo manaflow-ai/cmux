@@ -7,15 +7,15 @@ import Foundation
 /// engine holds it, and moving imports made before profiles existed into
 /// their own profiles (data-model.md 5).
 extension BrowserProfileService {
-    /// Deletes profile `id`: its tabs reopen their pages in `default` (a live
-    /// page never keeps a deleted cookie jar), every workspace and room
+    /// Deletes profile `id`: its tabs move to `default` (a live page never
+    /// keeps a deleted cookie jar), every workspace and room
     /// default naming it is cleared, and its engine data is removed now when
     /// no engine opened it in this process, else at the next launch.
     func delete(_ id: String) throws {
         guard id != BrowserProfileRecord.defaultID else { throw BrowserProfileBookError.defaultProfile }
         guard isKnown(id) else { throw BrowserProfileBookError.unknownProfile }
         for (tab, pane) in browserTabs(in: id) {
-            reopen(tab, in: pane, profile: BrowserProfileRecord.defaultID, closingOriginal: true, notice: nil)
+            move(tab, in: pane, to: BrowserProfileRecord.defaultID, notice: nil)
         }
         if usesDaemonRecords {
             // The daemon clears the workspace and room defaults naming it.
@@ -34,6 +34,7 @@ extension BrowserProfileService {
         try edit { $0.markDeleted(id) }
         services.cache.dropHistory(for: BrowserProfileRecord.engineProfile(for: id))
         services.bookmarks.dropProfile(id)
+        Task { [sync = services.onboarding.historySync] in _ = try? await sync.removeImported(profile: id, bookmarks: nil, forgetPages: false) }  // task-owner: its imports and their sync go too
         cleanUpDeletedProfiles()
     }
 
@@ -42,7 +43,7 @@ extension BrowserProfileService {
         var found: [(TabModel, PaneModel)] = []
         for (workspace, _) in services.machines.allWorkspaces {
             for pane in workspace.screens.flatMap(\.panes) {
-                for tab in pane.tabs where tab.isFrontendOwned && tab.snapshot.browserProfileID == id { found.append((tab, pane)) }
+                for tab in pane.tabs where tab.isFrontendOwned && tab.browserProfileID == id { found.append((tab, pane)) }
             }
         }
         return found
@@ -101,9 +102,11 @@ extension BrowserProfileService {
         }
     }
 
-    /// Each profile's imported history and bookmarks go into its omnibar.
+    /// Each profile's imported history goes into its omnibar; Keep in Sync starts watching.
     private func seedImportedHistory() {
-        guard let store = importStore else { return }
-        OnboardingService.seedHistory(profiles: ordered.map(\.id), store: store, cache: services.cache)
+        guard importStore != nil else { return }
+        let sync = services.onboarding.historySync, profiles = ordered.map(\.id)
+        // task-owner: one-shot launch load of the import store; the sync owns its watches
+        Task { await sync.start(profiles: profiles) }
     }
 }

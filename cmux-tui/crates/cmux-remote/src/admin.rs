@@ -30,6 +30,9 @@ const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
 const ADMIN_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
+mod mux_binding;
+pub use mux_binding::{MuxBinding, verify_mux_binding};
+
 /// Failure to authenticate the process on the other end of a Unix socket.
 #[derive(Debug)]
 pub enum UnixPeerAuthError {
@@ -80,6 +83,8 @@ fn effective_uid() -> u32 {
 #[serde(tag = "method", rename_all = "kebab-case")]
 pub enum AdminRequest {
     Status,
+    /// Read the running service's immutable mux destination, never a state-file claim.
+    MuxBinding,
     CreateInvitation {
         #[serde(default = "default_invitation_ttl")]
         ttl_seconds: u64,
@@ -201,6 +206,25 @@ pub async fn serve_admin_with_shutdown(
     lifecycle_id: Option<String>,
     owner_shutdown: Option<watch::Sender<bool>>,
 ) -> Result<AdminServer, AdminError> {
+    serve_admin_with_mux_binding(
+        daemon,
+        path,
+        default_route_hints,
+        lifecycle_id,
+        owner_shutdown,
+        None,
+    )
+    .await
+}
+
+pub async fn serve_admin_with_mux_binding(
+    daemon: Arc<RemoteDaemon>,
+    path: impl Into<PathBuf>,
+    default_route_hints: Vec<String>,
+    lifecycle_id: Option<String>,
+    owner_shutdown: Option<watch::Sender<bool>>,
+    mux_binding: Option<MuxBinding>,
+) -> Result<AdminServer, AdminError> {
     let path = path.into();
     let listener = OwnedUnixListener::bind(path.clone()).await.map_err(|error| match error {
         UnixSocketError::Io(error) => AdminError::Io(error),
@@ -257,6 +281,7 @@ pub async fn serve_admin_with_shutdown(
                     let default_route_hints = default_route_hints.clone();
                     let lifecycle_id = lifecycle_id.clone();
                     let owner_shutdown = owner_shutdown.clone();
+                    let mux_binding = mux_binding.clone();
                     connections.spawn(async move {
                         let _permit = permit;
                         let _ = serve_connection(
@@ -264,6 +289,7 @@ pub async fn serve_admin_with_shutdown(
                             default_route_hints,
                             lifecycle_id,
                             owner_shutdown,
+                            mux_binding,
                             stream,
                         )
                         .await;
@@ -606,6 +632,7 @@ async fn serve_connection(
     default_route_hints: Vec<String>,
     lifecycle_id: Option<String>,
     owner_shutdown: Option<watch::Sender<bool>>,
+    mux_binding: Option<MuxBinding>,
     stream: UnixStream,
 ) -> Result<(), AdminError> {
     let (reader, mut writer) = stream.into_split();
@@ -628,6 +655,7 @@ async fn serve_connection(
                     &default_route_hints,
                     lifecycle_id.as_deref(),
                     owner_shutdown.as_ref(),
+                    mux_binding.as_ref(),
                     request,
                 )
                 .await
@@ -682,16 +710,20 @@ async fn dispatch(
     default_route_hints: &[String],
     lifecycle_id: Option<&str>,
     owner_shutdown: Option<&watch::Sender<bool>>,
+    mux_binding: Option<&MuxBinding>,
     request: AdminRequest,
 ) -> AdminResponse {
     let auth = daemon.auth();
     let result: Result<Value, IdentityError> = match request {
-        AdminRequest::Status => Ok(serde_json::to_value(DaemonStatus {
+        AdminRequest::MuxBinding => mux_binding
+            .ok_or_else(|| IdentityError::Invalid("mux binding is unavailable".into()))
+            .and_then(|binding| serde_json::to_value(binding).map_err(IdentityError::Json)),
+        AdminRequest::Status => serde_json::to_value(DaemonStatus {
             daemon_name: auth.daemon_name().to_string(),
             daemon_fingerprint: auth.identity().fingerprint(),
             connected_clients: daemon.connections().await.len(),
         })
-        .expect("daemon status is serializable")),
+        .map_err(IdentityError::Json),
         AdminRequest::CreateInvitation { ttl_seconds, route_hints, relay_access } => auth
             .create_invitation_with_relay_access(
                 Duration::from_secs(ttl_seconds),
@@ -701,19 +733,22 @@ async fn dispatch(
             .await
             .and_then(|invitation| invitation.to_uri())
             .map(|uri| serde_json::json!({ "uri": uri })),
-        AdminRequest::Pending => Ok(serde_json::to_value(auth.pending_enrollments().await)
-            .expect("pending enrollments are serializable")),
+        AdminRequest::Pending => {
+            serde_json::to_value(auth.pending_enrollments().await).map_err(IdentityError::Json)
+        }
         AdminRequest::Approve { invitation_id } => auth
             .approve(&invitation_id)
             .await
-            .map(|record| serde_json::to_value(record).expect("device record is serializable")),
+            .and_then(|record| serde_json::to_value(record).map_err(IdentityError::Json)),
         AdminRequest::Deny { invitation_id } => {
             auth.deny(&invitation_id).await.map(|()| serde_json::json!({}))
         }
-        AdminRequest::Devices => Ok(serde_json::to_value(auth.list_devices().await)
-            .expect("device records are serializable")),
-        AdminRequest::Connections => Ok(serde_json::to_value(daemon.connection_snapshots().await)
-            .expect("connection snapshots are serializable")),
+        AdminRequest::Devices => {
+            serde_json::to_value(auth.list_devices().await).map_err(IdentityError::Json)
+        }
+        AdminRequest::Connections => {
+            serde_json::to_value(daemon.connection_snapshots().await).map_err(IdentityError::Json)
+        }
         AdminRequest::Revoke { device_id } => {
             auth.revoke(&device_id).await.map(|()| serde_json::json!({}))
         }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Page Info geometry and colors. Sizes come from `Metrics`/`Typography`;
 /// colors from `Palette` (Ghostty-derived). cmux has no accent color, so
@@ -34,14 +35,14 @@ enum PageInfoStyle {
     static var focusRing: NSColor { Palette.focusRing } // theme-scoped
     static var danger: NSColor { Palette.danger } // theme-scoped
 
-    static func symbol(_ name: String, size: CGFloat? = nil, weight: NSFont.Weight = .regular) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: size ?? iconSize, weight: weight))
+    /// The pack icon for SF Symbol `name` (else the symbol) beside a `size`-point label.
+    static func symbol(_ name: String, size: CGFloat? = nil) -> NSImage? {
+        NSImage.icon(symbol: name, size: .iconRowSize(forLabelPointSize: size ?? iconSize))
     }
 
     /// A label whose `color` is read inside its theme scope on every theme
     /// change (`ThemedLabel`), so pass a style color, not a resolved one.
-    static func label(_ text: String = "", font: NSFont, color: @escaping @autoclosure () -> NSColor, wraps: Bool = false) -> NSTextField {
+    static func label(_ text: String = "", font: NSFont, color: @escaping @autoclosure () -> NSColor, wraps: Bool = false) -> ThemedLabel {
         let label = wraps ? ThemedLabel(wrappingLabelWithString: text) : ThemedLabel(labelWithString: text)
         label.font = font
         label.themeColor = color

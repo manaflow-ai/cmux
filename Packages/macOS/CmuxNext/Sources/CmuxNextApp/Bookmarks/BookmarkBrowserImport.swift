@@ -4,6 +4,7 @@ import CmuxNextBookmarks
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
+import CmuxNextCompat
 
 /// Bookmarks from another browser (decision BOOKMARKS-IMPORT-EVERY-BROWSER
 /// I4/I5), one path for File > Import, the palette, the Bookmark Manager and
@@ -136,7 +137,7 @@ struct BookmarkBrowserImport {
     /// System Settings > Privacy & Security > Full Disk Access.
     static func openFullDiskAccessSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else { return }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.openInBackground(url)
     }
 
     // MARK: Import

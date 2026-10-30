@@ -9,8 +9,11 @@ use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::UnixListener;
-use tokio::process::Command;
 use tokio::sync::mpsc;
+
+/// A host's own end once no daemon controls it ([`OrphanExit`]).
+mod orphan;
+use orphan::Orphan;
 
 /// Entry point of `acpmux __agent-host`: read the spawn spec from stdin,
 /// start the harness, answer on stdout, then serve controllers until the
@@ -32,6 +35,11 @@ async fn run() -> Result<()> {
     let mut stdout = tokio::io::stdout();
     let spec: SpawnSpec =
         read_frame(&mut stdin).await?.ok_or_else(|| anyhow!("no spawn spec on stdin"))?;
+    // The host owns its daemon's local router while it lives: a kept agent
+    // keeps its router through a daemon restart. The path comes from the
+    // daemon, whose home may be a tagged build's override.
+    let _router_owner =
+        spec.router_owner_fifo.as_deref().and_then(crate::daemon::open_router_owner);
     match start(&spec).await {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })
@@ -71,12 +79,14 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     if let Some(parent) = spec.socket.parent() {
         ensure_private_dir(parent)?;
     }
-    let nonce = random_hex(16);
+    let nonce = random_hex(16)?;
+    // Before anything starts, so a failure leaves nothing running.
+    let (incarnation, owner_token) = (random_hex(16)?, random_hex(32)?);
     let live_file = live_path(&spec.hosts_dir, &spec.session_id, &nonce);
     let live = lock_live_file(&live_file)?;
     // Until the start succeeds, every early return removes what it created.
     let mut cleanup = StartCleanup { paths: vec![live_file] };
-    let mut cmd = Command::new(&spec.program);
+    let mut cmd = crate::cwd_pin::CwdPin::command(&spec.program, spec.cwd_pin);
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
@@ -88,6 +98,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
+    // Below the GUI's CPU class (macOS), the tools it starts with it.
+    spec.cpu_class.apply(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
@@ -97,16 +109,23 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
     }
-    let mut child =
-        cmd.spawn().with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        // Both a missing folder and a missing program fail as ENOENT: say which.
+        if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
+            anyhow!("the folder {} does not exist", spec.cwd.display())
+        } else {
+            anyhow!(e).context(format!("spawn harness process {}", spec.program))
+        }
+    })?;
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
-        incarnation: random_hex(16),
+        incarnation,
         host_pid: std::process::id(),
         start_nonce: nonce,
         harness_pid: child.id(),
-        owner_token: random_hex(32),
+        owner_token,
+        caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
         host_build: crate::hub::BUILD.to_owned(),
@@ -155,17 +174,65 @@ fn lock_live_file(path: &Path) -> Result<std::fs::File> {
 }
 
 /// What the event loop reacts to.
+/// What the harness's stdin writer takes, in order.
+enum Stdin {
+    Line(String),
+    /// A receipt (`ControllerFrame::Line`): answered once the lines before it are written.
+    Receipt(u64),
+}
+
 enum Event {
     Stdout(Option<String>),
     Stderr(Option<String>),
     Exited(Option<i32>),
     Accepted(tokio::net::UnixStream),
     Frame(u64, Option<ControllerFrame>),
-    /// SIGTERM: end the harness and the host.
+    /// The harness's stdin has every line queued before the receipt (`true`), or it closed
+    /// before them (`false`).
+    Written(u64, bool),
+    /// SIGTERM: end the harness and the host. Also sent when no daemon
+    /// can adopt this host any more (`watch_record`, a pooled host's lost
+    /// controller).
     Term,
     /// A quiet drain period (its generation) ended: output pipes still open
     /// belong to processes that left the harness group (setsid).
     DrainOver(u64),
+    /// [`POOLED_OWNER_WAIT`] passed since the host started serving.
+    OwnerWaitOver,
+    /// The output held after a carry (its carry's number) is read now, its prompt or not
+    /// (`claude_stdio/carry.rs`).
+    HoldOver(u64),
+    /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
+    /// `host/orphan.rs`).
+    Orphan(u64, Option<bool>),
+}
+
+/// How long a pooled host waits for its first controller. A daemon that
+/// started it attaches within its pool start budget (90 s, `hub/pool`) or
+/// ends it; one that died before it attached (SIGKILL right after the
+/// spawn) never will, and a pooled host never waits for a next daemon, so it
+/// ends. It never relied on the daemon's systemd unit for that: the host may
+/// be in its own scope (`scope.rs`).
+pub(crate) const POOLED_OWNER_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Debug builds only: [`POOLED_OWNER_WAIT`] in milliseconds, for the
+/// lifetime test; passed on by the host launch (`link.rs`). Release builds
+/// have no seam.
+#[cfg(debug_assertions)]
+pub(super) const POOLED_OWNER_WAIT_ENV: &str = "ACPMUX_TEST_POOLED_OWNER_WAIT_MS";
+
+fn pooled_owner_wait() -> std::time::Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(POOLED_OWNER_WAIT_ENV).ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        return std::time::Duration::from_millis(ms);
+    }
+    POOLED_OWNER_WAIT
+}
+
+/// A pooled host whose wait for its first controller ended with none.
+fn pooled_without_owner(pooled: bool, last_owner: Option<u64>) -> bool {
+    pooled && last_owner.is_none()
 }
 
 /// After the harness leader exited and its group was killed: how long the
@@ -200,13 +267,79 @@ struct State {
     controller: Option<Controller>,
     /// Unbounded: a harness that stops reading never blocks the loop; what
     /// waits here is bounded by the controller, which waits for answers.
-    stdin_tx: mpsc::UnboundedSender<String>,
+    stdin_tx: mpsc::UnboundedSender<Stdin>,
     translator: Option<Arc<Translator>>,
+    /// `codex app-server` bridged in process (`codex_app_server.rs`).
+    codex: Option<Arc<crate::codex_app_server::Translator>>,
     pgid: Option<i32>,
     /// The harness leader has not been reaped: its group id is still ours.
     leader_alive: Arc<std::sync::atomic::AtomicBool>,
     /// Stderr lines not kept while over the buffer cap.
     stderr_dropped: u64,
+    /// No daemon can adopt this host any more: end like SIGTERM.
+    unadoptable: bool,
+    /// The processes under this host when it was told to end: the ones a
+    /// harness moved out of its group are ended with the host.
+    under: Vec<super::tree::Started>,
+    /// The connection of the last controller that said `Hello`, also when
+    /// a failed send already dropped it as the controller.
+    last_owner: Option<u64>,
+    /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
+    stall_hello: bool,
+    /// Claude's output lines after a carry, read once the next turn's prompt came
+    /// (`claude_stdio/carry.rs` `holding`), oldest first.
+    held: VecDeque<String>,
+    /// The carry that holds the output now (its number, `claude_stdio/carry.rs` `holding`), and
+    /// whether its bound passed: each carry holds once, with a bound of its own.
+    hold: (u64, bool),
+    /// Its own end once no daemon controls it, and what it tracks for it (`host/orphan.rs`).
+    orphan: Orphan,
+    /// The output ended: what a carry held is read, and no carry holds more.
+    read_all: bool,
+}
+
+/// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
+/// the host launch passes it on (`link.rs`), since the host starts with a
+/// cleared environment.
+#[cfg(debug_assertions)]
+pub(super) const HELLO_STALL_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_STALL_DIR";
+
+/// Debug builds only: `ACPMUX_TEST_HOST_HELLO_STALL_DIR` names a directory of
+/// `stall-*` marker files. A host that removes one never answers `Hello`, as
+/// a wedged host does, so the daemon's integration tests can drive that
+/// path; each marker stalls one host. Release builds have no seam.
+fn claim_hello_stall() -> bool {
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(HELLO_STALL_DIR_ENV)
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
+}
+
+/// Debug builds only: `ACPMUX_TEST_HOST_QUERY_STALL_DIR` in the harness's
+/// environment (a profile's `env`; the host clears its own) names a directory
+/// of `stall-*` marker files too. A host that removes one as a `Query` comes
+/// leaves that query unanswered, as a host whose answer sits behind a backlog
+/// nobody reads, so the daemon's integration tests can drive the query's
+/// timeout; each marker stalls one query. Release builds have no seam.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+fn claim_query_stall(harness_env: &[(String, String)]) -> bool {
+    #[cfg(debug_assertions)]
+    if let Some((_, dir)) =
+        harness_env.iter().find(|(k, _)| k == "ACPMUX_TEST_HOST_QUERY_STALL_DIR")
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
 }
 
 impl Started {
@@ -219,12 +352,35 @@ impl Started {
         let pgid = child.id().map(|p| p as i32);
 
         // stdin writer: a full pipe never blocks the event loop.
-        let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
+        let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<Stdin>();
+        let written = events_tx.clone();
+        // task-owner: ends with the queue (the host's state) or the harness's stdin.
         tokio::spawn(async move {
             let mut stdin = stdin;
-            while let Some(line) = stdin_rx.recv().await {
-                if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-                    break;
+            while let Some(item) = stdin_rx.recv().await {
+                match item {
+                    Stdin::Line(line) => {
+                        if stdin.write_all(line.as_bytes()).await.is_err()
+                            || stdin.flush().await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    // Every line queued before it is written.
+                    Stdin::Receipt(receipt) => {
+                        if written.send(Event::Written(receipt, true)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+            // The harness's stdin closed: nothing queued now or later is written (review 83).
+            stdin_rx.close();
+            while let Some(item) = stdin_rx.recv().await {
+                if let Stdin::Receipt(receipt) = item
+                    && written.send(Event::Written(receipt, false)).await.is_err()
+                {
+                    return;
                 }
             }
         });
@@ -293,6 +449,8 @@ impl Started {
                 }
             });
         }
+        // Held for the host's life: dropping it stops the watch.
+        let _record_watch = watch_record(&spec, &record.start_nonce, events_tx.clone());
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
@@ -318,6 +476,8 @@ impl Started {
             }
             tr
         });
+        let codex = (spec.translator.is_none() && spec.codex_bridge)
+            .then(crate::codex_app_server::translator);
         let mut state = State {
             record,
             spec,
@@ -334,10 +494,23 @@ impl Started {
             controller: None,
             stdin_tx,
             translator,
+            codex,
             pgid,
             leader_alive,
             stderr_dropped: 0,
+            unadoptable: false,
+            under: Vec::new(),
+            last_owner: None,
+            stall_hello: claim_hello_stall(),
+            held: VecDeque::new(),
+            hold: (0, false),
+            orphan: Orphan::default(),
+            read_all: false,
         };
+        // The app-server's initialize goes out at spawn, before the hub's.
+        if let Some(cx) = state.codex.clone() {
+            state.codex_out(cx.start());
+        }
         let mut next_conn = 0u64;
         let mut permit_out = pace_tx.try_send(()).is_ok();
         // The leader exited and its exit is not pushed yet.
@@ -345,7 +518,17 @@ impl Started {
         // Generation of the armed quiet period, if one is armed.
         let mut drain_gen = 0u64;
         let mut drain_armed = false;
+        if still_pooled(&state.spec) {
+            let tx = events_tx.clone();
+            let wait = pooled_owner_wait();
+            // task-owner: one bounded wait; the runtime ends it with the host.
+            tokio::spawn(async move {
+                tokio::time::sleep(wait).await;
+                let _ = tx.send(Event::OwnerWaitOver).await;
+            });
+        }
 
+        state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
                 // Output after the Exit entry (an escaped process) is dropped.
@@ -355,10 +538,24 @@ impl Started {
                     permit_out = false;
                     drain_gen += 1;
                     drain_armed = false;
-                    state.on_stdout(line).await;
+                    state.held.push_back(line);
+                    state.read_held(&events_tx).await;
+                }
+                Event::HoldOver(hold) => {
+                    if state.hold.0 == hold {
+                        state.hold.1 = true;
+                    }
+                    state.read_held(&events_tx).await;
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    // What a carry held is read before the output's end.
+                    state.read_all = true;
+                    state.read_held(&events_tx).await;
+                    if state.exit_h.is_none() {
+                        state.end_background_shells().await;
+                        state.codex_closed();
+                    }
                     state.stdout_done = true;
                     state.maybe_push_exit();
                 }
@@ -385,14 +582,23 @@ impl Started {
                         tracing::warn!(
                             "harness output stays open after its exit; reporting the exit"
                         );
+                        state.end_background_shells().await;
+                        state.codex_closed();
                         state.stdout_done = true;
                         state.stderr_done = true;
                         state.maybe_push_exit();
                     }
                 }
+                Event::OwnerWaitOver => {
+                    if pooled_without_owner(still_pooled(&state.spec), state.last_owner) {
+                        tracing::warn!("no daemon attached to this pooled host; ending it");
+                        state.unadoptable = true;
+                    }
+                }
                 Event::Term => {
                     // The frozen end path (`terminate_unadoptable`): end the
                     // harness while its group is still ours, then the host.
+                    state.note_under();
                     if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
                         && let Some(pg) = state.pgid
                     {
@@ -428,12 +634,37 @@ impl Started {
                     });
                     state.pending_conns.push((id, tx));
                 }
-                Event::Frame(id, frame) => state.on_frame(id, frame).await,
+                Event::Frame(id, frame) => {
+                    state.on_frame(id, frame).await;
+                    // The next turn's prompt may have come: what a carry held is read.
+                    state.read_held(&events_tx).await;
+                }
+                Event::Written(receipt, written) => state.receipt(receipt, written),
+                Event::Orphan(generation, census) => {
+                    state.orphan_look(&events_tx, generation, census).await;
+                }
+            }
+            if state.unadoptable {
+                // As SIGTERM: end the harness while its group is ours, then the host.
+                state.note_under();
+                if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
+                    && let Some(pg) = state.pgid
+                {
+                    // SAFETY: the leader is unreaped, so the group is ours.
+                    unsafe { libc::killpg(pg, libc::SIGKILL) };
+                }
+                break;
             }
             if state.finished() {
                 break;
             }
-            let wanted = !state.stdout_done && state.weight <= state.spec.buffer_cap;
+            if state.orphan_follow(&events_tx).await {
+                break;
+            }
+            // Nothing more is read while a carry holds what was read (`read_held`).
+            let wanted = !state.stdout_done
+                && state.weight <= state.spec.buffer_cap
+                && state.held.is_empty();
             if wanted && !permit_out && pace_tx.try_send(()).is_ok() {
                 permit_out = true;
             }
@@ -454,15 +685,28 @@ impl Started {
                 });
             }
         }
-        remove_artifacts(&state.spec.hosts_dir, &state.record);
+        // What the harness moved out of its group outlives the group signal.
+        super::tree::kill_still_running(&state.under);
+        remove_own_artifacts(&state.spec.hosts_dir, &state.record);
         remove_promoted(&state.spec.hosts_dir, &state.record);
         Ok(())
     }
 }
 
 impl State {
+    /// Note the processes under this host before its harness group is
+    /// ended, while the harness still parents what it moved out of it.
+    fn note_under(&mut self) {
+        for p in super::tree::descendants(&[std::process::id()]) {
+            if !self.under.contains(&p) {
+                self.under.push(p);
+            }
+        }
+    }
+
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
+        self.orphan.note_entry(&entry);
         self.next_h += 1;
         let h = self.next_h;
         let weight = entry.weight();
@@ -506,6 +750,16 @@ impl State {
         }
     }
 
+    /// Claude's background shells ended with it (cx-ncc.84): each still
+    /// running is reported stopped, before the exit entry.
+    async fn end_background_shells(&mut self) {
+        if let Some(tr) = self.translator.clone() {
+            for m in tr.end_background_shells().await {
+                self.push(Entry::In { msg: m.to_value() });
+            }
+        }
+    }
+
     /// The exit entry follows the last output line and stderr line.
     fn maybe_push_exit(&mut self) {
         if self.exit_h.is_none()
@@ -520,6 +774,32 @@ impl State {
     /// The harness ended and the controller logged its exit.
     fn finished(&self) -> bool {
         self.exit_h.is_some_and(|h| self.acked_h >= h)
+    }
+
+    /// Reads the held output lines in order, until a carry holds the rest (`claude_stdio/carry.rs`
+    /// `holding`): each carry's hold starts its own bound ([`crate::claude_stdio::CARRY_HOLD_MAX`]),
+    /// also one made while an earlier carry still holds.
+    async fn read_held(&mut self, events: &mpsc::Sender<Event>) {
+        while !self.holds(events) {
+            let Some(line) = self.held.pop_front() else { return };
+            self.on_stdout(line).await;
+        }
+    }
+
+    /// Whether a carry holds the output now: one that holds anew starts its bound.
+    fn holds(&mut self, events: &mpsc::Sender<Event>) -> bool {
+        let carry = self.translator.as_ref().and_then(|tr| tr.holding());
+        let Some(carry) = carry.filter(|_| !self.read_all) else { return false };
+        if self.hold.0 != carry {
+            self.hold = (carry, false);
+            let events = events.clone();
+            // task-owner: one bounded wait; the runtime ends it with the host.
+            tokio::spawn(async move {
+                tokio::time::sleep(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                let _ = events.send(Event::HoldOver(carry)).await;
+            });
+        }
+        !self.hold.1
     }
 
     async fn on_stdout(&mut self, line: String) {
@@ -542,7 +822,16 @@ impl State {
                 .ok()
                 .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned))
                 .is_some_and(|t| t == "result" || t == "control_response");
-            if let Some(tr) = self.translator.clone() {
+            if let Some(cx) = self.codex.clone() {
+                // An answer to one of the translator's requests: it gets an
+                // error in its place, so what waits on it is answered.
+                if let Ok(v) = serde_json::from_str::<Value>(&line)
+                    && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
+                {
+                    let err = serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "codex app-server answer was over the size limit"}});
+                    self.codex_out(cx.from_server(&err));
+                }
+            } else if let Some(tr) = self.translator.clone() {
                 if claude_answer {
                     for m in tr.fail_pending("agent answer was over the size limit").await {
                         self.push(Entry::In { msg: m.to_value() });
@@ -554,6 +843,24 @@ impl State {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
                 self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
             }
+            return;
+        }
+        if let Some(cx) = self.codex.clone() {
+            let raw: Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => {
+                    self.push(Entry::Err { line: format!("[non-json stdout] {line}") });
+                    return;
+                }
+            };
+            if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
+                self.push(Entry::Tap {
+                    dir: TapDir::In,
+                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                        .to_value(),
+                });
+            }
+            self.codex_out(cx.from_server(&raw));
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -571,14 +878,9 @@ impl State {
             }
         };
         // Keep the raw Claude line in the log under its own kind.
-        let kind = format!(
-            "claude.{}{}",
-            raw.get("type").and_then(Value::as_str).unwrap_or("?"),
-            raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
-        );
         self.push(Entry::Tap {
             dir: TapDir::In,
-            msg: Message::notification(&kind, raw.clone()).to_value(),
+            msg: crate::claude_stdio::logged_line(&raw).to_value(),
         });
         let translated = tr.inbound(&raw).await;
         for l in tr.take_stdin_replies().await {
@@ -589,6 +891,49 @@ impl State {
         }
     }
 
+    /// What the Codex translator produced: lines for the app-server, ACP
+    /// messages for the controller.
+    fn codex_out(&mut self, outs: Vec<cmux_codex_acp::Out>) {
+        let split = crate::codex_app_server::split(outs);
+        for l in split.server {
+            self.write_codex_line(l);
+        }
+        for m in split.hub {
+            self.push(Entry::In { msg: crate::codex_app_server::into_value(m) });
+        }
+    }
+
+    /// The app-server's output ended: the translator answers what waits on
+    /// it, before the exit entry.
+    fn codex_closed(&mut self) {
+        if let Some(cx) = self.codex.clone() {
+            self.codex_out(cx.server_closed("it exited"));
+        }
+    }
+
+    fn write_codex_line(&mut self, line: Value) {
+        self.push(Entry::Tap {
+            dir: TapDir::Out,
+            msg: Message::notification(
+                crate::codex_app_server::STDIN_KIND,
+                crate::codex_app_server::redact(&line),
+            )
+            .to_value(),
+        });
+        let _ = self.stdin_tx.send(Stdin::Line(crate::codex_app_server::line(&line)));
+    }
+
+    /// Logs a line's receipt (`WRITTEN_METHOD`) as an entry, which reaches this controller or
+    /// the next one exactly once.
+    fn receipt(&mut self, receipt: u64, written: bool) {
+        self.orphan.unwritten = self.orphan.unwritten.saturating_sub(1);
+        let note = serde_json::json!({"receipt": receipt, "written": written});
+        self.push(Entry::Tap {
+            dir: TapDir::Out,
+            msg: Message::notification(super::WRITTEN_METHOD, note).to_value(),
+        });
+    }
+
     fn write_claude_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -596,7 +941,7 @@ impl State {
         });
         let mut s = line.to_string();
         s.push('\n');
-        let _ = self.stdin_tx.send(s);
+        let _ = self.stdin_tx.send(Stdin::Line(s));
     }
 
     async fn on_line(&mut self, msg: Value) {
@@ -606,9 +951,19 @@ impl State {
         {
             self.max_out_id = self.max_out_id.max(n);
         }
+        self.orphan.note_request(&message);
+        if let Some(cx) = self.codex.clone() {
+            self.push(Entry::Tap {
+                dir: TapDir::Out,
+                msg: crate::codex_app_server::redact(&message.to_value()),
+            });
+            // Answers and updates the translator gives itself go out as if Codex sent them.
+            self.codex_out(cx.from_client(&message.to_value()));
+            return;
+        }
         let Some(tr) = self.translator.clone() else {
             self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
-            let _ = self.stdin_tx.send(message.to_line());
+            let _ = self.stdin_tx.send(Stdin::Line(message.to_line()));
             return;
         };
         self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
@@ -629,10 +984,21 @@ impl State {
             if is_owner {
                 self.controller = None;
             }
+            if self.last_owner == Some(id) {
+                // A pooled host nobody took yet belongs to that daemon alone
+                // (a new daemon ends every one it finds): its controller
+                // gone, it ends. A promoted host keeps the same link, and a
+                // kept host waits for the next daemon.
+                self.unadoptable |= still_pooled(&self.spec);
+            }
             self.pending_conns.retain(|(pid, _)| *pid != id);
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
+            // An orphaned host that ends its harness answers once it is reaped (`orphan.rs`).
+            if self.stall_hello || self.orphan.hold_hello(id, &frame, &self.leader_alive) {
+                return;
+            }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
                 return;
             };
@@ -663,6 +1029,7 @@ impl State {
                 exited,
             });
             self.controller = Some(Controller { id, tx, resumed: false });
+            self.last_owner = Some(id);
             return;
         }
         if !is_owner {
@@ -687,31 +1054,34 @@ impl State {
                 }
                 c.resumed = true;
             }
-            ControllerFrame::Line { msg } => self.on_line(msg).await,
-            ControllerFrame::Ack { h } => self.drop_through(h),
-            ControllerFrame::Terminate { grace_ms } => {
-                if let Some(pg) = self
-                    .pgid
-                    .filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
-                {
-                    // SAFETY: the harness leads this process group.
-                    unsafe { libc::killpg(pg, libc::SIGTERM) };
-                    let grace = std::time::Duration::from_millis(grace_ms);
-                    let alive = self.leader_alive.clone();
-                    // A bounded kill deadline, not synchronization: the exit
-                    // entry is the signal that the harness ended.
-                    tokio::spawn(async move {
-                        tokio::time::sleep(grace).await;
-                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                            // SAFETY: the leader is unreaped, so the group is ours.
-                            unsafe { libc::killpg(pg, libc::SIGKILL) };
-                        }
+            ControllerFrame::Line { msg, receipt } => {
+                // Logged before any line of it is queued, so a log that has one of its lines has
+                // this too, and a next daemon knows the line is fenced (`QUEUED_METHOD`).
+                if let Some(receipt) = receipt {
+                    let note = serde_json::json!({"receipt": receipt});
+                    self.push(Entry::Tap {
+                        dir: TapDir::Out,
+                        msg: Message::notification(super::QUEUED_METHOD, note).to_value(),
                     });
                 }
+                self.on_line(msg).await;
+                // Behind every line of it: the writer answers once they are written.
+                // Its stdin writer stopped (the harness's stdin closed): never written.
+                self.orphan.unwritten += usize::from(receipt.is_some());
+                if let Some(receipt) = receipt
+                    && self.stdin_tx.send(Stdin::Receipt(receipt)).is_err()
+                {
+                    self.receipt(receipt, false);
+                }
+            }
+            ControllerFrame::Ack { h } => self.drop_through(h),
+            ControllerFrame::Terminate { grace_ms } => {
+                self.terminate_group(std::time::Duration::from_millis(grace_ms)).await;
                 if let Some(c) = self.controller.as_ref() {
                     let _ = c.tx.send(HostFrame::TerminateAck);
                 }
             }
+            ControllerFrame::Query { .. } if claim_query_stall(&self.spec.env) => {}
             ControllerFrame::Query { id } => {
                 let (claude_session_id, modes, config_options) = match self.translator.clone() {
                     Some(tr) => (
@@ -765,8 +1135,75 @@ fn wait_exit_unreaped(pid: i32) -> bool {
     }
 }
 
+/// The host was started in the pool directory and its record is still
+/// there (not promoted into the hosts directory).
+fn still_pooled(spec: &SpawnSpec) -> bool {
+    spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
+        && record_path(&spec.hosts_dir, &spec.session_id).exists()
+}
+
+/// Whether a daemon can still find this host: its record (this incarnation's,
+/// by start nonce) is in its hosts directory, or (a promoted pooled host) in
+/// the parent hosts directory. A newer host of the same session that wrote
+/// its own record makes this one unadoptable.
+fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
+    if names_this_host(&record_path(&spec.hosts_dir, &spec.session_id), nonce) {
+        return true;
+    }
+    spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
+        && spec
+            .hosts_dir
+            .parent()
+            .is_some_and(|hosts| names_this_host(&record_path(hosts, &spec.session_id), nonce))
+}
+
+/// Watches the directories that hold this host's record (kqueue on macOS,
+/// inotify on Linux; `record_watch.rs`; no polling). When the record is gone
+/// (the daemon's home was deleted, or a daemon removed the record), no daemon
+/// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
+/// stat; a record rewritten in place (write, then rename) is still present.
+fn watch_record(
+    spec: &SpawnSpec,
+    nonce: &str,
+    tx: mpsc::Sender<Event>,
+) -> Option<super::record_watch::DirWatch> {
+    let watched = spec.clone();
+    let own = nonce.to_owned();
+    let term = tx.clone();
+    let mut dirs = vec![spec.hosts_dir.clone()];
+    if spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
+        && let Some(hosts) = spec.hosts_dir.parent()
+    {
+        dirs.push(hosts.to_path_buf());
+    }
+    let watch = super::record_watch::DirWatch::start(&dirs, move || {
+        if record_present(&watched, &own) {
+            return false;
+        }
+        // The watch thread is not a runtime thread: a blocking send never
+        // drops the end when the event queue is full.
+        let _ = term.blocking_send(Event::Term);
+        true
+    });
+    // The record may have gone before the watch began (the home deleted
+    // right after the start): check once now.
+    if !record_present(spec, nonce) {
+        let _ = tx.try_send(Event::Term);
+    }
+    watch
+}
+
 #[cfg(test)]
 mod tests {
+    /// A pooled host ends at the end of its wait only when no controller
+    /// ever said `Hello`; a session's host never ends this way.
+    #[test]
+    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
+        assert!(super::pooled_without_owner(true, None));
+        assert!(!super::pooled_without_owner(true, Some(1)));
+        assert!(!super::pooled_without_owner(false, None));
+    }
+
     /// The leader is waited for without being reaped: while it is a zombie
     /// its process group id cannot be reused, so ending the group then can
     /// never signal another process group.

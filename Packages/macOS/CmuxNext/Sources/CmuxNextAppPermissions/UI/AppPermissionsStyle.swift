@@ -16,27 +16,3 @@ public nonisolated enum AppPermissionsStyle: String, Sendable, Hashable, CaseIte
     public static let settingKey = "apps.permissions.style"
     public static let defaultStyle = AppPermissionsStyle.grouped
 }
-
-/// Where the surfaces read the style. The App conforms its Debug Settings
-/// store (an `@Observable` value), so a change re-renders live.
-@MainActor
-public protocol AppPermissionsStyleSource: AnyObject, Observable {
-    var permissionsStyle: AppPermissionsStyle { get }
-}
-
-/// A standalone observable setting (demos, tests, and the App until it
-/// binds Debug Settings).
-@MainActor
-@Observable
-public final class AppPermissionsStyleSetting: AppPermissionsStyleSource {
-    public var permissionsStyle: AppPermissionsStyle
-
-    public init(_ style: AppPermissionsStyle = .defaultStyle) {
-        permissionsStyle = style
-    }
-
-    /// Parses the Debug Settings value; unknown values fall back to the default.
-    public func set(rawValue: String) {
-        permissionsStyle = AppPermissionsStyle(rawValue: rawValue) ?? .defaultStyle
-    }
-}

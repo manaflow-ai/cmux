@@ -6,11 +6,12 @@
 //! command queue with its byte budget. `HostShared` follows once its OS
 //! fields sit behind seams.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_pty::PtySize;
 use ghostty_vt::Terminal;
@@ -19,7 +20,15 @@ use super::super::sys::HostStream;
 use super::super::*;
 use super::codec::encode_hex;
 
-pub(crate) const HOST_TERMINATE_GRACE: Duration = Duration::from_millis(250);
+/// How long an explicit Terminate (closing a terminal tab) gives the
+/// terminal's programs to exit after SIGHUP before it sends SIGTERM. Long
+/// enough for an editor to write its swap file or an agent to flush its
+/// transcript, short enough that a closed tab's processes do not linger.
+const HOST_HANGUP_GRACE_MS: u64 = 2_000;
+pub(crate) const HOST_HANGUP_GRACE: Duration = Duration::from_millis(HOST_HANGUP_GRACE_MS);
+/// How long programs that outlived SIGHUP get after SIGTERM before SIGKILL.
+const HOST_SIGTERM_GRACE_MS: u64 = 1_000;
+pub(crate) const HOST_SIGTERM_GRACE: Duration = Duration::from_millis(HOST_SIGTERM_GRACE_MS);
 // Match the remote PTY bridge's bounded outstanding-write precedent.
 // This protects the local control-response waiter table from an unbounded
 // burst of durable API input without serializing every receipt.
@@ -28,33 +37,146 @@ pub(crate) const MAX_PENDING_INPUT_ACKS: usize = 256;
 // existing frame-payload ceiling preserves admission for one maximum-sized
 // legal Input while preventing 256 such frames from accumulating.
 pub(crate) const MAX_PENDING_INPUT_ACK_BYTES: usize = MAX_FRAME_PAYLOAD;
-pub(crate) const HOST_KILL_WAIT: Duration = Duration::from_secs(2);
-pub(crate) const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
-pub(crate) const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
-pub(crate) const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
+const HOST_KILL_WAIT_MS: u64 = 2_000;
+pub(crate) const HOST_KILL_WAIT: Duration = Duration::from_millis(HOST_KILL_WAIT_MS);
+const HOST_PTY_DRAIN_GRACE_MS: u64 = 250;
+pub(crate) const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(HOST_PTY_DRAIN_GRACE_MS);
+const HOST_FORCED_DRAIN_WINDOW_MS: u64 = 100;
+pub(crate) const HOST_FORCED_DRAIN_WINDOW: Duration =
+    Duration::from_millis(HOST_FORCED_DRAIN_WINDOW_MS);
+/// The longest a host's Terminate sequence can take (`terminate_and_wait`):
+/// the SIGHUP and SIGTERM graces, the session and child waits after SIGKILL,
+/// and the PTY drain windows.
+const HOST_TERMINATE_BOUND_MS: u64 = HOST_HANGUP_GRACE_MS
+    + HOST_SIGTERM_GRACE_MS
+    + 2 * HOST_KILL_WAIT_MS
+    + HOST_PTY_DRAIN_GRACE_MS
+    + 2 * HOST_FORCED_DRAIN_WINDOW_MS;
+/// How long an owner waits for a host it asked to end: the host's whole
+/// Terminate sequence plus slack for its exit receipt.
+pub(crate) const HOST_TERMINATE_WAIT: Duration =
+    Duration::from_millis(HOST_TERMINATE_BOUND_MS + 2_000);
+pub(crate) const HOST_LAUNCH_ROLLBACK_WAIT: Duration = HOST_TERMINATE_WAIT;
 pub(crate) const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a host serves no client before it ends its terminal, in the
+/// builds that have an orphan grace at all (cx-hostorphan, cx-t2sqm D1).
+///
+/// Normal installs (NIGHTLY, release, RC, a standalone release cmux-tui)
+/// have NO orphan grace: a terminal lives until the user closes it, so
+/// quitting or updating cmux never ends it (Lawrence 2026-10-14). Tagged DEV
+/// and staging builds and debug builds (tests, local runs) give their hosts
+/// this grace, so throwaway builds do not leave PTYs allocated for days. The
+/// daemon decides ([`set_dev_host_orphan_grace`]) and passes the grace to
+/// the hosts it spawns in [`HOST_ORPHAN_GRACE_ENV`]; a host reads only that.
+pub(crate) const DEV_HOST_ORPHAN_GRACE: Duration = Duration::from_secs(10 * 60);
+/// The orphan grace of a host in whole seconds (at least 1). Unset: no
+/// orphan grace. An explicit value in the daemon's environment wins over the
+/// daemon's build policy and reaches every host it spawns; tests use a short
+/// grace.
+pub(crate) const HOST_ORPHAN_GRACE_ENV: &str = "CMUX_TUI_HOST_ORPHAN_GRACE_SECS";
+
+/// The longest accepted override (30 days), so the deadline math cannot
+/// overflow `Instant`.
+const HOST_ORPHAN_GRACE_MAX_SECS: u64 = 30 * 24 * 60 * 60;
+
+/// Whether this daemon gives the hosts it spawns [`DEV_HOST_ORPHAN_GRACE`].
+/// Debug builds default to yes until the daemon's build policy is installed.
+static DEV_ORPHAN_GRACE: AtomicBool = AtomicBool::new(cfg!(debug_assertions));
+
+/// The daemon's build policy, set once at daemon start before any host is
+/// spawned: `true` for tagged DEV and staging builds and debug builds,
+/// `false` for normal installs.
+pub fn set_dev_host_orphan_grace(enabled: bool) {
+    DEV_ORPHAN_GRACE.store(enabled, Ordering::Release);
+}
+
+/// The variable a spawned host gets, if any: none when the daemon's own
+/// environment already sets it (the host inherits that value) or when the
+/// daemon's build has no orphan grace.
+pub(crate) fn host_orphan_env() -> Option<(&'static str, String)> {
+    if std::env::var_os(HOST_ORPHAN_GRACE_ENV).is_some()
+        || !DEV_ORPHAN_GRACE.load(Ordering::Acquire)
+    {
+        return None;
+    }
+    Some((HOST_ORPHAN_GRACE_ENV, DEV_HOST_ORPHAN_GRACE.as_secs().to_string()))
+}
+
+/// The orphan grace the terminal processes this daemon starts get: an
+/// explicit [`HOST_ORPHAN_GRACE_ENV`] in its environment, else
+/// [`DEV_HOST_ORPHAN_GRACE`] in builds with one, else none. The holder gets
+/// it too (`cmux_holder::ORPHAN_GRACE_ENV`), so holder terminals end after
+/// the same grace as hosted ones.
+#[cfg(unix)]
+pub(crate) fn spawned_orphan_grace() -> Option<Duration> {
+    if std::env::var_os(HOST_ORPHAN_GRACE_ENV).is_some() {
+        return read_host_orphan_grace();
+    }
+    DEV_ORPHAN_GRACE.load(Ordering::Acquire).then_some(DEV_HOST_ORPHAN_GRACE)
+}
+
+/// A `SIGTERM` ends a host only after this long with no client stream, so a
+/// daemon's reconnect gap (resync, lost connection) is not an orphan.
+pub(crate) const HOST_SIGTERM_ORPHAN_MIN: Duration = Duration::from_secs(2);
+
+/// The orphan grace of this host process; `None`: the host never ends its
+/// terminal for lack of a client. Read once: a Unix host reads it as its
+/// first step and removes the variable, so its shell (and any daemon started
+/// in that shell) never inherits a DEV build's grace.
+pub(crate) fn host_orphan_grace() -> Option<Duration> {
+    static GRACE: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
+    *GRACE.get_or_init(read_host_orphan_grace)
+}
+
+fn read_host_orphan_grace() -> Option<Duration> {
+    std::env::var(HOST_ORPHAN_GRACE_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(|seconds| Duration::from_secs(seconds.min(HOST_ORPHAN_GRACE_MAX_SECS)))
+}
+
+/// Since when this host process (one terminal per process) has had no
+/// client stream, as the accept loop last saw it.
+static ORPHAN_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+/// The host ended its terminal because its owner was gone: its exit record
+/// says [`crate::terminal_end::EXIT_OWNER_GONE`].
+static OWNER_GONE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_orphan_since(since: Option<Instant>) {
+    *ORPHAN_SINCE.lock().recover_poison() = since;
+}
+
+/// No client stream for at least `min`.
+pub(crate) fn orphaned_for(min: Duration) -> bool {
+    ORPHAN_SINCE.lock().recover_poison().is_some_and(|since| since.elapsed() >= min)
+}
+
+/// Record that the terminal is ended because the owner is gone.
+pub(crate) fn mark_owner_gone() {
+    OWNER_GONE.store(true, Ordering::Release);
+}
+
+/// The exit to persist and publish: an owner-gone end is a host loss.
+pub(crate) fn owner_gone_exit(exit: TerminalExit) -> TerminalExit {
+    if OWNER_GONE.load(Ordering::Acquire) {
+        TerminalExit::unknown(crate::terminal_end::EXIT_OWNER_GONE)
+    } else {
+        exit
+    }
+}
 pub(crate) const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
 pub(crate) const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
 pub(crate) const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
 pub(crate) const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
 
-pub(crate) fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
-    let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
-        anyhow::anyhow!(
-            "terminal pixel width exceeds {}: {cols} columns at {} pixels per cell",
-            u16::MAX,
-            cell_pixels.0
-        )
-    })?;
-    let pixel_height = rows.checked_mul(cell_pixels.1).ok_or_else(|| {
-        anyhow::anyhow!(
-            "terminal pixel height exceeds {}: {rows} rows at {} pixels per cell",
-            u16::MAX,
-            cell_pixels.1
-        )
-    })?;
-    Ok(PtySize { rows, cols, pixel_width, pixel_height })
+/// The winsize for a grid. The pixel fields saturate at `u16::MAX` so a
+/// grid the size clamp accepts never fails on `ws_xpixel`/`ws_ypixel`.
+pub(crate) fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> PtySize {
+    let pixel_width = cols.saturating_mul(cell_pixels.0);
+    let pixel_height = rows.saturating_mul(cell_pixels.1);
+    PtySize { rows, cols, pixel_width, pixel_height }
 }
 
 pub(crate) fn kitty_graphics_limits_within(
@@ -80,7 +202,7 @@ pub(crate) fn persist_and_claim_host_exit_after_drain(
     if !pty_drained.load(Ordering::Acquire) {
         return Ok(None);
     }
-    let Some(exit) = child_exited.lock().unwrap().clone() else {
+    let Some(exit) = child_exited.lock().recover_poison().clone() else {
         return Ok(None);
     };
     if exit_published.load(Ordering::Acquire) {
@@ -134,7 +256,7 @@ pub(crate) fn mutate_viewer_sizes(
     mutation: impl FnOnce(&mut ViewerSizes),
     apply: impl FnOnce(Option<(u16, u16)>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let mut viewer_sizes = viewer_sizes.lock().unwrap();
+    let mut viewer_sizes = viewer_sizes.lock().recover_poison();
     let previous = viewer_sizes.clone();
     mutation(&mut viewer_sizes);
     if let Err(error) = apply(viewer_sizes.desired()) {
@@ -288,11 +410,11 @@ impl SmartStreamState {
     /// applied only after the authoritative parser has consumed the same
     /// transition.
     pub(crate) fn publish(&self, mut frame: Frame) -> u64 {
-        let _broadcast = self.broadcast_lock.lock().unwrap();
+        let _broadcast = self.broadcast_lock.lock().recover_poison();
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
-        self.retained.lock().unwrap().push(frame.clone());
-        self.taps.lock().unwrap().retain(|_, tap| tap.try_send(frame.clone()));
+        self.retained.lock().recover_poison().push(frame.clone());
+        self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
         cursor
     }
 
@@ -302,18 +424,23 @@ impl SmartStreamState {
         targeted_frame: Frame,
         mut frame: Frame,
     ) -> (u64, bool) {
-        let _broadcast = self.broadcast_lock.lock().unwrap();
+        let _broadcast = self.broadcast_lock.lock().recover_poison();
         let targeted_queued = targeted.try_send(targeted_frame);
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
-        self.retained.lock().unwrap().push(frame.clone());
-        self.taps.lock().unwrap().retain(|_, tap| tap.try_send(frame.clone()));
+        self.retained.lock().recover_poison().push(frame.clone());
+        self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
         (cursor, targeted_queued)
     }
 
     pub(crate) fn mark_applied(&self, cursor: u64) {
         let prior = self.applied_cursor.fetch_max(cursor, Ordering::AcqRel);
         debug_assert!(prior <= cursor, "smart parser cursor moved backwards");
+        // A subscriber replays only frames after the applied boundary (it
+        // snapshots the rest), so applied frames are never read again: drop
+        // them. Before, every host kept up to 8 MiB / 4096 frames of raw
+        // output it had already parsed for its whole life.
+        self.retained.lock().recover_poison().drop_through(cursor.max(prior));
     }
 
     pub(crate) fn close_failed_transition(&self, source_cursor: Option<u64>) {
@@ -332,25 +459,25 @@ impl SmartStreamState {
     /// lock, so the caller may release its parser lock and perform socket
     /// writes without opening an attach race.
     pub(crate) fn subscribe(&self, client: u64, tap: HostTap) -> Result<u64, SmartReplayGap> {
-        let _broadcast = self.broadcast_lock.lock().unwrap();
+        let _broadcast = self.broadcast_lock.lock().recover_poison();
         let boundary = self.applied_cursor.load(Ordering::Acquire);
-        let backlog = self.retained.lock().unwrap().after(boundary)?;
+        let backlog = self.retained.lock().recover_poison().after(boundary)?;
         for frame in backlog {
             if !tap.try_send(frame) {
                 return Err(SmartReplayGap::SubscriberQueueOverflow { boundary });
             }
         }
-        self.taps.lock().unwrap().insert(client, tap);
+        self.taps.lock().recover_poison().insert(client, tap);
         Ok(boundary)
     }
 
     pub(crate) fn remove(&self, client: u64) {
-        self.taps.lock().unwrap().remove(&client);
+        self.taps.lock().recover_poison().remove(&client);
     }
 
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
-        self.taps.lock().unwrap().is_empty()
+        self.taps.lock().recover_poison().is_empty()
     }
 }
 
@@ -371,6 +498,21 @@ impl SmartRetention {
             let Some(frame) = self.frames.pop_front() else { break };
             self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
             self.dropped_through = frame.sequence;
+        }
+    }
+
+    /// Drops the frames up to `cursor` (the applied boundary). A replay
+    /// asked for from before it reports a retention gap, as for frames the
+    /// bounds dropped, so a racing subscriber resnapshots instead of
+    /// silently missing frames.
+    pub(crate) fn drop_through(&mut self, cursor: u64) {
+        while self.frames.front().is_some_and(|frame| frame.sequence <= cursor) {
+            let Some(frame) = self.frames.pop_front() else { break };
+            self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
+            self.dropped_through = self.dropped_through.max(frame.sequence);
+        }
+        if self.frames.is_empty() {
+            self.frames.shrink_to(64);
         }
     }
 
@@ -424,6 +566,10 @@ pub(crate) enum ParserCommand {
         source_cursor: Option<u64>,
         acknowledge_with_replay: bool,
         targeted_ack: Option<(u64, HostTap)>,
+        /// The PTY already holds the new size (the program got SIGWINCH
+        /// when the command was queued); restore this size if the grid
+        /// cannot follow.
+        pty_previous: Option<PtySize>,
         response: SyncSender<ParserResizeResult>,
     },
     SetDefaults {
@@ -478,18 +624,20 @@ impl ParserBudget {
 
     pub(crate) fn reserve(&self, bytes: usize) {
         debug_assert!(bytes <= self.max_bytes);
-        let queued = self.queued_bytes.lock().unwrap();
+        let queued = self.queued_bytes.lock().recover_poison();
         let mut queued = self
             .available
             .wait_while(queued, |queued| queued.saturating_add(bytes) > self.max_bytes)
-            .unwrap();
+            .recover_poison();
         *queued += bytes;
     }
 
     pub(crate) fn release(&self, bytes: usize) {
-        let mut queued = self.queued_bytes.lock().unwrap();
-        *queued =
-            queued.checked_sub(bytes).expect("parser budget released more bytes than reserved");
+        let mut queued = self.queued_bytes.lock().recover_poison();
+        *queued = queued.checked_sub(bytes).unwrap_or_else(|| {
+            eprintln!("cmux: terminal-host parser budget released more bytes than reserved");
+            0
+        });
         self.available.notify_all();
     }
 }
@@ -532,8 +680,8 @@ pub(crate) fn publish_host_frames_and_targeted(
     // otherwise concurrent output/resize/exit producers could mint N
     // then publish N+1 first, split a coupled Output/Colors pair, or place
     // a targeted acknowledgement before its canonical transition.
-    let _broadcast = broadcast_lock.lock().unwrap();
-    let mut taps = taps.lock().unwrap();
+    let _broadcast = broadcast_lock.lock().recover_poison();
+    let mut taps = taps.lock().recover_poison();
     for mut frame in frames {
         let sequence = sequence.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = sequence;

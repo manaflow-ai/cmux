@@ -33,6 +33,10 @@ export const cloudCases = (c: Corpus): void => {
   c.op(host, "participants.remove: unknown participant", ALICE, "r2", { kind: "participants.remove", participant: "user_nobody" }, "unknown_participant")
   c.op(host, "participants.remove: the chief's owner removes the chief", ALICE, "r3", { kind: "participants.remove", participant: CHIEF }, "commit")
   c.op(host, "send: a departed chief", CHIEF, "m2", send("m2", "still here?"), "not_participant")
+  // A thread's owner is a current participant: a departed one is refused.
+  const firstMessage = host.messages[0]!.id
+  c.op(host, "thread.update: a departed owner", BOB, "o1", { kind: "thread.update", root: firstMessage, owner: CHIEF }, "invalid_thread_owner")
+  c.op(host, "thread.update: a member titles and owns a thread", BOB, "o1", { kind: "thread.update", root: firstMessage, title: "Hello", owner: CAROL }, "commit")
   c.op(host, "participants.add: a member re-adds another user's chief", BOB, "p3", { kind: "participants.add", participant: agent(CHIEF, BOB) }, "forbidden")
   c.op(host, "participants.add: the actor's own new agent (the Domain stamps owner_user from its policy)", BOB, "p4", { kind: "participants.add", participant: agent("agent_bobchief", BOB) }, "commit")
   c.op(host, "participants.add: someone else's new chief", CAROL, "p5", { kind: "participants.add", participant: agent("agent_x", ALICE) }, "forbidden")
@@ -42,6 +46,7 @@ export const cloudCases = (c: Corpus): void => {
   c.op(host, "participants.add: the chief's owner re-adds it", ALICE, "p7", { kind: "participants.add", participant: agent(CHIEF, ALICE) }, "commit")
   c.op(host, "invite.create: email to a new address", BOB, "i1", inviteOp(), "commit")
   c.op(host, "send: a address cannot act", ADDRESS, "m3", send("m3", "hi"), "address_cannot_act")
+  c.op(host, "thread.update: an invited address cannot own a thread", BOB, "o2", { kind: "thread.update", root: firstMessage, owner: ADDRESS }, "invalid_thread_owner")
   c.op(host, "invite.create: a chief cannot invite", CHIEF, "i2", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: tokenHash("s2") }), "forbidden")
   c.op(host, "invite.create: the address already has an open invite", ALICE, "i3", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") }), "duplicate_invite")
   c.op(host, "invite.create: malformed token hash", ALICE, "i4", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: "short" }), "invalid_invite")
@@ -111,15 +116,35 @@ export const cloudCases = (c: Corpus): void => {
   c.op(dmHost, "dm: participants.remove", ALICE, "r1", { kind: "participants.remove", participant: CAROL }, "kind_forbids")
 
   const chief = new CoreHost(chiefHead())
-  c.op(chief, "chief: participants.add", ALICE, "p1", { kind: "participants.add", participant: human(BOB) }, "kind_forbids")
   c.op(chief, "chief: invite.create", ALICE, "i1", inviteOp(), "kind_forbids")
+  // A Chief's conversation shared with teammates (cmux#25569): only its owner adds people, never an agent or an admin.
+  c.op(chief, "chief: the chief adds a person", CHIEF, "p0", { kind: "participants.add", participant: human(BOB) }, "forbidden")
+  c.op(chief, "chief: the owner adds another agent", ALICE, "p0", { kind: "participants.add", participant: agent("agent_second", ALICE) }, "invalid_participant")
+  c.op(chief, "chief: the owner adds an admin", ALICE, "p0", { kind: "participants.add", participant: human(BOB), role: "admin" }, "forbidden")
+  // The first share turns history to since_join (the commit's head says so): the teammate sees what comes next.
+  c.op(chief, "chief: the owner shares it with a teammate", ALICE, "p1", { kind: "participants.add", participant: human(BOB, "Bob") }, "commit")
+  if (chief.head.settings?.history_visible !== "since_join") throw new Error("chief share: history_visible should be since_join")
+  c.op(chief, "chief: a teammate shares it further", BOB, "p2", { kind: "participants.add", participant: human(CAROL) }, "forbidden")
+  c.op(chief, "chief: a teammate talks", BOB, "s1", send("s1", "hi from bob"), "commit")
+  c.op(chief, "chief: a teammate cannot rename it", BOB, "t1", { kind: "title.set", title: "x" }, "kind_forbids")
+  c.op(chief, "chief: a teammate cannot remove the chief", BOB, "r0", { kind: "participants.remove", participant: CHIEF }, "kind_forbids")
+  c.op(chief, "chief: the owner cannot remove the chief", ALICE, "r0", { kind: "participants.remove", participant: CHIEF }, "kind_forbids")
+  c.op(chief, "chief: the owner cannot leave", ALICE, "r0", { kind: "participants.remove", participant: ALICE }, "kind_forbids")
+  c.op(chief, "chief: a teammate cannot make itself an admin", BOB, "sr0", { kind: "participants.set_role", participant: BOB, role: "admin" }, "forbidden")
+  c.op(chief, "chief: the owner makes a teammate read-only", ALICE, "sr1", { kind: "participants.set_role", participant: BOB, role: "read_only" }, "commit")
+  c.op(chief, "chief: a read-only teammate cannot talk", BOB, "s2", send("s2", "still me"), "read_only")
+  c.op(chief, "chief: the owner makes the teammate a member again", ALICE, "sr2", { kind: "participants.set_role", participant: BOB, role: "member" }, "commit")
+  c.op(chief, "chief: no ban list to manage", ALICE, "rb", { kind: "participants.remove", participant: BOB, ban: true }, "kind_forbids")
   // Questions follow the local rules on a cloud head: the chief asks, its owner answers.
   c.op(chief, "chief: the owner may not post a question", ALICE, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "invalid_parts")
   c.op(chief, "chief: the chief posts a question", CHIEF, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "commit")
   const asked = chief.messages.at(-1)!.id
   const answer = (selections: unknown): Op => ({ kind: "question.answer", message_id: asked, part_index: 0, answer: { selections } }) as never
   c.op(chief, "chief: the chief may not answer", CHIEF, "a1", answer({ q0: { option_ids: ["oauth"] } }), "human_only")
+  c.op(chief, "chief: a teammate may not answer the chief's question", BOB, "a1", answer({ q0: { option_ids: ["oauth"] } }), "forbidden")
   c.op(chief, "chief: the owner answers", ALICE, "a1", answer({ q0: { option_ids: ["oauth"] } }), "commit")
+  c.op(chief, "chief: a teammate leaves", BOB, "r1", { kind: "participants.remove", participant: BOB }, "commit")
+  c.op(chief, "chief: a teammate who left cannot talk", BOB, "s3", send("s3", "back?"), "not_participant")
   c.op(chief, "chief: a second answer", ALICE, "a2", answer({ q0: { option_ids: ["keys"] } }), "question_closed")
 
   const local = new CoreHost()

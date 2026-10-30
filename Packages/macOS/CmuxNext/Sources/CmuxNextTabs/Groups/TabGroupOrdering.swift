@@ -79,13 +79,11 @@ public struct TabGroupOrdering {
             ?? ordered.first { $0.groupID != group }?.id
     }
 
-    /// The color a new group gets: the first of the nine group colors no
-    /// group in the same strip uses yet, skipping blue (no blue in
-    /// what cmux picks itself; a user may still choose it); grey when every
-    /// color is taken.
+    /// The color a new group gets, as workspace groups get theirs (`GroupColor.automatic`): the
+    /// first palette color in `automaticOrder` no group in the same strip uses yet, never
+    /// blue (a user may still choose it) or grey; grey when every one is taken.
     public static func nextColor(used: some Sequence<GroupColor>) -> GroupColor {
-        let taken = Set(used)
-        return GroupColor.allCases.first { $0 != .blue && !taken.contains($0) } ?? .grey
+        GroupColor.automatic(used: Set(used.map(\.rawValue))) ?? .grey
     }
 
     /// When a group collapses over the selection: select the

@@ -19,6 +19,7 @@
 //! (https://github.com/pingdotgg/t3code; see THIRD_PARTY_LICENSES.md).
 
 use super::*;
+use cmux_json::JsonSet as _;
 use serde_json::Map;
 
 /// Which x.ai request a method is.
@@ -149,7 +150,7 @@ fn question_reply(params: &Value, outcome: &Value) -> Value {
     }
     let mut reply = json!({"outcome": "accepted", "answers": answers});
     if !annotations.is_empty() {
-        reply["annotations"] = Value::Object(annotations);
+        reply.set("annotations", Value::Object(annotations));
     }
     reply
 }
@@ -182,7 +183,10 @@ fn plan_request(params: &Value) -> Value {
         "rawInput": {"plan": plan},
     });
     if !plan.is_empty() {
-        tool["content"] = json!([{"type": "content", "content": {"type": "text", "text": plan}}]);
+        tool.set(
+            "content",
+            json!([{"type": "content", "content": {"type": "text", "text": plan}}]),
+        );
     }
     json!({
         "sessionId": params["sessionId"],
@@ -228,86 +232,18 @@ impl Hub {
                     return Err(RpcError::invalid_params(why));
                 }
                 let request = question_request(&params);
-                let outcome =
-                    self.handle_permission_for(session, request, epoch, turn_id, None).await;
+                let outcome = self
+                    .handle_permission_for(session, request, epoch, turn_id, None, None, None)
+                    .await;
                 question_reply(&params, &outcome)
             }
             XaiRequest::ExitPlanMode => {
                 let request = plan_request(&params);
-                let outcome =
-                    self.handle_permission_for(session, request, epoch, turn_id, None).await;
+                let outcome = self
+                    .handle_permission_for(session, request, epoch, turn_id, None, None, None)
+                    .await;
                 plan_reply(&outcome)
             }
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_method_spellings_are_recognized() {
-        assert_eq!(request_kind("x.ai/ask_user_question"), Some(XaiRequest::AskUserQuestion));
-        assert_eq!(request_kind("_x.ai/exit_plan_mode"), Some(XaiRequest::ExitPlanMode));
-        assert_eq!(request_kind("x.ai/task_completed"), None);
-        assert_eq!(request_kind("session/request_permission"), None);
-    }
-
-    #[test]
-    fn wrapped_params_are_unwrapped() {
-        let wrapped = json!({"method": "x.ai/exit_plan_mode", "params": {"sessionId": "s"}});
-        assert_eq!(unwrap(wrapped), json!({"sessionId": "s"}));
-        assert_eq!(unwrap(json!({"sessionId": "s"})), json!({"sessionId": "s"}));
-    }
-
-    #[test]
-    fn multi_select_and_free_answers_map_to_labels_and_notes() {
-        let q = json!({"question": "Which?", "multiSelect": true,
-            "options": [{"label": " A "}, {"label": "B"}]});
-        assert_eq!(picked(&q, "A, B"), (vec!["A".to_owned(), "B".to_owned()], vec![], None));
-        assert_eq!(
-            picked(&q, "A, custom"),
-            (vec!["A".to_owned()], vec!["custom".to_owned()], None)
-        );
-        assert_eq!(
-            picked(&q, "something else"),
-            (vec!["Other".to_owned()], vec!["something else".to_owned()], None)
-        );
-        let single = json!({"question": "Which?", "options": [{"label": "A, B", "preview": "ab"}]});
-        assert_eq!(
-            picked(&single, "A, B"),
-            (vec!["A, B".to_owned()], vec![], Some("ab".to_owned()))
-        );
-    }
-
-    #[test]
-    fn a_free_answer_rides_as_an_annotation() {
-        let params = json!({"questions": [{"question": "Name?", "options": [{"label": "A"}]}]});
-        let outcome = json!({"outcome": {"outcome": "selected", "optionId": ANSWER},
-            "_meta": {"updatedInput": {"answers": {"Name?": "Zed"}}}});
-        assert_eq!(
-            question_reply(&params, &outcome),
-            json!({"outcome": "accepted", "answers": {"Name?": ["Other"]},
-                   "annotations": {"Name?": {"notes": "Zed"}}})
-        );
-    }
-
-    #[test]
-    fn questions_nobody_could_answer_are_refused() {
-        let blank = json!({"questions": [{"question": "  ", "options": []}]});
-        assert!(unaskable(&blank).is_some());
-        let twice = json!({"questions": [{"question": "Same?"}, {"question": "Same?"}]});
-        assert_eq!(unaskable(&twice), Some("question texts must be unique"));
-        let fine = json!({"questions": [{"question": "One?"}, {"question": "Two?"}]});
-        assert_eq!(unaskable(&fine), None);
-    }
-
-    #[test]
-    fn a_cancelled_plan_is_abandoned() {
-        assert_eq!(
-            plan_reply(&json!({"outcome": {"outcome": "cancelled"}})),
-            json!({"outcome": "abandoned"})
-        );
     }
 }

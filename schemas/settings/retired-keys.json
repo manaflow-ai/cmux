@@ -1,0 +1,45 @@
+{
+  "$comment": "HAND-EDITED source of the cmux.json keys cmux used to read and no longer does (cx-d5b5d). The daemon (cmux-config) embeds this file; scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RetiredKeys.generated.swift). Loading drops a retired key without a diagnostic, the schema export and Settings never list it, a write is refused as removed (reason shown), and a reset prunes it from an old file. Add an entry when a key is removed; never reuse a retired key for a new meaning.",
+  "retired": [
+    {
+      "key": "appearance.tabBarBackground",
+      "reason": "every surface draws the one window background",
+      "why": "One background everywhere (plans/cmux-next/windows.md, 2026-10-03)."
+    },
+    {
+      "key": "updates.quietHours",
+      "reason": "a staged update shows only the small control on Settings",
+      "why": "The update card is gone (Lawrence 2026-10-05): nothing left to quiet."
+    },
+    {
+      "key": "tabs.newTabKind",
+      "reason": "New Tab always opens the New Tab page",
+      "why": "New Tab always opens the New Tab page (Leo 2026-10-12): a terminal is an explicit pick."
+    },
+    {
+      "key": "tabs.hiddenButtons",
+      "reason": "the pane's \"…\" menu lists every action",
+      "why": "The pane's buttons became one hover \"…\" listing every action (Leo 2026-10-12)."
+    },
+    {
+      "key": "tabs.tabBar.terminal",
+      "reason": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
+      "why": "The palette is the only way to hide a tab bar (Lawrence 2026-10-15, cx-5425v)."
+    },
+    {
+      "key": "tabs.tabBar.browser",
+      "reason": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
+      "why": "The palette is the only way to hide a tab bar (Lawrence 2026-10-15, cx-5425v)."
+    },
+    {
+      "key": "tabs.tabBar.agent",
+      "reason": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
+      "why": "The palette is the only way to hide a tab bar (Lawrence 2026-10-15, cx-5425v)."
+    },
+    {
+      "key": "tabs.newTabWidgets.modeSwitch",
+      "reason": "New Tab picks open, ask or search from what you type; there is no switch",
+      "why": "New Tab picks the action itself and has no Search | Ask switch (Leo 2026-10-20, #22816)."
+    }
+  ]
+}

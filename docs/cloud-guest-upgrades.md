@@ -30,7 +30,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 
 | Change | Reaches running machines? | How |
 | --- | --- | --- |
-| `cmux-tui` binary and `cmux-tui-hook` | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
+| `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
@@ -109,9 +109,12 @@ else is image-only: design it so old machines keep working without it.
 
 The target is the cmux-tui build the default image bakes (the manifest's
 `cmuxTuiCommit`), so an upgraded machine runs what a new machine runs.
+Machines created by fork, restore or a template boot the source's snapshot,
+not the default image, so they keep its older cmux-tui and belong in the
+inventory like any other running machine.
 
 1. **Inventory.** List running machines and their owners (read-only):
-   `select provider_vm_id, provider_metadata->>'cmuxTuiContract', image_version from cloud_vms where destroyed_at is null and provider = 'freestyle' and status = 'running'`.
+   `select provider_vm_id, provider_metadata->>'cmuxTuiContract', provider_metadata->>'cmuxRemoteAuth', image_version from cloud_vms where destroyed_at is null and provider = 'freestyle' and status = 'running'`.
 2. **Canary.** Run one machine you own, then attach to it from the Mac:
 
    ```bash
@@ -126,7 +129,7 @@ The target is the cmux-tui build the default image bakes (the manifest's
 
    ```sql
    update cloud_vms
-      set provider_metadata = provider_metadata || '{"cmuxTuiContract":"snapshot-v2"}'::jsonb,
+      set provider_metadata = provider_metadata || '{"cmuxTuiContract":"snapshot-v2","cmuxRemoteAuth":"trusted-carrier"}'::jsonb,
           updated_at = now()
     where provider_vm_id = any($1)
       and destroyed_at is null
@@ -142,10 +145,15 @@ The target is the cmux-tui build the default image bakes (the manifest's
 What the guest script (`web/scripts/cloud-vm/cmux-tui-upgrade.sh`) does per
 machine: it runs detached as root from its own run directory
 (`/var/lib/cmux-tui-upgrade/run-<time>-<commit>/`, with `result` and `log`),
-and holds a per-machine lock, so a second run reports `SKIP busy`.
+and holds a per-machine lock, so a second run reports `SKIP busy`. Before it
+touches the daemon it atomically installs the current state-mount helper and
+runs its `ensure` path, so a running machine receives the bounded state-image
+growth fix even when its daemon is crash-looping. If the daemon upgrade needs
+to roll back, the previous helper is restored with the binary.
 
-- `SKIP no-trusted-carrier`: the supervisor starts a pre-carrier daemon. A new
-  binary would not make it attachable; the machine is image-only (below).
+- `SKIP unsupported-cloud-auth`: the supervisor starts neither a trusted-carrier
+  daemon nor a `freestyle-edge-grant` host-configured daemon. A new binary
+  would not make it attachable; the machine is image-only (below).
 - `SKIP disk-free=<n>MB`, `SKIP no-daemon`, `SKIP daemon-not-listening`:
   nothing changed. A no-daemon machine usually crash-loops or has a full
   disk; inspect it.

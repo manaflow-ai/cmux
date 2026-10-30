@@ -426,11 +426,17 @@ mod owner_idle_exit;
 #[path = "host_replacement.rs"]
 mod host_replacement;
 
+#[path = "program_status_rehost.rs"]
+mod program_status_rehost;
+
 #[path = "dead_host_restart.rs"]
 mod dead_host_restart;
 
 #[path = "terminal_respawn.rs"]
 mod terminal_respawn;
+
+#[path = "output_store.rs"]
+mod output_store;
 
 #[path = "archive_on_close.rs"]
 mod archive_on_close;

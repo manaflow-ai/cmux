@@ -51,7 +51,7 @@ fi
 slug="$(printf '%s' "$tag" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
 SOCK="/tmp/cmux-debug-$slug.sock"
 BIN="$app/Contents/Resources/bin"
-export ACPMUX_HOME="$HOME/.acpmux/tags/$slug"
+export ACPMUX_HOME="$HOME/.acpmux/builds/com.cmuxterm.app.debug.$slug"
 export ACPMUX_SOCKET="$ACPMUX_HOME/acpmux.sock"
 pass=0 fail=0 xfail=0 xpass=0
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" | tee -a "$out/run.log"; }
@@ -93,12 +93,6 @@ daemon_sock() { ps -o command= -p "$TUI_PID" | sed -E 's/.*--socket ([^ ]+).*/\1
 cli() { "$BIN/cmux" --socket "$DSOCK" "$@"; }
 acp() { "$BIN/acpmux" "$@"; }
 snapshot() { rpc_ok debug.window_snapshot "{\"path\":\"$out/$1.png\"}" >/dev/null || true; }
-
-# quit_with BUTTON...: debug.quit {open} then press each button in turn.
-quit_with() {
-  local r; r="$(rpc_ok debug.quit '{"open":true}')"; sleep 3
-  for b in "$@"; do rpc_ok debug.quit "{\"press\":\"$b\"}" >/dev/null || true; sleep 2; done
-}
 
 log "app $app tag $tag out $out"
 launch
@@ -166,24 +160,18 @@ cli terminal list --json >"$out/pre-term.json"
 rpc_ok debug.windows '{}' >"$out/pre-windows.json"
 snapshot pre
 
-# 5. Cmd-Q (keep) -----------------------------------------------------------------
-rpc_ok debug.quit '{"open":true}' >/dev/null; sleep 3
-rpc_ok debug.quit '{}' >"$out/prompt.json"
-snapshot prompt
-check prompt-shown "$(cond grep -q '"asking": *true' "$out/prompt.json")"
-check prompt-default-keep "$(cond grep -q '"default": *"keep"' "$out/prompt.json")"
-# The app was launched with open -g: it is not active, so its window is not key.
-check prompt-attached-window-not-key "$(cond grep -q '"attached": *true' "$out/prompt.json")"
-# The agent in its turn is counted (the Home Chief never is).
-check prompt-counts-agents "$(cond python3 -c "
-import json,sys
-d=json.load(open('$out/prompt.json')); p=(d.get('result') or d)['prompt']
-sys.exit(0 if (p.get('agents') or 0)>=1 and p.get('agents_in_turn',0)>=1 and p.get('busy_agents') else 1)")" "$(tr -d '\n' <"$out/prompt.json" | cut -c1-300)"
-dialog="$(rpc_ok debug.dialog '{}' || true)"
-printf '%s\n' "$dialog" >"$out/prompt-dialog.json"
-check prompt-is-cmux-dialog "$(cond grep -q '"identifier": *"cmux.dialog.quit"' <<<"$dialog")"
-check prompt-reports-activated "$(cond grep -q '"activated"' "$out/prompt.json")"
-rpc_ok debug.quit '{"press":"quit"}' >/dev/null || true
+# 5. Cmd-Q (keep, no question: cx-7vu) -------------------------------------------
+# A quit asks nothing about sessions: terminals and agents keep running in
+# their daemons, so Cmd-Q quits at once with Keep.
+rpc_ok debug.quit '{"open":true}' >"$out/quit-open.json"
+asked=no
+for i in $(seq 1 15); do
+  alive "$APP_PID" || break
+  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && asked=yes
+  rpc debug.dialog '{}' 2 2>/dev/null | grep -q '"identifier": *"cmux.dialog.quit"' && asked=yes
+  sleep 1
+done
+check quit-no-prompt "$(cond test "$asked" = no)" "$(tr -d '\n' <"$out/quit-open.json" | cut -c1-200)"
 check app-quits-on-keep "$(cond wait_exit "$APP_PID" 15)"
 
 # 6. Survive the reap grace -----------------------------------------------------
@@ -221,15 +209,12 @@ rpc_ok action.run '{"id":"selectWorkspaceByNumber","args":{"index":1}}' >/dev/nu
 snapshot post-terminal
 
 # 9. Variants (on the live app) ---------------------------------------------------
-rpc_ok debug.quit '{"open":true}' >/dev/null; sleep 3
-rpc_ok debug.quit '{"open":true}' >/dev/null; sleep 4
-if alive "$APP_PID"; then
-  check second-quit-keeps 1 "the second request was ignored"
-  rpc_ok debug.quit '{"press":"cancel"}' >/dev/null || true; sleep 2
-else
-  check second-quit-keeps "$(cond alive "$TUI_PID")" "app quit; daemon alive"
-  launch
-fi
+# A second Cmd-Q while the first completes is ignored; the first already keeps.
+rpc_ok debug.quit '{"open":true}' >/dev/null
+rpc_ok debug.quit '{"open":true}' >/dev/null || true
+check second-quit-keeps "$(cond wait_exit "$APP_PID" 15)" "app quit"
+check second-quit-daemon-alive "$(cond alive "$TUI_PID")" "daemon $TUI_PID"
+launch
 check dock-quit-inactive 1 "needs debug.quit {open:true, inactive:true}"
 # 9b. Update relaunch (R138, D3): Sparkle's relaunch path never asks and keeps sessions.
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
@@ -247,7 +232,8 @@ launch
 
 # 8b. Quit Everything, keep layout (D1: End Sessions, Keep Layout today) -------------
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
-quit_with end end-keep-layout
+# The File menu's Quit and End Sessions (no quit dialog asks about it any more).
+rpc_ok action.run '{"id":"quit","args":{"endSessions":true}}' >/dev/null || true
 check quit-everything-app-quits "$(cond wait_exit "$APP_PID" 70)"
 for p in $HOSTS "$SHELL_PID" "$LOOP_PID" "$TUI_PID"; do check "quit-everything-ends-$p" "$(cond wait_exit "$p" 20)"; done
 # Every End choice ends the agents (acpmux _acpmux/shutdown endAgents) before
@@ -272,9 +258,7 @@ sys.exit(0 if a==b else 1)")"
 cli terminal list --json >"$out/ee-term.json"
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
 log "End Everything: cmux-tui $TUI_PID hosts $HOSTS"
-rpc_ok debug.quit '{"open":true}' >/dev/null; sleep 3
-rpc_ok debug.quit '{"press":"end"}' >/dev/null; sleep 2
-rpc_ok debug.quit '{"press":"end-everything"}' >/dev/null || true
+rpc_ok action.run '{"id":"quit","args":{"endEverything":true}}' >/dev/null || true
 sleep 3
 failure="$(rpc_ok debug.quit '{}' || true)"
 if printf '%s' "$failure" | grep -q '"failure"'; then
@@ -303,7 +287,7 @@ w=json.load(open('$out/ee-ws.json')); sys.exit(0 if [x.get('extra',{}).get('kind
 rpc_ok action.run '{"id":"quit","args":{"endSessions":true}}' >/dev/null || true
 wait_exit "$APP_PID" 70 || log "app $APP_PID still running"
 acp session cancel qp-agent >/dev/null 2>&1 || true
-acp daemon shutdown >/dev/null 2>&1 || true
+acp daemon shutdown --end-agents >/dev/null 2>&1 || true
 sleep 3
 left=""
 for p in "$APP_PID" "$TUI_PID" "$ACP_PID" "$SHELL_PID" "$LOOP_PID" "$AGENT_CLI_PID"; do alive "$p" && left="$left $p"; done

@@ -12,7 +12,7 @@
   --cmux-editor-background: transparent;
   --cmux-editor-foreground: var(--cmux-editor-terminal-foreground, var(--page-text));
   --cmux-editor-line-highlight: color-mix(in srgb, var(--cmux-editor-foreground) 5%, transparent);
-  --cmux-editor-selection: var(--cmux-editor-terminal-selection, color-mix(in srgb, #0a84ff 30%, transparent));
+  --cmux-editor-selection: var(--cmux-editor-terminal-selection, color-mix(in srgb, var(--cmux-accent, currentColor) 28%, transparent));
   --cmux-editor-cursor: var(--cmux-editor-foreground);
   --cmux-editor-line-number: color-mix(in srgb, var(--cmux-editor-foreground) 40%, transparent);
   --cmux-editor-line-number-active: color-mix(in srgb, var(--cmux-editor-foreground) 80%, transparent);
@@ -21,13 +21,13 @@
   --cmux-editor-ruler: color-mix(in srgb, var(--cmux-editor-foreground) 12%, transparent);
   --cmux-editor-scrollbar: color-mix(in srgb, var(--cmux-editor-foreground) 18%, transparent);
   --cmux-editor-scrollbar-hover: color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent);
-  --cmux-editor-widget-background: var(--page-elevated);
+  --cmux-editor-widget-background: var(--surface-popup);
   --cmux-editor-widget-border: var(--page-separator);
   --cmux-editor-chrome-font-size: 12px;
   --cmux-editor-toolbar-height: 30px;
   --cmux-editor-status-height: 22px;
-  --cmux-editor-banner-background: light-dark(rgb(255 196 0 / 0.16), rgb(255 196 0 / 0.12));
-  --cmux-editor-error-color: light-dark(#b42318, #ff8a80);
+  --cmux-editor-banner-background: color-mix(in srgb, var(--cmux-app-warning, #b58900) 14%, transparent);
+  --cmux-editor-error-color: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
 }
 
 html,
@@ -106,7 +106,7 @@ body {
 }
 
 .ed-toggle:disabled {
-  color: var(--page-text-3);
+  color: var(--page-text-disabled);
 }
 
 .ed-toggle:focus-visible,
@@ -139,11 +139,38 @@ body {
   border-bottom: 1px solid var(--page-separator);
 }
 
+/* The editor and what floats over it (the find pill). */
+.ed-frame {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 .ed-host {
   flex: 1;
   min-height: 0;
   position: relative;
   background: var(--cmux-editor-background);
+}
+
+/* Cmd-F: the shared find pill (ui/findPill.css) at the top right, where every pane's sits. The
+   left inset bounds it too: it wants about 390px, so in a narrower editor its rows and fields give
+   way instead of the pill running off the left edge. The band beside it is click-through. */
+.ed-find {
+  position: absolute;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
+  left: var(--find-pill-inset, 10px);
+  z-index: var(--layer-overlay);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.ed-find > .find-pill,
+.ed-find .find-pill__row {
+  min-width: 0;
 }
 
 .ed-status {
@@ -166,5 +193,13 @@ body {
 
 /* Monaco reads its fonts from options (settings.ts); its widgets follow the page's UI font. */
 .ed-host .monaco-editor {
-  --vscode-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --vscode-font-family: var(--font-ui);
+}
+
+/* Monaco's find and replace fields mark focus with a class (`synthetic-focus`), not :focus, and draw
+   a square ring in the system focus color around the text field. The field's own rounded border
+   shows focus instead, in the page's tone (cx-ncc.57: text entry never rings). */
+.monaco-editor .monaco-inputbox.synthetic-focus {
+  outline: none !important;
+  border-color: color-mix(in srgb, var(--page-text) 40%, transparent) !important;
 }

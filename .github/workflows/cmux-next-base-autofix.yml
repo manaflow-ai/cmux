@@ -5,24 +5,59 @@ name: cmux-next base autofix
 # (scripts/cmux-next/base-autofix.sh): the CI target graph, regenerated from
 # `swift package dump-package` in a pinned Swift 6.2 Linux container (the Mac
 # generated-files job's tools), every React page's generated/strings.json
-# (webviews/scripts/pages/gen-strings.mjs), and cargo fmt in cmux-tui. Each
-# runs only when
-# the push changed its inputs. A frozen path
+# (webviews/scripts/pages/gen-strings.mjs), the SDK wire layers
+# (cmux-tui/bindings/codegen/generate.py), the docs shortcuts copy of the
+# action catalog export (web/scripts/export-docs-shortcuts.ts) and the cmux-next
+# docs reference pages (web/scripts/export-next-docs.ts), the app-host
+# generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
+# daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
+# ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
+# wire clients from the committed cloud catalog (backend/packages/protocol),
+# webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
+# in cmux-tui and the OptChat crates. Each
+# runs only when its inputs changed since the last successful run that made its
+# own Mac exports (actions: read lists it; scripts/cmux-next/base-autofix-since.sh); a repair whose inputs a newer push moved is made again on that
+# tip (scripts/cmux-next/base-autofix-land.sh, a bounded number of times), and a
+# repair that still cannot land fails the run. A frozen path
 # (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
 # is reported and never written; missing cmux-tui tree inputs are reported
 # (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
-# app-ffi-release.yml's app-ffi-repin pull request. The action contracts need a
-# Mac swift test and are frozen, so pull requests keep carrying them.
+# app-ffi-release.yml's app-ffi-repin pull request. The action exports
+# (plans/cmux-next/action-surfaces.json, actions.md, links.json) need a Mac
+# swift test: the action-exports job regenerates them on a Mac at the newest
+# tip (scripts/cmux-next/base-autofix-action-exports.sh) and autofix copies them in
+# before it rewrites the docs shortcuts from them. The settings exports
+# (schemas/settings/settings-schema.json, docs/mdm) need one too: the
+# same job regenerates them (scripts/cmux-next/regenerate-settings-exports.sh)
+# when CmuxNextSettings or an export changed, again on the newest tip while a
+# push moves their inputs (scripts/cmux-next/base-autofix-settings-exports.sh,
+# at most three times), and autofix copies them in before it rewrites the
+# defaults snapshot from them; the push lands them only where nothing moved
+# their inputs after the commit they were made at.
+# A separate job pins scripts/ghosttykit-checksums.txt when the ghostty
+# gitlink moves, from our own published GhosttyKit release (waiting for
+# build-ghosttykit.yml when there is none yet).
 #
 # Its own push trigger: feat-cmux-next push CI is the Swift app build only
 # (cx-g34i), so cmux-next's push run no longer regenerates anything, and its
 # push paths never included cmux-tui.
 #
-# Push identity: github-actions[bot] through this job's GITHUB_TOKEN
-# (contents: write). No ruleset or branch protection applies to
-# feat-cmux-next (2026-10-09). GITHUB_TOKEN cannot push workflow files, and its
-# pushes start no workflow: the repair commit is verified by the next pull
-# request's checks, and the bot cannot loop.
+# Push identity: the manaflow-cmux-pr-autofix App (secrets CMUX_PR_AUTOFIX_APP_ID and
+# CMUX_PR_AUTOFIX_APP_KEY, contents: write and no workflows permission, the App that already pushes
+# PR autofix commits), minted per pushing job. A GITHUB_TOKEN push starts no workflow, so 60c696be
+# (2026-10-26) had no cmux-next.yml push run and the nightly-next promotion passed over it; an App
+# push starts every push workflow like any other commit. cmux-bot is contents: read, so it can't push.
+# The commit author stays github-actions[bot]. When the App token can't be minted, the job pushes
+# with its GITHUB_TOKEN as before (contents: write; actions: read only to find the last successful
+# run), and then starts the cmux-tui artifacts run of the bot head itself (a dispatch, which that
+# token may start; scripts/cmux-next/publish-bot-head-tree.sh, which does nothing when the head
+# already has a run). No ruleset or branch protection applies to feat-cmux-next (2026-10-09).
+# Neither token can push workflow files (they are frozen paths anyway).
+#
+# No loop: every job skips a push whose head commit is this workflow's own repair (author
+# github-actions[bot], message "chore(next): base autofix at " or "chore(next): pin GhosttyKit for
+# ghostty "), and base-autofix-since.sh passes over such a run, whose jobs were all skipped. The
+# repair is a fixed point anyway: made again on its own commit it changes nothing.
 #
 # Dry run until the repo variable CMUX_NEXT_BASE_AUTOFIX is 1: it repairs and
 # commits locally, and the summary shows what it would push.
@@ -31,89 +66,555 @@ on:
     branches: [feat-cmux-next]
     paths:
       - cmux-tui/**
+      - Native/OptChat/**
       - Packages/**
+      - plans/cmux-next/daemon-capabilities.json
       - webviews/src/**
       - webviews/scripts/pages/**
+      - webviews/test/**
+      - plans/cmux-next/action-surfaces.json
+      - plans/cmux-next/actions.md
+      - plans/cmux-next/links.json
+      - scripts/cmux-next/regenerate-action-exports.sh
+      - scripts/cmux-next/regenerate-settings-exports.sh
+      - scripts/cmux-next/settings-exports.txt
+      - scripts/cmux-next/check-settings-exports.sh
+      - schemas/settings-export/**
+      - docs/mdm/**
+      - scripts/ci/defaults_guard.py
+      - web/scripts/export-docs-shortcuts.ts
+      - web/scripts/export-next-docs.ts
+      # The app-host generated files (base-autofix.sh --app-host).
+      - cmux-tui/spec/resource-operations-v2.json
+      - first-party-apps/**
+      - ios/cmux/**
+      - scripts/lint-ios-package-conventions.sh
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-ratchet.txt
+      - backend/catalog/cloud-operations.json
+      - backend/packages/protocol/scripts/export-client.ts
+      - backend/packages/protocol/scripts/export-rust-client.ts
+      - backend/packages/protocol/src/automation-caps.ts
       - schemas/settings/**
       - scripts/cmux-next/base-autofix.sh
+      - scripts/cmux-next/base-autofix-push.sh
+      - scripts/cmux-next/base-autofix-land.sh
+      - scripts/cmux-next/base-autofix-repair.sh
+      - scripts/cmux-next/base-autofix-settings-exports.sh
+      - scripts/cmux-next/base-autofix-action-exports.sh
+      - scripts/cmux-next/base-autofix-mac-busy.sh
+      - scripts/cmux-next/base-autofix-since.sh
+      - scripts/cmux-next/base-autofix-changed.sh
+      - scripts/cmux-next/base-autofix-settings-landed.sh
+      - scripts/cmux-next/publish-bot-head-tree.sh
+      - scripts/cmux-next/autofix-areas.sh
+      - scripts/cmux-next/check-daemon-capabilities-fresh.py
+      - scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
+      - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
       - scripts/cmux-next/ci-target-graph.py
       - scripts/ci/check_cmux_tui_tree_inputs.py
       - scripts/cmux-next/cmux-tui-tree-inputs.txt
       - .github/workflows/cmux-next-base-autofix.yml
+      # The GhosttyKit checksum pin (ghosttykit-checksum below).
+      - ghostty
+      - scripts/ghosttykit-checksums.txt
+      - scripts/cmux-next/ghosttykit-checksum.sh
+      - scripts/download-prebuilt-ghosttykit.sh
 
 permissions: {}
 
-concurrency:
-  group: cmux-next-base-autofix
-  cancel-in-progress: true
-
 jobs:
-  autofix:
-    name: autofix feat-cmux-next
-    if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
-    timeout-minutes: 20
+  # Whether the Mac action-exports job runs: the paths changed since the last
+  # successful run, as autofix's Changed areas step computes them.
+  action-areas:
+    name: action export areas
+    if: >-
+      ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
     permissions:
+      actions: read
+      contents: read
+    outputs:
+      actions: ${{ steps.areas.outputs.actions }}
+      settings: ${{ steps.areas.outputs.settings }}
+      # Another run's Mac job is queued or running: this run leaves its exports to it.
+      mac_busy: ${{ steps.busy.outputs.mac_busy }}
+      mac_busy_run: ${{ steps.busy.outputs.mac_busy_run }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Changed areas
+        id: areas
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
+          # base-autofix-changed.sh: since..HEAD without grafting since into this depth-1 checkout.
+          if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
+            scripts/cmux-next/autofix-areas.sh --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
+          else
+            scripts/cmux-next/autofix-areas.sh <<<"$changed" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mac exports already queued or running
+        id: busy
+        if: steps.areas.outputs.actions == 'true' || steps.areas.outputs.settings == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/base-autofix-mac-busy.sh "$GITHUB_RUN_ID" | tee -a "$GITHUB_OUTPUT"
+
+  # This run left its Mac exports to another run's queued or running Mac job. It ends green, and
+  # base-autofix-since.sh passes over a run with this job, so the next run still covers its changes.
+  mac-exports-deferred:
+    name: Mac exports deferred
+    needs: action-areas
+    if: needs.action-areas.outputs.mac_busy == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Name the run that carries the exports
+        env:
+          BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run }}
+          SERVER: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Regenerates the action exports and the settings exports on a Mac with a
+  # read-only token and hands them to autofix as the action-exports artifact
+  # (files at their repository paths).
+  action-exports:
+    name: action exports (Mac)
+    needs: action-areas
+    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
+    # No concurrency group: a queued job keeps its place. Cancelling a running one meant that with
+    # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
+    # the same once the Mac runners were saturated: each job waited minutes for a runner and the next
+    # push replaced it before it started (2026-10-21, 11:15-11:36Z, no export after 02:14Z). Instead a
+    # run skips this job while another run's is queued or running (base-autofix-mac-busy.sh) and ends
+    # green with mac-exports-deferred; the next run's "since" passes over it (base-autofix-since.sh).
+    # The exports need a logged-in session, not the console gui token, so once the
+    # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
+    # takes it and runs beside a console GUI job; until then the gui label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.CI_PR_POOL_OWNED == '1' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # One action regeneration and up to three settings regenerations on a moving tip
+    # (base-autofix-action-exports.sh, base-autofix-settings-exports.sh).
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      exports: ${{ steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true' }}
+      # The commit the settings exports were made at (the newest tip when their inputs moved).
+      settings_made_at: ${{ steps.settings.outputs.made_at }}
+      # The commit the action exports were made at (the newest tip when their inputs moved).
+      actions_made_at: ${{ steps.actions.outputs.made_at }}
+      # The exports on this tree are current: regenerated, or already fresh.
+      # Skipped (that area did not change) counts as current.
+      verified: ${{ steps.actions.outcome != 'failure' }}
+      settings_verified: ${{ steps.settings.outcome != 'failure' }}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The package's resources include the web bundles (cmux-next.yml's
+      # generated-files job builds them the same way).
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the web bundles built for this source key
+        id: web-bundle-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Install the restored web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+
+      # These bundles only host the export tests and are never shipped or cached, so a missing
+      # translation is a warning here: a stale settings schema must not stop the job that
+      # regenerates it (the deadlock after #22577).
+      - name: Build the web bundles
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+        run: scripts/cmux-next/build-web-bundles.sh
+
+      # Made at the newest tip: the job queues for up to half an hour and the actions area moves every
+      # few minutes, so exports made at the run's commit were held on every push (2026-10-21). It
+      # starts on the tip when the area moved meanwhile, regenerates once, and leaves the checkout at
+      # the run's commit; base-autofix-push.sh lands the exports as progress when the area moved again.
+      - name: Regenerate the action exports
+        id: actions
+        if: needs.action-areas.outputs.actions == 'true'
+        continue-on-error: true
+        timeout-minutes: 40
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_BASE_AUTOFIX_ACTIONS_PREPARE: scripts/cmux-next/build-web-bundles.sh
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-action-exports.sh "$RUNNER_TEMP/action-exports" origin feat-cmux-next \
+            | tee "$RUNNER_TEMP/action-exports.txt"
+          echo "made_at=$(sed -n 's/^made at: //p' "$RUNNER_TEMP/action-exports.txt")" >> "$GITHUB_OUTPUT"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The settings exports, into the same artifact. A push that
+      # moves their inputs meanwhile would hold them at the push (base-autofix-push.sh), and one
+      # nearly always does in a half-hour run, so they are made again on the newest tip (this
+      # checks the tip out; the action exports above are already copied out) up to three
+      # times; then they wait and this fails. Runs last: later steps read no checkout files.
+      - name: Regenerate the settings exports
+        id: settings
+        if: needs.action-areas.outputs.settings == 'true'
+        continue-on-error: true
+        # Below the job's 90 so a slow run fails only this step, and the upload of the action
+        # exports (and of any settings export it finished) still runs.
+        timeout-minutes: 40
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_BASE_AUTOFIX_SETTINGS_PREPARE: scripts/cmux-next/build-web-bundles.sh
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-settings-exports.sh "$RUNNER_TEMP/action-exports" origin feat-cmux-next \
+            | tee "$RUNNER_TEMP/settings-exports.txt"
+          echo "made_at=$(sed -n 's/^made at: //p' "$RUNNER_TEMP/settings-exports.txt")" >> "$GITHUB_OUTPUT"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true'
+        with:
+          name: action-exports
+          path: ${{ runner.temp }}/action-exports
+          if-no-files-found: error
+          retention-days: 1
+
+      # A failed regeneration must not end in a successful run: the next run
+      # diffs from the last successful one, and would drop this change.
+      - name: Fail when a regeneration failed
+        if: steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure'
+        run: |
+          echo "::error::regenerating the exports failed (actions: ${{ steps.actions.outcome }}, settings: ${{ steps.settings.outcome }}); the repairs that follow them wait"
+          exit 1
+
+  # `vp fmt` needs webviews' installed packages, so it runs here with a
+  # read-only token (installed without lifecycle scripts) and hands its diff to
+  # the autofix job as a patch, which applies only webviews paths.
+  webviews-fmt:
+    name: webviews vp fmt
+    if: >-
+      ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # `vp` runs on Node and needs ^22.18 or ^24.11.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: vp fmt
+        working-directory: webviews
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          node_modules/.bin/vp fmt
+          # The Chief memory inspector page is bundled from webviews sources and
+          # committed; a stale one fails every webviews bundle build (#22839).
+          # Best effort: a failed rebuild must not cost the formatting repairs.
+          page=:/Native/OptChat/optchat-chief/inspector/index.html
+          ../scripts/cmux-next/build-optchat-inspector-web.sh || {
+            echo "::warning title=inspector page::rebuilding the Chief memory inspector page failed; left as committed"
+            git checkout --quiet -- "$page"
+          }
+          git diff --binary -- . "$page" > "$RUNNER_TEMP/webviews-fmt.patch"
+          git diff --stat -- . "$page" | tail -1
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-fmt-patch
+          path: ${{ runner.temp }}/webviews-fmt.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  # The CI target graph on its own Linux job, so it never waits for the Mac exports job: the
+  # graph is made from the package manifest alone (base-autofix-repair.sh dumps it in the Swift 6.2
+  # container). 2026-10-21: a push added a test target without the graph and every PR's Tier
+  # routing was red for 90 minutes while autofix, which made it, waited for the Mac job. Autofix
+  # still makes the graph too; whichever lands second finds it current.
+  target-graph:
+    name: CI target graph
+    if: >-
+      ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+    # A running one finishes and lands on the newest tip; a newer push replaces only a pending one,
+    # and that one makes the graph from the newer tip.
+    concurrency:
+      group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    timeout-minutes: 15
+    permissions:
+      actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
       contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      # What the push changed decides the repairs. A new branch or a lost
-      # before commit runs them all.
+      # The graph only, as base-autofix-land.sh makes a repair again on a moved tip: nothing from
+      # or built from the Mac exports, no formatting.
+      - name: Make the graph
+        env:
+          GRAPH: "true"
+          CMUX_BASE_AUTOFIX_AGAIN: "1"
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-repair.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/graph.txt"
+
+      - name: Commit the graph
+        id: commit
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "The CI target graph is current at ${HEAD_SHA:0:12}." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add -A
+          git commit --quiet -m "chore(next): base autofix at ${HEAD_SHA:0:12}" \
+            -m "$(grep '^fixed: ' "$RUNNER_TEMP/graph.txt" | sed 's/^fixed: /- /')" \
+            -m "scripts/cmux-next/base-autofix.sh: $RUN_URL"
+          git show --stat --oneline HEAD | sed -n '1,20p' >> "$GITHUB_STEP_SUMMARY"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # The push token: an App push starts the push workflows (Push identity, above).
+      - name: Mint the push token
+        id: push-token
+        if: steps.commit.outputs.changed == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Push the graph
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GRAPH: "true"
+          CMUX_BASE_AUTOFIX_AGAIN: "1"
+          TOKEN: ${{ steps.push-token.outputs.token || github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CMUX_BASE_AUTOFIX_REPAIR: scripts/cmux-next/base-autofix-repair.sh
+        run: |
+          set -euo pipefail
+          if [[ "$ENABLED" != true ]]; then
+            echo "Dry run (CMUX_NEXT_BASE_AUTOFIX is not 1): would push $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::add-mask::$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          scripts/cmux-next/base-autofix-land.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A GITHUB_TOKEN push (no App token) started no workflow: start the bot head's cmux-tui
+      # artifacts run (scripts/cmux-next/publish-bot-head-tree.sh: nothing when the head has a run;
+      # it never fails this job).
+      - name: Start the cmux-tui publish of the bot head
+        if: ${{ !cancelled() && steps.commit.outputs.changed == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1' && steps.push-token.outputs.token == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/publish-bot-head-tree.sh feat-cmux-next 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+  autofix:
+    name: autofix feat-cmux-next
+    # The other repairs still run when the webviews formatting or the Mac
+    # action exports job fails or is skipped.
+    needs: [webviews-fmt, action-exports]
+    if: >-
+      ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+    # A running repair finishes and lands on whatever feat-cmux-next is by then
+    # (scripts/cmux-next/base-autofix-land.sh); a newer push replaces only a pending run.
+    # The next run diffs from the last successful one. The run that carries Mac exports gets a
+    # group of its own, so it is never that pending run: runs whose own Mac job was replaced
+    # still repair the rest, a minute and a half every minute or two, and the next push replaced
+    # the finished exports' autofix while it queued behind one of them (2026-10-21). Its push
+    # races theirs safely (base-autofix-push.sh reads the tip and retries).
+    concurrency:
+      group: cmux-next-base-autofix-${{ github.ref_name }}${{ needs.action-exports.outputs.exports == 'true' && format('-exports-{0}', github.run_id) || '' }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    timeout-minutes: 20
+    permissions:
+      actions: write # read the last successful run; dispatch cmux-tui-artifacts.yml for the bot head
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # What changed since the last successful run decides the repairs: a run
+      # cancelled by a newer push, one whose repair could not land, or one that
+      # left its Mac exports to another run (base-autofix-since.sh passes over
+      # it) leaves its changes to the next run instead of losing them. No earlier success,
+      # or a change to the bot itself, runs them all.
       - name: Changed areas
         id: areas
         env:
-          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "$BEFORE" =~ ^0+$ ]] || ! git fetch --quiet --depth=1 origin "$BEFORE"; then
-            graph=true strings=true fmt=true
+          since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
+          # scripts/cmux-next/autofix-areas.sh maps the changed paths to repairs.
+          # base-autofix-changed.sh reads since..HEAD without grafting since into this depth-1 checkout:
+          # a graft cut the tip's history off before HEAD, and every Mac export was held (run 39617667536).
+          if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
+            echo "No successful run to diff from; running every repair."
+            scripts/cmux-next/autofix-areas.sh --all | tee -a "$GITHUB_OUTPUT"
           else
-            changed="$(git diff --name-only "$BEFORE" HEAD)"
-            graph=false strings=false fmt=false
-            grep -qE '^(Packages/|scripts/cmux-next/(ci-target-graph\.py|base-autofix))' <<<"$changed" && graph=true
-            # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
-            grep -qE '^(Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/|scripts/cmux-next/base-autofix)' <<<"$changed" && strings=true
-            grep -qE '^(cmux-tui/|scripts/cmux-next/base-autofix)' <<<"$changed" && fmt=true
+            echo "Changes since the last successful run at ${since:0:12}."
+            scripts/cmux-next/autofix-areas.sh <<<"$changed" | tee -a "$GITHUB_OUTPUT"
           fi
-          { echo "graph=$graph"; echo "strings=$strings"; echo "fmt=$fmt"; } >> "$GITHUB_OUTPUT"
-
-      # dump-package needs the Swift 6.2 tools (ci-target-graph.py). The whole
-      # checkout is mounted at its own path, read-only: the manifest's local
-      # package dependencies resolve outside the package directory.
-      - name: Dump the CmuxNext package manifest
-        if: steps.areas.outputs.graph == 'true'
-        run: |
-          set -euo pipefail
-          docker run --rm -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" -w "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" \
-            docker.io/library/swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
-            swift package dump-package > "$RUNNER_TEMP/package-dump.json"
 
       - name: Setup Node
         if: steps.areas.outputs.strings == 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
+
+      - name: Setup Bun
+        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || needs.action-exports.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
 
       - name: Set up pinned cmux-tui Rust
-        if: steps.areas.outputs.fmt == 'true'
+        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.settings == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      - name: Download the webviews formatting patch
+        if: needs.webviews-fmt.result == 'success'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: webviews-fmt-patch
+          path: ${{ runner.temp }}/webviews-fmt
+
+      - name: Download the regenerated action exports
+        if: needs.action-exports.outputs.exports == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: action-exports
+          path: ${{ runner.temp }}/action-exports
+
+      # scripts/cmux-next/base-autofix-repair.sh turns the areas into base-autofix.sh's repairs (including
+      # the source-derived daemon capability export; it dumps
+      # the package manifest for the CI target graph in the Swift 6.2 container); the push step runs
+      # it again on a moved tip.
       - name: Repair
         env:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
+          SDK: ${{ steps.areas.outputs.sdk }}
+          CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
+          SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
+          APPHOST: ${{ steps.areas.outputs.apphost }}
+          ACTIONS: ${{ steps.areas.outputs.actions }}
+          SETTINGS: ${{ steps.areas.outputs.settings }}
+          EXPORTS_VERIFIED: ${{ needs.action-exports.outputs.verified }}
+          SETTINGS_VERIFIED: ${{ needs.action-exports.outputs.settings_verified }}
+          RATCHETS: ${{ steps.areas.outputs.ratchets }}
+          CLOUD: ${{ steps.areas.outputs.cloud }}
           FMT: ${{ steps.areas.outputs.fmt }}
+          EXPORTS_DIR: ${{ runner.temp }}/action-exports
+          WEBVIEWS_PATCH: ${{ runner.temp }}/webviews-fmt/webviews-fmt.patch
         run: |
           set -euo pipefail
-          args=()
-          [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
-          [[ "$STRINGS" == true ]] && args+=(--strings)
-          [[ "$FMT" == true ]] || args+=(--no-fmt)
-          scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
+          scripts/cmux-next/base-autofix-repair.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
           { echo "### Base autofix at ${GITHUB_SHA:0:12}"; echo; sed 's/^/- /' "$RUNNER_TEMP/autofix.txt"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit the repairs
@@ -123,13 +624,13 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [[ -z "$(git status --porcelain)" ]]; then
             echo "Nothing to repair at ${HEAD_SHA:0:12}." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit --quiet -m "chore(next): base autofix at ${HEAD_SHA:0:12}" \
             -m "$(grep '^fixed: ' "$RUNNER_TEMP/autofix.txt" | sed 's/^fixed: /- /')" \
@@ -137,31 +638,227 @@ jobs:
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
+      # The daemon embeds schemas/settings/settings-schema.json and panics at startup on a
+      # schema it cannot parse: 8091a040 pushed a "sound_rules" kind cmux-config did not know,
+      # and no cmux-tui tree could publish. A regenerated schema is pushed only after
+      # cmux-config parses it and its accepts/refuses samples pass.
+      - name: The daemon parses the regenerated settings schema
+        if: steps.commit.outputs.changed == 'true' && steps.areas.outputs.settings == 'true'
+        run: |
+          set -euo pipefail
+          if git diff --quiet HEAD~1 HEAD -- schemas/settings/settings-schema.json; then
+            echo "schemas/settings/settings-schema.json unchanged"; exit 0
+          fi
+          if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tail -60); then
+            echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
+            exit 1
+          fi
+
+      # The push token: an App push starts the push workflows (Push identity, above).
+      - name: Mint the push token
+        id: push-token
+        if: steps.commit.outputs.changed == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       - name: Push the repairs
         if: steps.commit.outputs.changed == 'true'
         env:
-          # The checkout keeps no credentials; the token is used only here.
-          TOKEN: ${{ github.token }}
+          # The areas again, for the repair on a moved tip (base-autofix-repair.sh).
+          GRAPH: ${{ steps.areas.outputs.graph }}
+          STRINGS: ${{ steps.areas.outputs.strings }}
+          SDK: ${{ steps.areas.outputs.sdk }}
+          CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
+          SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
+          APPHOST: ${{ steps.areas.outputs.apphost }}
+          ACTIONS: ${{ steps.areas.outputs.actions }}
+          SETTINGS: ${{ steps.areas.outputs.settings }}
+          RATCHETS: ${{ steps.areas.outputs.ratchets }}
+          CLOUD: ${{ steps.areas.outputs.cloud }}
+          FMT: ${{ steps.areas.outputs.fmt }}
+          # The checkout keeps no credentials; base-autofix-land.sh hands the token to the push only,
+          # never to the repair it runs again on a moved tip.
+          TOKEN: ${{ steps.push-token.outputs.token || github.token }}
           ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           HEAD_SHA: ${{ github.sha }}
+          SETTINGS_MADE_AT: ${{ needs.action-exports.outputs.settings_made_at }}
+          ACTIONS_MADE_AT: ${{ needs.action-exports.outputs.actions_made_at }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CMUX_BASE_AUTOFIX_REPAIR: scripts/cmux-next/base-autofix-repair.sh
         run: |
           set -euo pipefail
           if [[ "$ENABLED" != true ]]; then
             echo "Dry run (CMUX_NEXT_BASE_AUTOFIX is not 1): would push $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          echo "::add-mask::$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          remote="https://github.com/$GITHUB_REPOSITORY.git"
+          # Lands the repair on the newest tip file by file (base-autofix-push.sh): a file whose input areas
+          # the tip changed, or that a newer commit wrote, waits (with its export and what is built from it).
+          # A held file this job makes itself (the CI target graph, say) is made again on the new tip and
+          # pushed, at most three rounds; a held Mac export waits for the next run, and the run fails, which
+          # keeps it in the next run's "since". The settings and action exports are judged from the commit
+          # the Mac job made them at.
+          scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A GITHUB_TOKEN push (no App token) started no workflow: start the bot head's cmux-tui
+      # artifacts run (scripts/cmux-next/publish-bot-head-tree.sh: nothing when the head has a run;
+      # it never fails this job).
+      - name: Start the cmux-tui publish of the bot head
+        if: ${{ !cancelled() && steps.commit.outputs.changed == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1' && steps.push-token.outputs.token == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/publish-bot-head-tree.sh feat-cmux-next 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A green run moves the next run's "since" past its changes: when its own Mac job made the exports
+      # and the settings area is on, it fails when the settings exports are still stale for the sources
+      # it had, so the next run makes them again. A run that left its Mac exports to another run
+      # (mac-exports-deferred) skips this and stays green; base-autofix-since.sh passes over it anyway.
+      - name: Settings exports current after landing
+        if: success() && needs.action-exports.result == 'success' && steps.areas.outputs.settings == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          SETTINGS_MADE_AT: ${{ needs.action-exports.outputs.settings_made_at }}
+          EXPORTS_DIR: ${{ runner.temp }}/action-exports
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$EXPORTS_DIR" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # When the ghostty gitlink moves, pins its GhosttyKit checksum
+  # (scripts/ghosttykit-checksums.txt) from our own published release only
+  # (scripts/cmux-next/ghosttykit-checksum.sh), never from a local build. With no
+  # release yet for that commit it dispatches build-ghosttykit.yml on
+  # feat-cmux-next and waits for the publish. Its own concurrency group never
+  # cancels a wait in progress; a queued run is replaced by the newest push.
+  ghosttykit-checksum:
+    name: pin the GhosttyKit checksum
+    if: >-
+      ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+    concurrency:
+      group: cmux-next-ghosttykit-checksum
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    timeout-minutes: 100
+    permissions:
+      actions: write # dispatch build-ghosttykit.yml and read its runs
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Wait for the GhosttyKit release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Look the release up without writing; the push step pins it.
+          check() { scripts/cmux-next/ghosttykit-checksum.sh "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/pin.txt"; }
+          rc=0; check || rc=$?
+          git checkout --quiet -- scripts/ghosttykit-checksums.txt
+          cat "$RUNNER_TEMP/pin.txt"
+          case "$rc" in
+            0) grep -q '^ok:' "$RUNNER_TEMP/pin.txt" && { echo "pin=false" >> "$GITHUB_OUTPUT"; exit 0; }
+               echo "pin=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            3) ;;
+            *) exit "$rc" ;;
+          esac
+          active="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-ghosttykit.yml --branch feat-cmux-next \
+            --json status --jq '[.[] | select(.status != "completed")] | length')"
+          if [[ "$active" == 0 ]]; then
+            gh workflow run build-ghosttykit.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next
+            echo "Dispatched build-ghosttykit.yml on feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "A build-ghosttykit.yml run on feat-cmux-next is already active; waiting for it." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          for _ in $(seq 1 45); do
+            sleep 120
+            rc=0; check || rc=$?
+            git checkout --quiet -- scripts/ghosttykit-checksums.txt
+            case "$rc" in
+              0) cat "$RUNNER_TEMP/pin.txt"; echo "pin=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              3) ;;
+              *) cat "$RUNNER_TEMP/pin.txt"; exit "$rc" ;;
+            esac
+          done
+          echo "::error::no GhosttyKit release for this ghostty commit after 90 minutes; see build-ghosttykit.yml"
+          exit 1
+
+      # The push token: an App push starts the push workflows (Push identity, above).
+      - name: Mint the push token
+        id: push-token
+        if: steps.release.outputs.pin == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Pin and push the checksum
+        if: steps.release.outputs.pin == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOKEN: ${{ steps.push-token.outputs.token || github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
-          current="$("${with_auth[@]}" git ls-remote "$remote" refs/heads/feat-cmux-next | awk '{print $1}')"
-          if [[ "$current" != "$HEAD_SHA" ]]; then
-            echo "feat-cmux-next moved to ${current:0:12} after ${HEAD_SHA:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          # A plain push: it fails rather than overwrite a commit pushed meanwhile.
-          if ! "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
-            echo "feat-cmux-next moved during the repair; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+          # The line only appends, so a moved feat-cmux-next is re-read and the
+          # pin re-applied on top of it.
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet --depth=1 origin feat-cmux-next
+            git reset --quiet --hard FETCH_HEAD
+            rc=0; out="$(scripts/cmux-next/ghosttykit-checksum.sh "$GITHUB_WORKSPACE")" || rc=$?
+            if [[ "$rc" == 3 ]]; then
+              echo "feat-cmux-next now points ghostty elsewhere, with no release yet; that push's run pins it." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            (( rc == 0 )) || { echo "$out"; exit "$rc"; }
+            echo "$out"
+            if [[ "$out" == ok:* ]]; then
+              echo "Already pinned on feat-cmux-next $(git rev-parse --short HEAD)." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            git commit --quiet -am "chore(next): pin GhosttyKit for ghostty $(git ls-tree HEAD ghostty | awk '{print substr($3, 1, 12)}')" \
+              -m "${out#fixed: }" -m "scripts/cmux-next/ghosttykit-checksum.sh: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            git show --stat --oneline HEAD | sed -n '1,10p' >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$ENABLED" != true ]]; then
+              echo "Dry run (CMUX_NEXT_BASE_AUTOFIX is not 1): would push $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
+              echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "feat-cmux-next moved (attempt $attempt); re-applying on the new tip."
+          done
+          echo "::error::feat-cmux-next kept moving; the next run pins it."
+          exit 1
+
+      # A GITHUB_TOKEN push (no App token) started no workflow: start the bot head's cmux-tui
+      # artifacts run (scripts/cmux-next/publish-bot-head-tree.sh: nothing when the head has a run;
+      # it never fails this job).
+      - name: Start the cmux-tui publish of the bot head
+        if: ${{ !cancelled() && steps.release.outputs.pin == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1' && steps.push-token.outputs.token == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/publish-bot-head-tree.sh feat-cmux-next 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"

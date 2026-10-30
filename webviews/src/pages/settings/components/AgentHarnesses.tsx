@@ -5,10 +5,14 @@
 // operations as the `agent.harness.*` actions (cmux.settings.agents.run) and sends the list live
 // (cmux.settings.agents.changed) only while this card is mounted. The route's focus opens a panel:
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "@base-ui/react/tabs";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
+import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
+import { Icon } from "../icons";
+import { AGENTS_KEY, agentsQuery } from "../sectionQueries";
 import type { AgentDoctorResult, AgentHarnessRow, AgentRegistryAgent, AgentsRun, AgentsState } from "../ops";
 import { t } from "../strings";
 
@@ -17,16 +21,15 @@ type Panel = "registry" | "custom" | null;
 const panelFor = (focus: string | null): Panel =>
   focus === "agents.registry" ? "registry" : focus === "agents.add" ? "custom" : null;
 
-const button =
-  "cursor-pointer rounded-md border-0 bg-input px-2.5 py-1 font-[inherit] text-[13px] text-fg hover:bg-accent-soft disabled:cursor-default disabled:opacity-50";
-const quietButton =
-  "cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 font-[inherit] text-[13px] text-muted hover:bg-input hover:text-fg disabled:cursor-default disabled:opacity-50";
 const field =
   "box-border h-7 w-full rounded-md border border-solid border-edge bg-transparent px-2 font-[inherit] text-[13px] text-fg outline-none placeholder:text-soft focus:border-accent-soft";
 
 export function AgentHarnesses({ focus }: { focus: string | null }) {
   const store = useStore();
-  const [state, setState] = useState<AgentsState | null>(null);
+  const queryClient = useQueryClient();
+  // The route's loader (or a hover on Agents) read the state; live pushes and gestures write it.
+  const state = useQuery(agentsQuery(store)).data ?? null;
+  const setState = useCallback((next: AgentsState) => void queryClient.setQueryData(AGENTS_KEY, next), [queryClient]);
   const [panel, setPanel] = useState<Panel>(() => panelFor(focus));
   const [seenFocus, setSeenFocus] = useState(focus);
   const [error, setError] = useState<string | null>(null);
@@ -46,14 +49,13 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
         return;
       }
       session.alive = true;
-      void store.agentsState().then((next) => session.alive && next && setState(next));
       void store.watchAgents(setState).then((stop) => {
         if (session.alive) session.stop = stop;
         else stop();
       });
       void store.runAgents({ action: "refresh" });
     },
-    [store],
+    [store, setState],
   );
   const run = useCallback(
     async (gesture: AgentsRun): Promise<boolean> => {
@@ -64,22 +66,24 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
       if (next) setState(next);
       return reply.ok;
     },
-    [store],
+    [store, setState],
   );
   return (
     <div className="group" data-card="agentHarnesses" ref={mounted}>
       <div className="flex items-center gap-2">
         <h3 className="group-title m-0 flex-1">{t("settingsPage.agents.title")}</h3>
         {state?.manages !== false && (
-          <button type="button" className={button} onClick={() => setPanel(panel ? null : "registry")}>
+          <button type="button" className="button" onClick={() => setPanel(panel ? null : "registry")}>
             {t("settingsPage.agents.add")}
           </button>
         )}
-        <button type="button" className={quietButton} onClick={() => void run({ action: "refresh" })}>
+        <button type="button" className="button" onClick={() => void run({ action: "refresh" })}>
           {t("settingsPage.agents.refresh")}
         </button>
       </div>
-      <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted">{t("settingsPage.agents.intro")}</p>
+      <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted" data-intro="">
+        {t("settingsPage.agents.intro")}
+      </p>
       {state && <AgentsBody state={state} panel={panel} setPanel={setPanel} run={run} />}
       {state?.status === "unreachable" && state.message && (
         <output className="my-2 block text-[12px] text-warning">{state.message}</output>
@@ -104,6 +108,12 @@ function AgentsBody({
   setPanel: (panel: Panel) => void;
   run: (gesture: AgentsRun) => Promise<boolean>;
 }) {
+  const added = state.harnesses.filter((row) => row.removable);
+  // Each row's mark is the icon acpmux resolved for it (its own, else the agent it runs, else a
+  // monogram), the same one the model picker, the tabs and Home draw.
+  useEffect(() => {
+    rememberHarnessIcons(state.harnesses.map((row) => ({ id: row.id, iconSpec: parseHarnessIconSpec(row.iconSpec) })));
+  }, [state.harnesses]);
   return (
     <>
       {!state.manages && (
@@ -117,7 +127,7 @@ function AgentsBody({
           <span className="flex-1">{t("settingsPage.agents.removed", state.removed.id)}</span>
           <button
             type="button"
-            className={button}
+            className="button"
             onClick={() => void run({ action: "restore", backup: state.removed!.backup })}
           >
             {t("settingsPage.agents.undo")}
@@ -125,17 +135,16 @@ function AgentsBody({
         </output>
       )}
       {panel && state.manages && <AddPanel state={state} panel={panel} setPanel={setPanel} run={run} />}
-      <div className="rows" data-agent-harnesses>
-        {/* Harnesses (cx-mg91) lists every harness; this card shows the ones you added. */}
-        {state.status === "ready" && !state.harnesses.some((row) => row.removable) && (
-          <p className="my-2 text-[13px] text-muted">{t("settingsPage.agents.empty")}</p>
-        )}
-        {state.harnesses
-          .filter((row) => row.removable)
-          .map((row) => (
+      {/* Harnesses (cx-mg91) lists every harness; this card shows the ones you added. Nothing to
+          list and no answer yet draws no empty outline. */}
+      {(state.status === "ready" || added.length > 0) && (
+        <div className="rows" data-agent-harnesses>
+          {added.length === 0 && <p className="my-2 px-3 text-muted">{t("settingsPage.agents.empty")}</p>}
+          {added.map((row) => (
             <HarnessRow key={row.id} row={row} doctor={state.doctor[row.id]} manages={state.manages} run={run} />
           ))}
-      </div>
+        </div>
+      )}
     </>
   );
 }
@@ -166,10 +175,11 @@ function HarnessRow({
   run: (gesture: AgentsRun) => Promise<boolean>;
 }) {
   const problem = row.unavailable ?? row.probeError;
+  const [editing, setEditing] = useState(false);
   return (
-    <div className="border-0 border-b border-solid border-edge py-2 last:border-b-0" data-agent-harness={row.id}>
+    <div className="border-0 border-b border-solid border-edge px-3 py-2 last:border-b-0" data-agent-harness={row.id}>
       <div className="flex items-center gap-2.5">
-        <AgentMark agent={row.icon ?? row.family ?? row.id} size={20} />
+        <AgentMark agent={row.id} size={16} reserve />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] text-fg">
             <span className="truncate">{row.name}</span>
@@ -191,7 +201,7 @@ function HarnessRow({
         {manages && row.kind !== "terminal" && (
           <button
             type="button"
-            className={quietButton}
+            className="button"
             disabled={doctor?.running}
             onClick={() => void run({ action: "doctor", id: row.id })}
           >
@@ -199,15 +209,126 @@ function HarnessRow({
           </button>
         )}
         {manages && row.removable && (
-          <button type="button" className={quietButton} onClick={() => void run({ action: "remove", id: row.id })}>
+          <button
+            type="button"
+            className="button"
+            aria-expanded={editing}
+            data-agent-icon-edit=""
+            onClick={() => setEditing(!editing)}
+          >
+            {t("settingsPage.agents.icon")}
+          </button>
+        )}
+        {manages && row.removable && (
+          <button type="button" className="button" onClick={() => void run({ action: "remove", id: row.id })}>
             {t("settingsPage.agents.remove")}
           </button>
         )}
       </div>
+      {editing && <IconEditor row={row} run={run} done={() => setEditing(false)} />}
       {doctor && !doctor.running && doctor.steps && <DoctorSteps result={doctor} />}
     </div>
   );
 }
+
+/** The bytes of a chosen or dropped PNG or SVG as base64, or null for another kind of file. */
+async function iconImage(file: File): Promise<{ data: string; ext: "png" | "svg" } | null> {
+  const name = file.name.toLowerCase();
+  const ext =
+    file.type === "image/svg+xml" || name.endsWith(".svg")
+      ? "svg"
+      : file.type === "image/png" || name.endsWith(".png")
+        ? "png"
+        : null;
+  if (!ext) return null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { data: btoa(binary), ext };
+}
+
+/// A user profile's icon (user 12922): type one emoji, an SF Symbol name or an agent; choose or
+/// drop a PNG or SVG (acpmux copies it next to the profile); or Automatic. acpmux checks the value
+/// and answers why it refuses one.
+function IconEditor({
+  row,
+  run,
+  done,
+}: {
+  row: AgentHarnessRow;
+  run: (gesture: AgentsRun) => Promise<boolean>;
+  done: () => void;
+}) {
+  const [value, setValue] = useState(row.icon && !row.icon.includes("/") ? row.icon : "");
+  const [over, setOver] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+  const apply = async (gesture: AgentsRun) => {
+    if (await run(gesture)) done();
+  };
+  const image = async (chosen: File | undefined) => {
+    const picked = chosen ? await iconImage(chosen) : null;
+    if (picked) await apply({ action: "icon", id: row.id, ...picked });
+  };
+  return (
+    <div
+      className={`mt-2 ml-[26px] rounded-md border border-dashed p-2 ${over ? "border-accent-soft" : "border-edge"}`}
+      data-agent-icon-editor={row.id}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setOver(false);
+        void image(event.dataTransfer.files[0]);
+      }}
+    >
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (value.trim()) void apply({ action: "icon", id: row.id, icon: value.trim() });
+        }}
+      >
+        <input
+          className={`${field} flex-1`}
+          value={value}
+          placeholder={t("settingsPage.agents.icon.placeholder")}
+          aria-label={t("settingsPage.agents.icon")}
+          onChange={(event) => setValue(event.target.value)}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the editor opens on the person's click.
+          autoFocus
+        />
+        <button type="submit" className="button" disabled={!value.trim()}>
+          {t("settingsPage.agents.icon.set")}
+        </button>
+        <button type="button" className="button" onClick={() => file.current?.click()}>
+          {t("settingsPage.agents.icon.choose")}
+        </button>
+        <button
+          type="button"
+          className="button"
+          onClick={() => void apply({ action: "icon", id: row.id, clear: true })}
+        >
+          {t("settingsPage.agents.icon.auto")}
+        </button>
+        <input
+          ref={file}
+          type="file"
+          accept=".png,.svg,image/png,image/svg+xml"
+          aria-label={t("settingsPage.agents.icon.choose")}
+          hidden
+          onChange={(event) => void image(event.target.files?.[0])}
+        />
+      </form>
+      <p className="m-0 mt-1.5 text-detail text-muted">{t("settingsPage.agents.icon.help")}</p>
+    </div>
+  );
+}
+
+// The page's own glyphs, as everywhere else in Settings; a skipped step is a dash.
+const STEP_ICONS: Record<string, string> = { fail: "xmark", warn: "warning", pass: "check" };
 
 const stepFailed = (step: { ok?: boolean; status?: string }) =>
   step.status ? step.status === "fail" : step.ok === false;
@@ -215,7 +336,7 @@ const stepFailed = (step: { ok?: boolean; status?: string }) =>
 function DoctorSteps({ result }: { result: AgentDoctorResult }) {
   const ok = result.ok ?? !result.steps?.some(stepFailed);
   return (
-    <div className="mt-2 ml-[30px] text-[12px]" data-agent-doctor>
+    <div className="mt-2 ml-[26px] text-[12px]" data-agent-doctor>
       <div className={ok ? "text-fg" : "text-danger"}>
         {ok ? t("settingsPage.agents.works") : t("settingsPage.agents.failed")}
       </div>
@@ -226,9 +347,9 @@ function DoctorSteps({ result }: { result: AgentDoctorResult }) {
             <li key={`${index}-${step.name}`} className="flex gap-1.5 py-0.5" data-step-status={status}>
               <span
                 aria-hidden="true"
-                className={status === "fail" ? "text-danger" : status === "warn" ? "text-warning" : "text-muted"}
+                className={`inline-flex w-4 flex-none justify-center ${status === "fail" ? "text-danger" : status === "warn" ? "text-warning" : "text-muted"}`}
               >
-                {status === "fail" ? "✕" : status === "warn" ? "!" : status === "skip" ? "–" : "✓"}
+                {status === "skip" ? "–" : <Icon name={STEP_ICONS[status] ?? "check"} />}
               </span>
               <span className="min-w-0">
                 <span className="text-fg">{step.name}</span>
@@ -275,7 +396,7 @@ function AddPanel({
           {t("settingsPage.agents.tabCustom")}
         </Tabs.Tab>
         <span className="flex-1" />
-        <button type="button" className={quietButton} onClick={() => setPanel(null)}>
+        <button type="button" className="button" onClick={() => setPanel(null)}>
           {t("settingsPage.agents.cancel")}
         </button>
       </Tabs.List>
@@ -316,7 +437,7 @@ function RegistryList({ state, run }: { state: AgentsState; run: (gesture: Agent
         <span className="flex-1 text-[12px] text-muted">
           {loading && !state.registry ? t("settingsPage.agents.registryLoading") : ""}
         </span>
-        <button type="button" className={quietButton} disabled={loading} onClick={() => void load(true)}>
+        <button type="button" className="button" disabled={loading} onClick={() => void load(true)}>
           {t("settingsPage.agents.registryRefresh")}
         </button>
       </div>
@@ -356,7 +477,7 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
       </div>
       <button
         type="button"
-        className={button}
+        className="button"
         disabled={added || busy || agent.launch === "none"}
         onClick={async () => {
           setBusy(true);
@@ -478,7 +599,7 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
         <span className="mt-0.5 block text-[11px] text-soft">{t("settingsPage.agents.secretsHelp")}</span>
       </label>
       <div className="col-span-2 flex justify-end">
-        <button type="submit" className={button} disabled={busy || !command.trim()}>
+        <button type="submit" className="button" disabled={busy || !command.trim()}>
           {t("settingsPage.agents.addButton")}
         </button>
       </div>

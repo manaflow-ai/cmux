@@ -21,8 +21,9 @@ extension Strings {
     static var editorNamePlaceholder: String { String(localized: "tabs.group.editor.namePlaceholder", defaultValue: "Name this group", bundle: .module) }
     static var editorNewTab: String { String(localized: "tabs.group.editor.newTab", defaultValue: "New Tab in Group", bundle: .module) }
     static var editorUngroup: String { String(localized: "tabs.group.editor.ungroup", defaultValue: "Ungroup", bundle: .module) }
+    static var editorCustomColor: String { String(localized: "tabs.group.editor.customColor", defaultValue: "Custom color", bundle: .module) }
     static var editorClose: String { String(localized: "tabs.group.editor.close", defaultValue: "Close Group", bundle: .module) }
-    static var editorMoveToNewWindow: String { String(localized: "tabs.group.editor.moveToNewWindow", defaultValue: "Move Group to New Window", bundle: .module) }
+    static var editorMoveToNewWindow: String { String(localized: "tabs.group.editor.moveToNewWindow", defaultValue: "Move to New Window", bundle: .module) }
     static var editorSave: String { String(localized: "tabs.group.editor.save", defaultValue: "Pin Group", bundle: .module) }
     static var editorUnsave: String { String(localized: "tabs.group.editor.unsave", defaultValue: "Unpin Group", bundle: .module) }
     static var axSavedBar: String { String(localized: "tabs.group.savedBar.ax", defaultValue: "Saved Tab Groups", bundle: .module) }

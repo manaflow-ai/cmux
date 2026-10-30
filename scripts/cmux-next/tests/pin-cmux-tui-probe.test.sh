@@ -10,6 +10,9 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# Waits run on a virtual clock: `took` is the time the script would have waited, exactly.
+source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
+fake_clock_install "$TMP/clock"
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 git_q init "$TMP/src"
@@ -55,6 +58,8 @@ for ((i = 0; i < \${#args[@]}; i++)); do
 done
 if [[ "\$method" == POST ]]; then
   echo "POST \${api##*/repos/o/r/} \$body" >> "$TMP/posts.log"
+  # REFUSE_WRITES: the pull request token's 403 on every write.
+  [[ -n "\${REFUSE_WRITES:-}" ]] && exit 22
   case "\$api" in
     */git/refs)
       # REFUSE_REF_SHA: the API refuses a ref at that commit (422).
@@ -68,6 +73,32 @@ if [[ "\$method" == POST ]]; then
       exit 0 ;;
   esac
   exit 22
+fi
+# REFUSE: $TMP/refuse-count (a number of reads, or "always") answers an
+# artifacts runs read with $TMP/refuse-headers (status line and headers, which
+# the caller's -D gets) and $TMP/refuse-body: GitHub's rate-limit refusal.
+hdr=""
+for ((i = 0; i < \${#args[@]}; i++)); do [[ "\${args[i]}" == -D ]] && hdr="\${args[i+1]}"; done
+if [[ -z "\$url" && -f "$TMP/refuse-count" && "\$api" == */cmux-tui-artifacts.yml/runs* ]]; then
+  left=\$(cat "$TMP/refuse-count")
+  if [[ "\$left" == always || "\$left" -gt 0 ]]; then
+    [[ "\$left" == always ]] || echo \$((left - 1)) > "$TMP/refuse-count"
+    echo "\$(date +%s) \$api" >> "$TMP/refused.log"
+    [[ -z "\$hdr" ]] || cp "$TMP/refuse-headers" "\$hdr"
+    cat "$TMP/refuse-body"
+    exit 0
+  fi
+fi
+# A head_sha= run query lists only that commit's runs (a run without head_sha
+# matches every query, as the older fixtures expect).
+if [[ -z "\$url" && "\$api" == *"head_sha="* ]]; then
+  want="\${api##*head_sha=}"; want="\${want%%&*}"
+  "$real_curl" "\$@" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+data["workflow_runs"] = [r for r in data.get("workflow_runs", []) if r.get("head_sha", sys.argv[1]) == sys.argv[1]]
+print(json.dumps(data))' "\$want"
+  exit "\${PIPESTATUS[0]}"
 fi
 if [[ -z "\$url" ]]; then exec "$real_curl" "\$@"; fi
 path="$TMP/cdn/\${url#https://cdn.test/}"; path="\${path%%\\?*}"
@@ -86,7 +117,11 @@ newer=$(printf 'f%.0s' {1..40})
 # probe <event> -> sets out, status, took, state (tree_state), reason
 probe() {
   local event="$1" publisher=""
-  [[ "$event" == pull_request ]] || publisher="$sha"
+  if [[ "${CMUX_TUI_DEV_DAILY:-}" == 1 ]]; then
+    publisher="$DEV_DAILY_PUBLISHER_SHA"
+  elif [[ "$event" != pull_request ]]; then
+    publisher="$sha"
+  fi
   : > "$TMP/gh-output"
   local started; started=$(date +%s)
   status=0
@@ -127,6 +162,64 @@ expect "push, no artifacts run" push failed "no cmux-tui artifacts run"
 rm -f "$runs_dir/runs"
 expect "push, unreadable API" push failed "could not read"
 
+# A GitHub API rate limit is waited out, never a red (2026-10-30: the shared
+# REST budget at 0 failed every feat-cmux-next push's same-tree cmux-tui job,
+# run 41018375309, "could not read the cmux-tui artifacts runs"). Each case
+# refuses the runs read; `refuse <count> <status> [header...]` with the body from refuse_body.
+refuse() {
+  printf '%s\n' "$1" > "$TMP/refuse-count"
+  { printf 'HTTP/2 %s\r\n' "$2"; shift 2; printf '%s\r\n' "$@"; printf '\r\n'; } > "$TMP/refuse-headers"
+  : > "$TMP/refused.log"
+}
+refuse_body() { printf '%s\n' "$1" > "$TMP/refuse-body"; }
+refusals() { wc -l < "$TMP/refused.log" | tr -d ' '; }
+set_head "$sha"; set_runs "$active"
+primary_body='{"message":"API rate limit exceeded for installation ID 1.","documentation_url":"https://docs.github.com/rest/overview/rate-limits-for-the-rest-api","status":"403"}'
+# (r1) The primary limit (403, x-ratelimit-remaining: 0) once: wait for its
+# reset, read again, and resolve the publisher's active run.
+refuse_body "$primary_body"
+refuse 1 403 x-ratelimit-limit:\ 5000 x-ratelimit-remaining:\ 0 "x-ratelimit-reset: $(( $(date +%s) + 30 ))"
+probe push
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(r1) a rate-limited runs read must wait and then defer to the active publisher"
+grep -qF "active cmux-tui artifacts run ($sha)" <<<"$reason" || fail "(r1) reason must name the resolved publisher: $reason"
+(( took == 31 )) || fail "(r1) must wait until the reset (31s), waited ${took}s"
+[[ "$(refusals)" == 1 ]] || fail "(r1) expected one refused read, got $(refusals)"
+grep -qF "GitHub API rate limit (HTTP 403)" <<<"$out" || fail "(r1) the wait must be logged"
+# (r2) A 429 with Retry-After: wait exactly that long, then read the runs: a
+# real result (here a failed publish) after the wait is reported as before.
+refuse_body '{"message":"Too Many Requests"}'
+refuse 1 429 "retry-after: 7"
+set_runs "$failed_run"
+probe push
+[[ "$status" == 0 && "$state" == failed ]] || fail "(r2) after the wait the failed publish must be reported"
+grep -qF "failure: u3" <<<"$reason" || fail "(r2) reason: $reason"
+(( took == 7 )) || fail "(r2) must wait the Retry-After (7s), waited ${took}s"
+# (r3) The secondary limit: a 403 with no rate-limit headers whose message
+# names it waits 60s (it names no reset) when the wait allows it.
+set_runs "$active"
+refuse_body '{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}'
+refuse 1 403
+CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS=120 probe push
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(r3) the secondary limit must be waited out"
+(( took == 60 )) || fail "(r3) must back off 60s, waited ${took}s"
+# (r4) A reset past this check's wait (the budget empty for 50 minutes): no
+# sleep, and deferred, never failed: the publisher's end starts or reports the
+# tree jobs through the wait marker.
+refuse_body "$primary_body"
+refuse always 403 x-ratelimit-remaining:\ 0 "x-ratelimit-reset: $(( $(date +%s) + 3000 ))"
+expect "push, rate limit resets after the wait" push deferred "rate limit"
+(( took == 0 )) || fail "(r4) must not sleep for a reset past the wait (${took}s)"
+[[ "$(refusals)" == 1 ]] || fail "(r4) a rate limit is not re-checked: $(refusals) reads"
+# (r5) A 403 that is not a rate limit (a permission refusal) and a 5xx still
+# fail as before.
+refuse_body '{"message":"Resource not accessible by integration"}'
+refuse always 403
+expect "push, permission 403" push failed "could not read"
+refuse_body '{"message":"Server Error"}'
+refuse always 502
+expect "push, 5xx" push failed "could not read"
+rm -f "$TMP/refuse-count"
+
 # A pull request whose merge keeps the base's cmux-tui waits for the base push's publisher.
 set_runs "$active"
 expect "pull request, base publisher active" pull_request deferred
@@ -142,10 +235,8 @@ expect "pull request, published" pull_request ready
 
 # A pull request job resolves its artifact by the SOURCE tree key of the merge
 # tree. GitHub runs pull_request_target only from the default branch, so no
-# workflow publishes a merge tree by itself (#18121, #18130). With
-# CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs only) the probe starts ONE
-# cmux-tui-artifacts run on a cmux-tui-pin-<sha12> ref at the merge commit and
-# defers: that run's publish starts the tree jobs (cmux_next_tree_notify.py).
+# workflow publishes a merge tree by itself (#18121, #18130). A missing merge
+# tree is reported for trusted fleet publication; no helper ref is created.
 posts() { grep -c "$1" "$TMP/posts.log" 2>/dev/null || true; }
 : > "$TMP/posts.log"
 
@@ -170,18 +261,21 @@ key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
   echo "fixture: the merge has the head's tree key" >&2; exit 1; }
 set_runs "$none"
 unset CMUX_TUI_TREE_DISPATCH
+# A fork PR: main's merge-tree publisher never starts, so path routing looks once (wait 0).
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
 expect "pull request, changed hash, dispatch off (fork)" pull_request failed "no cmux-tui artifacts run"
 [[ "$(posts dispatches)" == 0 ]] || fail "(b) a fork PR (no CMUX_TUI_TREE_DISPATCH) must not dispatch"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 export CMUX_TUI_TREE_DISPATCH=1
-expect "pull request, changed hash" pull_request deferred
-[[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "(b) a changed hash needs one pin ref and one dispatch: $(cat "$TMP/posts.log")"
-grep -q "cmux-tui-pin-${merge_sha:0:12}.*$merge_sha" "$TMP/posts.log" || fail "(b) the pin ref must point at the merge commit: $(cat "$TMP/posts.log")"
-# The post-marker probe sees the queued run: still one dispatch.
-expect "pull request, changed hash, second look" pull_request deferred
-[[ "$(posts dispatches)" == 1 ]] || fail "(b) a second probe must not dispatch again: $(cat "$TMP/posts.log")"
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
+expect "pull request, changed hash" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(b) a changed hash must not create a ref or dispatch: $(cat "$TMP/posts.log")"
+# A second probe remains a read-only failure until a trusted publisher appears.
+expect "pull request, changed hash, second look" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(b) a second probe must not dispatch: $(cat "$TMP/posts.log")"
 
-# (c) The API refuses a ref at the merge commit: the PR head is pinned instead,
-# but only when its tree key is the merge's (a PR whose base left cmux-tui alone).
+# (c) A merge whose tree is not published is still reported without creating a
+# ref at either the merge commit or the PR head.
 : > "$TMP/posts.log"
 git_q -C "$TMP/src" checkout -b pr2 "$base_sha"
 echo head2 > "$TMP/src/cmux-tui/a"
@@ -192,11 +286,52 @@ git_q -C "$TMP/src" merge --no-ff -m merge2 pr2
 merge2_sha=$(git -C "$TMP/src" rev-parse HEAD)
 key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
 set_runs "$none"
-export REFUSE_REF_SHA="$merge2_sha" CMUX_TUI_TREE_HEAD_SHA="$head2_sha"
-expect "pull request, merge ref refused, head has the tree" pull_request deferred
-grep -q "cmux-tui-pin-${head2_sha:0:12}.*$head2_sha" "$TMP/posts.log" || fail "(c) the PR head must be pinned: $(cat "$TMP/posts.log")"
-[[ "$(posts dispatches)" == 1 ]] || fail "(c) one dispatch: $(cat "$TMP/posts.log")"
-unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH
+export REFUSE_REF_SHA="$merge2_sha" CMUX_TUI_TREE_HEAD_SHA="$head2_sha" CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
+expect "pull request, merge ref refused, head has the tree" pull_request failed
+[[ "$(posts dispatches)" == 0 && "$(posts git/refs)" == 0 ]] || fail "(c) the PR head must not be published through a helper ref: $(cat "$TMP/posts.log")"
+unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
+
+# (d) The pull request's own token may write nothing (HTTP 403 on the pin ref
+# and the dispatch): main's cmux-next-pr-merge-tree.yml (pull_request_target)
+# starts the publish instead, a moment after this run starts. The probe waits a
+# bounded time for that run and defers to it, rather than failing same-tree.
+: > "$TMP/posts.log"
+set_runs "$none"
+export CMUX_TUI_TREE_DISPATCH=1 REFUSE_WRITES=1 CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
+fake_clock_at 2 "printf '%s\\n' '$active' > '$runs_dir/runs'"
+probe pull_request
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(d) a publish started from main must be waited for"
+grep -qF "active cmux-tui artifacts run" <<<"$reason" || fail "(d) reason: $reason"
+# No publish appears: the bounded wait ends and the check fails as before.
+set_runs "$none"
+probe pull_request
+[[ "$state" == failed ]] || fail "(d) with no publisher the probe must still fail"
+(( took < 15 )) || fail "(d) the wait must be bounded"
+unset REFUSE_WRITES CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
+
+# (e) Path routing is read-only since e93faa5f1fb0 (CMUX_TUI_TREE_DISPATCH is
+# empty), so a same-repository PR with its own merge tree never reaches the
+# dispatch path. Main's cmux-next-pr-merge-tree.yml has already pinned the merge
+# commit and its cmux-tui artifacts run is active: the probe must look for that
+# run (reads only) and defer, not fail with "no cmux-tui artifacts run can
+# publish tree" (PR #22580, run 39491343806, 2026-10-20).
+: > "$TMP/posts.log"
+set_runs "$active"
+expect "pull request, own merge tree, read-only probe, main's publisher active" pull_request deferred "active cmux-tui artifacts run"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+# The publisher appears during the bounded wait.
+set_runs "$none"
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
+fake_clock_at 2 "printf '%s\\n' '$active' > '$runs_dir/runs'"
+probe pull_request
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(e) a publish started from main during the wait must be deferred to"
+# Nothing starts: the bounded wait ends and the check still fails, without writing.
+set_runs "$none"
+probe pull_request
+[[ "$state" == failed ]] || fail "(e) with no publisher the read-only probe must still fail"
+(( took < 15 )) || fail "(e) the wait must be bounded"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
 
 
 # (d) A pull request that changes no cmux-tui or ghostty-next path is not
@@ -232,8 +367,80 @@ grep -qxF "tree_fetch_key=$published_key" "$TMP/gh-output" || fail "(d) the tree
 fetched=$(cd "$TMP/src" && CMUX_TUI_TREE_KEY="$published_key" bash scripts/cmux-next/pin-cmux-tui.sh path)
 [[ "$fetched" == *"/$published_key/"*cmux-tui ]] || fail "(d) CMUX_TUI_TREE_KEY must select the fetched tree: $fetched"
 mv "$TMP/cdn/cmux-tui/tree/$published_key" "$TMP/unpublished"
+# This probe searches the recent history for a published tree, keying each commit's tree:
+# compute, which the virtual clock does not count, so the usual bound holds.
 expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK
+
+# A scheduled DEV snapshot owns its exact SHA after the source branch moves.
+# Since e93faa5f1fb0 path routing is read-only (CMUX_TUI_TREE_DISPATCH=""), so
+# the probe never writes a pin ref or a dispatch. It still looks once, read-only,
+# for an artifacts run that publishes the tree: a cold tree with none reads
+# failed, one whose push run (or the same-key run that push handed the build
+# to) is running defers to it so dev-daily-tree-wait waits, and a published
+# tree reads ready. DEV run 39499536927 (2026-10-20) failed while push run
+# 39499455843 for its SHA and same-key owner run 39498123849 were running.
+sha=$(git -C "$TMP/src" rev-parse HEAD)
+set_head "$newer"
+set_runs "$none"
+: > "$TMP/posts.log"
+# Use each real workflow probe's environment, not a hand-wired dispatch flag:
+# a publisher SHA bypasses dispatch even when CMUX_TUI_TREE_DISPATCH is set.
+dev_probe_environment() {
+  python3 - "$ROOT/.github/workflows/cmux-next.yml" "$1" "$sha" <<'PYENV'
+import json, shlex, subprocess, sys, yaml
+workflow = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+step = next(step for step in workflow["jobs"]["path_route"]["steps"] if step.get("id") == sys.argv[2])
+context = {"github": {"event_name": "workflow_dispatch", "sha": sys.argv[3],
+                       "ref": "refs/heads/feat-cmux-next", "repository": "o/r"},
+           "inputs": {"dev_daily": True}}
+for name in ("CMUX_TUI_TREE_PUBLISHER_SHA", "CMUX_TUI_TREE_DISPATCH"):
+    expression = step["env"][name].removeprefix("${{").removesuffix("}}").strip()
+    script = "const {github, inputs} = JSON.parse(process.argv[1]); process.stdout.write(String(eval(process.argv[2])));"
+    value = subprocess.check_output(["node", "-e", script, json.dumps(context), expression], text=True)
+    target = "DEV_DAILY_PUBLISHER_SHA" if name == "CMUX_TUI_TREE_PUBLISHER_SHA" else name
+    print("export " + target + "=" + shlex.quote(value))
+PYENV
+}
+export CMUX_TUI_DEV_DAILY=1
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold exact tree" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev snapshot probe must not write (pin ref or dispatch): $(cat "$TMP/posts.log")"
+eval "$(dev_probe_environment tree-final)"
+expect "scheduled dev, second probe" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev second probe must not write: $(cat "$TMP/posts.log")"
+# The push's artifacts run for the exact SHA is still running: defer, one look
+# (no wait), no write.
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":5,\"status\":\"in_progress\",\"conclusion\":null,\"html_url\":\"u5\",\"head_sha\":\"$sha\",\"pull_requests\":[]}]}"
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold tree, push publisher running" workflow_dispatch deferred "$sha"
+(( took == 0 )) || fail "scheduled dev: the lookup must not wait (${took}s)"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+eval "$(dev_probe_environment tree-final)"
+expect "scheduled dev, second probe, push publisher running" workflow_dispatch deferred "$sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev second probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+# A same-tree run of another commit is the active owner (the push's own run
+# handed the build to it): the probe defers to that commit.
+owner_sha=$(git -c user.name=t -c user.email=t@example.com -C "$TMP/src" commit-tree "$sha^{tree}" -p "$sha" -m "same tree")
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":6,\"status\":\"in_progress\",\"conclusion\":null,\"html_url\":\"u6\",\"head_sha\":\"$owner_sha\",\"pull_requests\":[]}]}"
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold tree, same-key owner running" workflow_dispatch deferred "$owner_sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a same-key owner must not write: $(cat "$TMP/posts.log")"
+# The runs list itself rate-limited once: the same-key owner is still found
+# after the wait (active_publisher_for_key reads through the same wait).
+refuse_body "$primary_body"
+refuse 1 403 x-ratelimit-remaining:\ 0 "x-ratelimit-reset: $(( $(date +%s) + 9 ))"
+eval "$(dev_probe_environment tree)"
+probe workflow_dispatch
+[[ "$status" == 0 && "$state" == deferred ]] || fail "scheduled dev: a rate-limited runs read must wait, then defer to the same-key owner"
+grep -qF "$owner_sha" <<<"$reason" || fail "scheduled dev: reason must name the owner $owner_sha: $reason"
+(( took == 10 )) || fail "scheduled dev: must wait until the reset (10s), waited ${took}s"
+rm -f "$TMP/refuse-count"
+set_runs "$none"
+mkdir -p "$TMP/cdn/cmux-tui/tree/$key"
+printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"
+expect "scheduled dev, published by a trusted publisher" workflow_dispatch ready
+[[ ! -s "$TMP/posts.log" ]] || fail "dev published probe must not write: $(cat "$TMP/posts.log")"
 
 printf 'pin-cmux-tui probe tests: ok\n'

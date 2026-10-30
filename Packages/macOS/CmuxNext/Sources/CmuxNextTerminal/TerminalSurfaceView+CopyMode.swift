@@ -8,7 +8,4 @@ extension TerminalSurfaceView {
     /// Enters or leaves copy mode. False when the surface cannot enter it.
     @discardableResult
     public func toggleCopyMode() -> Bool { copyMode.toggle() }
-
-    /// Leaves copy mode and clears its selection.
-    public func exitCopyMode() { copyMode.exit() }
 }

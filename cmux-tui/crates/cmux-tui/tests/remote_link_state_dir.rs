@@ -69,6 +69,8 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // One stop per daemon: a stop waits for an owner that still
+        // restores its session (it binds its socket first, d674e3164cc).
         self.stop_daemons();
         let _ = self
             .command()
@@ -94,6 +96,73 @@ fn registries_under(root: &Path) -> Vec<PathBuf> {
         }
     }
     found
+}
+
+struct ExplicitOwner<'a> {
+    fixture: &'a Fixture,
+    session: String,
+    socket: PathBuf,
+}
+
+impl<'a> ExplicitOwner<'a> {
+    fn start(fixture: &'a Fixture, suffix: &str) -> Self {
+        let owner = Self {
+            fixture,
+            session: format!("{}-{suffix}", fixture.session),
+            socket: fixture.dir.join(format!("owner-{suffix}.sock")),
+        };
+        let output = fixture
+            .command()
+            .args(["server", "ensure", "--json", "--session", &owner.session, "--socket"])
+            .arg(&owner.socket)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "owner ensure: {output:?}");
+        owner
+    }
+}
+
+impl Drop for ExplicitOwner<'_> {
+    fn drop(&mut self) {
+        let _ = self
+            .fixture
+            .command()
+            .args(["server", "stop", "--json", "--session", &self.session, "--socket"])
+            .arg(&self.socket)
+            .stdin(Stdio::null())
+            .output();
+    }
+}
+
+/// Real CLI processes exercise initial startup, same-owner reuse and a refused
+/// destination change. Both mux owners and the sidecar belong to this fixture.
+#[test]
+fn remote_mux_binding_cli_keeps_the_selected_owner() {
+    let fixture = Fixture::new();
+    let first = ExplicitOwner::start(&fixture, "a");
+    let second = ExplicitOwner::start(&fixture, "b");
+    let attach = |socket: &Path| {
+        fixture
+            .command()
+            .args(["remote-link", "--stdio", "--session", &fixture.session, "--state-dir"])
+            .arg(fixture.remote_state())
+            .arg("--mux-socket")
+            .arg(socket)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let started = attach(&first.socket);
+    assert!(started.status.success(), "initial explicit attach: {started:?}");
+    let reused = attach(&first.socket);
+    assert!(reused.status.success(), "same-owner reuse: {reused:?}");
+    let refused = attach(&second.socket);
+    assert!(!refused.status.success(), "different owner was silently accepted");
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("[remote-mux-binding]"));
+    let retained = attach(&first.socket);
+    assert!(retained.status.success(), "refusal disturbed the original sidecar: {retained:?}");
+    fixture.stop_daemons();
 }
 
 #[test]
@@ -356,4 +425,36 @@ fn no_daemon_outlives_a_fixture() {
         std::thread::sleep(Duration::from_millis(100));
     }
     assert_eq!(processes_under(&dir), Vec::<String>::new(), "a daemon outlived its fixture");
+}
+
+/// `remote connect --state-dir` (the app's link client) keeps its client log
+/// in that directory, never in the default state root (cx-fdjq). The ssh
+/// binary fails at once, so the connect fails without the network and logs
+/// its error.
+#[test]
+fn remote_connect_state_dir_holds_the_client_log() {
+    let fixture = Fixture::new();
+    let client_state = fixture.dir.join("client-state");
+    fs::create_dir(&client_state).unwrap();
+    fs::set_permissions(&client_state, fs::Permissions::from_mode(0o700)).unwrap();
+    let output = fixture
+        .command()
+        .args(["remote", "connect", "ssh://cmux-fdjq.invalid", "--session", &fixture.session])
+        .args(["--headless", "--json", "--no-install", "--ssh-binary", "/usr/bin/false"])
+        .args(["--connect-timeout-seconds", "5", "--reconnect-attempts", "1", "--state-dir"])
+        .arg(&client_state)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "the connect must fail: {stderr}");
+    // The default log is the parent of CMUX_TUI_STATE_DIR (the fixture dir).
+    assert!(
+        !fixture.dir.join("client.log").exists(),
+        "the client log went to the default state root; stderr: {stderr}"
+    );
+    assert!(
+        client_state.join("client.log").exists(),
+        "no client log in --state-dir; stderr: {stderr}"
+    );
 }

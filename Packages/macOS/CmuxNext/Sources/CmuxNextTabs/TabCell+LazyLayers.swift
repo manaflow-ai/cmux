@@ -68,4 +68,14 @@ extension TabCell {
         closeBackgroundLayer = nil
         closeGlyphLayer = nil
     }
+
+    /// The close button's x: two diagonals across `glyph`.
+    static func closeGlyphPath(in glyph: CGRect) -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: glyph.minX, y: glyph.minY))
+        path.addLine(to: CGPoint(x: glyph.maxX, y: glyph.maxY))
+        path.move(to: CGPoint(x: glyph.maxX, y: glyph.minY))
+        path.addLine(to: CGPoint(x: glyph.minX, y: glyph.maxY))
+        return path
+    }
 }

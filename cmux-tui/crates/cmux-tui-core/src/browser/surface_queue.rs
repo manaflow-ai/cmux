@@ -5,7 +5,9 @@ use super::*;
 
 impl BrowserSurface {
     pub(super) fn maybe_nudge_stalled_external(&self, session: &BrowserSession) {
-        if session.runtime.source() == BrowserSource::Launched {
+        // A natively hosted page is on screen in its own window: bringing
+        // its target to the front would steal the user's native focus.
+        if session.runtime.source() == BrowserSource::Launched || session.runtime.native_hosted() {
             return;
         }
         let should_nudge = {

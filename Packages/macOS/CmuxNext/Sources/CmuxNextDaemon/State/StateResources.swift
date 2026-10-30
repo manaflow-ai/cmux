@@ -9,7 +9,8 @@ import Foundation
 /// The daemon keeps the newest 50; `closed.reopen` recreates one.
 public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     public enum Kind: String, Sendable, Hashable, Decodable {
-        case tab, screen, workspace
+        /// `window`: a window the app closed (`window-records-v1`); it has no member.
+        case tab, screen, workspace, window
     }
 
     /// What reopening recreates for one tab (`ClosedTabRecord`).
@@ -21,20 +22,26 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         public var url: String?
         public var browserProfileID: String?
         public var pinned: Bool
+        /// The page a closed page tab showed (`page-tabs-v1`); its `url` is then `about:blank`.
+        public var page: String?
+        /// True when the tab would reopen as nothing: an untouched New Tab page (a chat tab with no
+        /// session yet) or a browser on `about:blank`. False from a daemon that does not say.
+        public var empty: Bool
 
         enum CodingKeys: String, CodingKey {
-            case kind, name, cwd, url, pinned
+            case kind, name, cwd, url, pinned, page, empty
             case browserProfileID = "browser_profile_id"
         }
 
         public init(kind: String, name: String? = nil, cwd: String? = nil, url: String? = nil,
-                    browserProfileID: String? = nil, pinned: Bool = false) {
+                    browserProfileID: String? = nil, pinned: Bool = false, empty: Bool = false) {
             self.kind = kind
             self.name = name
             self.cwd = cwd
             self.url = url
             self.browserProfileID = browserProfileID
             self.pinned = pinned
+            self.empty = empty
         }
 
         public init(from decoder: any Decoder) throws {
@@ -45,6 +52,8 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
             url = try c.decodeIfPresent(String.self, forKey: .url)
             browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
             pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+            page = try c.decodeIfPresent(String.self, forKey: .page)
+            empty = try c.decodeIfPresent(Bool.self, forKey: .empty) ?? false
         }
     }
 
@@ -97,11 +106,18 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     /// Every member's screens, one list per member (`ClosedMemberRecord`);
     /// empty for a v1 item, whose `screens` are the whole item.
     public var memberScreens: [[Screen]]
+    /// Every member's name, one per member (a workspace's or screen's name;
+    /// nil for a member with none); empty for a v1 item. One close gesture
+    /// over several workspaces is one item of several members.
+    public var memberNames: [String?]
     /// Set when the item is a deleted personal workspace group.
     public var group: Group?
+    /// The window record (`install/window`) the group left, or, for a
+    /// `window` item, the closed window itself; nil when no window listed it.
+    public var window: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, index, screens, members, group
+        case id, kind, name, index, screens, members, group, window
         case workspaceID = "workspace_id"
         case paneID = "pane_id"
         case closedAtMs = "closed_at_ms"
@@ -109,11 +125,12 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
 
     private struct Member: Decodable {
         var screens: [Screen]?
+        var name: String?
     }
 
     public init(id: String, kind: Kind, name: String? = nil, workspaceID: ResourceID? = nil, paneID: ResourceID? = nil,
                 index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = [], memberScreens: [[Screen]] = [],
-                group: Group? = nil) {
+                memberNames: [String?] = [], group: Group? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -123,6 +140,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         self.closedAtMs = closedAtMs
         self.screens = screens
         self.memberScreens = memberScreens
+        self.memberNames = memberNames
         self.group = group
     }
 
@@ -136,8 +154,11 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
         closedAtMs = try StateDecimal.decode(c, .closedAtMs) ?? 0
         screens = try c.decodeIfPresent([Screen].self, forKey: .screens) ?? []
-        memberScreens = try c.decodeIfPresent([Member].self, forKey: .members)?.map { $0.screens ?? [] } ?? []
+        let members = try c.decodeIfPresent([Member].self, forKey: .members) ?? []
+        memberScreens = members.map { $0.screens ?? [] }
+        memberNames = members.map(\.name)
         group = try c.decodeIfPresent(Group.self, forKey: .group)
+        window = try c.decodeIfPresent(String.self, forKey: .window)
     }
 
     /// Every tab the item would recreate, in order: every member's (one
@@ -154,12 +175,54 @@ public struct WorkspaceStatus: Sendable, Hashable, Decodable {
         public var text: String
         public var icon: String?
         public var color: String?
+        /// Loading fields (`cmux status set --state --progress --style`, plans/cmux-next/status-indicators.md
+        /// section 5): `busy|success|error|waiting|info`, nil for a plain line (an older daemon or client).
+        public var state: String?
+        /// 0...1, busy only; nil while indeterminate.
+        public var progress: Double?
+        /// The reporter's style hint (`arc|native|dot|none`).
+        public var style: String?
+        /// The terminal the entry is about (`target_terminal`, `term_…`); `cmux status` sets it to
+        /// the caller's terminal.
+        public var targetTerminal: String?
+        /// A finished `cmux status run`'s exit status and how long it ran (success or error only).
+        public var exitCode: Int?
+        public var durationMs: UInt64?
 
-        public init(key: String, text: String, icon: String? = nil, color: String? = nil) {
+        enum CodingKeys: String, CodingKey {
+            case key, text, icon, color, state, progress, style
+            case targetTerminal = "target_terminal"
+            case exitCode = "exit_code"
+            case durationMs = "duration_ms"
+        }
+
+        public init(key: String, text: String, icon: String? = nil, color: String? = nil,
+                    state: String? = nil, progress: Double? = nil, style: String? = nil,
+                    targetTerminal: String? = nil, exitCode: Int? = nil, durationMs: UInt64? = nil) {
             self.key = key
             self.text = text
             self.icon = icon
             self.color = color
+            self.state = state
+            self.progress = progress
+            self.style = style
+            self.targetTerminal = targetTerminal
+            self.exitCode = exitCode
+            self.durationMs = durationMs
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            key = try c.decode(String.self, forKey: .key)
+            text = try c.decode(String.self, forKey: .text)
+            icon = try c.decodeIfPresent(String.self, forKey: .icon)
+            color = try c.decodeIfPresent(String.self, forKey: .color)
+            state = try c.decodeIfPresent(String.self, forKey: .state)
+            progress = try c.decodeIfPresent(Double.self, forKey: .progress)
+            style = try c.decodeIfPresent(String.self, forKey: .style)
+            targetTerminal = try c.decodeIfPresent(String.self, forKey: .targetTerminal)
+            exitCode = try? c.decodeIfPresent(Int.self, forKey: .exitCode)
+            durationMs = try? StateDecimal.decode(c, .durationMs)
         }
     }
 

@@ -114,6 +114,21 @@ running, or creates one outside `cmuxnp-dev-`. It changes only
 of one env plus the channel file (old value kept as `previous`): new machines only, never a
 running VM.
 
+**Promote from CI** (`.github/workflows/cloud-vm-image-promote.yml`, dev only): after a
+`cloud-vm-image-bake.yml` run with `keep_snapshot` passes, run
+`gh workflow run cloud-vm-image-promote.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f channel=dev -f snapshot=<sh-id> -f bake_run=<bake run id>`.
+It runs in the bake's environment `cmux-next-vm-image-dev` with the same `FREESTYLE_API_KEY`
+secret (given to promote.ts only as a 0600 file in `$RUNNER_TEMP`) and a token that can only read
+(`contents: read`, `actions: read`). It appends the bake run's `channel-dev.json` to
+`channels/dev.json` `history`, runs promote.ts (fresh-clone smoke), and uploads the diff of
+`channels/dev.json` and `wrangler.jsonc` as the artifact `promote-dev-<sh-id>.diff`, with the
+smoke result in the job summary. It pushes nothing: a lane downloads the artifact, `git apply`s it
+on a branch from feat-cmux-next, opens the channel PR linking the run, and lands it after review;
+the next development deploy ships it. `-f delete_snapshot=<sh-id>` (alone or with a promotion)
+deletes one spare image snapshot by exact id (`cleanup.ts --snapshot`); it refuses an id or name
+that any `channels/*.json` (pointer, previous, history, notes) or `wrangler.jsonc` mentions, or a
+snapshot not named `cmuxnp-dev-vmimg-*`, in the checkout and in feat-cmux-next fetched just before the delete, and prints every reference it found.
+
 ## Ship a migration end to end
 
 ```bash
@@ -245,6 +260,83 @@ smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), 
 - Bad deploy: automatic (`wrangler rollback`). By hand: `wrangler rollback <version> --name <worker>`; the version is in the deploy log line "previous version of ...".
 - Bad migration: roll the code back first, then the file's own `-- Rollback` section (the apply receipt lists it, newest first). Expand migrations normally stay in place.
 - Bad image: `bun images/cmux-vm/promote.ts --channel <c> [--var TEAM_VM_SNAPSHOT] --rollback`, then deploy that env; after the deploy `wrangler rollback <version> --name cmux-api-<env>` undoes it at once.
+- A deploy that adds, renames or deletes a Durable Object class cannot be rolled back across (Cloudflare refuses the rollback). Fix forward only; say so in the landing note.
+- Production cmux-api, one command: `gh workflow run backend.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f target=rollback` (job rollback-production, `prod-promote.ts rollback --execute`): back to the version that served before the current code deployment. It refuses across a DO lifecycle change (env.production.migrations differ between the two source commits). The Chief brain's off switch for that case: `-f target=chief-off` deploys the serving commit again with `CHIEF_BRAIN_ENABLED` "0" (same code, same lifecycle), so `target=rollback` afterwards turns the brain on again. Dry run locally: `bun scripts/cmux-next/release/prod-promote.ts rollback`.
+
+## Production settings changes (no code)
+
+A settings-only change to a production Worker (the script-settings API: observability, logpush,
+tail consumers; no new version, no code) is allowed outside deploy-worker.sh only when all of these
+hold (Lawrence through the chief, 2026-10-12):
+
+1. Who: a named lane lead (or a worker the lead names) acts on a recorded decision by Lawrence or
+   the chief, written on the bead before the change.
+2. Record on the bead, before and after: the full settings object read back from the API (GET,
+   then the PATCH answer), the version id that serves 100% (it must not change), the UTC time of the
+   change. Change only the named fields; every other field stays as read.
+3. Proof after: a count query on Workers Logs or Axiom over a window after the change, and the
+   health route (200). Never print a header value or a token.
+4. Rollback: the same API call with the before object, written on the bead with the change.
+
+Worked example (cx-dgsp, 2026-10-12T02:21:25Z): `PATCH
+/accounts/<account>/workers/scripts/cmux-api/script-settings` with the read `observability`
+object and `logs.invocation_logs: false` (stops header logging; legacy wire clients sent their
+token in Sec-WebSocket-Protocol). Serving version 954a23d0 unchanged, no new version. Proof: the
+hour before had 128 invocation-log events and 122 with `bearer.`; the 14.3 minutes after had 0
+and 0, health 200. Rollback: the same PATCH with `invocation_logs: true`. The repo's
+wrangler.jsonc must say the same (production `invocation_logs: false`), so the next code deploy
+keeps the setting.
+
+## Continuous delivery to production (cx-w1ald)
+
+Lawrence approved 2026-10-13 (#13742). backend.yml, on every feat-cmux-next push after
+deploy-staging and on `workflow_dispatch target=promote`:
+
+- **Source tags.** deploy-worker.sh tags every version: `--tag <sha12> --message "source <sha> run <id>"`.
+  `prod-promote.ts` reads the tag back; a version without one is "unknown code".
+- **promote-gates** (no production secret; repo CLOUDFLARE_API_TOKEN and GITHUB_TOKEN):
+  `prod-promote.ts stale --issue`, then `prod-promote.ts gates`:
+  - G6 hold switch first: repository variable `CMUX_NEXT_PRODUCTION_HOLD`, non-empty = hold
+    (shipped ON; Lawrence's go clears it before the first automatic promotion).
+  - source: production must carry a source tag (the first deploy is the hand rail).
+  - spacing: production code changed at least 6 h ago.
+  - G1 staging-proven: the newest feat-cmux-next push whose deploy-staging job and smoke step
+    passed at least 60 minutes ago, with no red staging deploy in those 60 minutes; it must
+    descend from production's commit.
+  - G2: no open issue labeled `cmux-next-regression` with `P0` or `P1` (beads are not readable
+    from CI; the chief labels an issue or sets the hold).
+  - G3: every DO migration tag the candidate adds over production is listed in
+    `scripts/cmux-next/release/production-approvals.json` `do_tags` with a reviewer; a rename,
+    delete or transfer also needs `lawrence: true`; a tag production has must be unchanged. Any
+    new class makes the deploy fix-forward only.
+  - G5: every name in `required_secrets` is set on cmux-api; `HOME_INVITES_SEND` "on" needs
+    `HOME_INVITE_FROM`. deploy-worker.sh runs the same check (`prod-promote.ts config`) before
+    every production deploy, the hand rail too.
+  - G7: a changed production value of `INFERENCE_*`, `AUTOMATION_CAP_*` or `HOME_INVITES_SEND`
+    must be listed in `guarded_vars` as `NAME=value` (Lawrence's approvals).
+  - G4 (Postgres) is migrate.ts --verify inside deploy-worker.sh.
+- **promote-production** (environment cmux-next-production, branch policy feat-cmux-next and
+  main, concurrency shared with deploy-production): checks the hold again, checks out the
+  candidate, runs `deploy-worker.sh production` with `CMUX_DEPLOY_NO_SECRETS=1
+  CMUX_RELEASE_PROMOTE=1` (production keeps its own secrets; CI sends none), then the
+  worker-release smoke.
+- **Exact-SHA promote** (2026-10-19): `gh workflow run backend.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f target=promote -f candidate=<40-hex sha>`. G1 must then prove that commit itself (its own green staging run, 60 min soak, no red staging deploy in that window); every other gate is unchanged. The hold accepts a one-shot value `released:<40-hex sha>`: it releases only that commit (gates and recheck), so no other push can promote while it is set; set it back to a hold value after the deploy. The runbook is HQ `skills/infra/cloud-api-promote`.
+- **Staleness**: `prod-promote.ts stale` fails when production has no source tag, lacks a
+  commit staging proved more than 24 h ago, or is more than 20 backend commits behind the newest
+  staging-proven commit. `--issue` opens or comments on the issue labeled `prod-stale` and closes
+  it when production is current. It runs in promote-gates on every feat-cmux-next backend push
+  (GitHub schedules run only from main; cmux-lawrence has no Cloudflare credential). The chief
+  watches the `prod-stale` label and asks Lawrence after 72 h.
+- **Accepted risk (Lawrence, 2026-10-13: no ruleset on feat-cmux-next, "only me and people in my
+  team work on this").** Any repository writer can change the production deploy path on
+  feat-cmux-next (backend.yml, deploy-worker.sh, prod-promote.ts, the approvals file), and the
+  repo-level CLOUDFLARE_API_TOKEN can deploy cmux-api from any branch. The hold and the gates
+  guard against mistakes, not against a hostile writer.
+- **No signing key in CI.** Every production deploy job (promote-production, deploy-production)
+  runs with `CMUX_DEPLOY_NO_SECRETS=1 CMUX_RELEASE_PROMOTE=1`: the Worker keeps its own
+  JWT_PRIVATE_JWK, and the cmux-next-production environment holds no copy. The key's stored copy
+  is `~/.secrets/cmux-next-api-production.env` (the hand rail reads it); its thumbprint equals the
+  production JWKS (`kid production-2026-10-02`, checked 2026-10-13).
 
 ## cmux-old compatibility (production steps)
 
@@ -350,6 +442,24 @@ cmux-old never reads cmux_vm, so the migrations stay in place; if they must go, 
 Image promotion (TEAM_VM_SNAPSHOT / CLOUD_FREESTYLE_SNAPSHOT for production) uses the same pattern
 through promote.ts (dev-smoked id, fresh-clone smoke of the channel's own id, previous kept for
 `--rollback`, new VMs only); it is not needed now either.
+
+### cmux-api production deploy: after the deploy (cx-f5tk4)
+
+The production sign-in project's webhook endpoint for `https://cloud-api.cmux.dev/v1/hooks/stack`
+is paused (not deleted) until the backend deploy; the old production code had no such route.
+Before the deploy, set STACK_WEBHOOK_SECRET on cmux-api from its stored copy
+(`~/.secrets/cmux-next-api-production.env`); the config gate refuses the deploy without it. Right
+after the deploy:
+
+1. An unsigned POST to `/v1/hooks/stack` answers 401 (route live, secret set). Signal the
+   coordinator; the chief enables the endpoint again.
+2. Recover the failed messages since the endpoint's creation ("Recover failed messages"); a full
+   team and membership sync only if recovery is not offered. Replay is safe: each delivery only
+   names the team and user, TeamDO reads Stack as it is now (`team-stack-sync.ts`), a replayed
+   svix-id answers `duplicate`, and a team.deleted makes a tombstone only when Stack confirms
+   TEAM_NOT_FOUND, so order does not matter and the current state wins.
+3. Confirm one accepted delivery (200 in the endpoint's delivery log, Worker log `stack webhook`
+   status 200) and that a recovered team change shows in the API. Record it on the bead.
 
 ## Lessons from the first production attempts (2026-10-09)
 

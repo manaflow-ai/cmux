@@ -10,7 +10,6 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -62,13 +61,24 @@ pub struct RpcClient {
 }
 
 impl RpcClient {
-    /// Connects; `on_notification` runs on the reader thread for every
-    /// notification, then once with method `""` when the connection ends.
+    /// Connects with no peer check (this module's own tests); acpmux
+    /// connections go through `acpmux_peer::connect`. `on_notification` runs on
+    /// the reader thread for every notification, then once with method `""`
+    /// when the connection ends.
+    #[cfg(test)]
     pub fn connect(
-        path: &Path,
+        path: &std::path::Path,
         on_notification: impl Fn(Notification) + Send + 'static,
     ) -> std::io::Result<Arc<RpcClient>> {
-        let stream = UnixStream::connect(path)?;
+        Self::over(UnixStream::connect(path)?, on_notification)
+    }
+
+    /// The client over a connected stream (acpmux: one whose server peer
+    /// passed `acpmux_peer::check`).
+    pub fn over(
+        stream: UnixStream,
+        on_notification: impl Fn(Notification) + Send + 'static,
+    ) -> std::io::Result<Arc<RpcClient>> {
         let reader = stream.try_clone()?;
         let waiters: Waiters = Arc::new(Mutex::new(Some(HashMap::new())));
         let closed = Arc::new(AtomicBool::new(false));

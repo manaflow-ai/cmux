@@ -130,7 +130,12 @@ export function HistoryPage({
             >
               {t("page.groupBy")}
             </button>
-            <button type="button" className="history-menu-button" onClick={(event) => headerMenu(event, clearItems())}>
+            <button
+              type="button"
+              className="history-menu-button"
+              disabled={snap.connection === "disconnected"}
+              onClick={(event) => headerMenu(event, clearItems())}
+            >
               {t("page.clear")}
             </button>
           </div>
@@ -162,8 +167,14 @@ export function HistoryPage({
           ))}
         </div>
       </header>
+      {/* A lost host is said once, below, in the page's own words. */}
+      {snap.error && snap.connection !== "disconnected" ? (
+        <p className="history-error" role="alert">
+          {snap.error}
+        </p>
+      ) : null}
       {snap.connection === "disconnected" ? (
-        <div className="history-empty">{t("page.disconnected")}</div>
+        <output className="history-empty">{t("page.disconnected")}</output>
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (
@@ -226,6 +237,7 @@ function HistoryRow({ entry, selected, badge, badgeText, language, onSelect, onO
       role="option"
       tabIndex={-1}
       aria-selected={selected}
+      aria-disabled={entry.available ? undefined : true}
       className={`history-row${selected ? " selected" : ""}${entry.available ? "" : " unavailable"}`}
       ref={selected ? revealOnSelect : undefined}
       onClick={onSelect}

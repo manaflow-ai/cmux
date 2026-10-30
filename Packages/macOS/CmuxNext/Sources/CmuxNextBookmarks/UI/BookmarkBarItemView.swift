@@ -6,9 +6,12 @@ import CmuxNextDesign
 final class BookmarkBarItemView: NSView {
     let node: BookmarkNode
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var hovered = false
     private var pressed = false
+    /// Only a hover change fades the fill (`ChromeHover.fade`); redraws for
+    /// any other reason paint at once.
+    private var fadesNextFill = false
     private var tracking: NSTrackingArea?
     var onClick: ((BookmarkBarItemView, NSEvent) -> Void)?
     var onDragStart: ((BookmarkBarItemView, NSEvent) -> Void)?
@@ -26,10 +29,10 @@ final class BookmarkBarItemView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         label.stringValue = node.displayTitle
         label.lineBreakMode = .byTruncatingTail
-        label.cell?.truncatesLastVisibleLine = true
+        label.truncatesLastVisibleLine = true
         addSubview(icon)
         addSubview(label)
-        toolTip = node.url.map { "\(node.displayTitle)\n\($0.absoluteString)" } ?? node.displayTitle
+        themedToolTip = node.url.map { "\(node.displayTitle)\n\($0.absoluteString)" } ?? node.displayTitle
         setAccessibilityElement(true)
         setAccessibilityRole(node.isFolder ? .menuButton : .button)
         setAccessibilityLabel(node.displayTitle)
@@ -72,7 +75,9 @@ final class BookmarkBarItemView: NSView {
     override func mouseExited(with event: NSEvent) { setHovered(false) }
 
     private func setHovered(_ value: Bool) {
+        guard hovered != value else { return }
         hovered = value
+        fadesNextFill = true
         needsDisplay = true
     }
 
@@ -113,14 +118,15 @@ final class BookmarkBarItemView: NSView {
         return true
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {
             let fill = pressed ? Palette.pressedFill : (hovered ? Palette.hoverFill : NSColor.clear)
-            layer?.backgroundColor = fill.cgColor
+            if let layer { ChromeHover.paint(layer, fill, animated: fadesNextFill && window != nil, pressed: pressed) }
             label.textColor = Palette.textPrimary
             icon.contentTintColor = Palette.textSecondary
         }
+        fadesNextFill = false
     }
 }

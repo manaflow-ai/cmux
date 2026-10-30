@@ -2,6 +2,14 @@
 //! protocol handler: session/new starts a folder profile only when its folder
 //! is trusted, the user enabled these bytes, and the chat folder is inside it.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -71,6 +79,7 @@ fn scratch(name: &str) -> (PathBuf, PathBuf, FolderGate) {
             codex_config: root.join("config.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         },
     };
     (root, folder, gate)

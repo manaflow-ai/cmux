@@ -15,9 +15,12 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case title(browser: Int32, title: String)
     case favicon(browser: Int32, url: String)
     case loadingState(browser: Int32, loading: Bool, canGoBack: Bool, canGoForward: Bool)
-    case loadStart(browser: Int32, url: String)
+    /// `fromPost`: the committed entry came from a form submission (BR-R1).
+    case loadStart(browser: Int32, url: String, fromPost: Bool)
     case loadEnd(browser: Int32, httpStatus: Int)
-    case loadError(browser: Int32, code: Int, text: String, url: String)
+    /// `chromiumInterstitial`: Chromium shows its own certificate page for
+    /// it (`cmux_shim_certificate_proceed` left the decision to it).
+    case loadError(browser: Int32, code: Int, text: String, url: String, chromiumInterstitial: Bool)
     case progress(browser: Int32, value: Double)
     case fullscreen(browser: Int32, entering: Bool)
     case devToolsResult(browser: Int32, messageID: Int32, success: Bool, json: String)
@@ -51,6 +54,23 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The shim cancelled a main-frame navigation to a local file cmux shows
     /// elsewhere (`LocalFileHandoff`).
     case localFileHandoff(browser: Int32, url: String)
+    /// A link to another app (EXTERNAL_URL); `userGesture`: the user's click started it.
+    case externalURL(browser: Int32, url: String, userGesture: Bool)
+    /// A permission request the host decides (PERMISSION_PROMPT; `permissions`
+    /// are `cef_permission_request_types_t` bits), answered with
+    /// `cmux_shim_permission_continue(token, …)`; Chromium may end it first
+    /// (`permissionDismissed`).
+    case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
+    case permissionDismissed(browser: Int32, token: Int32)
+    /// The page's beforeunload asks before it unloads (BEFORE_UNLOAD_DIALOG);
+    /// answered with `cmux_shim_before_unload_reply(token, …)`.
+    case beforeUnloadDialog(browser: Int32, token: Int32, isReload: Bool)
+    /// Chromium ended the waiting beforeunload question itself.
+    case beforeUnloadDismissed(browser: Int32)
+    /// Chromium's password manager asks to save or update a sign-in, or its
+    /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
+    /// `cmux_shim_password_prompt_answer(promptID, …)`.
+    case passwordPrompt(browser: Int32, promptID: Int32, json: String)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -66,8 +86,25 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsMessage(browser: Int32, json: String)
     /// A watched profile preference changed (`cmux_shim_pref_watch`).
     case preferenceChanged(name: String, profilePath: String)
+    /// A chrome.bookmarks bridge event of a profile's Chromium store (`CEFBookmarkBridge`).
+    case bookmarks(json: String, profilePath: String)
     /// A download's start, progress or end (`CEFDownloads`).
     case download(CEFDownloadEvent)
+    /// A cmux page asks for one of its dynamic paths (PAGE_RESOURCE), answered with
+    /// `cmux_shim_page_resource_respond(token, …)` (``CEFTab/pageResources``).
+    case pageResource(browser: Int32, token: Int32, url: String)
+    /// A drag of files from outside entered a page (PAGE_DRAG_ENTER): their paths, as JSON.
+    case pageDragEnter(browser: Int32, pathsJSON: String)
+    /// A page opened a file chooser (FILE_DIALOG; only after `setFileDialogs(1)`): answer it once with
+    /// `fileDialogAnswer(dialogID, ...)`. `mode` 0 open one, 1 open several, 2 folder, 3 save;
+    /// `acceptTypes` are MIME types and ".ext" entries; `defaultPath` may be empty.
+    case fileDialog(browser: Int32, dialogID: Int32, mode: Int32, acceptTypes: [String], defaultPath: String)
+    /// A page posted on one of cmux's channels (PAGE_MESSAGE, fork API 29): untrusted data
+    /// (`CEFPageMessage`). `mainFrame`: posted from the main frame.
+    case pageMessage(browser: Int32, mainFrame: Bool, channel: String, payload: String)
+    /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29): `status` 1 value, 0
+    /// exception, -1 no result (renderer ended, navigated away), -2 refused world name.
+    case evaluateResult(token: Int32, status: Int, value: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -81,9 +118,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 5: self = .title(browser: browser, title: s1)
         case 6: self = .favicon(browser: browser, url: s1)
         case 7: self = .loadingState(browser: browser, loading: a & 1 != 0, canGoBack: a & 2 != 0, canGoForward: a & 4 != 0)
-        case 8: self = .loadStart(browser: browser, url: s1)
+        case 8: self = .loadStart(browser: browser, url: s1, fromPost: a == 1)
         case 9: self = .loadEnd(browser: browser, httpStatus: Int(a))
-        case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2)
+        case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2, chromiumInterstitial: b != 0)
         case 11: self = .progress(browser: browser, value: min(max(Double(a) / 1000, 0), 1))
         case 12: self = .fullscreen(browser: browser, entering: a != 0)
         case 13: self = .devToolsResult(browser: browser, messageID: request, success: a != 0, json: s1)
@@ -118,6 +155,20 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             let download = CEFDownloadEvent(kind: kind, browser: browser, id: request, a: a, b: b, s1: s1, s2: s2)
             self = download.map(Self.download) ?? .unknown(kind: kind)
         case 38: self = .localFileHandoff(browser: browser, url: s1)
+        case 39: self = .bookmarks(json: s1, profilePath: s2)
+        case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
+        case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
+        case 42: self = .permissionDismissed(browser: browser, token: request)
+        case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
+        case 44: self = .beforeUnloadDialog(browser: browser, token: request, isReload: a != 0)
+        case 45: self = .beforeUnloadDismissed(browser: browser)
+        case 46: self = .pageResource(browser: browser, token: request, url: s1)
+        case 47: self = .pageDragEnter(browser: browser, pathsJSON: s1)
+        case 48:
+            self = .fileDialog(browser: browser, dialogID: request, mode: Int32(truncatingIfNeeded: a),
+                               acceptTypes: s1.split(separator: "\n").map(String.init), defaultPath: s2)
+        case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
+        case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         default: self = .unknown(kind: kind)
         }
     }
@@ -150,6 +201,10 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     /// The window's side panel was shown, hidden, resized or changed
     /// (fork API 13); value = 1 when visible.
     case sidePanelChanged = 12
+    /// The tab's DevTools turned device mode on (value 1) or off (0), or
+    /// moved the device's screen area (fork API 24,
+    /// `cmux_devtools_inspected_bounds`).
+    case devToolsDeviceMode = 13
     case unknown = -1
 }
 

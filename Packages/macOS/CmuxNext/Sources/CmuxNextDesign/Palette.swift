@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// Chrome colors, all derived from the terminal theme (`ThemeTokens`).
 ///
@@ -51,10 +52,22 @@ public struct Palette {
     /// The scrim's alpha: the most a translucent band over the window's
     /// backdrop may cover (the Home header's top fade peaks there).
     public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
+    /// The veil's alpha over an unfocused pane (``ThemeTokens/inactivePaneDim``).
+    public static var inactivePaneDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).inactivePaneDim) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
     public static var elevatedBackground: NSColor { color(\.elevatedBackground, dynamic: PaletteDynamic.elevatedBackground) }
+    /// The one solid surface of every overlay that carries text (palette,
+    /// dialogs, hover cards, find and prompt bars, page info, popovers,
+    /// tooltips): the window background lifted toward the text
+    /// (``ThemeTokens/opaqueOverlayFill(lift:)``), always opaque, so no text
+    /// under it shows through. Pages get the same color as
+    /// `--cmux-popup-surface` (`WebTheme`).
+    public static var popupSurface: NSColor {
+        guard let tokens = ThemeContext.active else { return PaletteDynamic.popupSurface }
+        return tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor
+    }
     /// Every pane's tab strip: a shade darker than the window.
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
     /// The sidebar's tonal step over the window backdrop.
@@ -93,7 +106,21 @@ public struct Palette {
     public static var shadow: NSColor { color(\.shadow, dynamic: PaletteDynamic.shadow) }
     /// Selected text in chrome text fields.
     public static var textSelection: NSColor { color(\.textSelection, dynamic: PaletteDynamic.textSelection) }
+    /// Text carets: the terminal's cursor color (`cursor-color`), else the primary text.
+    public static var caret: NSColor { color(\.caret, dynamic: PaletteDynamic.caret) }
 
+    /// The notification blue (rgb 57 130 245, sampled from the Codex app): the one color of
+    /// every unread mark, the sidebar's unread dot and the pane's unread ring by default. The
+    /// same in every theme, so an unread mark reads the same everywhere.
+    public static var notificationBlue: NSColor { NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1) }
+    /// The sidebar's unread or new status dot: `systemBlue`, so light and dark match and the color
+    /// means one thing in every row (Lawrence msg 11983).
+    public static var statusUnread: NSColor { .systemBlue }
+    /// The sidebar's needs-attention status dot (a permission prompt, a question, waiting on the
+    /// user): `systemOrange` (Lawrence msg 11983).
+    public static var statusAttention: NSColor { .systemOrange }
+    /// The sidebar's error status mark (failed, stopped with an error): `systemRed` (Lawrence msg 11983).
+    public static var statusError: NSColor { .systemRed }
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
     /// Errors: the theme's ANSI red.
@@ -106,12 +133,33 @@ public struct Palette {
     /// Whether `highlight` is the theme's own accent (its ANSI blue), not
     /// Ghostty's default palette standing in for a theme that names none.
     public static var hasThemeAccent: Bool { (ThemeContext.active ?? ThemeScope.app.tokens).hasThemeAccent }
+    /// Whether the theme or `appearance.accent` names an accent, so `accentFill` has a hue; false
+    /// keeps the neutral default, where `accentFill` is the primary text (``ThemeTokens/accent``).
+    public static var hasChosenAccent: Bool {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return tokens.accent != tokens.textPrimary
+    }
     /// Glyphs on `highlight`.
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
+
+    /// The theme's accent as a solid fill (``ThemeTokens/accent``): the primary text by default,
+    /// the theme's own hue with `appearance.accent`. `menuHighlight` washes it.
+    public static var accentFill: NSColor { color(\.accent, opaque: true, dynamic: PaletteDynamic.accentFill) }
+    /// Glyphs and labels on `accentFill`, at least 4.5:1 (``ThemeTokens/onAccent``).
+    public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
+    /// A highlighted row in a cmux-drawn panel (the extensions panel): `accentFill` as a faint wash,
+    /// so labels keep their own ink. Right-click menus are native and use the system highlight. A neutral theme gets a gray wash.
+    public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
+    static let menuHighlightOpacity: CGFloat = 0.2
 
     /// The app accent. Deliberately neutral so any control that reads the
     /// accent stays in the theme's grays.
     public static var accent: NSColor { focusRing }
+
+    /// A lit (on, chosen, done) control's glyph or label (``ThemeTokens/litGlyph``): the accent,
+    /// lifted to contrast at least as much as the rest ink. Never the raw `accent`, `accentFill` or
+    /// `focusRing` for a lit glyph (`no-raw-accent-lit-glyph`).
+    public static var litGlyph: NSColor { color(\.litGlyph, dynamic: PaletteDynamic.litGlyph) }
 
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }

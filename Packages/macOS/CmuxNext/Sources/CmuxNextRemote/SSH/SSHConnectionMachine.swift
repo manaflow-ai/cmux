@@ -22,6 +22,9 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case offline
         case connecting
         case connected
+        /// The link client is up but redials its lost connection (sleep,
+        /// a network drop or change); remote programs keep running there.
+        case reconnecting
         case authFailed(String)
         case hostKeyUntrusted(String)
         case unreachable(String)
@@ -29,6 +32,15 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case installing
         case installFailed(String)
         case failed(String)
+
+        /// A first connection needs a visible recovery action, even while the
+        /// underlying link remains eligible for automatic network retries.
+        public var needsRecovery: Bool {
+            switch self {
+            case .unreachable, .failed, .authFailed, .hostKeyUntrusted, .installFailed: true
+            default: false
+            }
+        }
     }
 
     /// Events that may let a blocked attempt succeed.
@@ -53,6 +65,8 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case probed(InstallNeed)
         case failed(SSHFailure)
         case linkUp
+        /// The running link client reports it is redialing.
+        case linkInterrupted
         case linkLost
         case wake(Wake)
         case installStarted
@@ -61,6 +75,9 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public private(set) var status: Status = .offline
     private var blocked = true
+    /// Only Reconnect (a `.user` wake) may unblock: the session is in use, which
+    /// no network change, wake from sleep or activation changes.
+    private var onlyUserUnblocks = false
 
     public init() {}
 
@@ -74,6 +91,7 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public mutating func handle(_ event: Event) {
         if status == .offline, event != .connect { return }
+        if case .wake = event {} else { onlyUserUnblocks = false }
         switch event {
         case .connect:
             status = .connecting
@@ -82,7 +100,11 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             status = .offline
             blocked = true
         case .attemptStarted:
-            if status == .connected { status = .connecting }
+            // An automatic transport attempt may reopen only failures whose gate is
+            // still eligible. Auth, host-key, install and in-use states stay blocked
+            // until their authorized wake arrives.
+            guard mayAttempt else { return }
+            status = .connecting
         case .probed(let need):
             guard need != .none else { return }
             status = .needsInstall(need)
@@ -101,15 +123,27 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             case .remoteFailed(let text):
                 status = .failed(text)
                 blocked = false
+            case .sessionInUse(let text):
+                status = .failed(text)
+                blocked = true
+                onlyUserUnblocks = true
             }
         case .linkUp:
             status = .connected
             blocked = false
+        case .linkInterrupted:
+            if status == .connected { status = .reconnecting }
         case .linkLost:
-            if status == .connected { status = .connecting }
+            if status == .connected || status == .reconnecting { status = .connecting }
         case .wake(let wake):
-            guard blocked else { return }
-            if Self.unblocks(status, wake) { blocked = false }
+            guard blocked, !onlyUserUnblocks || wake == .user else { return }
+            if Self.unblocks(status, wake) {
+                blocked = false
+                // A user retry starts a fresh attempt immediately. Clearing the
+                // old failure state prevents recovery UI from replaying it while
+                // the transport opens the new connection.
+                if status.needsRecovery { status = .connecting }
+            }
         case .installStarted:
             status = .installing
             blocked = true

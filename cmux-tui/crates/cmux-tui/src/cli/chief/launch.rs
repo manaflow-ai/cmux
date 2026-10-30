@@ -19,7 +19,9 @@ use serde_json::{Value, json};
 use super::home::ChiefHome;
 use super::link::{Link, LinkError};
 use super::messages::messages;
-use crate::local_owner::{ENSURE_DEADLINE, EnsureError, Ensured, OwnerSpec, ensure_owner};
+use crate::local_owner::{
+    ENSURE_DEADLINE, EnsureError, Ensured, OwnerSpec, RestoreProgress, ensure_owner,
+};
 
 /// The app's Chief conversation create request (HomeChiefName.swift and
 /// optchat-chief daemon.rs): the same key and fields, so whoever creates it
@@ -33,6 +35,8 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
     let socket = home.socket().map_err(|e| e.to_string())?;
     let session = home.session();
     std::fs::create_dir_all(home.state_dir()).map_err(|e| e.to_string())?;
+    // Asked for the Chief again: the app may restart its brain again.
+    let _ = std::fs::remove_file(home.shutdown_marker());
     let spec = OwnerSpec {
         session: session.clone(),
         socket: socket.clone(),
@@ -41,12 +45,17 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         term: None,
         initial_host_colors: None,
         terminal_reap_grace: Some(std::time::Duration::from_secs(30)),
+        exit_with_pid: None,
         install_key: None,
         // An owner this call starts serves chief.engine.* and chief.stop
         // through the home's brain.
         chief_tools_socket: Some(home.root.join("optchat/tools.sock")),
+        // ...and runs the brains of the home's other Chiefs.
+        chief_brains: brains_value(home),
+        websocket: None,
     };
-    match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE) {
+    let progress = RestoreProgress::silent();
+    match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE, &progress) {
         Ok(Ensured::Running(_)) => {}
         Ok(Ensured::Started(owner)) => {
             eprintln!(
@@ -84,12 +93,30 @@ fn ensure_error(error: &EnsureError) -> &'static str {
     match error {
         EnsureError::Spawn(_) => "it could not be started",
         EnsureError::NotReady => "it did not become ready in time",
+        EnsureError::RestoreTimeout => "it did not finish restoring its session in time",
         EnsureError::WrongOwner => "another program serves its socket",
         EnsureError::DifferentSession => "another session serves its socket",
+        EnsureError::DifferentState => "its running owner serves a deleted or replaced home",
         EnsureError::InvalidIdentity | EnsureError::UnsupportedProtocol => {
             "it speaks another protocol version"
         }
     }
+}
+
+/// `CMUX_TUI_CHIEF_BRAINS` for an owner this call starts (cmux-tui-core
+/// chief_brains): the same brain executable, this home, and this `cmux`'s
+/// directory first on the brains' `PATH`.
+fn brains_value(home: &ChiefHome) -> Option<String> {
+    let executable = std::path::absolute(brain_binary()?).ok()?;
+    let bin_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+    // The person's PATH (a login shell's): the brains find the harnesses
+    // this terminal finds. Whoever first starts the owner sets it for every
+    // brain until the owner restarts (a venv or direnv entry included); the
+    // daemon keeps only absolute entries.
+    let path = std::env::var("PATH").ok().filter(|p| !p.is_empty());
+    let value = serde_json::json!({"executable": executable, "home": home.root,
+                                   "app": {"bin_dir": bin_dir, "path": path}});
+    Some(value.to_string())
 }
 
 /// Whether a brain holds the home's lock (`flock`, as optchat-chief's
@@ -169,7 +196,13 @@ fn write_token(path: &Path, token: &str) -> std::io::Result<()> {
 /// `host.log`, with the app's environment for it.
 fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std::io::Result<u32> {
     let log = OpenOptions::new().create(true).append(true).open(home.host_log())?;
-    let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    // The account's home (the user database), not the caller's HOME: a job
+    // runner's own HOME made the brain miss the person's harness settings
+    // (the daemon's brains do the same, c47dd2fd0112).
+    let user_home = cmux_tui_core::chief_brains::account_home()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .unwrap_or_default();
     let mut path_dirs: Vec<PathBuf> = std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))

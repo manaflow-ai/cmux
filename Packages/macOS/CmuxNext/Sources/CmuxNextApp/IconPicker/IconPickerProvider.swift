@@ -3,8 +3,9 @@ import CmuxNextSettings
 import Foundation
 
 /// The icon picker page's ops (`cmux.iconPicker.*`, webviews/src/pages/icon-picker/host.ts):
-/// the session stream, the finish call, the recents/skin-tone prefs. Asset ops refuse until
-/// the owner's blob store exists. The page owns no data.
+/// the session stream, the finish call, the recents/skin-tone prefs, and the asset ops, which
+/// store an Image or SVG with the session's owner (``IconAssetStore``) and refuse for a session
+/// without one. The page owns no data.
 ///
 /// One provider lives as long as the warm page (``IconPickerService``) and serves every picker
 /// session in it: ``begin(_:onFinish:)`` swaps the session and pushes it through the page's one
@@ -17,6 +18,8 @@ final class IconPickerProvider: PageProvider {
     /// The session the page shows; nil before the first open.
     private(set) var session: IconPickerSession?
     private var onFinish: ((IconPickerResult) -> Void)?
+    /// Where the open session's Image and SVG assets go; nil keeps those tabs off.
+    private var assets: IconAssetStore?
     private var listener: (@MainActor (JSONValue) -> Void)?
     private let prefs: IconPickerPrefsStore
     private let catalog: IconPickerSymbolCatalog?
@@ -32,10 +35,14 @@ final class IconPickerProvider: PageProvider {
     var isOpen: Bool { onFinish != nil }
 
     /// Starts `session`: a session still open is cancelled first; the page resets to the new
-    /// one now when it is loaded, else when it subscribes. `onFinish` runs once.
-    func begin(_ session: IconPickerSession, onFinish: @escaping (IconPickerResult) -> Void) {
+    /// one now when it is loaded, else when it subscribes. `onFinish` runs once. With `assets`
+    /// the page shows its Image and SVG tabs and stores their picks there.
+    func begin(_ session: IconPickerSession, assets: IconAssetStore? = nil, onFinish: @escaping (IconPickerResult) -> Void) {
         finish(.cancel)
+        var session = session
+        session.assets = assets != nil
         self.session = session
+        self.assets = assets
         self.onFinish = onFinish
         listener?(session.event)
     }
@@ -54,11 +61,33 @@ final class IconPickerProvider: PageProvider {
             guard let document = params["prefs"], document.objectValue != nil else { throw PageError.invalidParams("prefs") }
             prefs.save(document)
             return .null
-        case "cmux.iconPicker.asset.put", "cmux.iconPicker.asset.fromURL":
-            throw PageError.unavailable("icon assets need the owner's blob store")
+        case "cmux.iconPicker.asset.put":
+            guard let assets else { throw PageError.unavailable("this icon takes no image or SVG") }
+            guard let kind = params["kind"]?.stringValue.flatMap(IconAssetKind.init(rawValue:)),
+                  let data = params["base64"]?.stringValue.flatMap({ Data(base64Encoded: $0) }),
+                  let mediaType = kind.mediaType(of: data) else { throw PageError.invalidParams("asset.put: kind and base64 data") }
+            let opened = session?.id
+            return try await stored(assets.put(mediaType, data), in: opened)
+        case "cmux.iconPicker.asset.fromURL":
+            guard let assets else { throw PageError.unavailable("this icon takes no image or SVG") }
+            guard let kind = params["kind"]?.stringValue.flatMap(IconAssetKind.init(rawValue:)),
+                  let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else {
+                throw PageError.invalidParams("asset.fromURL: kind and url")
+            }
+            let opened = session?.id
+            let file = try await kind.download(url)
+            guard session?.id == opened else { throw PageError.cancelled }
+            return try await stored(assets.put(file.mediaType, file.data), in: opened)
         default:
             throw PageError.unknownOp(op)
         }
+    }
+
+    /// The reply to an asset op started in session `opened`: refused when another session began
+    /// meanwhile, so a late asset never lands in a newer picker.
+    private func stored(_ icon: String, in opened: String?) throws -> JSONValue {
+        guard session?.id == opened else { throw PageError.cancelled }
+        return .object(["icon": .string(icon)])
     }
 
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
@@ -78,6 +107,7 @@ final class IconPickerProvider: PageProvider {
     func finish(_ result: IconPickerResult) {
         guard let onFinish else { return }
         self.onFinish = nil
+        assets = nil
         onFinish(result)
     }
 }

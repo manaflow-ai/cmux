@@ -4,7 +4,9 @@ import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
+export { avatarGetRoute, avatarSetRoute } from "./home-avatar-routes.ts"
 import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
+import { acceptRequest, dismissRequest, linkedUserOf, listRequests, withSameDomainReach } from "./home-requests.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -13,8 +15,10 @@ import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } fr
  *
  * - conversation.create: `conv_` + sha256(actor, idempotency key), so a retry reaches the same object.
  * - dm.open: the caller's existing DM with a user peer (inbox `peer` index), else the pair's
- *   deterministic id; an email or phone peer becomes an address participant (HMAC id with
- *   HOME_ADDRESS_KEY) and is invited in the same request.
+ *   deterministic id. An email or phone peer whose address is linked to an account the caller can
+ *   reach opens that user DM (home-requests.ts); any other one becomes an address participant
+ *   (HMAC id with HOME_ADDRESS_KEY) and is invited in the same request, which its verified owner
+ *   sees as a message request.
  * - Ops that add humans carry the reach facts the Worker resolved (home-reach.ts). conversation.create
  *   and participants.add first take one attempt from the caller's hourly budget (home-rate.ts);
  *   a spent budget refuses before any reach RPC or member check.
@@ -246,6 +250,20 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       }
       const resolved = addressFor(env, (peer ?? {}) as { email?: string; phone?: string })
       if ("ok" in resolved) return reject(key, resolved.code, resolved.message)
+      // The address of an account (its verified email, linked at sign-in): that person, when the caller
+      // can reach them, gets the real DM at once. A stranger falls through to the invite, the same
+      // answer an unknown address gets (16.4), and sees it as a message request.
+      const linked = principal.agent ? null : await linkedUserOf(env, resolved.id)
+      if (linked === me) return reject(key, "invalid_participant", "that is your own address")
+      if (linked) {
+        const reach = await resolveHumanReach(env, principal, humanTargets(me, [linked]))
+        const existing = reach.dms.get(linked)
+        if (existing) return conversationStub(env, existing).submit(existing, principal, dmReopenFrame(frame, existing))
+        const created = dmCreateFrame(principal, frame, linked)
+        const trusted = await withSameDomainReach(env, reach.principal, linked)
+        const direct = await conversationStub(env, created.id).submit(created.id, trusted, created.frame)
+        if (resultOf(direct)?.t === "result") return direct
+      }
       const id = homeConversation.dmConversationId(me, resolved.id)
       const shown = invites.maskAddress(resolved.address)
       const opened = await conversationStub(env, id).submit(id, principal, { ...frame, params: { id, participants: [self, { id: resolved.id, kind: "address", display_name: shown }] } })
@@ -263,9 +281,40 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       if (!(await conversationStub(env, conversation).mayInvite(conversation, principal))) return reject(key, "forbidden", "not a participant of this conversation")
       return createInvite(env, principal, conversation, rest, frame)
     }
+    case "grant.create": {
+      const { conversation, role, expires_in_hours, max_uses } = params as { conversation?: unknown; role?: unknown; expires_in_hours?: unknown; max_uses?: unknown }
+      if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return reject(key, "validation.invalid", "grant.create needs a conversation id")
+      if (!env.HOME_ADDRESS_KEY) return reject(key, "home.not_configured", "Home links are not configured on this deployment")
+      // Retry-stable: the id from (conversation, actor, key); the secret an HMAC of the id, unguessable without the key.
+      const grant = `grt_${digest26(`grant\u0000${conversation}\u0000${actorOf(principal)}\u0000${key}`)}`
+      const secret = invites.crockford(createHmac("sha256", env.HOME_ADDRESS_KEY).update(`grant-secret\u0000${grant}`).digest(), invites.SECRET_CHARS)
+      const owned = {
+        grant_id: grant,
+        token_hash: invites.hashInviteSecret(invites.hashInviteSecret(secret)),
+        ...(role === undefined ? {} : { role }),
+        ...(expires_in_hours === undefined ? {} : { expires_in_hours }),
+        ...(max_uses === undefined ? {} : { max_uses })
+      }
+      const res = await conversationStub(env, conversation).submit(conversation, principal, { ...frame, params: owned })
+      // Only the maker's own answer carries the link (the secret is in its fragment); events never do.
+      // An environment without an accept origin (development, tests) gets the code and secret only.
+      let link: string | undefined
+      try {
+        link = invites.inviteLink(env.ENVIRONMENT, conversation, secret, env.HOME_INVITE_ORIGIN)
+      } catch {
+        link = undefined
+      }
+      const shared = { grant_id: grant, code: invites.linkCode(conversation), secret, ...(link ? { link } : {}) }
+      return { frames: res.frames.map((f) => (f.t === "result" ? { ...f, value: { ...(f.value as object), ...shared } } : f)) }
+    }
     case "conversation.import": {
       // First call: the id is derived from the signed-in user and the source (never a client field).
       const source = params.source as { host?: unknown; local_id?: unknown } | null | undefined
+      // A fill names the owner's existing (empty) chief conversation; its owner checks the caller.
+      if (params.fill === true) {
+        if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "a fill names the chief conversation's id")
+        return conversationStub(env, params.id).submit(params.id, principal, frame)
+      }
       if (source !== undefined) {
         if (!source || typeof source !== "object" || typeof source.host !== "string" || typeof source.local_id !== "string") return reject(key, "validation.invalid", "source needs host and local_id")
         const id = homeConversation.importConversationId(actorOf(principal), source.host, source.local_id)
@@ -280,6 +329,10 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "commit names its id")
       return conversationStub(env, params.id).submit(params.id, principal, frame)
     }
+    case "invite.accept_verified":
+      return acceptRequest(env, principal, params, key)
+    case "request.dismiss":
+      return dismissRequest(env, principal, params, key)
     case "invite.accept": {
       const id = conversationForCode(String(params.code ?? ""))
       const secret = String(params.secret ?? "")
@@ -301,6 +354,8 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
 
 /** A Home ConversationDO read: routed by `conversation`, which is stripped. */
 export const conversationRead = async (env: Env, principal: Principal, op: string, params: unknown) => {
+  // Message requests are the caller's own, across conversations (home-requests.ts).
+  if (op === "home.requests.list") return listRequests(env, principal)
   const { conversation, ...rest } = (params ?? {}) as { conversation?: unknown }
   if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return { ok: false as const, code: "validation.invalid", message: `${op} needs a conversation id` }
   return conversationStub(env, conversation).readOp(conversation, principal, op, rest)

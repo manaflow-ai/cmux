@@ -65,7 +65,7 @@ public struct ControlSequenceBarrier: Sendable, Hashable {
 public final class ControlSnapshotStore: Sendable {
     private struct Waiter {
         let id: UInt64
-        let barrier: ControlSequenceBarrier
+        let isReady: @Sendable (ControlSnapshot) -> Bool
         let continuation: CheckedContinuation<ControlSnapshot?, Never>
     }
 
@@ -76,11 +76,33 @@ public final class ControlSnapshotStore: Sendable {
     }
 
     private let state = Mutex(State())
+    /// Main-actor state changed since the last publish and nothing has built it yet (a control work-queue frame):
+    /// ``fresh()`` builds it first. Set on the main actor, read by connection tasks.
+    private let stale = Atomic<Bool>(false)
+    /// Builds and publishes a stale snapshot on the main actor (the App's publisher); nil: none.
+    private let refresher = Mutex<(@Sendable () async -> Void)?>(nil)
 
     public init() {}
 
     /// The latest published snapshot.
     public var current: ControlSnapshot { state.withLock { $0.snapshot } }
+
+    /// Whether main-actor state changed since the last publish and has not been built yet.
+    public var isStale: Bool { stale.load(ordering: .acquiring) }
+
+    /// Main-actor state changed: the next ``fresh()`` builds the snapshot first (a lazy publish: nothing is built
+    /// until a read needs it).
+    public func markStale() { stale.store(true, ordering: .releasing) }
+
+    /// Sets the closure that builds and publishes a stale snapshot on the main actor.
+    public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.withLock { $0 = refresh } }
+
+    /// The latest snapshot, built first when main-actor state changed since the last publish (``markStale()``):
+    /// what a control call reads, so it covers the writes of the calls before it.
+    public func fresh() async -> ControlSnapshot {
+        if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
+        return current
+    }
 
     /// True while a reader waits for a newer topology; the publisher then
     /// publishes on the next main-actor turn instead of the next frame.
@@ -89,16 +111,22 @@ public final class ControlSnapshotStore: Sendable {
     /// Applies `update` to a copy of the current snapshot and publishes the
     /// result. Build expensive values before calling: the lock is held for
     /// the closure's duration.
+    ///
+    /// - Parameter rebuilt: The update holds a topology built from main-actor state now (the App's
+    ///   publisher): it ends the stale mark (``markStale()``). A publish of one field (the context mask,
+    ///   the catalog, settings, the daemon sequences) leaves the mark, so the next ``fresh()`` still
+    ///   builds the topology: a focus change followed by a context-mask publish kept the old focus.
     @discardableResult
-    public func publish(_ update: (inout ControlSnapshot) -> Void) -> UInt64 {
+    public func publish(rebuilt: Bool = false, _ update: (inout ControlSnapshot) -> Void) -> UInt64 {
         let (generation, snapshot, ready) = state.withLock { state -> (UInt64, ControlSnapshot, [Waiter]) in
             update(&state.snapshot)
+            if rebuilt { stale.store(false, ordering: .releasing) }
             state.snapshot.generation &+= 1
             state.snapshot.publishedAtUptimeNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             guard !state.waiters.isEmpty else { return (state.snapshot.generation, state.snapshot, []) }
             let snapshot = state.snapshot
-            let ready = state.waiters.filter { snapshot.reflects($0.barrier) }
-            if !ready.isEmpty { state.waiters.removeAll { snapshot.reflects($0.barrier) } }
+            let ready = state.waiters.filter { $0.isReady(snapshot) }
+            if !ready.isEmpty { state.waiters.removeAll { $0.isReady(snapshot) } }
             return (snapshot.generation, snapshot, ready)
         }
         for waiter in ready { waiter.continuation.resume(returning: snapshot) }
@@ -115,8 +143,16 @@ public final class ControlSnapshotStore: Sendable {
     /// The first published snapshot that reflects every sequence in
     /// `barrier`, or nil at `deadline` or on cancellation.
     public func snapshot(reflecting sequence: ControlSequenceBarrier, deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
+        await snapshot(where: { $0.reflects(sequence) }, deadline: deadline)
+    }
+
+    /// The first published snapshot for which `isReady` holds (the current
+    /// one when it already does), or nil at `deadline` or on cancellation.
+    /// `isReady` runs under the store's lock: keep it a cheap read.
+    public func snapshot(where isReady: @escaping @Sendable (ControlSnapshot) -> Bool,
+                         deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
         let (ready, id) = state.withLock { state -> (ControlSnapshot?, UInt64) in
-            if state.snapshot.reflects(sequence) { return (state.snapshot, 0) }
+            if isReady(state.snapshot) { return (state.snapshot, 0) }
             state.nextWaiter &+= 1
             return (nil, state.nextWaiter)
         }
@@ -132,9 +168,10 @@ public final class ControlSnapshotStore: Sendable {
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
                 let now = state.withLock { state -> ControlSnapshot?? in
-                    if state.snapshot.reflects(sequence) { return .some(state.snapshot) }
-                    if Task.isCancelled { return .some(nil) }
-                    state.waiters.append(Waiter(id: id, barrier: sequence, continuation: continuation))
+                    if isReady(state.snapshot) { return .some(state.snapshot) }
+                    // The timer may have fired before this waiter existed (a deadline already past).
+                    if Task.isCancelled || ContinuousClock.now >= deadline { return .some(nil) }
+                    state.waiters.append(Waiter(id: id, isReady: isReady, continuation: continuation))
                     return .none
                 }
                 if case .some(let result) = now { continuation.resume(returning: result) }

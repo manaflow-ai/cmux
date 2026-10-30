@@ -20,6 +20,8 @@ public final class UpdateSheetController {
     }
 
     public var isPresented: Bool { panel != nil }
+    /// Runs after the sheet closes (set by the App).
+    public var onDismiss: (() -> Void)?
 
     /// Shows the sheet on `window` (no-op when already shown). Never
     /// activates the app; a standalone panel orders front without focus.
@@ -27,7 +29,7 @@ public final class UpdateSheetController {
         guard panel == nil else { return }
         let panel = UpdateSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: [.borderless],
                                      backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(panel)
+        ThemeScope.app.store.adopt(panel)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -35,7 +37,16 @@ public final class UpdateSheetController {
         panel.onCancel = { [weak self] in self?.cancel() }
         let hosting = NSHostingView(rootView: UpdateSheetView(source: source, dismiss: { [weak self] in self?.dismiss() }))
         hosting.translatesAutoresizingMaskIntoConstraints = false
-        let glass = Glass.makePanel(content: hosting)
+        // The solid popup surface, never glass: the update notes are text. The hosting view keeps
+        // its constraints, so its fitting size still sizes the sheet.
+        let glass = Glass.makeOverlayPanel()
+        glass.contentView.addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
+        ])
         let root = NSView()
         root.addSubview(glass)
         NSLayoutConstraint.activate([
@@ -65,6 +76,7 @@ public final class UpdateSheetController {
         self.panel = nil
         hosting = nil
         if let parent = panel.sheetParent { parent.endSheet(panel) } else { panel.orderOut(nil) }
+        onDismiss?()
     }
 
     private func cancel() {

@@ -71,7 +71,7 @@
   border: 0;
   background: transparent;
   outline: none;
-  caret-color: var(--page-text);
+  caret-color: var(--cmux-caret, var(--page-text));
   -webkit-appearance: none;
   appearance: none;
 }
@@ -308,20 +308,13 @@
   height: var(--icon-bar-height);
   padding: 0 14px;
   border-radius: calc(var(--icon-bar-height) / 2);
-  border: 1px solid var(--page-separator);
-  background: color-mix(in srgb, var(--page-elevated) 90%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  backdrop-filter: blur(20px) saturate(1.5);
-  box-shadow: 0 4px 18px color-mix(in srgb, black 16%, transparent);
+  /* Clear, at its width: the glass rim draws the pill's one edge. */
+  border: 1px solid transparent;
+  /* Glass (.ui-glass): the frost keeps the grid's icons from reading through the pill's labels. */
+  --glass-elevation: var(--elevation-2);
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: var(--surface-popup);
   pointer-events: auto;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .icon-bar-pill {
-    background: var(--page-elevated);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 .icon-bar-item {
@@ -407,7 +400,7 @@
   border-radius: 5px;
   border: 1px solid color-mix(in srgb, var(--page-text) 22%, transparent);
   color: var(--page-text-2);
-  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 12px var(--font-ui);
 }
 
 .icon-keycap + .icon-keycap {

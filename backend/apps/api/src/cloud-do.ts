@@ -8,11 +8,17 @@ import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
-import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
+import { platformCall, type PlatformCall, type PlatformReply } from "./cloud-platform.ts"
 import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
 import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxReply } from "./cloud-acpmux-do.ts"
+import type { MachineExecReply } from "./automation-machine.ts"
+import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
+import { teamPlan } from "./domains/cloud-plan.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -28,6 +34,8 @@ const STATE_CHECK_EVERY_MS = 30_000
 export class CloudDO extends CloudIdle {
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    // cloud.plan.get answers the team's current paid plan (cloud-entitlements.ts).
+    if (op === "cloud.plan.get") await this.entitlements.refresh(entity, principal)
     // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.
     if (op === "integration.approval.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(readCloudApproval(this.ctx.storage.sql, principal, params))
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
@@ -75,6 +83,11 @@ export class CloudDO extends CloudIdle {
       if (source !== `team:${entity}` || typeof user !== "string") continue
       this.leftAt.set(user, Date.now())
       if (this.isBound(entity)) this.closeSockets((p) => p.user === user, "left the team")
+      // Their client sessions end now too: the identities (and every token on them) are deleted at the provider.
+      if (this.hasClientIdentities()) {
+        const theirs = this.clientIdentityStore().forgetUser(user, Date.now())
+        await this.sweepClientIdentities(Date.now(), theirs).catch(() => this.retryClientIdentities())
+      }
     }
     const answers = items.filter((i) => i.op === "integration.approval.answered")
     const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS)
@@ -88,10 +101,11 @@ export class CloudDO extends CloudIdle {
    * token is hashed here, so the committed op, its event and the ledger never see it. Any token
    * problem is one auth.forbidden; an object nobody created answers the same without being created.
    */
-  /** TeamDO's member-only read for `user` (tests replace it). */
+  /** TeamDO's fresh resource-membership read for `user` (tests replace it). */
   creatorIsMember = async (team: string, user: string): Promise<boolean> => {
-    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
-    return (await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 1 })).ok
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { memberRole(e: string, u: string): Promise<string | null> }
+    const role = await stub.memberRole(team, user)
+    return roleHas(role ?? undefined, "team.resources")
   }
 
   async bindMachine(entity: string, body: unknown): Promise<BindReply> {
@@ -143,12 +157,13 @@ export class CloudDO extends CloudIdle {
   private readonly stateChecks = new Map<string, number>()
   private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
     const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
-    const driver = row?.status === "running" ? cloudDriver(this.env, this.sqlStore) : null
-    if (!row || !driver) return
+    if (row?.status !== "running") return
     // At most one provider read per machine per 30 s (review P2-3: the API key is shared by every team).
     const now = Date.now() + this.skewMs
     const last = this.stateChecks.get(row.id)
     if (last !== undefined && now - last < STATE_CHECK_EVERY_MS) return
+    const driver = await this.driverFor(row)
+    if (!driver) return
     this.stateChecks.set(row.id, now)
     const r = await driver.stateOf(row.provider_name, { team: entity, machine: row.id }).catch(() => undefined)
     // Only a VM known gone, or explicitly paused or stopped, changes the record (review P2-2): any other or missing value is no change.
@@ -194,6 +209,191 @@ export class CloudDO extends CloudIdle {
     return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys }, () => this.teamConnectServices(entity), () => this.audit)
   }
 
+  /**
+   * cx-kvmz, RPC from POST /v1/cloud/machines/{machine}/acpmux/keyed-start and person-holds
+   * (cloud-acpmux.ts): NOT ops. No submit, no op-log row, no ledger row, no param kept; the audit
+   * row holds {action, machine, who, at, outcome} (cloud-acpmux-do.ts).
+   */
+  async acpmuxKeyedStart(entity: string, principal: Principal, machine: string, keyLine: Uint8Array): Promise<AcpmuxReply<{ personInstance: string }>> {
+    const host = this.acpmuxHost(entity)
+    if (!host) return (keyLine.fill(0), { ok: false, refusal: "not_found" })
+    return acpmuxKeyedStartOn(host, principal, machine, keyLine)
+  }
+
+  async acpmuxPersonHolds(entity: string, principal: Principal, machine: string, nonce: string): Promise<AcpmuxReply<{ instance: string; proof: string }>> {
+    const host = this.acpmuxHost(entity)
+    return host ? acpmuxPersonHoldsOn(host, principal, machine, nonce) : { ok: false, refusal: "not_found" }
+  }
+
+  /**
+   * Org workflows (plans/cmux-next/org-workflows-DESIGN.md): one machine or agent step of an
+   * automation run of this team, from AutomationRunWorkflow. NOT an op: the run's own journal
+   * (the Workflow's durable step) is the record. The machine must be a running machine of THIS
+   * team: the object is per team, so another team's machine id is not found. Only a run charged
+   * to the machine's creator may use it (a teammate's automation cannot run commands, with root,
+   * on someone else's machine). No answer carries a provider error; stdout and stderr go back to
+   * the run only.
+   */
+  automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+    // Only the machine's creator, while still a member: a teammate's automation never runs on it.
+    return this.guestExec(entity, machine, (row) => (user !== null && row.creator === user ? this.mayUseMachines(entity, user) : Promise.resolve(false)), command, stdin, timeoutMs, { action: "automation.exec", who: `automation:${entity}` })
+  }
+
+  /**
+   * The exec and file routes (cloud-machine-guest.ts, classic /api/vm's shapes): one command, as sent
+   * (the route wraps it for the work user or runs it as root), on a machine of this team, for a person
+   * who may use the team's machines now. Classic /api/vm lets any member of the owning team do the
+   * same, so this is not creator-only; the link's owner answer (vm_kind) is a stricter rule of its own.
+   * NOT an op. Another team's machine is not found; a member who left is forbidden.
+   */
+  ownerExec(entity: string, user: string, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+    return this.guestExec(entity, machine, () => this.mayUseMachines(entity, user), command, stdin, timeoutMs, { action: "owner.exec", who: `platform:${user}` })
+  }
+
+  /** The personal team, or a member with team.resources now and no departure heard during the read. */
+  private async mayUseMachines(entity: string, user: string): Promise<boolean> {
+    if (entity === personalTeamIdFor(user)) return true
+    const started = Date.now()
+    const member = await this.creatorIsMember(entity, user).catch(() => false)
+    return member && (this.leftAt.get(user) ?? -1) < started
+  }
+
+  private async guestExec(entity: string, machine: string, allowed: (row: MachineRow) => Promise<boolean>, command: string, stdin: Uint8Array | null, timeoutMs: number, audit: { action: string; who: string }): Promise<MachineExecReply> {
+    if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
+    const row = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!row) return { ok: false, refusal: "not_found" }
+    if (!(await allowed(row))) return { ok: false, refusal: "forbidden" }
+    if (row.status !== "running") return { ok: false, refusal: "not_running" }
+    const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
+    if (!driver) return { ok: false, refusal: "provider_failed" }
+    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
+    // Never the command or its stdin (a credential or a file's content may be on it).
+    this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
+    return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
+  }
+
+  /**
+   * RPC from POST /v1/cloud/machines/{machine}/client-session (cloud-client-session.ts): NOT an op.
+   * No submit, no event, no ledger row; the audit row holds who, the machine, the user and the
+   * expiry, never the token.
+   */
+  async mintClientSession(entity: string, principal: Principal, machine: string, ttlSeconds: number): Promise<ClientSessionReply> {
+    if (principal.team !== entity) return { ok: false, refusal: "forbidden" }
+    if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
+    const rows = this.bind(entity).rows
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    return mintClientSessionOn(
+      {
+        team: entity,
+        machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
+        member: async (user, since) => {
+          if (entity === personalTeamIdFor(user)) return true
+          return (await this.creatorIsMember(entity, user).catch(() => false)) && (this.leftAt.get(user) ?? -1) < since
+        },
+        plan: async (p) => {
+          await this.entitlements.refresh(entity, p)
+          return teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, entity) !== null
+        },
+        limit: async (user) => !limit || (await limit.limit({ key: `cloud-client-session:${user}` })).success,
+        driver: (row) => Promise.resolve(this.driverFor(row)),
+        identities: this.clientIdentityStore(),
+        retryLater: () => this.retryClientIdentities(),
+        audit: (e) => this.audit.record(e),
+        now: () => Date.now() + this.skewMs,
+        inflight: this.clientInflight
+      },
+      principal,
+      machine,
+      ttlSeconds
+    )
+  }
+  private readonly clientInflight = new Map<string, Promise<unknown>>()
+  private clientIdentities: ClientIdentityStore | null = null
+  private clientIdentityStore(): ClientIdentityStore {
+    return (this.clientIdentities ??= new ClientIdentityStore(this.sqlStore))
+  }
+
+  /** A retired identity's delete failed: try again in an hour, unless an earlier alarm is already set. */
+  private retryClientIdentities(): void {
+    const at = Date.now() + 3_600_000
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
+  }
+
+  /** Retires gone machines' identities and deletes retired ones; only for a team that ever minted one. */
+  private hasClientIdentities(): boolean {
+    return this.clientIdentities !== null || this.sqlStore.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cloud_client_identity'`)[0]?.n === 1
+  }
+
+  protected override async sweepClientIdentities(now: number, first: ReadonlyArray<string> = []): Promise<void> {
+    if (!this.hasClientIdentities()) return
+    const entity = this.boundEntity()
+    if (!entity || !this.isBound(entity)) return
+    const rows = this.bind(entity).rows
+    const driver = await Promise.resolve(this.driverFor({ transport: "direct" }, "cleanup")).catch(() => null)
+    if (!driver) {
+      // No provider right now: whatever waits for its delete is tried again later.
+      if (this.clientIdentityStore().pending()) this.retryClientIdentities()
+      return
+    }
+    if (await sweepClientIdentities(this.clientIdentityStore(), (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row, driver, now, 10, first)) this.retryClientIdentities()
+  }
+
+  /**
+   * The platform Worker's environment setups (PlatformMachines, platform-machines.ts) for `user` in this
+   * team: boot, exec, snapshot and delete through the person's own ops (cloud-platform.ts). No public
+   * route reaches it; only a Worker bound to PlatformMachines does.
+   */
+  async platformMachine(entity: string, user: string, call: PlatformCall): Promise<PlatformReply> {
+    const started = Date.now()
+    const rows = () => (this.isBound(entity) ? this.bind(entity).rows : undefined)
+    return platformCall({
+      team: entity,
+      // A shared team: a member with team.resources now, and no departure heard during the read (as automationExec).
+      mayUse: async (u) => entity === personalTeamIdFor(u) || ((await this.creatorIsMember(entity, u)) && (this.leftAt.get(u) ?? -1) < started),
+      submit: (p, f) => this.submit(entity, p, f),
+      machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      ledger: (key) => rows()?.get<LedgerRow>(TABLE_LEDGER, key)?.row,
+      snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
+      platformSnapshot: (u, id) => {
+        const reader = rows()
+        if (!reader) return false
+        let after: number | undefined
+        for (;;) {
+          const page = reader.range<LedgerRow>(TABLE_LEDGER, { after, limit: 1000 })
+          if (page.some((l) => l.row.op === "snapshot" && l.row.snapshot === id && l.row.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${u}|platform-env:snapshot:`))) return true
+          if (page.length < 1000) return false
+          after = page[page.length - 1]!.n!
+        }
+      },
+      tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
+      exec: async (row, command, stdin, timeoutMs) => {
+        const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
+        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null) : null
+      },
+      audit: (e) => this.audit.record(e)
+    }, user, call)
+  }
+
+  private readonly acpmuxStarting = new Set<string>()
+  /** null for an object nobody created (it is never created here). */
+  private acpmuxHost(entity: string): AcpmuxHost | null {
+    if (!this.isBound(entity)) return null
+    const rows = this.bind(entity).rows
+    return {
+      team: entity,
+      machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      driver: (row) => this.driverFor(row),
+      members: async (team, user) => {
+        const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { member_count?: unknown; members?: Array<{ user?: unknown }> } }> }
+        const r = await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 2 })
+        if (!r.ok || typeof r.value?.member_count !== "number" || !Array.isArray(r.value.members)) return null
+        return { count: r.value.member_count, users: r.value.members.map((m) => (typeof m.user === "string" ? m.user : "")) }
+      },
+      audit: (e) => this.audit.record(e),
+      starting: this.acpmuxStarting
+    }
+  }
+
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
   private teamConnectServices(entity: string): Promise<ReadonlyArray<string>> {
     return this.teamCloudPolicy(entity).then((p) => p.connect_services)
@@ -209,7 +409,7 @@ export class CloudDO extends CloudIdle {
     if (!engine || this.boundEntity() !== entity) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
     const stored = engine.rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }).find((l) => l.row.machine === machine && l.row.state === "abandoned")
     if (!stored) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
-    const driver = cloudDriver(this.env, this.sqlStore)
+    const driver = await this.driverFor(stored.row, "cleanup")
     if (!driver) return { ok: false, code: "provider_unavailable", message: "no Cloud provider is configured, so the recorded name cannot be checked" }
     const found = await driver.peek(stored.row.provider_name).catch(() => undefined)
     if (found === undefined) return { ok: false, code: "provider_unavailable", message: "the provider lookup failed; try again" }
@@ -222,9 +422,10 @@ export class CloudDO extends CloudIdle {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null; entitlements?: "on" | "off"; exec_build_exit?: number; exec_log?: string; guest_reply?: { exitCode: number; stdout: string; stderr: string } | null }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
+    if (cmd.entitlements !== undefined) this.entitlements.enabled = cmd.entitlements === "on"
     if (cmd.edge_host !== undefined) this.edge.testHost = cmd.edge_host
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
@@ -239,6 +440,9 @@ export class CloudDO extends CloudIdle {
     if (cmd.power_then_fail !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET power_then_fail = ? WHERE id = 1`, cmd.power_then_fail)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.drop_results !== undefined) this.dropResults = cmd.drop_results
+    if (cmd.exec_build_exit !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_guest SET build_exit = ? WHERE id = 1`, cmd.exec_build_exit)
+    if (cmd.exec_log !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_guest SET log = ? WHERE id = 1`, cmd.exec_log)
+    if (cmd.guest_reply !== undefined) this.sqlStore.exec(`INSERT OR REPLACE INTO cloud_fake_guest_reply (id, reply) VALUES (1, ?)`, cmd.guest_reply ? JSON.stringify(cmd.guest_reply) : null)
     if (cmd.fail_list !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_list = ? WHERE id = 1`, cmd.fail_list ? 1 : 0)
     if (cmd.advance_ms !== undefined) this.skewMs += cmd.advance_ms
     if (cmd.delete_vm !== undefined) this.sqlStore.exec(`DELETE FROM cloud_fake_vm WHERE name = ?`, cmd.delete_vm)
@@ -246,11 +450,13 @@ export class CloudDO extends CloudIdle {
       const t = { cmux_next_team: cmd.add_vm.team, cmux_next_machine: cmd.add_vm.machine }
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
-    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls FROM cloud_fake_ctl WHERE id = 1`)[0]!
+    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number; snapshot_deletes: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls, snapshot_deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number; snapshot: string | null }>(`SELECT name, id, idle, cpu, memory, snapshot FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
     const snapshots = this.sqlStore.exec<{ slug: string; source: string }>(`SELECT slug, source FROM cloud_fake_snapshot ORDER BY slug`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
     const tls = this.sqlStore.exec<{ vm: string; domain: string; rule: string }>(`SELECT vm, domain, rule FROM cloud_fake_tls ORDER BY vm`).map((r) => ({ vm: r.vm, domain: r.domain, rule: JSON.parse(r.rule) as unknown }))
-    return { tls, files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
+    const execs = this.sqlStore.exec<{ vm: string; kind: string }>(`SELECT vm, kind FROM cloud_fake_exec ORDER BY n`).map((e) => ({ vm: e.vm, kind: e.kind }))
+    const guest_calls = this.sqlStore.exec<{ command: string; stdin: string | null }>(`SELECT command, stdin FROM cloud_fake_guest_call ORDER BY n`).map((c) => ({ command: c.command, stdin: c.stdin }))
+    return { execs, guest_calls, tls, files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), snapshot_deletes: Number(ctl.snapshot_deletes), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
   }
 }

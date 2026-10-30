@@ -1,12 +1,16 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextBrowser
+import CmuxNextIcons
+import CmuxNextPages
 import Foundation
 import Observation
 
-/// The `cmux://agent-activity` page in a browser tab: a native view, no
-/// engine (like `HistoryPageTab`). Navigating it to a web address asks the
-/// host (`onNavigate`) to turn the tab into a real page.
+/// The `cmux://agent-activity` page in a browser tab: the Activity page on the
+/// shared page host (``PageDescriptor/agentActivity``, Chromium or WebKit by
+/// `browser.defaultEngine`), else the old WebKit view when the page host has no
+/// root for it. Navigating it to a web address asks the host (`onNavigate`) to
+/// turn the tab into a real page.
 @MainActor
 @Observable
 final class AgentActivityPageTab: BrowserTab {
@@ -15,7 +19,7 @@ final class AgentActivityPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: nil)
+    let favicon: NSImage? = NSImage.icon(.agentActivity, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
@@ -30,8 +34,11 @@ final class AgentActivityPageTab: BrowserTab {
         var state = BrowserTabState(url: AgentActivityPageAddress.url, title: AgentActivityPaneStrings.title)
         state.phase = .finished
         self.state = state
-        model = AgentActivityModel(source: source)
-        contentView = AgentActivityHostView(model: model, source: source)
+        let model = AgentActivityModel(source: source)
+        self.model = model
+        let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source))
+        contentView = PageWebView(descriptor: .agentActivity, routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)])
+            ?? AgentActivityHostView(model: model, source: source)
         model.start()
     }
 
@@ -47,6 +54,7 @@ final class AgentActivityPageTab: BrowserTab {
 
     func setFocused(_ focused: Bool) {
         guard focused, let window = contentView.window else { return }
+        if let page = contentView as? PageWebView { return page.focusPage() }
         window.makeFirstResponder(contentView)
     }
 
@@ -61,7 +69,7 @@ final class AgentActivityPageTab: BrowserTab {
         return image
     }
 
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.closed }
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
         model.filter = text
         return .none
@@ -70,5 +78,5 @@ final class AgentActivityPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() {}
+    func close() { (contentView as? PageWebView)?.close() }
 }

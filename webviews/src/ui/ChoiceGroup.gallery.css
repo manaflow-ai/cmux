@@ -1,0 +1,84 @@
+.choice-group-gallery-stage {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 280px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.choice-group-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.choice-group-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-content);
+  font-weight: 600;
+}
+
+.choice-group-gallery {
+  display: grid;
+  gap: 2px;
+  width: min(100%, 420px);
+  margin: 0;
+  padding: 5px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 14%, transparent));
+  border-radius: 9px;
+  background: var(--cmux-elevated-background, Canvas);
+}
+
+.choice-group-gallery-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--cmux-text, CanvasText);
+}
+
+.choice-group-gallery-option:hover {
+  background: var(--cmux-hover, color-mix(in srgb, CanvasText 7%, transparent));
+}
+
+.choice-group-gallery-option:has(input:checked) {
+  background: var(--cmux-selection, color-mix(in srgb, CanvasText 11%, transparent));
+}
+
+.choice-group-gallery-option:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.choice-group-gallery-option input {
+  accent-color: var(--cmux-accent, Highlight);
+}
+
+.choice-group-gallery-label {
+  display: grid;
+  gap: 2px;
+}
+
+.choice-group-gallery-label strong {
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.choice-group-gallery-label small {
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 64%, transparent));
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.choice-group-gallery-receipt {
+  min-height: 18px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}

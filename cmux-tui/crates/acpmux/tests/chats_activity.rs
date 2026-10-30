@@ -4,6 +4,11 @@
 //! of either as `_acpmux/chat_changed {kind: "activity"}`. Synthetic temp
 //! homes only.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::adopt::HarnessHomes;
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
@@ -28,7 +33,9 @@ impl Drop for Home {
 }
 
 fn home() -> Home {
-    let base = std::env::temp_dir().join(format!("acpmux-activity-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-activity-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).unwrap();
     Home(std::fs::canonicalize(&base).unwrap())
 }
@@ -44,7 +51,9 @@ fn write_rollout(codex_home: &Path, cwd: &Path) {
         .join(format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl"));
     std::fs::create_dir_all(rollout.parent().unwrap()).unwrap();
     let record = json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": cwd, "timestamp": "2026-10-02T09:00:00Z"}});
-    std::fs::write(&rollout, format!("{record}\n")).unwrap();
+    // A person's chat has a user message (the index lists no chat without one).
+    let prompt = json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:01Z", "payload": {"type": "user_message", "message": "Fix the build"}});
+    std::fs::write(&rollout, format!("{record}\n{prompt}\n")).unwrap();
     let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
     std::fs::File::options().write(true).open(&rollout).unwrap().set_modified(hour_ago).unwrap();
 }

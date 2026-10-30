@@ -1,17 +1,5 @@
 import Foundation
 
-public struct LoopbackStatus: Decodable, Sendable, Equatable {
-    public var enabled: Bool
-    public var openStreams: Int
-    public var clientStreams: Int
-
-    enum CodingKeys: String, CodingKey {
-        case enabled
-        case openStreams = "open_streams"
-        case clientStreams = "client_streams"
-    }
-}
-
 /// One `loopback-*` event line.
 enum LoopbackForwardEvent: Sendable, Equatable {
     case data(stream: UInt64, bytes: Data)

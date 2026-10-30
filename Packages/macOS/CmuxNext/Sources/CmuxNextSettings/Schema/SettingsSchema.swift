@@ -8,17 +8,22 @@ public import CoreGraphics
 /// `SettingsSchemaTests` fails until the parser accepts every value the
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
-    public static var all: [SettingDescriptor] {
-        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+    /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
+    /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
+    public static let all: [SettingDescriptor] = {
+        let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + SubsessionSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
-            + ChatSettingsSchema().descriptors + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors
+            + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
+            + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
+            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
+            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor]
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
-    }
+    }()
 
     /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
     /// `appearance.metrics.*` rows say so themselves.
@@ -51,18 +56,20 @@ public nonisolated enum SettingsSchema {
     /// availability come from the action registry).
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
-        case .general: ["palette.welcomeChecklist", "onboarding.continueSetup", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
+        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
+        case .editor: ["fileEditor.importEditorSettings"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: []
+        case .home: ["diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
-        case .accounts: ["accounts.refresh", "openTeamPicker"]
+        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
-        case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
+        case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
         case .advanced: ["reloadConfiguration"]
+        case .development: []
         }
     }
 
@@ -80,6 +87,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.history.terminalCommands", "Record Terminal Commands"),
                 help: SettingsText.keyed("settings.history.terminalCommands.help",
                                         "Lists finished shell commands in History. Command lines can contain secrets."),
+                summary: SettingsText.keyed("settings.history.terminalCommands.summary", "Shows finished commands in History"),
                 kind: .toggle, default: .bool(TerminalCommandHistorySetting.fallback),
                 keywords: ["history", "commands", "shell", "privacy", "osc 133"]
             ),
@@ -101,12 +109,43 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
                 help: SettingsText.keyed("settings.navigation.historySteps.help",
                                         "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
                 kind: .choice([
                     SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
                     SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
                 ]),
                 default: .string(NavigationHistoryStepSetting.fallback),
                 keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.commandRetentionConfigPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.commandRetentionDays", "Keep Terminal Commands For"),
+                help: SettingsText.keyed("settings.history.commandRetentionDays.help",
+                                        "Each machine deletes recorded commands that are older."),
+                kind: .number(SettingNumber(Double(CmuxConfigSnapshot.commandRetentionRange.lowerBound)...Double(CmuxConfigSnapshot.commandRetentionRange.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(Double(CmuxConfigSnapshot.commandRetentionFallback)),
+                keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
+            ),
+            SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxGroupsPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
+                help: SettingsText.keyed("settings.history.closed.maxGroups.help",
+                                        "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.groupRange.lowerBound)...Double(ClosedHistoryRetentionSetting.groupRange.upperBound),
+                                            step: 1, unit: .count)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
+            ),
+            SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxAgeDaysPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxAgeDays", "Keep Recently Closed Items For"),
+                help: SettingsText.keyed("settings.history.closed.maxAgeDays.help",
+                                        "Each machine deletes closed items that are older. 0 keeps them however old they are."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.dayRange.lowerBound)...Double(ClosedHistoryRetentionSetting.dayRange.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
             ),
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
@@ -122,7 +161,7 @@ public nonisolated enum SettingsSchema {
                 TitlebarButtonsSetting.configPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
                 help: SettingsText.keyed("settings.window.titlebarButtons.help",
-                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                                        "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
                 kind: .choice([
                     SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
@@ -135,6 +174,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
                 help: SettingsText.keyed("settings.app.globalHotKey.help",
                                         "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
@@ -148,12 +188,33 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
             ),
-            TabSettingsSchema.newTabKind(group: tabs),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
+                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help",
+                                        "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback),
+                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.showMenuBarIconPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
+                help: SettingsText.keyed("settings.app.showMenuBarIcon.help",
+                                        "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
+                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
+            ),
             TabSettingsSchema.newTabTemplate(group: tabs),
+            TabSettingsSchema.nativeNewTabPage(group: tabs),
+            TabSettingsSchema.terminalFirst(group: tabs),
+            TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
-        ] + TabBarSettingsSchema.descriptors(group: tabs) + [
+        ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
+            TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
         ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
@@ -174,6 +235,7 @@ public nonisolated enum SettingsSchema {
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
+                summary: SettingsText.keyed("settings.layout.fixedColumnWidth.summary", "Share of the window width"),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
                 default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),
@@ -197,7 +259,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                 ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "column", "visible range", "overview"]
             ),
             SettingDescriptor(
                 CloseFocusSetting.configPath, section: .general, group: columns,
@@ -216,8 +278,8 @@ public nonisolated enum SettingsSchema {
     // MARK: Appearance
 
     static var appearance: [SettingDescriptor] {
-        AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
-            + DiffViewerSettingsSchema.descriptors
+        AppearanceSettingsSchema.descriptors + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+            + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors + AgentPaneDisplaySettingsSchema.descriptors
     }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {

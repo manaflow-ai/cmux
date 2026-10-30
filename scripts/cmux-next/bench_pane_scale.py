@@ -40,7 +40,7 @@ Usage:
   scripts/cmux-next/bench_pane_scale.py --tag TAG [--app PATH]
       [--counts 16,64,256,1024] [--shape grid|nested|mixed] [--rows 4]
       [--depth 4] [--tabs 1] [--browser-every 8] [--max-browsers 4]
-      [--settle 10] [--idle 20] [--ops 40] [--phases focus,resize,window,churn,tabs]
+      [--settle 10] [--idle 20] [--ops 40] [--phases focus,resize,window,churn,tabs,status]
       [--pty-margin 64] [--label NAME] [--out DIR] [--keep-running]
 
 Writes <out>/<sha>-pane-scale-<label>.json (default
@@ -50,6 +50,7 @@ or more of those into an HTML table.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import math
 import os
@@ -64,6 +65,50 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, classify, process_table, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
+
+
+class _ThreadInfo(ctypes.Structure):
+    """struct proc_threadinfo (sys/proc_info.h)."""
+    _fields_ = [("user_time", ctypes.c_uint64), ("system_time", ctypes.c_uint64), ("cpu_usage", ctypes.c_int32),
+                ("policy", ctypes.c_int32), ("run_state", ctypes.c_int32), ("flags", ctypes.c_int32),
+                ("sleep_time", ctypes.c_int32), ("curpri", ctypes.c_int32), ("priority", ctypes.c_int32),
+                ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
+
+
+_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+
+
+def thread_times(pid):
+    """{thread handle: (name, cpu_ns)} for every thread of `pid`, read from
+    outside (proc_pidinfo PROC_PIDLISTTHREADS / PROC_PIDTHREADINFO), so the
+    probe adds no wakeup to the app."""
+    handles = (ctypes.c_uint64 * 4096)()
+    size = _libproc.proc_pidinfo(pid, 6, ctypes.c_uint64(0), handles, ctypes.sizeof(handles))
+    out = {}
+    for handle in handles[:max(0, size) // 8]:
+        info = _ThreadInfo()
+        if _libproc.proc_pidinfo(pid, 5, ctypes.c_uint64(handle), ctypes.byref(info), ctypes.sizeof(info)) <= 0:
+            continue
+        out[handle] = (info.name.decode(errors="replace") or "(unnamed)", info.user_time + info.system_time)
+    return out
+
+
+def thread_activity(before, after, wall):
+    """Threads that ran during the window, grouped by name: how many threads
+    of that name exist, how many ran, and their CPU (us/s)."""
+    groups = {}
+    for handle, (name, cpu) in after.items():
+        entry = groups.setdefault(name, {"name": name, "threads": 0, "ran": 0, "cpu_us_per_s": 0.0})
+        entry["threads"] += 1
+        # A thread started inside the window counts from zero.
+        delta = cpu - before[handle][1] if handle in before else cpu
+        if delta > 0:
+            entry["ran"] += 1
+            entry["cpu_us_per_s"] += delta / 1000 / wall
+    rows = [g for g in groups.values() if g["ran"]]
+    for g in rows:
+        g["cpu_us_per_s"] = round(g["cpu_us_per_s"], 1)
+    return sorted(rows, key=lambda g: -g["cpu_us_per_s"])
 
 
 def sysctl_int(name):
@@ -227,6 +272,29 @@ class Bench:
             }
         return {"wall_s": round(wall, 2), "processes": rows}, result
 
+    def start_tickers(self):
+        """Starts the status tickers (background workspaces through the tagged CLI); False when it cannot."""
+        cli = self.args.status_cli or os.environ.get("NX_APP_CLI")
+        if self.args.status_tickers <= 0:
+            return False
+        if not cli:
+            self.refusals.append({"action": "status", "error": "no CLI for tickers (--status-cli or NX_APP_CLI)"})
+            return False
+        if getattr(self, "tickers_started", False):
+            return True
+        loop = ("while :; do for p in 5 15 25 35 45 55 65 75 85 95; do "
+                "printf '\\033]7501;state=working:progress=%d\\033\\\\' $p; sleep 0.25; done; done")
+        env = dict(os.environ, CMUX_TAG=self.args.tag)
+        for i in range(self.args.status_tickers):
+            done = subprocess.run([cli, "workspace", "create", "--name", f"bench tick {i}", "--shell", loop],
+                                  env=env, capture_output=True, text=True, timeout=120)
+            if done.returncode != 0:
+                self.refusals.append({"action": "status", "error": (done.stdout + done.stderr).strip()[-300:]})
+                return False
+        self.tickers_started = True
+        time.sleep(2.0)  # test script: let the tickers start printing before the measured window
+        return True
+
     def debug(self, method, params=None):
         if not self.has.get(method):
             return None
@@ -238,7 +306,12 @@ class Bench:
     def idle(self):
         time.sleep(self.args.settle)  # test script: let the layout settle
         self.debug("debug.wakeups", {"reset": True})
+        threads_before = thread_times(self.app_pid)
         measured, _ = self.window(self.args.idle)
+        threads_after = thread_times(self.app_pid)
+        # Which app threads woke while idle (wakeups are per process only;
+        # a thread that ran has CPU time), grouped by thread name.
+        measured["app_threads"] = thread_activity(threads_before, threads_after, measured["wall_s"])[:20]
         report = self.debug("debug.wakeups") or {}
         measured["ledger"] = [e for e in report.get("ledger", []) if e.get("per_second", 0) > 0][:12]
         measured["active_frame_clients"] = report.get("active_frame_clients", [])
@@ -255,6 +328,10 @@ class Bench:
         def body():
             latencies = []
             for action, args in ops:
+                if action == "wait":
+                    time.sleep(args["seconds"])  # test script: the measured window while the tickers print
+                    latencies.append(0.0)
+                    continue
                 if action == "window_frame":
                     start = time.monotonic()
                     self.control.call("debug.window_frame", args, timeout=60)
@@ -291,16 +368,31 @@ class Bench:
         if hangs is not None:
             measured["hangs"] = {k: hangs.get(k) for k in ("count", "total_ms", "max_ms", "long_frames",
                                                           "long_frame_max_ms", "frames_over_8_3ms", "max_gap_ms")}
+            # The main-thread stack of each hang (the watchdog's sample), to name its cause.
+            measured["hangs"]["records"] = [{k: r.get(k) for k in ("kind", "duration_ms", "cpu_ms", "frames")}
+                                            for r in hangs.get("records") or []]
         if frames is not None:
             measured["frames"] = {k: frames.get(k) for k in ("frames", "p50_ms", "p99_ms", "max_ms", "missed")}
         if layout_before is not None and layout_after is not None:
             measured["layout"] = diff_counters(layout_before, layout_after, len(ops))
+            # Which call sites made the counted calls (debug.layout_counters `sources`).
+            sb, sa = layout_before.get("sources") or {}, layout_after.get("sources") or {}
+            measured["layout_sources"] = dict(sorted(((k, v - sb.get(k, 0)) for k, v in sa.items() if v - sb.get(k, 0) > 0),
+                                                     key=lambda kv: -kv[1]))
         if isinstance(passes, dict):
-            by_class = passes.get("passesByClass") or passes.get("passes_by_class") or []
-            total = sum(p[1] if isinstance(p, list) else p.get("passes", 0) for p in by_class)
-            measured["layout_passes"] = {"total": total, "per_op": round(total / len(ops), 2) if ops else None,
-                                         "max_in_one_turn": passes.get("maxPassesInOneTurn") or passes.get("max_passes_in_one_turn"),
-                                         "top": sorted(by_class, key=lambda p: -(p[1] if isinstance(p, list) else p.get("passes", 0)))[:5]}
+            # debug.layers layout_passes (LayoutPassGuard): top_classes are the
+            # busiest view classes since the reset at the phase start (top 20),
+            # max_in_one_turn the most layout calls of one view in one window
+            # layout, with its view class, window class and that window's limit.
+            by_class = passes.get("top_classes") or []
+            total = sum(p.get("passes", 0) for p in by_class)
+            measured["layout_passes"] = {"top20_total": total, "top20_per_op": round(total / len(ops), 2) if ops else None,
+                                         "max_in_one_window_layout": passes.get("max_in_one_turn"),
+                                         "max_view_class": passes.get("max_view_class"),
+                                         "max_window_class": passes.get("max_window_class"),
+                                         "max_window_limit": passes.get("max_window_limit"),
+                                         "loops": passes.get("loops") or [],
+                                         "top": by_class[:5]}
         return measured
 
     def phases(self, panes):
@@ -311,15 +403,32 @@ class Bench:
             "window": [("window_frame", {"frame": [80, 80, 1500 if i % 2 == 0 else 1200, 950 if i % 2 == 0 else 800]})
                        for i in range(n)],
             "churn": [op for _ in range(max(1, n // 2)) for op in (("splitRight", {}), ("closePane", {}))],
-            "tabs": [("nextTab", {})] * n,
+            # nextSurface: Next Tab (Ctrl-Tab) in the focused pane.
+            "tabs": [("nextSurface", {})] * n,
+            # Status ticks: --status-tickers background workspaces print an OSC 7501
+            # progress every 250 ms for --status-seconds; a tick should re-map no strip
+            # of the shown panes (layout counters per tick stay near 0).
+            "status": [("wait", {"seconds": self.args.status_seconds})],
         }
         out = {}
-        for name in self.args.phases.split(","):
+        # status runs last: its tickers keep printing after it (later phases would measure them).
+        names = self.args.phases.split(",")
+        names = [n for n in names if n != "status"] + (["status"] if "status" in names else [])
+        for name in names:
             if name == "tabs" and self.args.tabs <= 1:
                 continue
             if name not in plan:
                 continue
+            if name == "status" and not self.start_tickers():
+                continue
             out[name] = self.phase(name, plan[name])
+            if name == "status":
+                # The window is one op; per tick = window totals / expected ticks (4/s per ticker).
+                ticks = int(self.args.status_seconds * 4 * self.args.status_tickers)
+                out[name]["ticks"] = ticks
+                layout = out[name].get("layout") or {}
+                out[name]["layout_per_tick"] = {k: round(v / ticks, 3) for k, v in layout.items()
+                                                if not k.endswith("_per_op") and ticks}
         return out
 
     def add_tabs(self):
@@ -334,7 +443,7 @@ class Bench:
             for _ in range(self.args.tabs - 1):
                 if tabs + added >= want:
                     break
-                _, error = self.action("newTab")
+                _, error = self.action("newTab.page")  # "newTab" is New Workspace
                 if error:
                     break
                 added += 1
@@ -370,8 +479,13 @@ def main():
     parser.add_argument("--phases", default="focus,resize,window,churn,tabs")
     parser.add_argument("--pty-margin", type=int, default=64)
     parser.add_argument("--label", default="run")
+    parser.add_argument("--status-tickers", type=int, default=4)
+    parser.add_argument("--status-seconds", type=float, default=5)
+    parser.add_argument("--status-cli")
     parser.add_argument("--out")
     parser.add_argument("--keep-running", action="store_true")
+    parser.add_argument("--sample-seconds", type=int, default=0,
+                        help="after each idle window, /usr/bin/sample the app for N seconds into the out dir")
     args = parser.parse_args()
 
     sha = subprocess.run(["git", "-C", args.repo_root, "rev-parse", "--short=12", "HEAD"],
@@ -458,6 +572,16 @@ def main():
                   f"build {checkpoint['build']['seconds']} s, create rtt p50 {checkpoint['build']['rtt_ms']['p50']} ms",
                   flush=True)
             checkpoint["idle"] = bench.idle()
+            for row in checkpoint["idle"].get("app_threads", [])[:8]:
+                print(f"   idle thread {row['name'][:40]:<40} {row['ran']}/{row['threads']} ran, {row['cpu_us_per_s']} us/s", flush=True)
+            if args.sample_seconds:
+                # After the idle window (sample suspends threads): stacks of what woke.
+                path = os.path.join(args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench"),
+                                    f"sample-{args.label}-{panes}.txt")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                subprocess.run(["/usr/bin/sample", str(app.pid), str(args.sample_seconds), "-mayDie", "-file", path],
+                               capture_output=True, timeout=args.sample_seconds + 120)
+                checkpoint["sample"] = path
             for kind, row in sorted(checkpoint["idle"]["processes"].items()):
                 print(f"   idle {kind:<14} x{row['count']:<5} {row['cpu_percent']:>7.3f}% CPU "
                       f"{row['wakeups_per_s']:>8.2f} wk/s {row['footprint_mb']:>9.1f} MB", flush=True)

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSettings
@@ -97,7 +98,7 @@ extension BookmarkService {
     func showBubble(for node: BookmarkNode, profile: String, isNew: Bool, anchor: NSView, tab key: String?) {
         let folders = BookmarkFolderChoice.all(in: tree(profile), barTitle: BookmarkStrings.barTitle, otherTitle: BookmarkStrings.otherBookmarks)
         let bubble = BookmarkEditBubble(
-            isNew: isNew, title: node.title, folder: node.parent, folders: folders,
+            isNew: isNew, title: node.title, folder: node.parent, folders: folders, pageTitle: { [weak self] in key.flatMap { self?.services.cache.existingBrowser($0)?.tab.state }.flatMap { $0.url?.host == node.url?.host ? $0.title : nil } },
             onSave: { [weak self] result in
                 guard let self, let current = tree(profile).node(node.id) else { return }
                 if result.title != current.title { try? apply(.update(id: node.id, title: result.title), profile: profile) }
@@ -129,10 +130,29 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
 
     private var profile: String { service?.profile(ofTab: tabKey) ?? BrowserProfileRecord.defaultID }
 
-    func bookmarkChildren(of parent: String) -> [BookmarkNode] { service?.tree(profile).children(of: parent) ?? [] }
+    func bookmarkChildren(of parent: String) -> [BookmarkNode] {
+        // A bar build reads the children, then each icon: it waits again only if an icon does.
+        if parent == BookmarkRoot.bar.rawValue { awaitsFavicons = false }
+        return service?.tree(profile).children(of: parent) ?? []
+    }
+
+    /// True when the last build drew a stand-in for an icon still loading: the service
+    /// reloads this bar when an icon lands (``BookmarkService/followFavicons()``).
+    private(set) var awaitsFavicons = false
 
     func favicon(for node: BookmarkNode) -> NSImage? {
-        NSImage.icon(node.isFolder ? .folder : .browser, size: Metrics.smallIconSize)
+        let side = Metrics.smallIconSize
+        if node.isFolder, let service {
+            // A folder's own icon (`bookmark-icon-v1`); the folder symbol while a stored one loads.
+            if let image = service.folderIconImage(of: node, side: side) { return image }
+            if service.awaitFolderIcon(of: node) { awaitsFavicons = true }
+            return NSImage.icon(.folder, size: side)
+        }
+        if let image = service?.favicon(of: node, tabKey: tabKey) {
+            return NSImage(cgImage: image.cgImage, size: NSSize(width: side, height: side))
+        }
+        if service?.isFetchingFavicon(of: node, tabKey: tabKey) == true { awaitsFavicons = true }
+        return NSImage.icon(node.isFolder ? .folder : .browser, size: side)
     }
 
     func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition) {
@@ -166,9 +186,11 @@ extension BookmarkService {
     func follow(_ settings: SettingsController) {
         // task-owner: lives as long as the service; event-driven (Observation)
         barObservation = Task { [weak self] in
-            for await shown in Observations({ settings.snapshot.browserShowBookmarksBar }) {
+            for await shown in ObservationStream({ settings.snapshot.browserShowBookmarksBar }) {
                 self?.setBarShown(shown)
             }
         }
+        followFavicons()
+        followFolderIcons()
     }
 }

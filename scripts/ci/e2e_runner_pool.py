@@ -419,11 +419,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
     # Auto choices use the shared live rule. Explicit labels retain the
     # workflow's direct-request contract and its validation below.
-    # The shared simple picker has no test-filter or console-session
-    # semantics. Let UI E2E runs reach resolve(), which applies the owned GUI
-    # override before choosing a Blacksmith fallback.
-    if (not args.retry_of and (args.requested or "auto").strip() == "auto"
-            and not ui_run(args.test_filter)):
+    if not args.retry_of and (args.requested or "auto").strip() == "auto":
         values = dict(env)
         values.update({"CI_PR_POOL_OWNED": args.owned, "CI_OWNED_POOL_SLOTS": args.owned_slots,
                        "CI_PR_POOL_OVERFLOW": args.overflow, "MACOS_RUNNER_PR": args.variable,
@@ -435,6 +431,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             fork=values.get("FORK_PULL_REQUEST") == "true"
             or (values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY"))
             != (values.get("GH_REPO") or values.get("GITHUB_REPOSITORY"))))
+        print(f"pool pick: {choice.label or 'default'} ({choice.reason})", file=sys.stderr)
         print(choice.label or args.variable or SMALL_RUNNER)
         return 0
     if args.retry_of is not None:

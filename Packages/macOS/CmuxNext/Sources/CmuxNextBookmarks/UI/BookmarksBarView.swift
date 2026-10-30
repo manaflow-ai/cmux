@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The bookmarks bar under a browser pane's toolbar (bookmarks.md section 3):
 /// the Bookmarks Bar's children left to right, folders as menus, an overflow
@@ -7,7 +8,7 @@ import CmuxNextDesign
 /// when it has anything. Drag an item to reorder it; drop a link to bookmark
 /// it there. Frames are laid out by hand (no Auto Layout inside the bar).
 public final class BookmarksBarView: NSView {
-    public static var height: CGFloat { Metrics.tabHeight + Metrics.space2 }
+    public static var height: CGFloat { Metrics.controlHeight + Metrics.space2 }
     static let dragType = NSPasteboard.PasteboardType("com.cmuxterm.bookmark-id")
 
     public weak var source: (any BookmarksBarSource)? { didSet { reload() } }
@@ -15,7 +16,7 @@ public final class BookmarksBarView: NSView {
     private var visibleCount = 0
     private let overflow = NSButton()
     private let otherButton = NSButton()
-    private let emptyLabel = NSTextField(labelWithString: "")
+    private let emptyLabel = ChromeLabel(labelWithString: "")
     private let dropIndicator = CALayer()
     private var menus: [BookmarkFolderMenu] = []
     private var isStale = true
@@ -36,10 +37,11 @@ public final class BookmarksBarView: NSView {
             button.title = ""
             addSubview(button)
         }
-        overflow.image = NSImage(systemSymbolName: "chevron.right.2", accessibilityDescription: BookmarkStrings.moreBookmarks)
-        overflow.toolTip = BookmarkStrings.moreBookmarks
+        overflow.image = NSImage.icon(.overflowMore, size: 14)
+        overflow.image?.accessibilityDescription = BookmarkStrings.moreBookmarks
+        overflow.setAccessibilityLabel(BookmarkStrings.moreBookmarks)
         overflow.action = #selector(showOverflow)
-        otherButton.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+        otherButton.image = NSImage.icon(.folder, size: 14)
         otherButton.title = BookmarkStrings.otherBookmarks
         otherButton.action = #selector(showOther)
         emptyLabel.stringValue = BookmarkStrings.barEmptyHint
@@ -57,7 +59,7 @@ public final class BookmarksBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     /// Rebuilds the items from the source (the host calls it when the
     /// profile's bookmarks change). A bar not in a window (a hidden tab)
@@ -73,7 +75,7 @@ public final class BookmarksBarView: NSView {
             let item = BookmarkBarItemView(node: node, image: source?.favicon(for: node))
             item.onClick = { [weak self] item, event in self?.click(item, event) }
             item.onDragStart = { [weak self] item, event in self?.beginDrag(item, event) }
-            item.onContextMenu = { [weak self] item in self?.source?.contextMenu(for: item.node) }
+            item.onContextMenu = { [weak self] item in self.flatMap { $0.source?.contextMenu(for: item.node)?.themeRows(in: $0.themeScope.fullStrength) } }
             addSubview(item)
             return item
         }
@@ -90,7 +92,7 @@ public final class BookmarksBarView: NSView {
     public override func layout() {
         super.layout()
         let inset = Metrics.paneChromeInset
-        let itemHeight = Metrics.tabHeight
+        let itemHeight = Metrics.controlHeight
         let y = (bounds.height - itemHeight) / 2
         otherButton.font = Typography.body
         overflow.font = Typography.body
@@ -123,7 +125,7 @@ public final class BookmarksBarView: NSView {
                                   width: max(0, bounds.width - 2 * inset - otherWidth - Metrics.space4), height: labelHeight)
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         performWithTheme {
@@ -171,7 +173,7 @@ public final class BookmarksBarView: NSView {
         folderMenu.menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 2), in: view)
     }
 
-    public override func menu(for event: NSEvent) -> NSMenu? { source?.contextMenu(for: nil) }
+    public override func menu(for event: NSEvent) -> NSMenu? { source?.contextMenu(for: nil)?.themeRows(in: themeScope.fullStrength) }
 
     // MARK: Drag and drop (BookmarksBarView+Drag)
 

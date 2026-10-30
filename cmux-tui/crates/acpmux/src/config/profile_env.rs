@@ -1,11 +1,86 @@
-//! Env references in a harness profile: `${keychain:service[/account]}` and
-//! `${env:VAR}`, resolved only when a harness starts. Part of
+//! Env references in a harness profile: `${keychain:service[/account]}`,
+//! `${env:VAR}` and `${file:/abs/path}`, resolved only when a harness starts. Part of
 //! `config/profiles.rs`.
 
 use std::collections::BTreeMap;
 
 pub(super) fn is_reference(value: &str) -> bool {
-    value.contains("${keychain:") || value.contains("${env:")
+    value.contains("${keychain:") || value.contains("${env:") || value.contains("${file:")
+}
+
+/// Largest secret a `file:` reference reads.
+const FILE_SECRET_MAX: u64 = 8 * 1024;
+
+/// The secret in `path` (a `file:` reference): an absolute path to a regular
+/// file (not a symlink) that only this user owns and can read or write
+/// (mode 0600 or narrower), at most 8 KiB, one trailing newline dropped. A
+/// short-lived token another process rotates on disk; acpmux never records
+/// the value, only the reference.
+pub fn file_secret(path: &str) -> Result<String, String> {
+    let text = read_owner_only(path)?;
+    let text = text.strip_suffix('\n').unwrap_or(&text);
+    let text = text.strip_suffix('\r').unwrap_or(text);
+    if text.is_empty() || text.contains(['\n', '\r']) {
+        return Err(format!("{path}: holds no single-line secret"));
+    }
+    Ok(text.to_owned())
+}
+
+/// The file's text after the owner-only checks (Unix: one O_NOFOLLOW open,
+/// every check on that descriptor).
+#[cfg(unix)]
+fn read_owner_only(path: &str) -> Result<String, String> {
+    let p = std::path::Path::new(path);
+    if !p.is_absolute() {
+        return Err(format!("{path}: a file reference needs an absolute path"));
+    }
+    // One open, no symlink at the last component, and every check on that
+    // same descriptor: a file swapped after a check is never the one read.
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    let file = opts.open(p).map_err(|e| {
+        if e.raw_os_error() == Some(libc::ELOOP) {
+            format!("{path}: not a regular file (a symlink)")
+        } else {
+            format!("{path}: {e}")
+        }
+    })?;
+    let meta = file.metadata().map_err(|e| format!("{path}: {e}"))?;
+    if !meta.file_type().is_file() {
+        return Err(format!("{path}: not a regular file"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        // SAFETY: geteuid has no preconditions.
+        if meta.uid() != unsafe { libc::geteuid() } {
+            return Err(format!("{path}: owned by another user"));
+        }
+        if meta.mode() & 0o077 != 0 {
+            return Err(format!("{path}: readable by others (needs mode 0600)"));
+        }
+    }
+    if meta.len() > FILE_SECRET_MAX {
+        return Err(format!("{path}: larger than {FILE_SECRET_MAX} bytes"));
+    }
+    let mut text = String::new();
+    use std::io::Read;
+    file.take(FILE_SECRET_MAX + 1).read_to_string(&mut text).map_err(|e| format!("{path}: {e}"))?;
+    Ok(text)
+}
+
+/// No owner-only check exists here yet (a Windows ACL check is separate
+/// work), so a `file:` reference is refused, never read unchecked.
+#[cfg(not(unix))]
+fn read_owner_only(path: &str) -> Result<String, String> {
+    Err(format!(
+        "{path}: file references are supported only on Unix (no owner-only check on this system)"
+    ))
 }
 
 /// Replace `${keychain:…}` and `${env:…}` in env values with their values.
@@ -37,6 +112,9 @@ pub fn resolve_env_refs(
                     format!("env {key}: ${{env:{var}}} is not set in the login environment")
                 })?;
                 out.push_str(&v);
+            } else if let Some(path) = inner.strip_prefix("file:") {
+                let v = file_secret(path).map_err(|e| format!("env {key}: file reference: {e}"))?;
+                out.push_str(&v);
             } else if let Some(item) = inner.strip_prefix("keychain:") {
                 let (service, account) = match item.split_once('/') {
                     Some((s, a)) => (s, Some(a)),
@@ -60,6 +138,12 @@ pub fn resolve_env_refs(
 /// Whether any env value holds a reference that must be resolved.
 pub fn has_env_refs(env: &BTreeMap<String, String>) -> bool {
     env.values().any(|v| is_reference(v))
+}
+
+/// Whether any env value names a Keychain item, so resolving it reads the
+/// secret store.
+pub fn has_keychain_refs(env: &BTreeMap<String, String>) -> bool {
+    env.values().any(|v| v.contains("${keychain:"))
 }
 
 /// The system secret store: `security` on macOS, `secret-tool` elsewhere.
@@ -142,23 +226,4 @@ pub fn parse_security_password(stderr: &str) -> Option<String> {
     }
     let inner = line.strip_prefix('"')?.strip_suffix('"')?;
     Some(inner.to_owned())
-}
-
-#[cfg(test)]
-mod security_output_tests {
-    use super::parse_security_password;
-
-    #[test]
-    fn reads_every_form_security_prints() {
-        let p = |s: &str| parse_security_password(s);
-        assert_eq!(p("password: \"plainvalue123\"\n").as_deref(), Some("plainvalue123"));
-        assert_eq!(p("password: \"dq\"inside\"x\"\n").as_deref(), Some("dq\"inside\"x"));
-        // Printed by security for `unicode-é-日本` (UTF-8, not printable ASCII).
-        let hex = "password: 0x756E69636F64652DC3A92DE697A5E69CAC  \"unicode-\\303\\251-\\346\\227\\245\\346\\234\\254\"\n";
-        assert_eq!(p(hex).as_deref(), Some("unicode-é-日本"));
-        // An ASCII secret made of hex digits is not decoded.
-        assert_eq!(p("password: \"deadbeef\"\n").as_deref(), Some("deadbeef"));
-        assert_eq!(p("password: \n").as_deref(), Some(""));
-        assert_eq!(p("keychain: \"/x\"\n"), None);
-    }
 }

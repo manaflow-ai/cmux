@@ -13,12 +13,72 @@ struct Draft: Equatable {
 struct ConversationUIState: Equatable {
     var draft = Draft()
     var typing: [ID] = []
-    /// cmux: the host's notice, MessagesLab's system row under the newest message (nil: none).
-    var notice: String?
+    /// cmux: the host's notice, MessagesLab's system row under the newest message (nil: none). Its own field:
+    /// upstream's `notice` (ask 9, `.setNotice`) is the host status line, which Home does not set yet.
+    var cmuxNotice: String?
     var openThread: PartRef?
+    /// The host's quiet status line under the transcript (HostHooks.swift, ask 9; `.setNotice`); nil: no line.
+    var notice: String?
+    /// The host's thread option (ThreadHost.swift); `.messages` unless the host sets `.tree`
+    /// (`Store.setThreadMode`).
+    var threadMode: ThreadMode = .messages
+    /// `.tree` mode: the branch the open thread view shows, the drilled messages below the root,
+    /// outermost first (empty: the whole thread). A reply sent in the view answers the last one.
+    var threadPath: [PartRef] = []
+    /// The host's streaming bubbles (HostHooks.swift, ask 11; `.streamBegin` ... `.streamEnd`), in begin order.
+    /// Empty by default: no row, no change.
+    var streams: [StreamBubble] = []
     /// `offset`: points scrolled up from the bottom (0 when pinned).
     var scroll = Scroll()
     struct Scroll: Equatable { var pinnedToBottom = true; var offset: CGFloat = 0 }
+}
+
+/// The host's id of one streaming bubble (ask 11; cmux: the reply's turn key). Any string; it never names a message.
+typealias StreamID = String
+
+/// One streaming bubble (ask 11, HostHooks.swift): a received message being written. The host begins it, sets or
+/// appends its text, and ends it with the final message (which takes its place) or without one (it goes as the typing
+/// indicator goes). RowBuilder draws it as the message `message` would be, last in the transcript (under every loaded
+/// message, above the host's status line), so the final message's rows are the same rows.
+struct StreamBubble: Equatable {
+    var id: StreamID
+    var sender: ID
+    var format: MessageFormat?
+    var text = ""
+    var parts: [Part] = []
+    /// The last applied seq (nil: none given yet).
+    var seq: Int?
+    /// When its text last changed (engine time): the message's sentAt, close to the final message's.
+    var updatedAt: String
+
+    /// Row keys of a stream name this id: "%stream-" never starts a host's message id that HomeMapping.rowSafe made
+    /// ("%" only as "%25" or "%3A"), and a colon in the stream id is escaped as rowSafe does (RowBuilder.owner).
+    static let idPrefix = "%stream-"
+    static func messageID(_ id: StreamID) -> ID {
+        idPrefix + id.replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ":", with: "%3A")
+    }
+    static func isStream(_ messageID: Substring) -> Bool { messageID.hasPrefix(idPrefix) }
+    static func isStream(_ messageID: ID) -> Bool { messageID.hasPrefix(idPrefix) }
+
+    /// The bubble as a received message (no status, no thread, no reactions).
+    var message: Message {
+        Message(id: Self.messageID(id), senderId: sender, sentAt: updatedAt, parts: parts, replyTo: nil, status: nil,
+                edits: nil, retractedAt: nil, reactions: [], format: format)
+    }
+
+    /// MessagesLab's rule for text (its own send): TextParts.parts; no text, no part (the typing indicator shows).
+    static func parts(_ text: String) -> [Part] { text.isEmpty ? [] : TextParts.parts(for: text) }
+
+    /// Applies `change` to stream `id` unless `seq` is not above its last seq (an out-of-order or repeated chunk).
+    static func update(_ streams: inout [StreamBubble], _ id: StreamID, seq: Int?, at stamp: String, _ change: (inout StreamBubble) -> Void) {
+        guard let i = streams.firstIndex(where: { $0.id == id }) else { return }
+        streams.update(at: i) { s in
+            if let seq, let last = s.seq, seq <= last { return }
+            if let seq { s.seq = seq }
+            change(&s)
+            s.updatedAt = stamp
+        }
+    }
 }
 
 struct AppState: Equatable {
@@ -43,11 +103,17 @@ enum Action {
     case react(PartRef, Reaction.Kind, by: ID? = nil)
     case reply(PartRef)
     case closeThread
+    /// Open the thread view at a path: the root first, then the drilled replies outermost first
+    /// (`ThreadMode.tree`; in `.messages` only the root counts). `Action.openThread(path:)`.
+    case openThreadPath([PartRef])
     case edit(ID, String)
     case unsend(ID)
     /// Delete… in the menu: the message leaves this device's transcript (no row stays).
     case delete(ID)
     case attach(Attachment)
+    /// cmux: an attachment enters the field's text at a UTF-16 offset (the caret), as in
+    /// Messages and Notes (Draft+InlineMarks.swift); `.attach` puts it at the end.
+    case attachAt(Attachment, Int?)
     case removeDraftAttachment(ID)
     case typing(ID, Bool)
     case receive(Message)
@@ -65,22 +131,59 @@ enum Action {
     case appendPage([Message])
     /// Drop messages far from the viewport (bounded memory).
     case evict(top: Int, bottom: Int)
-    /// Jump: replace the loaded window.
-    case replaceWindow([Message], start: Int)
+    /// Replace the loaded window: `msgs` are messages [start, start + msgs.count) of a history
+    /// of `total`. nil: the window ends at the newest message (a host without a pager: its
+    /// window is all it has). The total is set with the window, never kept from before: a
+    /// total left ahead of the window's end kept `atNewest` false, and every later receive
+    /// stayed hidden (cmux Home, cx-7nf0). A total below the window's end is raised to it.
+    case replaceWindow([Message], start: Int, total: Int? = nil)
     /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
     /// written through; a height change animates like any row change.
     case setCustomPart(ID, Int, CustomPart)
     /// cmux: an attachment part's bytes arrived or its upload moved
     /// (HomeStore); replaces the part with the same attachment id, no motion.
     case cmuxSetAttachment(ID, Attachment)
+    /// cmux: my send's parts as the owner stored them (Reply to Selection's quote run), the
+    /// same number of parts; replaced in place, no motion.
+    case cmuxSetParts(ID, [Part])
     /// cmux: the host's notice changed (nil clears it); the rows are derived again.
     case cmuxNotice(String?)
+    /// cmux: the participants again (a sender's avatar changed: the host's chosen Chief avatar);
+    /// the rows are derived again.
+    case cmuxSetParticipants([Participant])
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
     /// estimate correction (no motion; the first visible row keeps its place).
     case remeasureCustom([ID], animated: Bool)
+    /// The host's status line under the transcript (ask 9): its text, nil to take it away (HostHooks.swift).
+    case setNotice(String?)
+    /// Ask 11 (HostHooks.swift): a streaming bubble from `sender`. With no text yet it shows as the typing
+    /// indicator; a stream id that is already live changes nothing.
+    case streamBegin(StreamID, sender: ID, format: MessageFormat? = nil)
+    /// Ask 11: the stream's whole text. `parts`: how the host shows that text (cmux: the parts of the message
+    /// the final reply will be, HomeMapping), so the bubble draws as the final message; nil: MessagesLab's own
+    /// rule (TextParts.parts, as its send). `seq`: when given, a seq not above the last applied one is ignored.
+    case streamSet(StreamID, text: String, parts: [Part]? = nil, seq: Int? = nil)
+    /// Ask 11: text appended to the stream's text; its parts are MessagesLab's rule again (a host that shows its own parts
+    /// sets the whole text with them). `seq` as in `.streamSet`.
+    case streamAppend(StreamID, text: String, seq: Int? = nil)
+    /// Ask 11: the stream ends. `replacedBy`: the final message, received in the stream's place (the window view
+    /// keeps the bubble's rows and cells: no remove, insert or receive motion); nil: the bubble leaves as the
+    /// typing indicator does.
+    case streamEnd(StreamID, replacedBy: Message?)
+}
+
+extension Action {
+    /// A permalink path (ThreadHost.swift): message ids, the thread root first, then the drilled
+    /// replies outermost first. The host dispatches it (cmux: a link to a nested reply).
+    static func openThread(path: [ID]) -> Action { .openThreadPath(path.map { PartRef(messageId: $0, partIndex: 0) }) }
 }
 
 enum Reducer {
+    /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
+    /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
+    static func canSend(_ d: Draft) -> Bool {
+        !d.attachments.isEmpty || !d.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty  // cmux: marks are not text
+    }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
         let stamp = Instant.format(now)
@@ -89,12 +192,18 @@ enum Reducer {
             s.ui.draft.text = text
         case .send:
             let d = s.ui.draft
-            let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty || !d.attachments.isEmpty else { return nil }
-            var parts = d.attachments.map { Part.attachment($0) }
-            if !text.isEmpty { parts += TextParts.parts(for: text) }
-            let m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
+            guard canSend(d) else { return nil }
+            // cmux: the text and the attachments in the field's order (Draft+InlineMarks.swift)
+            let parts = d.pieces.flatMap { piece -> [Part] in
+                switch piece {
+                case let .text(t): TextParts.parts(for: t)
+                case let .attachment(a): [.attachment(a)]
+                }
+            }
+            var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
                             replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
+            // Tree mode: a reply in a drilled branch answers the branch's message (nil: the root).
+            if s.ui.threadMode == .tree, let root = s.ui.openThread, m.replyTo == root { m.parent = s.ui.threadPath.last }
             s.conversation.messages.append(m)
             s.total += 1
             s.ui.draft = Draft(text: "", attachments: [], replyTo: nil)
@@ -103,7 +212,7 @@ enum Reducer {
         case let .react(ref, kind, by):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == ref.messageId }) else { break }
             let actor = by ?? s.me
-            // cmux: in-place checked update (crash program).
+            // in-place checked update.
             s.conversation.messages.update(at: i) { m in
                 var rs = m.reactions
                 let mine = rs.firstIndex { $0.senderId == actor && $0.partIndex == ref.partIndex }
@@ -119,11 +228,32 @@ enum Reducer {
             let root = s.message(ref.messageId)?.replyTo ?? ref      // replies store the root
             s.ui.openThread = root
             s.ui.draft.replyTo = root
+            // Tree mode: the replied message stays the parent. The view opens its branch (the
+            // path from the root down to it), and a reply sent there answers it (`.send`).
+            s.ui.threadPath = s.ui.threadMode == .tree ? ThreadTree.path(to: ref, root: root, in: s.conversation.messages) : []
         case .closeThread:
             s.ui.openThread = nil
             s.ui.draft.replyTo = nil
+            s.ui.threadPath = []
+        case let .openThreadPath(path):
+            guard let first = path.first else { break }
+            // The root as `.reply` finds it (a reply's id opens its thread; the part index the
+            // thread's replies store), and only the path's loaded members of that thread.
+            let root = s.message(first.messageId)?.replyTo ?? s.conversation.messages
+                .first { $0.replyTo?.messageId == first.messageId }?.replyTo ?? first
+            s.ui.openThread = root
+            s.ui.draft.replyTo = root
+            if s.ui.threadMode == .tree {
+                let members = Set(ThreadTree.members(of: root, in: s.conversation.messages).map(\.id))
+                var kept: [PartRef] = []
+                if first.messageId != root.messageId, members.contains(first.messageId) { kept.append(first) }
+                kept += path.dropFirst().filter { members.contains($0.messageId) }
+                s.ui.threadPath = kept
+            } else {
+                s.ui.threadPath = []
+            }
         case let .edit(id, text):
-            // cmux: checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
+            // checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
                   let parts = s.conversation.messages[checked: i]?.parts,
                   let pi = parts.firstIndex(where: { $0.plainText != nil }),
@@ -135,15 +265,21 @@ enum Reducer {
             }
         case let .unsend(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
-            s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // checked
+            // Tree mode: an unsent drilled reply closes back to its parent's branch.
+            if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
         case let .delete(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
-            s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // cmux: checked
-            if s.ui.openThread?.messageId == id { s.ui.openThread = nil }
+            s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // checked
+            if s.ui.openThread?.messageId == id { s.ui.openThread = nil; s.ui.threadPath = [] }
+            // Tree mode: a deleted branch closes back to its parent's branch.
+            if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
         case let .attach(a):
-            s.ui.draft.attachments.append(a)
+            s.ui.draft.insert(a, at: nil)  // cmux: the attachment's mark goes in the text (Draft+InlineMarks.swift)
+        case let .attachAt(a, offset):
+            s.ui.draft.insert(a, at: offset)
         case let .removeDraftAttachment(id):
-            s.ui.draft.attachments.removeAll { $0.id == id }
+            s.ui.draft.remove(id)  // cmux: with its mark
         case let .typing(who, on):
             s.ui.typing.removeAll { $0 == who }
             if on { s.ui.typing.append(who) }
@@ -152,15 +288,15 @@ enum Reducer {
             if s.atNewest { s.conversation.messages.append(m) }
             s.total += 1
         case let .status(id, st):
-            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages.update(at: i) { $0.status = st } } // cmux
+            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages.update(at: i) { $0.status = st } }
         case let .appendText(id, more):
             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
-                  let parts = s.conversation.messages[checked: i]?.parts, // cmux: checked
+                  let parts = s.conversation.messages[checked: i]?.parts, // checked
                   let pi = parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
                   case let .text(t, runs)? = parts[checked: pi] else { break }
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .text(t + more, runs: runs) } }
         case let .linkMetadata(url, title, site, image):
-            // cmux: no index math (crash program).
+            // no index math.
             s.conversation.messages = s.conversation.messages.map { m in
                 var m = m
                 m.parts = m.parts.map { p in
@@ -178,27 +314,52 @@ enum Reducer {
             s.conversation.messages.append(contentsOf: page)
         case let .evict(top, bottom):
             let n = s.conversation.messages.count
-            let t = min(max(0, top), n), b = min(max(0, bottom), n - t) // cmux: a negative count does not trap
+            let t = min(max(0, top), n), b = min(max(0, bottom), n - t) // a negative count does not trap
             s.conversation.messages.removeFirst(t)
             s.conversation.messages.removeLast(b)
             s.windowStart += t
-        case let .replaceWindow(msgs, start):
+        case let .replaceWindow(msgs, start, total):
             s.conversation.messages = msgs
             s.windowStart = start
+            s.total = max(total ?? 0, start + msgs.count)
             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
         case let .setCustomPart(id, pi, part):
             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
-                  case .custom? = s.conversation.messages[checked: i]?.parts[checked: pi] else { break } // cmux: checked
+                  case .custom? = s.conversation.messages[checked: i]?.parts[checked: pi] else { break } // checked
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .custom(part) } }
         case .remeasureCustom:
             break
+        case let .setNotice(text):
+            s.ui.notice = text
         case let .cmuxSetAttachment(id, a):  // cmux
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
                   let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
             else { break } // cmux: checked
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+        case let .cmuxSetParts(id, parts):  // cmux
+            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
+                  s.conversation.messages[checked: i]?.parts.count == parts.count else { break } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts = parts }
         case let .cmuxNotice(text):  // cmux
-            s.ui.notice = text
+            s.ui.cmuxNotice = text
+        case let .cmuxSetParticipants(participants):  // cmux
+            s.conversation.participants = participants
+        case let .streamBegin(id, sender, format):
+            guard !s.ui.streams.contains(where: { $0.id == id }) else { break }
+            s.ui.streams.append(StreamBubble(id: id, sender: sender, format: format, updatedAt: stamp))
+        case let .streamSet(id, text, parts, seq):
+            StreamBubble.update(&s.ui.streams, id, seq: seq, at: stamp) { $0.text = text; $0.parts = parts ?? StreamBubble.parts(text) }
+        case let .streamAppend(id, more, seq):
+            StreamBubble.update(&s.ui.streams, id, seq: seq, at: stamp) { $0.text += more; $0.parts = StreamBubble.parts($0.text) }
+        case let .streamEnd(id, final):
+            s.ui.streams.removeAll { $0.id == id }
+            // The final message arrives as `.receive` does (its sender's typing ends), unless it is already loaded
+            // (a host that rebuilt its window with it first).
+            if let m = final, s.message(m.id) == nil {
+                s.ui.typing.removeAll { $0 == m.senderId }
+                if s.atNewest { s.conversation.messages.append(m) }
+                s.total += 1
+            }
         }
         return nil
     }
@@ -213,7 +374,7 @@ enum Reducer {
 /// grey placeholder square, 137.5 x 103.5 pt) until LinkPreviews fills it or,
 /// without metadata, the domain card (title = site = host) replaces it.
 enum TextParts {
-    // cmux: optional, no try! (crash program); without it no link is detected.
+    // optional, no try! ; without it no link is detected.
     static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     static func host(_ url: URL) -> String {
         url.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url.absoluteString
@@ -290,7 +451,7 @@ extension Reducer {
         switch action {
         case .send:
             if let sent { w.append(sent) }
-        case let .receive(m):
+        case let .receive(m), let .streamEnd(_, m?):
             w.append(s.message(m.id) ?? m)
         case let .react(ref, _, _):
             if let m = s.message(ref.messageId) { w.update(m) }
@@ -307,8 +468,8 @@ extension Reducer {
     }
 }
 
-/// Link-preview metadata for a URL (LinkPreviews.swift implements it with
-/// LinkPresentation). `done` runs on the main thread once per request.
+/// Link-preview metadata for a URL (`LinkPreviews.swift` implements it with the guarded HTML and
+/// image fetcher). `done` runs on the main thread once per request.
 struct LinkMetadata: Hashable { var title: String?; var site: String?; var image: String? }
 protocol LinkPreviewFetching: AnyObject {
     /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.
@@ -344,11 +505,19 @@ final class Store {
     init(conversation: Conversation, baseDate: Date, windowStart: Int = 0, total: Int? = nil) {
         state = AppState(conversation: conversation)
         state.windowStart = windowStart
-        state.total = total ?? conversation.messages.count
+        // nil: the window ends at the newest message (as `.replaceWindow`).
+        state.total = max(total ?? 0, windowStart + conversation.messages.count)
         self.baseDate = baseDate
     }
 
     func date(at t: Double) -> Date { baseDate.addingTimeInterval(t) }
+
+    /// The host's thread option (ThreadHost.swift). Set it before the first view shows the
+    /// conversation; standalone MessagesLab keeps `.messages`.
+    func setThreadMode(_ mode: ThreadMode) {
+        state.ui.threadMode = mode
+        if mode == .messages { state.ui.threadPath = [] }
+    }
 
     func dispatch(_ action: Action) { apply(action, at: now) }
 
@@ -411,10 +580,21 @@ final class Store {
     private func apply(_ action: Action, at t: Double) {
         let old = state
         let sent = Reducer.reduce(&state, action, now: date(at: t), newID: { makeID("local") })
-        if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
+        // A rejected send (Return on an empty field) changed nothing and is not committed: the
+        // window ran the field's send flash and started the send morph again on my last message.
+        // Messages shows nothing for it.
+        if case .send = action, sent == nil { return }
+        // A stream's final message that was already loaded (ask 11) was written when it came: it is not appended again.
+        let loadedFinal: Bool = { if case let .streamEnd(_, m?) = action { return old.message(m.id) != nil }; return false }()
+        if let writer, !loadedFinal { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
         onChange?(action, t, old, state)
         if let sent { responder?.didSend(sent, self) }
-        let fresh: Message? = { if let sent { return sent }; if case let .receive(m) = action { return m }; return nil }()
+        let fresh: Message? = {
+            if let sent { return sent }
+            if case let .receive(m) = action { return m }
+            if case let .streamEnd(_, m?) = action { return m }
+            return nil
+        }()
         for p in fresh?.parts ?? [] {
             guard case let .link(url, title, site, image, _) = p, image == nil, title == nil || title == site else { continue }
             let host = URL(string: url).map(TextParts.host) ?? url
@@ -448,7 +628,7 @@ struct SeededRandom {
     mutating func unit() -> Double { Double(next() >> 11) / Double(UInt64(1) << 53) }
     mutating func range(_ lo: Double, _ hi: Double) -> Double { lo + (hi - lo) * unit() }
     mutating func chance(_ p: Double) -> Bool { unit() < p }
-    /// cmux: the fixture lists are non-empty literals; an empty list still traps at `xs[0]`.
+    /// the fixture lists are non-empty literals; an empty list still traps at `xs[0]`.
     mutating func pick<T>(_ xs: [T]) -> T { xs[checked: Int(truncatingIfNeeded: next() % UInt64(clamping: max(1, xs.count)))] ?? xs[0] }
 }
 
@@ -543,7 +723,7 @@ final class DefaultResponder: Responder {
     }
 
     /// The decision for one answer, shared by its beats.
-    private final class Decision { var made = false; var root: PartRef?; var dropped = false }
+    private final class Decision { var made = false; var root: PartRef?; var parent: PartRef?; var dropped = false }
 
     private func schedulePickup(_ store: Store, after delay: Double) {
         pickupGen += 1
@@ -615,9 +795,11 @@ final class DefaultResponder: Responder {
                 return
             }
             d.root = threadRoot(for: a.target, store.state)
+            d.parent = treeParent(for: a.target, root: d.root, store.state)
         }
-        let m = Message(id: store.makeID("reply"), senderId: who, sentAt: Instant.format(store.date(at: store.now)),
+        var m = Message(id: store.makeID("reply"), senderId: who, sentAt: Instant.format(store.date(at: store.now)),
                         parts: beat.parts, replyTo: d.root, status: nil, edits: nil, retractedAt: nil, reactions: [])
+        m.parent = d.parent
         log.append((m.id, false, false))
         store.dispatch(.receive(m))
         events.append(.sent(id: m.id, answering: a.target.id, thread: d.root, at: store.now))
@@ -628,12 +810,19 @@ final class DefaultResponder: Responder {
         // I wrote it inside a thread: answer in that thread (a reply stores the root).
         if let root = target.replyTo { return root }
         guard let i = log.firstIndex(where: { $0.id == target.id }) else { return nil }
-        let newer = log.dropFirst(i + 1).contains { e in // cmux: no range subscript
+        let newer = log.dropFirst(i + 1).contains { e in // no range subscript
             e.mine && !e.filler && s.message(e.id)?.retractedAt == nil
         }
         guard newer else { return nil }
         let part = target.parts.firstIndex { $0.plainText != nil } ?? 0
         return PartRef(messageId: target.id, partIndex: part)
+    }
+
+    /// `ThreadMode.tree`: an answer to a message inside a thread answers that message (its parent),
+    /// not only the thread. nil in `.messages` mode and for an answer to the root.
+    private func treeParent(for target: Message, root: PartRef?, _ s: AppState) -> PartRef? {
+        guard s.ui.threadMode == .tree, let root, target.replyTo == root, target.id != root.messageId else { return nil }
+        return PartRef(messageId: target.id, partIndex: target.parts.firstIndex { $0.plainText != nil } ?? 0)
     }
 
     // MARK: What to say
@@ -877,7 +1066,7 @@ final class BenchResponder: Responder {
         guard pending > 0 else { replying = false; return }
         pending -= 1
         let who = store.state.conversation.participants.first { !$0.isMe }?.id ?? "instinct"
-        guard let text = lines[checked: cycle % max(1, lines.count)] else { replying = false; return } // cmux: checked
+        guard let text = lines[checked: cycle % max(1, lines.count)] else { replying = false; return } // checked
         cycle += 1
         store.dispatch(.typing(who, true))
         let typed = 0.4 + 0.025 * Double(text.count)
@@ -894,7 +1083,7 @@ enum Responders {
     /// `--responder bench|realistic`; without it, `--bench` runs use the bench
     /// responder and every other run the realistic one.
     static func make(arguments: [String] = ProcessInfo.processInfo.arguments, seed: UInt64 = 1) -> Responder {
-        let choice = arguments.firstIndex(of: "--responder").flatMap { arguments.dropFirst($0 + 1).first } // cmux: no index math
+        let choice = arguments.firstIndex(of: "--responder").flatMap { arguments.dropFirst($0 + 1).first } // no index math
         if choice == "bench" || choice == nil && arguments.contains("--bench") { return BenchResponder() }
         return DefaultResponder(seed: seed)
     }

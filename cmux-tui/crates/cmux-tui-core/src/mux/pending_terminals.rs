@@ -23,6 +23,16 @@ impl Mux {
         self.terminal_ends.lock().unwrap().clone()
     }
 
+    /// A terminal's typed end as its tab JSON shows it, with the cause of a
+    /// host loss: what its `surface-exited` events carry (cx-6so.19).
+    pub(super) fn exited_end_json(&self, public_id: &str, end: &TerminalEnd) -> Arc<Value> {
+        let causes = TreeDecorations {
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
+            ..TreeDecorations::default()
+        };
+        Arc::new(causes.with_loss_cause(Some(public_id), end.wire_json()))
+    }
+
     /// Whether a terminal's host may run while it has no runtime here.
     pub(crate) fn terminal_is_pending(&self, terminal_id: &str) -> bool {
         self.pending_terminals.lock().unwrap().values().any(|(id, _)| id == terminal_id)
@@ -53,7 +63,7 @@ impl Mux {
     }
 
     /// Drop a stale `Adopting` marker when an adoption thread ends.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn clear_adopting_marker(&self, terminal_id: &str) {
         self.pending_terminals
             .lock()
@@ -68,7 +78,7 @@ impl Mux {
     }
 
     /// Remember why a terminal's host was lost, for its tab's `end.cause`.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn record_terminal_loss_cause(&self, public_id: &str, cause: Value) {
         self.terminal_loss_causes
             .lock()
@@ -83,21 +93,32 @@ impl Mux {
 
     /// Mark a terminal pending. Takes the registry lock briefly to resolve
     /// its public id; the caller must not hold the registry or state lock.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     /// Returns whether the marker was set (false: the public id is unknown).
     pub(super) fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) -> bool {
         let public_id = self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id);
         let Ok(Some(public_id)) = public_id else { return false };
+        self.set_pending_terminal_as(public_id, terminal_id, pending);
+        true
+    }
+
+    /// Mark a terminal pending under a public id the caller already read.
+    #[cfg(any(unix, windows))]
+    pub(super) fn set_pending_terminal_as(
+        &self,
+        public_id: TerminalPublicId,
+        terminal_id: &str,
+        pending: PendingTerminal,
+    ) {
         self.pending_terminals
             .lock()
             .unwrap()
             .insert(public_id.as_str().to_string(), (terminal_id.to_string(), pending));
-        true
     }
 
     /// Forget a pending marker. Returns whether one was present. A respawn's
     /// marker stays: only its worker clears it.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn clear_pending_terminal(&self, terminal_id: &str) -> bool {
         let mut pending = self.pending_terminals.lock().unwrap();
         let before = pending.len();
@@ -107,7 +128,7 @@ impl Mux {
     }
 
     /// Whether a respawn of `terminal_id` (L2) is under way.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn terminal_is_respawning(&self, terminal_id: &str) -> bool {
         self.pending_terminals
             .lock()
@@ -118,7 +139,7 @@ impl Mux {
 
     /// Remember the typed end of an ended terminal from its durable receipt,
     /// for tabs that keep showing it without a runtime surface (R41).
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn record_terminal_end(&self, terminal_id: &str) {
         let (terminal, public_id) = {
             let registry = self.workspace_registry.lock().unwrap();
@@ -144,7 +165,7 @@ impl Mux {
     /// Watch an unadoptable host: when its live marker frees (the host
     /// exited, by itself or by a close), end the terminal with the host's
     /// exit sidecar when it left one, and remove its artifacts.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn watch_unadoptable_terminal_host(
         self: &Arc<Self>,
         options: SurfaceOptions,
@@ -198,7 +219,7 @@ impl Mux {
     /// not adopted again by this daemon; close still ends its host with proof.
     ///
     /// Returns whether the terminal is now unadoptable, so adoption must stop.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn refused_all<T>(
         self: &Arc<Self>,
         streak: &mut RefusalStreak,
@@ -242,7 +263,7 @@ impl Mux {
     /// A record this build cannot read belongs to a host that may still run
     /// its shell (a newer record version after a rollback). Never report that
     /// terminal ended: keep it visible as unadoptable and watch its host.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn mark_unadoptable_terminal_hosts(
         self: &Arc<Self>,
         options: &SurfaceOptions,
@@ -290,24 +311,24 @@ impl Mux {
 /// before its terminal is unadoptable. One refusal could be a host that
 /// closed the connection while exiting; the live marker then frees and the
 /// watcher ends the terminal with the host's real status.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) const NO_COMMON_PROTOCOL_REFUSALS: u32 = 3;
 
 /// The shortest time from the first to the last of those refusals: a host
 /// of this build that refuses a hello under passing pressure recovers
 /// within it (see [`Mux::refused_all`]).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) const NO_COMMON_PROTOCOL_MIN_SPAN: Duration = Duration::from_secs(10);
 
 /// Refused adoptions in a row since the first of them.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[derive(Debug, Default)]
 pub(super) struct RefusalStreak {
     count: u32,
     since: Option<Instant>,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl RefusalStreak {
     /// Record one adoption outcome at `now`. Returns whether the streak is
     /// long enough to call the host unadoptable.
@@ -325,7 +346,7 @@ impl RefusalStreak {
 
 /// End the hosts of `terminal_id`'s unreadable records under `root`, with
 /// proof only; without proof the host may still run and its record stays.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn terminate_unadoptable_hosts_in(root: &Path, terminal_id: &str) {
     if let Ok(unadoptable) =
         crate::terminal_host_runtime::load_unadoptable_terminal_host_records(root)
@@ -349,7 +370,7 @@ pub(super) fn terminate_unadoptable_hosts_in(root: &Path, terminal_id: &str) {
 /// cannot take Terminate: end it with proof that the recorded PID is its
 /// live host and return `None`; the caller's cleanup removes the record
 /// once the live marker frees.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn adopt_host_to_terminate(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,

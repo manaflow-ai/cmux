@@ -86,9 +86,6 @@ public struct ImportBrowser: RawRepresentable, Sendable, Hashable, Codable, Iden
     /// them out of Tor would link the user's Tor identity to cmux.
     public var refusesSessionData: Bool { row?.refusesSessionData ?? false }
 
-    /// Whether the store lists this browser's extensions (Chrome Web Store).
-    public var sharesChromeWebStore: Bool { family == .chromium }
-
     /// Safari keeps cookies in its container, outside `dataDirectory`.
     public var safariCookieFile: String? { row?.cookieFile }
 

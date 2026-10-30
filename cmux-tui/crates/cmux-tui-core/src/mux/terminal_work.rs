@@ -21,7 +21,7 @@
 
 use super::*;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod standby_host;
 
 /// Upper bound on concurrent terminal starts and reaps. A start is mostly
@@ -48,7 +48,7 @@ struct TerminalWorkState {
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
     /// The host process started ahead of the next new tab (R81, cap one).
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
 }
 
@@ -137,7 +137,7 @@ impl TerminalWorkPool {
 }
 
 /// A host launched for a creation that has not committed yet.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) struct PrelaunchedTerminal {
     /// Spawn options before the surface identity environment, which the
     /// registry records as the launch spec.
@@ -145,7 +145,7 @@ pub(crate) struct PrelaunchedTerminal {
     host: crate::surface::PrelaunchedHost,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl PrelaunchedTerminal {
     pub(crate) fn launch_opts(&self) -> &SurfaceOptions {
         &self.launch_opts
@@ -183,9 +183,10 @@ impl Mux {
         env: Vec<(String, String)>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<String>> {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
-            if !self.uses_terminal_host_runtime() {
+            // Holder terminals start in their create: no host process to launch ahead.
+            if !self.uses_terminal_host_runtime() || holder_model() {
                 return Ok(None);
             }
             let target = {
@@ -197,7 +198,7 @@ impl Mux {
             };
             let Some(target) = target else { return Ok(None) };
             crate::debug_spans::mark("prelaunch.target");
-            let cwd = cwd.or_else(|| self.pane_cwd(target));
+            let cwd = self.new_terminal_cwd(cwd, Some(target), None);
             let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
@@ -231,7 +232,7 @@ impl Mux {
                     launch_opts.clone(),
                     Arc::downgrade(self),
                     terminal_id,
-                    cell_pixels,
+                    (cell_pixels, workspace_key.as_deref().unwrap_or_default()),
                     standby,
                 )
             };
@@ -260,7 +261,7 @@ impl Mux {
                 .insert(terminal_hex.clone(), PrelaunchedTerminal { launch_opts, host });
             Ok(Some(terminal_hex))
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (pane, terminal_id, cwd, env, size);
             Ok(None)
@@ -269,7 +270,7 @@ impl Mux {
 
     /// The prelaunched host reserved under `terminal_hex`, for the creation
     /// that reserves the same id.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn take_prelaunched_terminal(
         &self,
         terminal_hex: &str,
@@ -280,19 +281,19 @@ impl Mux {
     /// End the prelaunched host under `terminal_hex` unless its creation
     /// adopted it.
     pub(crate) fn discard_prelaunched_terminal(&self, terminal_hex: &str) {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             // Drop outside the lock: dropping kills and waits the host.
             let unclaimed = self.prelaunched_terminals.lock().unwrap().remove(terminal_hex);
             drop(unclaimed);
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         let _ = terminal_hex;
     }
 
     /// Whether new terminals run in durable host processes (tests may use
     /// in-process surfaces).
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn uses_terminal_host_runtime(&self) -> bool {
         #[cfg(test)]
         return !self.test_surface_runtime;
@@ -346,6 +347,18 @@ impl Mux {
             cell_pixels
         };
         (opts, cell_pixels)
+    }
+}
+
+/// New terminals run on the holder (`holder_runtime`), not on host processes.
+fn holder_model() -> bool {
+    #[cfg(unix)]
+    {
+        crate::holder_runtime::enabled()
+    }
+    #[cfg(not(unix))]
+    {
+        false
     }
 }
 

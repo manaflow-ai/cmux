@@ -7,7 +7,7 @@ import Foundation
 struct LoopbackOpenRequest: DaemonRequest {
     typealias Response = LoopbackOpenResponse
     static let command = "loopback-open"
-    static let requiredCapability: String? = DaemonCapabilities.shared.loopbackForward
+    static let requiredCapability: String? = DaemonCapability.loopbackForward.rawValue
     var stream: UInt64
     var host: String
     var port: UInt16
@@ -20,12 +20,4 @@ struct LoopbackOpenResponse: Decodable, Sendable {
     var address: String
     /// The daemon's receive window.
     var window: Int
-}
-
-/// `loopback-status`: limits and the daemon's audit ring (diagnostics).
-public struct LoopbackStatusRequest: DaemonRequest {
-    public typealias Response = LoopbackStatus
-    public static let command = "loopback-status"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.loopbackForward
-    public init() {}
 }

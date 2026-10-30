@@ -6,7 +6,7 @@ public nonisolated struct DividerGeometry: Hashable, Sendable {
     public var axis: SplitAxis
     /// Visible divider line.
     public var frame: CGRect
-    /// Draggable area, centered on `frame`.
+    /// Draggable area, centered on `frame` (`DividerBand`).
     public var hitFrame: CGRect
     /// The rect the split node divides; the drag maps pointer position into it.
     public var container: CGRect
@@ -90,8 +90,10 @@ public nonisolated enum SplitGeometry {
                 divider = CGRect(x: rect.minX, y: rect.minY + aExtent, width: rect.width, height: t)
                 bRect = CGRect(x: rect.minX, y: divider.maxY, width: rect.width, height: max(0, rect.maxY - divider.maxY))
             }
-            let grow = max(0, style.effectiveDividerHitThickness - t) / 2
-            let hit = axis == .horizontal ? divider.insetBy(dx: -grow, dy: 0) : divider.insetBy(dx: 0, dy: -grow)
+            let hit = DividerBand(axis: axis, center: axis == .horizontal ? divider.midX : divider.midY, lineThickness: t,
+                                  hitThickness: style.effectiveDividerHitThickness,
+                                  crossStart: axis == .horizontal ? rect.minY : rect.minX,
+                                  crossLength: axis == .horizontal ? rect.height : rect.width, scale: scale).hit
             result.dividers.append(DividerGeometry(id: id, axis: axis, frame: divider, hitFrame: hit, container: rect,
                                                    minimumA: minimumA, minimumB: minimumB))
             layout(a, in: aRect, style: style, scale: scale, minimums: minimums, into: &result)
@@ -136,7 +138,9 @@ public nonisolated enum SplitGeometry {
     /// split axis, same space as `container`). `grabOffset` is where inside
     /// the divider the drag started, so the divider does not jump on press.
     /// `minimumA` and `minimumB` are the children's minimum extents
-    /// (`DividerGeometry`); nil means a single pane on that side.
+    /// (`DividerGeometry`); nil means a single pane on that side. A divider
+    /// within `snapDistance` points of one of `snaps` (ratios) lands on it,
+    /// if both sides keep their minimums there.
     public static func ratio(
         forPointer pointer: CGFloat,
         grabOffset: CGFloat = 0,
@@ -144,7 +148,9 @@ public nonisolated enum SplitGeometry {
         axis: SplitAxis,
         style: LayoutStyle,
         minimumA: CGFloat? = nil,
-        minimumB: CGFloat? = nil
+        minimumB: CGFloat? = nil,
+        snaps: [Double] = [],
+        snapDistance: CGFloat = 0
     ) -> Double {
         let start = axis == .horizontal ? container.minX : container.minY
         let extent = axis == .horizontal ? container.width : container.height
@@ -156,7 +162,10 @@ public nonisolated enum SplitGeometry {
         if available >= minA + minB {
             aExtent = min(max(aExtent, minA), available - minB)
         }
-        let ratio = Double(aExtent / available)
+        let snap = snaps.map { (ratio: $0, at: CGFloat($0) * available) }
+            .filter { abs($0.at - aExtent) <= snapDistance && $0.at >= minA && available - $0.at >= minB }
+            .min { abs($0.at - aExtent) < abs($1.at - aExtent) }
+        let ratio = snap?.ratio ?? Double(aExtent / available)
         return min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
     }
 

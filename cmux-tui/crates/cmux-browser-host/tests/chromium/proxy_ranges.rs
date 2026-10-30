@@ -74,7 +74,7 @@ fn forward_proxy(upstream: u16) -> (u16, Arc<Mutex<Vec<String>>>) {
 /// A gated headless session (`remote` as CALLER-LOCALITY sets it) whose
 /// engine events reach the gate as the host's would (rebinding checks), and
 /// the events it saw.
-fn gated_session(
+pub(super) fn gated_session(
     source: &Arc<HeadlessSource>,
     browsers: &HeadlessBrowsers,
     name: &str,
@@ -95,6 +95,7 @@ fn gated_session(
         on_behalf_of: None,
         origin: "cli".into(),
         label: String::new(),
+        terminal: None,
         implicit_session: false,
         engine: "headless".into(),
     };

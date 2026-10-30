@@ -10,15 +10,22 @@ import CmuxNextCompat
 /// `timedRetries` failures no timer is armed at all and the loop waits for a
 /// ``RetryWake`` event (the daemon socket changed, the network returned, the
 /// app became active). So a dead peer costs a bounded number of attempts,
-/// never a periodic wakeup.
+/// never a periodic wakeup. A daemon that is relaunched and dies on connect
+/// makes a new socket each time; after `socketRetries` such failed attempts
+/// (until a connection stays healthy) a socket change no longer wakes the
+/// loop, only an explicit event does, one attempt each.
 public struct RetryPolicy: Sendable {
     public var backoff: Backoff
     /// Failures after which retries wait for an event only.
     public var timedRetries: Int
+    /// Failed attempts woken by a socket change after which socket changes
+    /// stop waking the loop (a crash loop, cx-6so.7).
+    public var socketRetries: Int
 
-    public init(initial: Duration, maximum: Duration, timedRetries: Int) {
+    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3) {
         backoff = Backoff(initial: initial, maximum: maximum)
         self.timedRetries = timedRetries
+        self.socketRetries = socketRetries
     }
 
     /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s).
@@ -35,6 +42,17 @@ public struct RetryPacer: Sendable {
     public let policy: RetryPolicy
     private var backoff: Backoff
     public private(set) var failures = 0
+    /// Failed attempts since the last reset that a socket change woke.
+    public private(set) var socketFailures = 0
+    private var wokeBySocket = false
+    /// The socket whose refusals spent the timed retries
+    /// (``waitForPeerAfterFailure(wake:clock:)``); nil until one refused.
+    private var budgetSocket: RetryWake.Identity?
+    /// The last attempt was refused at the daemon's connection limit (``refusedBusy()``).
+    private var busyRefusal = false
+    /// The longest spacing after a busy refusal: the daemon is up and frees a slot
+    /// as soon as one of its connections ends.
+    public static let busyRetryCap: Duration = .seconds(1)
 
     public init(_ policy: RetryPolicy) {
         self.policy = policy
@@ -44,169 +62,116 @@ public struct RetryPacer: Sendable {
     /// The timed-retry budget is spent: wait for an event only.
     public var isExhausted: Bool { failures >= policy.timedRetries }
 
+    /// A socket change may wake the next wait: false in a crash loop.
+    public var wakesOnSocket: Bool { socketFailures < policy.socketRetries }
+
     public mutating func reset() {
         failures = 0
+        socketFailures = 0
+        wokeBySocket = false
+        budgetSocket = nil
+        busyRefusal = false
         backoff.reset()
     }
 
     /// Notes one failure and returns the spacing before the next attempt,
     /// or nil when the budget is spent (wait for an event only).
     public mutating func failed() -> Duration? {
+        if busyRefusal {
+            busyRefusal = false
+            wokeBySocket = false
+            return min(backoff.next(), Self.busyRetryCap)
+        }
         failures += 1
+        if wokeBySocket { socketFailures += 1 }
+        wokeBySocket = false
         return failures > policy.timedRetries ? nil : backoff.next()
     }
-}
 
-/// An event that can make a retry succeed. Fired by callers (network path
-/// change, app activation) and by a kernel vnode watch on a socket file's
-/// directory (``watch(file:)``): the watch fires only when the file's
-/// identity differs from the one recorded after the last failed attempt
-/// (``rebaseline()``), so the loop's own attempts (a `server ensure` that
-/// recreates the socket) never wake it again.
-public final class RetryWake: Sendable {
-    public enum Cause: Sendable, Equatable {
-        case event
-        case timer
-        case cancelled
+    /// Notes a failure while the socket is missing: it spends no timed
+    /// retry (no timed attempt can succeed before the socket appears), but a
+    /// socket that a socket change brought and that is gone again counts
+    /// toward the crash-loop limit.
+    public mutating func failedWhileMissing() {
+        if wokeBySocket { socketFailures += 1 }
+        wokeBySocket = false
     }
 
-    public let owner: String
-    private let ledger: WakeupLedger
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake")
-    private let state = Mutex<State>(State())
-
-    private struct Identity: Equatable {
-        var device: dev_t
-        var inode: ino_t
-    }
-
-    private struct State {
-        var latched = false
-        var waiter: CheckedContinuation<Cause, Never>?
-        var timer: DemandTimer?
-        var file: String?
-        var baseline: Identity?
-        var source: (any DispatchSourceFileSystemObject)?
-    }
-
-    public init(owner: String, ledger: WakeupLedger = .shared) {
-        self.owner = owner
-        self.ledger = ledger
-    }
-
-    deinit {
-        state.withLock { $0.source?.cancel() }
-    }
-
-    /// Something changed that may let a retry succeed.
-    public func fire() {
-        resume(.event, latchIfIdle: true)
-    }
-
-    /// Watches `path`'s directory; a change of `path` itself (created,
-    /// removed, replaced) fires. Replaces an earlier watch of another file.
-    public func watch(file path: String) {
-        let directory = (path as NSString).deletingLastPathComponent
-        let changed = state.withLock { state -> Bool in
-            guard state.file != path else { return false }
-            state.source?.cancel()
-            state.source = nil
-            state.file = path
-            state.baseline = Self.identity(of: path)
-            return true
+    /// Notes a failure while the socket `socket` exists (it refused, or its
+    /// daemon answered with an error) and returns the spacing before the next
+    /// attempt, or nil when the budget is spent.
+    ///
+    /// The timed retries belong to one socket. A socket other than the one
+    /// that spent them (its daemon was restarted) gets timed retries of its
+    /// own, because its change can come while an attempt runs, before the
+    /// rebaseline that follows it, and then wakes nothing: the new daemon was
+    /// binding, or answered while it started. Each such renewal counts as a
+    /// failure a socket change brought, so a daemon that keeps replacing its
+    /// socket gets at most `socketRetries` renewals until a success resets
+    /// the pacer.
+    public mutating func failed(at socket: RetryWake.Identity) -> Duration? {
+        if budgetSocket == nil {
+            budgetSocket = socket
+        } else if budgetSocket != socket, wakesOnSocket {
+            budgetSocket = socket
+            failures = 0
+            backoff.reset()
+            wokeBySocket = true
         }
-        guard changed else { return }
-        let descriptor = open(directory, O_EVTONLY | O_CLOEXEC)
-        guard descriptor >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
-                                                               eventMask: [.write, .link, .delete, .rename], queue: queue)
-        source.setEventHandler { [weak self] in self?.directoryChanged() }
-        source.setCancelHandler { close(descriptor) }
-        let installed = state.withLock { state -> Bool in
-            guard state.file == path, state.source == nil else { return false }
-            state.source = source
-            return true
-        }
-        if installed { source.resume() } else { close(descriptor) }
+        return failed()
     }
 
-    /// Records the watched file's current identity and drops a pending
-    /// event: call after a failed attempt, so only later changes wake.
-    public func rebaseline() {
-        state.withLock { state in
-            state.latched = false
-            state.baseline = state.file.flatMap(Self.identity(of:))
-        }
+    /// The attempt was refused at the daemon's connection limit (`server.busy`): the
+    /// daemon is alive and answering, so the failure spends no timed retry and the next
+    /// spacing is at most ``busyRetryCap``. Past the budget the loop would wait for an
+    /// event only, and a busy daemon behind the same socket fires none: the app stayed
+    /// "not connected" (every split snapped back) while CLI clients took each freed slot.
+    public mutating func refusedBusy() {
+        busyRefusal = true
     }
 
-    /// Waits for an event, or for `delay` when given. A pending event
-    /// returns at once.
-    public func awaitWake(delay: Duration?, clock: any Clock<Duration>) async -> Cause {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Cause, Never>) in
-                let immediate = state.withLock { state -> Cause? in
-                    if Task.isCancelled { return .cancelled }
-                    if state.latched {
-                        state.latched = false
-                        return .event
-                    }
-                    state.waiter = continuation
-                    state.timer?.cancel()
-                    state.timer = nil
-                    if let delay {
-                        let timer = DemandTimer(owner: owner, clock: clock, ledger: ledger)
-                        state.timer = timer
-                        timer.schedule(after: delay) { [weak self] in self?.resume(.timer, latchIfIdle: false) }
-                    }
-                    return nil
-                }
-                if let immediate { continuation.resume(returning: immediate) }
-            }
-        } onCancel: {
-            resume(.cancelled, latchIfIdle: false)
-        }
-    }
-
-    private func resume(_ cause: Cause, latchIfIdle: Bool) {
-        let waiter = state.withLock { state -> CheckedContinuation<Cause, Never>? in
-            state.timer?.cancel()
-            state.timer = nil
-            guard let waiter = state.waiter else {
-                if latchIfIdle { state.latched = true }
-                return nil
-            }
-            state.waiter = nil
-            return waiter
-        }
-        if cause == .event { ledger.record(owner, reason: "event") }
-        waiter?.resume(returning: cause)
-    }
-
-    private func directoryChanged() {
-        let changed = state.withLock { state -> Bool in
-            guard let file = state.file else { return false }
-            let now = Self.identity(of: file)
-            guard now != state.baseline else { return false }
-            state.baseline = now
-            return true
-        }
-        if changed { fire() }
-    }
-
-    private static func identity(of path: String) -> Identity? {
-        var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
-        return Identity(device: info.st_dev, inode: info.st_ino)
+    /// Notes what woke the wait before the next attempt.
+    public mutating func woke(_ cause: RetryWake.Cause) {
+        wokeBySocket = cause == .socket
     }
 }
 
 extension RetryPacer {
     /// After a failure: rebaselines `wake`, then waits for the backoff
     /// spacing (cut short by an event) or, once the budget is spent, for an
-    /// event only. Returns false when cancelled.
+    /// event only; in a crash loop a socket change no longer counts.
+    /// Returns false when cancelled.
     public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
         wake.rebaseline()
         let delay = failed()
-        return await wake.awaitWake(delay: delay, clock: clock) != .cancelled
+        let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
+        woke(cause)
+        return cause != .cancelled
+    }
+
+    /// ``waitAfterFailure(wake:clock:)`` for a client of a daemon that it does
+    /// not start itself (the Feed's acpmux mailbox reader): while the watched
+    /// socket is missing and its folder chain is watched, no timed attempt can
+    /// succeed, so the wait arms no timer and ends only when the socket
+    /// appears or an explicit event fires. The timed budget is kept for a
+    /// socket that exists but refuses (a crashed daemon's stale socket, a
+    /// handoff), and renewed for a socket that replaced it
+    /// (``failed(at:)``). A path that cannot be watched (no descriptor left, a
+    /// folder on the way that does not open) falls back to the timed wait.
+    /// Returns false when cancelled.
+    public mutating func waitForPeerAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
+        let delay: Duration?
+        switch wake.rebaseline() {
+        case .missing:
+            failedWhileMissing()
+            delay = nil
+        case let .present(socket):
+            delay = failed(at: socket)
+        case .unwatched:
+            delay = failed()
+        }
+        let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
+        woke(cause)
+        return cause != .cancelled
     }
 }

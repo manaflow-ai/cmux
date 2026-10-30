@@ -31,7 +31,7 @@ const placedChief = async (name: string) => {
 
 /** The chief's socket on its main conversation: op frames, their answers, and a close. */
 const chiefSocket = async (conversation: string, token: string) => {
-  const res = await worker.fetch(`https://api.test/v1/wire/conv/${conversation}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+  const res = await worker.fetch(`https://api.test/v1/wire/conv/${conversation}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
   expect(res.status).toBe(101)
   const ws = res.webSocket!
   const frames: Array<any> = []
@@ -108,5 +108,30 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     const sent = (await op(t.token, "message.send", { conversation: t.chief.main_conversation, client_msg_id: "teamdo-down", parts: [{ type: "text", text: "x" }] }, "teamdo-down")).json
     expect(sent.ok, JSON.stringify(sent)).not.toBe(true)
     expect(await chiefSaid(t.owner, t.chief.main_conversation, "teamdo-down")).toBe(false)
+  })
+
+  it("a placed chief keeps its own conversation reads and its wake queue socket after the inbox refusal (cx-59n8.11, hq-84)", async () => {
+    const c = await placedChief("chief-own-ack")
+    const conversation = c.chief.main_conversation as string
+    expect((await c.ask("own-ack-1")).json.ok).toBe(true)
+    const hist = await call("/v1/read", c.token, { op: "conversation.history", params: { conversation, limit: 5 } })
+    expect(hist.status, JSON.stringify(hist.json)).toBe(200)
+    const msg = (hist.json.value.messages as Array<{ client_msg_id: string; seq: number }>).find((m) => m.client_msg_id === "own-ack-1")
+    expect(msg).toBeDefined()
+    const thread = await call("/v1/read", c.token, { op: "conversation.thread", params: { conversation, root: (msg as unknown as { id: string }).id } })
+    expect(thread.status, JSON.stringify(thread.json)).toBe(200)
+    // Its wake queue socket and mux.ack.
+    const res = await worker.fetch(`https://api.test/v1/wire/mux/${c.chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${c.token}` } })
+    expect(res.status).toBe(101)
+    res.webSocket!.accept()
+    res.webSocket!.close()
+    // The placed brain acks its wakes with this token (cx-59n8.17).
+    const ack = () => call("/v1/ops", c.token, { op: "mux.ack", params: { agent: c.chief.id, conversation, seq: msg!.seq }, idempotency_key: crypto.randomUUID() })
+    let acked = await ack()
+    for (let i = 0; i < 20 && !acked.json.ok; i++) {
+      await runAlarm(c.userDO)
+      acked = await ack()
+    }
+    expect(acked.json.ok, JSON.stringify(acked.json)).toBe(true)
   })
 })

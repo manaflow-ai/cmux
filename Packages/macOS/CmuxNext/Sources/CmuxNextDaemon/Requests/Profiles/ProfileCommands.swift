@@ -9,18 +9,10 @@ public struct ProfileResult: Decodable, Sendable, Equatable {
     public var changed: Bool
 }
 
-public struct ListProfilesRequest: DaemonRequest {
-    public struct Response: Decodable, Sendable, Equatable {
-        public var profiles: [ProfileSnapshot]
-    }
-    public static let command = "list-profiles"
-    public init() {}
-}
-
 public struct CreateProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
     public static let command = "create-profile"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
+    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var name: String
     /// Caller-chosen id makes a retry idempotent; nil lets the daemon mint one.
     public var profile: ProfileID?

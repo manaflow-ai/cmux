@@ -124,12 +124,56 @@ threat is a stolen paired device. Accepted residuals:
   there is no sandbox there yet.
 - Claude Code's own Bash sandbox is off inside the profile, because macOS
   refuses a nested sandbox. The profile is the only sandbox.
-- A remote chain's Claude Code gets the Mac's Claude access token by env and
+- A remote chain causes no keychain read unless the person turned on the cmux
+  setting `agents.remoteChains.claudeKeychainLogin` (default off). With it on,
+  a remote chain's Claude Code gets the Mac's Claude access token by env and
   cannot refresh it inside the sandbox, so a chain that runs longer than the
   token's life loses its login. A long-lived token (`claude setup-token`) in
-  the harness profile env avoids this.
+  the harness profile env avoids this and needs no keychain read.
 - Secret denies match file paths; a secret file that is a symlink to another
   folder may stay readable.
+
+## Remote approvals (acpmux person key)
+
+Only the person-facing cmux app may allow an agent's permission prompt
+([person.rs](../../cmux-tui/crates/acpmux/src/hub/person.rs), #13742 D16). For
+an agent daemon on another machine, the app makes a key for that one daemon
+run, starts the daemon with it, and checks that the daemon holds it before it
+signs an allow. The threat is an agent on that machine that tries to allow its
+own prompts. Delivery paths:
+
+- An SSH machine: the key goes only on the stdin of the app's own SSH exec.
+- A Cloud machine (cx-0q7o slice 2d): the key goes to the cmux backend
+  (`POST /api/vm/{id}/acpmux/keyed-start`), then only as the stdin of the
+  provider exec that starts the daemon. The backend and the VM provider are
+  trusted for this delivery, because they can already run any command as root
+  on the machine. The route never logs, traces, stores or retries the key, and
+  the provider call is not one the provider stores. Only the machine's single
+  owner may start or check a keyed daemon there; a team machine refuses.
+- A Cloud machine on the Cloud app server link (cx-0q7o slice 2e): the key
+  goes to the cmux-next API Worker
+  (`POST /v1/cloud/machines/{machine}/acpmux/keyed-start`) with the person's
+  own session, never through the local daemon, `apps-run` or a Cloud op (ops
+  and their params are recorded). The team's Cloud object passes it on only as
+  the stdin of the same provider exec, records no op and keeps one audit row
+  without it. The Worker's invocation logs record the URL and every header but
+  the session, so the app puts the key only in the body, and staging and
+  production run with invocation logs off. The Worker also refuses (does not
+  use) a request with a key-like value in the URL, a query or a header. Single
+  owner as above.
+
+Accepted residuals:
+
+- An agent that runs as the same user and can write that user's shell
+  startup files or cmux-tui binary can capture the key at the next restart.
+- On a Cloud machine, agents have passwordless sudo. An agent that gets one
+  allowed shell command can read the key from the daemon's memory at any
+  time. The key then counts only for that one daemon run on that one machine.
+  This is accepted because without it a Cloud machine's chat cannot allow
+  from the Mac at all.
+- The single-owner rule is checked when the key is bound only. If the owner
+  later adds a member to the machine's one-member team, the binding stays
+  until the next restart of that daemon.
 
 ## Maintenance and disclosure
 

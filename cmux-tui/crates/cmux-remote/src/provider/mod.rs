@@ -32,7 +32,9 @@ use crate::observability::TransportSnapshot;
 
 #[cfg(feature = "wireguard-transport")]
 pub use dial::WireGuardDialer;
-pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
+pub use dial::{
+    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, SocksDialer, resolve_dial_target,
+};
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
     IrohListener, IrohProvider, IrohProviderConfig, IrohRoute, load_or_create_iroh_secret,
@@ -44,7 +46,10 @@ pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
     RelayProvider, register_relay_daemon, register_relay_daemon_with_credentials,
 };
-pub use ssh::{SshProvider, SshProviderConfig};
+pub use ssh::{
+    REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SshProvider,
+    SshProviderConfig,
+};
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
 pub use unix::UnixProvider;

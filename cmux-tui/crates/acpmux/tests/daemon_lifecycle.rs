@@ -4,6 +4,11 @@
 //! agents, and stops promptly on SIGTERM.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -60,24 +65,21 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
-    // A login shell that takes 4 s and exports one variable.
+    // A login shell that takes 2 s (under the 3 s limit) and exports one variable.
     let shell = dir.join("slowsh");
     write_executable(
         &shell,
-        "#!/bin/sh\nsleep 4\nprintf 'AMX_TEST_IMPORTED=yes\\0'\nexec env -0\n",
+        "#!/bin/sh\nsleep 2\nprintf 'SSL_CERT_DIR=/amx-test-imported\\0'\nexec env -0\n",
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "1")
         .env("SHELL", &shell)
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
-        .env_remove("AMX_TEST_IMPORTED")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -97,8 +99,8 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         panic!("daemon exited without a readiness line");
     });
     let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
-    // Bound and ready well before the 4 s login shell finishes.
-    assert!(started.elapsed() < Duration::from_secs(3), "ready after {:?}", started.elapsed());
+    // Bound and ready before the 2 s login shell finishes.
+    assert!(started.elapsed() < Duration::from_secs(2), "ready after {:?}", started.elapsed());
     assert_eq!(ready["pid"], pid);
     assert_eq!(ready["socket"], socket.to_string_lossy().as_ref());
     let listen = ready["listen"].as_str().unwrap().to_owned();
@@ -111,7 +113,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
 
     let mut rpc = Rpc::connect(&socket).await;
     let status = rpc.call("_acpmux/status", json!({})).await;
-    assert!(started.elapsed() < Duration::from_secs(4), "status after {:?}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(2), "status after {:?}", started.elapsed());
     assert_eq!(status["ready"], false);
     assert_eq!(status["loginEnv"], "pending");
     assert_eq!(status["listen"], listen);
@@ -126,7 +128,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     let id = s["sessionId"].as_str().unwrap().to_owned();
     rpc.call(
         "session/prompt",
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: AMX_TEST_IMPORTED"}]}),
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: SSL_CERT_DIR"}]}),
     )
     .await;
     let events = rpc
@@ -138,7 +140,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         .iter()
         .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
         .collect();
-    assert_eq!(texts, ["AMX_TEST_IMPORTED=yes"]);
+    assert_eq!(texts, ["SSL_CERT_DIR=/amx-test-imported"]);
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["ready"], true);
     assert_eq!(status["loginEnv"], "imported");
@@ -186,14 +188,12 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     let mut fds = [0i32; 2];
     assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
     let (rfd, wfd) = (fds[0], fds[1]);
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "3"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -286,6 +286,131 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A home, socket and TMPDIR so deep that the configured socket path is past
+/// the Unix socket limit (a CI worker's long TMPDIR): the daemon still binds,
+/// at a short alias, and a client given the same long path reaches it.
+#[tokio::test]
+async fn a_socket_path_past_the_unix_limit_still_serves() {
+    let dir = scratch("long").join("d".repeat(110));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("s.sock");
+    assert!(socket.as_os_str().len() > 104, "the path must be past the limit");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+        .args(["--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("TMPDIR", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    let Some(ready) = ready else {
+        let _ = child.kill();
+        panic!("the daemon exited without a readiness line: {:?}", child.wait());
+    };
+    let bound = PathBuf::from(ready["socket"].as_str().unwrap());
+    assert!(bound.as_os_str().len() <= 103, "bound past the limit: {}", bound.display());
+    // A client knows only the long path.
+    let out = daemon_env::acpmux(&dir)
+        .args(["daemon", "shutdown"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("TMPDIR", &dir)
+        .output()
+        .unwrap();
+    let exited = (0..200).find_map(|_| {
+        let status = child.try_wait().unwrap();
+        if status.is_none() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        status
+    });
+    if exited.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(exited.is_some(), "the client's shutdown did not reach the daemon");
+    assert!(!bound.exists(), "the short socket stayed after shutdown");
+}
+
+/// A state write that fails while the daemon loads (huge-blue, 2026-10-25:
+/// `write .../daemon.tmp-N-0: No space left on device`) must not stop it. The
+/// pid file's path is a folder here, so every write of it fails; the daemon
+/// still reports ready, answers, leaves no temporary file behind (a full
+/// disk keeps none of them), and stops cleanly on SIGTERM.
+#[tokio::test]
+async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
+    let dir = scratch("nospc");
+    std::fs::create_dir_all(dir.join("daemon.pid")).unwrap();
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+        .args(["--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as i32;
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    let Some(ready) = ready else {
+        let _ = child.kill();
+        panic!("the daemon exited on a failed pid file write: {:?}", child.wait());
+    };
+    assert_eq!(ready["pid"], pid);
+    let mut rpc = Rpc::connect(&socket).await;
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["pid"], pid, "{status}");
+    // Past the first retries (1 s, then 2 s): still up, still answering.
+    tokio::time::sleep(Duration::from_millis(3_500)).await;
+    assert!(child.try_wait().unwrap().is_none(), "the daemon exited while retrying");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["pid"], pid, "{status}");
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    let term = Instant::now();
+    let code = loop {
+        if let Some(code) = child.try_wait().unwrap() {
+            break code;
+        }
+        if term.elapsed() > Duration::from_secs(8) {
+            let _ = child.kill();
+            panic!("daemon still running 8 s after SIGTERM");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(code.success(), "{code:?}");
+    // The shutdown ended the retries before it exited: nothing writes now.
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.starts_with("daemon.tmp-"))
+        .collect();
+    assert!(left.is_empty(), "failed writes left temporary files: {left:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///
@@ -308,4 +433,465 @@ fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]
         .unwrap();
     child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
     assert!(child.wait().unwrap().success(), "could not write {}", path.display());
+}
+
+/// An agent chat's agent runs the app's `cmux` and reaches the app (cx-c6xdh):
+/// the app hands its daemon the bundled CLI (`CMUX_BUNDLED_CLI_PATH`) and its
+/// control socket, and every agent finds that CLI first on its `PATH`, ahead
+/// of the login shell's entries (where an older `cmux` may live), with the
+/// socket that names the app.
+#[tokio::test]
+async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
+    let dir = scratch("cli");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    let bundled = dir.join("cmux.app/Contents/Resources/bin");
+    std::fs::create_dir_all(&bundled).unwrap();
+    write_executable(bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
+    // The app's URL opener (scripts/cmux-next/url-open/cmux-open-url): an
+    // agent's `BROWSER`, as in the app's terminals, so a sign-in page a tool
+    // opens (`gh auth login`, `aws sso login`, Python's webbrowser) lands in a
+    // cmux tab, and prezto's `.zprofile` (`BROWSER=open` when unset) in the
+    // agent's `zsh -lc` keeps it.
+    write_executable(bundled.join("cmux-open-url"), "#!/bin/sh\nexit 0\n");
+    // The app's agent zsh layer (Resources/cmux-cli-path/zsh-agent): the
+    // agent's own `zsh -lc` runs the user's .zprofile, which may put the old
+    // `cmux` first again; the layer moves the bundled one back after it.
+    let agent_zsh = dir.join("cmux.app/Contents/Resources/cmux-cli-path/zsh-agent");
+    std::fs::create_dir_all(&agent_zsh).unwrap();
+    std::fs::write(agent_zsh.join(".zshenv"), "# layer\n").unwrap();
+    let user_zdotdir = dir.join("user-zdotdir");
+    let login = dir.join("login-bin");
+    std::fs::create_dir_all(&login).unwrap();
+    write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
+    // The login shell lists its own `cmux` first.
+    let shell = dir.join("loginsh");
+    write_executable(
+        &shell,
+        format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
+    );
+    let socket = dir.join("s.sock");
+    let app_socket = dir.join("app.sock");
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "1")
+        .env("SHELL", &shell)
+        .env("CMUX_BUNDLED_CLI_PATH", bundled.join("cmux"))
+        .env("CMUX_SOCKET_PATH", &app_socket)
+        .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.next.debug.cli")
+        .env("ZDOTDIR", &user_zdotdir)
+        .env_remove("BROWSER")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    tokio::task::spawn_blocking(move || {
+        for line in BufReader::new(stdout).lines() {
+            if serde_json::from_str::<Value>(&line.unwrap()).is_ok_and(|v| v["ready"] == true) {
+                return;
+            }
+        }
+        panic!("daemon exited without a readiness line");
+    })
+    .await
+    .unwrap();
+
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "cli"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut answers = Vec::new();
+    for name in [
+        "PATH",
+        "CMUX_SOCKET_PATH",
+        "CMUX_BUNDLE_ID",
+        "ZDOTDIR",
+        "CMUX_CLI_AGENT_ZDOTDIR",
+        "BROWSER",
+    ] {
+        rpc.call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
+        )
+        .await;
+        let events = rpc
+            .call("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
+            .await;
+        let seen: Vec<String> = events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect();
+        answers.push(seen.last().cloned().unwrap_or_default());
+    }
+    let seen = answers;
+    let _ = child.kill();
+    let _ = child.wait();
+    let path = seen[0].strip_prefix("PATH=").unwrap_or_else(|| panic!("{seen:?}"));
+    let first_cmux = path
+        .split(':')
+        .map(|entry| Path::new(entry).join("cmux"))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("no cmux on the agent's PATH: {path}"));
+    assert_eq!(first_cmux, bundled.join("cmux"), "the agent's PATH: {path}");
+    assert_eq!(seen[1], format!("CMUX_SOCKET_PATH={}", app_socket.display()));
+    assert_eq!(seen[2], "CMUX_BUNDLE_ID=com.cmuxterm.app.next.debug.cli");
+    assert_eq!(seen[3], format!("ZDOTDIR={}", agent_zsh.display()), "{seen:?}");
+    assert_eq!(seen[4], format!("CMUX_CLI_AGENT_ZDOTDIR={}", user_zdotdir.display()), "{seen:?}");
+    assert_eq!(seen[5], "BROWSER=cmux-open-url", "{seen:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every path under `dir` (itself included) whose mode lets the group or
+/// others write it, with that mode.
+fn writable_by_others(dir: &Path) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut found = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(path) = todo.pop() {
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o022 != 0 {
+            found.push(format!("{mode:o} {}", path.display()));
+        }
+        if meta.is_dir() {
+            todo.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+        }
+    }
+    found.sort();
+    found
+}
+
+/// `acpmux ARGS` for home `home` under umask 002.
+fn umask_002_cli(dir: &Path, home: &Path, args: &[&str]) -> std::process::Output {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = daemon_env::acpmux(dir);
+    cmd.args(args)
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null());
+    // SAFETY: umask is async-signal-safe and changes only the child.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::umask(0o002);
+            Ok(())
+        });
+    }
+    cmd.output().unwrap()
+}
+
+/// Shuts down the daemon of `home`, also when an assert failed.
+struct ShutDown(PathBuf, PathBuf);
+
+impl Drop for ShutDown {
+    fn drop(&mut self) {
+        let _ = umask_002_cli(&self.0, &self.1, &["daemon", "shutdown"]);
+    }
+}
+
+/// A host whose umask is 002 (a Linux account in a shared group): the home and
+/// the log a daemon start makes are owner-only all the same, nothing the daemon
+/// makes in its home is writable by the group, and the next start finds
+/// nothing to refuse (ergo-walk2, 2026-10-25: "daemon run/start on a host with
+/// umask 002 -> refuses group-writable ~/.acpmux and daemon.log").
+#[test]
+fn a_daemon_started_under_umask_002_keeps_its_home_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("umask");
+    // Missing: `daemon start` makes it.
+    let home = dir.join("h");
+    let cli = |args: &[&str]| umask_002_cli(&dir, &home, args);
+    let _stop = ShutDown(dir.clone(), home.clone());
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    for start in ["first", "second"] {
+        let out = cli(&["daemon", "start"]);
+        assert!(
+            out.status.success(),
+            "{start} start: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(mode(&home), 0o700, "{start} start: the home");
+        assert_eq!(mode(&home.join("daemon.log")), 0o600, "{start} start: the log");
+        let status = cli(&["daemon", "status"]);
+        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+        let shutdown = cli(&["daemon", "shutdown"]);
+        assert!(shutdown.status.success(), "{}", String::from_utf8_lossy(&shutdown.stderr));
+        let loose = writable_by_others(&home);
+        assert!(loose.is_empty(), "{start} start left paths the group may write: {loose:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `daemon run` for home `home` and socket `socket`, once it reported ready: its store on disk
+/// and one stand-in agent harness configured.
+async fn ready_daemon(dir: &Path, home: &Path, socket: &Path) -> std::process::Child {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+        .args(["--log", "warn"])
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SOCKET", socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    if ready.is_none() {
+        let _ = child.kill();
+        panic!("the daemon exited without a readiness line: {:?}", child.wait());
+    }
+    child
+}
+
+/// The daemon's exit status within `budget`; it is killed when it is still running then.
+async fn exit_within(
+    child: &mut std::process::Child,
+    budget: Duration,
+) -> Option<std::process::ExitStatus> {
+    let start = Instant::now();
+    while start.elapsed() < budget {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    None
+}
+
+/// A test harness that removes its temporary home also ends the daemon it started there
+/// (cosmic-gray, 2026-10-29: two nightly daemons ran 8 days under a removed Python `mkdtemp`
+/// home). The daemon stops normally, with a live chat, and its shutdown's last saves never make
+/// the removed home again.
+#[tokio::test]
+async fn a_daemon_whose_home_is_removed_stops() {
+    let dir = scratch("gone");
+    let home = dir.join("h");
+    std::fs::create_dir(&home).unwrap();
+    let socket = home.join("s.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    let mut rpc = Rpc::connect(&socket).await;
+    rpc.call(
+        "session/new",
+        json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "gone"}}}),
+    )
+    .await;
+    std::fs::remove_dir_all(&home).unwrap();
+    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    let status = status.expect("the daemon still ran after its home was removed");
+    assert!(status.success(), "{status:?}");
+    assert!(!home.exists(), "the stopping daemon made its removed home again: {:?}", tree(&home));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A home moved away and made again at the same path is another home: the daemon of the old
+/// one stops, and never serves or locks the new one.
+#[tokio::test]
+async fn a_daemon_whose_home_is_replaced_stops() {
+    let dir = scratch("swap");
+    let home = dir.join("h");
+    std::fs::create_dir(&home).unwrap();
+    let socket = home.join("s.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    std::fs::rename(&home, dir.join("h.old")).unwrap();
+    std::fs::create_dir(&home).unwrap();
+    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    let status = status.expect("the daemon still ran after its home was replaced");
+    assert!(status.success(), "{status:?}");
+    assert!(!socket.exists(), "the old home's daemon bound the new home's socket");
+    let left: Vec<_> = std::fs::read_dir(&home).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert!(left.is_empty(), "the old home's daemon wrote into the new home: {left:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A command whose `ACPMUX_SOCKET` is not the socket its home's running daemon serves fails at
+/// once, naming the one it serves, instead of starting a daemon that waits out the handover
+/// budget on the lock that daemon holds. A listing, which never starts one, fails as fast instead of waiting out
+/// the budget for a socket that daemon will never serve.
+#[tokio::test]
+async fn a_socket_the_homes_daemon_does_not_serve_fails_fast() {
+    let dir = scratch("other");
+    let home = dir.join("h");
+    std::fs::create_dir(&home).unwrap();
+    let socket = home.join("acpmux.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    let wrong = home.join("other.sock");
+    let started = Instant::now();
+    let out = daemon_env::acpmux(&dir)
+        .args(["ls"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &wrong)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let took = started.elapsed();
+    unsafe {
+        libc::kill(child.id() as i32, libc::SIGTERM);
+    }
+    let stopped = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains(&format!("serves {}", socket.display())), "{stderr}");
+    assert!(took < acpmux::daemon::HANDOVER_BUDGET, "failed after {took:?}");
+    assert!(stopped.is_some(), "the daemon did not stop on SIGTERM");
+
+    // The home's daemon serves a socket of its own choosing, and the command asks for the
+    // home's default one: the socket the lock records names it.
+    let custom = home.join("custom.sock");
+    let mut child = ready_daemon(&dir, &home, &custom).await;
+    let started = Instant::now();
+    let out = daemon_env::acpmux(&dir)
+        .args(["ls"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let took = started.elapsed();
+    unsafe {
+        libc::kill(child.id() as i32, libc::SIGTERM);
+    }
+    let stopped = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains(&format!("serves {}", custom.display())), "{stderr}");
+    assert!(took < acpmux::daemon::HANDOVER_BUDGET, "failed after {took:?}");
+    assert!(stopped.is_some(), "the daemon did not stop on SIGTERM");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A command whose `ACPMUX_HOME` is missing (a test's removed temporary home) starts no daemon
+/// and does not make the folder again: a daemon there would run beside the one still on the
+/// removed files.
+/// (`chats list` starts a daemon when none runs; a listing, `ls`, never does.)
+#[test]
+fn a_command_in_a_missing_home_starts_no_daemon() {
+    let dir = scratch("nohome");
+    let home = dir.join("tmp7uxt3tq_/.acpmux");
+    let out = daemon_env::acpmux(&dir)
+        .args(["chats", "list"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", home.join("acpmux.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("does not exist"), "{stderr}");
+    assert!(!dir.join("tmp7uxt3tq_").exists(), "the command made the removed home again");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The same with a systemd unit installed (a Linux machine running `acpmux.service`): the
+/// command refuses before it asks systemd anything, since starting the unit for that home would
+/// make it again (review of #27796).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_command_in_a_missing_home_starts_no_systemd_unit() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("nounit");
+    let home = dir.join("tmp7uxt3tq_/.acpmux");
+    let bin = dir.join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let asked = dir.join("systemctl-asked");
+    let systemctl = bin.join("systemctl");
+    std::fs::write(
+        &systemctl,
+        format!("#!/bin/sh\necho \"$@\" >> '{}'\necho loaded\nexit 0\n", asked.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let out = daemon_env::acpmux(&dir)
+        .args(["chats", "list"])
+        .env("PATH", path)
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", home.join("acpmux.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("does not exist"), "{stderr}");
+    assert!(!asked.exists(), "systemctl was asked: {:?}", std::fs::read_to_string(&asked));
+    assert!(!dir.join("tmp7uxt3tq_").exists(), "the command made the removed home again");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `ACPMUX_SOCKET` alone names another home's daemon (the Chief's): with that daemon down, a
+/// command fails at once, naming the socket and its own home's, instead of starting a daemon
+/// under this home's lock for that socket and waiting out the handover budget on it.
+#[test]
+fn a_socket_without_its_home_starts_no_daemon() {
+    let dir = scratch("lone");
+    let elsewhere = dir.join("chief");
+    std::fs::create_dir(&elsewhere).unwrap();
+    let socket = elsewhere.join("acpmux.sock");
+    let out = daemon_env::acpmux(&dir)
+        .args(["chats", "list"])
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("share one home"), "{stderr}");
+    assert!(stderr.contains(&socket.display().to_string()), "{stderr}");
+    let default_home = daemon_env::home(&dir).join(".acpmux");
+    assert!(
+        !default_home.join("daemon.lock").exists(),
+        "a daemon was started in {}",
+        default_home.display()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every path under `dir`, for a failure message.
+fn tree(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(path) = todo.pop() {
+        if let Ok(entries) = std::fs::read_dir(&path) {
+            todo.extend(entries.map_while(Result::ok).map(|e| e.path()));
+        }
+        found.push(path);
+    }
+    found.sort();
+    found
 }

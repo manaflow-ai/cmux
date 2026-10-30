@@ -36,9 +36,6 @@ public struct ControlTopology: Sendable, Hashable {
         return sessions.first { $0.id == id }
     }
 
-    /// The home session, when the App reported one.
-    public var homeSession: ControlSessionInfo? { sessions.first(where: \.isHome) }
-
     public func workspace(id: String) -> ControlWorkspaceInfo? {
         workspaces.first { $0.id == id || $0.handle == id || ($0.resourceID != nil && $0.resourceID == id) }
     }
@@ -60,6 +57,17 @@ public struct ControlTopology: Sendable, Hashable {
                 for pane in screen.panes {
                     if let tab = pane.tabs.first(where: { $0.id == id || $0.surface == id }) { return (tab, pane, workspace) }
                 }
+            }
+        }
+        return nil
+    }
+
+    /// The id of the tab that shows `terminal` (a daemon terminal id or a public `term_…` id), or
+    /// nil (another session's terminal): the caller's tab of `cmux open` and `browser.open_link`.
+    public func tabID(ofTerminal terminal: String) -> String? {
+        for workspace in workspaces {
+            for pane in workspace.panes {
+                if let tab = pane.tabs.first(where: { $0.terminalID == terminal || $0.terminalResourceID == terminal }) { return tab.id }
             }
         }
         return nil

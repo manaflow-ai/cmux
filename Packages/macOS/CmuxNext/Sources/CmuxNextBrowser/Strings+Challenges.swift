@@ -24,10 +24,6 @@ extension Strings {
     static var certificateWarningNotShown: String {
         String(localized: "browser.certificate.notShown", defaultValue: "No certificate warning is showing on this page.", bundle: .module)
     }
-    /// A certificate warning action run on a Chromium page.
-    static var certificateWarningChromium: String {
-        String(localized: "browser.certificate.chromium", defaultValue: "Chromium shows its own certificate warning page. Use its buttons, or Back.", bundle: .module)
-    }
     static var authRemember: String { String(localized: "browser.auth.remember", defaultValue: "Remember password", bundle: .module) }
     static var certificateBackToSafety: String {
         String(localized: "browser.certificate.backToSafety", defaultValue: "Back to Safety", bundle: .module)
@@ -44,7 +40,6 @@ extension Strings {
                defaultValue: "cmux could not confirm that this server is \(host). \(reason) Proceed only if you know this server, for example a test server on your own network.",
                bundle: .module)
     }
-    static var certificateBack: String { String(localized: "browser.certificate.back", defaultValue: "Go Back", bundle: .module) }
     static func certificateProceed(host: String) -> String {
         String(localized: "browser.certificate.proceed", defaultValue: "Proceed to \(host) (Unsafe)", bundle: .module)
     }

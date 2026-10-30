@@ -27,17 +27,28 @@ final class BookmarkService {
     @ObservationIgnored var importStore: ImportedDataStore?
     /// Profiles whose daemon tree was fetched on this connection.
     @ObservationIgnored var fetched: Set<String> = []
+    /// Profiles whose tree came from a daemon reply requested after the
+    /// home daemon settled (the file copied over), since the last switch.
+    @ObservationIgnored var loadedFromDaemon: Set<String> = []
+    /// `observeHome` finished its pass for the daemon's current capability.
+    @ObservationIgnored var homeSettled = false
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var fileTrees: [String: [BookmarkNode]] = [:]
     @ObservationIgnored var fileLoaded = false
     @ObservationIgnored var saving: Task<Void, Never>?
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
+    @ObservationIgnored var faviconObservation: Task<Void, Never>?
+    /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
+    var awaitedFolderIcons: Set<String> = []
+    @ObservationIgnored var folderIconObservation: Task<Void, Never>?
     @ObservationIgnored var migrating = false
     /// The folder each profile's last bookmark went to, offered for the next one.
     @ObservationIgnored var lastFolder: [String: String] = [:]
     /// Live browser chromes, by tab key, for the star and bar fan-out.
     @ObservationIgnored var chromes: [String: WeakChrome] = [:]
+    /// Chromium's bookmark models follow the trees (chrome.bookmarks bridge).
+    @ObservationIgnored var chromium: BookmarkChromiumSync?
     @ObservationIgnored var showsBar = false
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
 
@@ -64,6 +75,7 @@ final class BookmarkService {
         let file = BookmarkFileStore(file: directory.appending(path: "bookmarks.json"))
         self.file = file
         services.importedBookmarkSink = BookmarkImportSink(service: self)
+        chromium = BookmarkChromiumSync(service: self)
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
@@ -85,7 +97,7 @@ final class BookmarkService {
     // MARK: Reading
 
     /// The home daemon serves bookmarks; every read and write goes there.
-    var usesDaemon: Bool { services.machines.local.supports(DaemonCapabilities.shared.bookmarks) }
+    var usesDaemon: Bool { services.machines.local.supports(DaemonCapability.bookmarks.rawValue) }
 
     /// `profile`'s tree; asks the daemon for it the first time.
     func tree(_ profile: String) -> BookmarkTree {
@@ -97,16 +109,26 @@ final class BookmarkService {
     /// default one for an incognito tab, so incognito shows your bookmarks.
     func profile(ofTab key: String) -> String {
         let engine = services.browserProfiles.engineProfile(forTab: key)
-        if OffTheRecordProfiles.shared.isOffTheRecord(engine) { return BrowserProfileRecord.defaultID }
+        if services.browserStores.offTheRecord.isOffTheRecord(engine) { return BrowserProfileRecord.defaultID }
         return BrowserProfileRecord.wireID(for: engine)
     }
 
     /// The wire id for an engine profile (a page's `profileID`).
     func profile(of engine: BrowserProfileID) -> String {
-        OffTheRecordProfiles.shared.isOffTheRecord(engine) ? BrowserProfileRecord.defaultID : BrowserProfileRecord.wireID(for: engine)
+        services.browserStores.offTheRecord.isOffTheRecord(engine) ? BrowserProfileRecord.defaultID : BrowserProfileRecord.wireID(for: engine)
     }
 
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }
+
+    /// `profile`'s tree is the stored one, not an empty placeholder: with the
+    /// daemon, once its reply arrived; with the file, once the file is read
+    /// and the home daemon is known not to serve bookmarks (it answered
+    /// without the capability, or is unavailable), so the file is the truth.
+    func isLoaded(_ profile: String) -> Bool {
+        if usesDaemon { return loadedFromDaemon.contains(profile) }
+        let home = services.machines.local
+        return fileLoaded && (home.store.identity != nil || home.startup != .connecting)
+    }
 
     /// The folder a new bookmark goes to: the last one used, else the bar.
     func defaultFolder(profile: String) -> String {
@@ -166,6 +188,7 @@ final class BookmarkService {
         generation &+= 1
         refreshChromes(profiles: profiles)
         services.bookmarkPages.reload(profiles: profiles)
+        chromium?.treesChanged(profiles)
     }
 
     /// A browser profile was deleted: its bookmarks go too (the daemon
@@ -173,6 +196,7 @@ final class BookmarkService {
     func dropProfile(_ profile: String) {
         trees[profile] = nil
         fetched.remove(profile)
+        loadedFromDaemon.remove(profile)
         if !usesDaemon, fileTrees[profile] != nil { saveFile(profile: profile) }
     }
 }

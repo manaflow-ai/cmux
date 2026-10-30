@@ -119,7 +119,7 @@ struct SpringElement {
     var isPulse: Bool { abs(to - from) < 1e-6 }
     func share(_ i: Int) -> Double {
         let total = components.reduce(0) { $0 + $1.delta }
-        guard let component = components[checked: i] else { return 0 } // cmux: checked
+        guard let component = components[checked: i] else { return 0 } // checked
         return abs(total) < 1e-9 ? 0 : component.delta / total
     }
     /// Value at `tau` after the event for a move from `a` to `b` (pulse: `a` plus the fitted deltas).
@@ -132,16 +132,74 @@ struct SpringElement {
         return v
     }
     var settleTime: Double { components.map { $0.delay + $0.activeTime }.max() ?? 0 }
+    /// The same element, every component `s` seconds later (the same curve shape and name). A
+    /// later component holds its start value from the begin time (`Animate.sampled` for a spring,
+    /// `Animate.basic` for a curve), so no frame before the start shows the final value (live and
+    /// paused trees).
+    func delayed(by s: Double) -> SpringElement {
+        guard s > 0 else { return self }
+        var e = self
+        e.components = components.map { var c = $0; c.delay += s; return c }
+        return e
+    }
+    /// The same element on a clock `k` times slower, `shift` seconds later: progress(t) becomes
+    /// progress((t - shift) / k). Each spring's duration and each curve's duration scale by `k` (a
+    /// spring keeps its bounce: the same shape in time), each delay becomes `shift + k x delay`, an
+    /// initial velocity (distance per second) divides by `k`.
+    func timeScaled(_ k: Double, shift: Double) -> SpringElement {
+        guard k > 0, k.isFinite, shift.isFinite else { return self }
+        var e = self
+        e.components = components.map { c in
+            var n = c
+            n.delay = shift + k * c.delay
+            n.spring = Spring(duration: c.spring.duration * k, bounce: c.spring.bounce, initialVelocity: c.spring.initialVelocity / k)
+            if let cv = c.curve { n.curve = Curve(x1: cv.x1, y1: cv.y1, x2: cv.x2, y2: cv.y2, duration: cv.duration * k) }
+            return n
+        }
+        return e
+    }
+}
+
+/// springs.json `travelLaw` of an element: the element runs on a clock `k = k0 (travel / refPt)^q` times
+/// slower, `d0 + d1 ln(travel / refPt)` s later, with the travel (pt) clamped to [minPt, maxPt] (the
+/// measured range: no extrapolation).
+struct TravelLaw {
+    var refPt, k0, q, d0, d1, minPt, maxPt: Double
+    func apply(_ e: SpringElement, travel: Double) -> SpringElement {
+        let x = log(min(max(travel, minPt), maxPt) / refPt)
+        return e.timeScaled(k0 * exp(q * x), shift: d0 + d1 * x)
+    }
 }
 
 /// springs.json, bundled. Every animated element of the app takes its timing
 /// from here; nothing else defines a curve.
 enum Springs {
-    static let all: [String: SpringElement] = {
-        // cmux: a package resource (the app's main bundle does not hold it).
-        guard let url = Bundle.module.url(forResource: "springs", withExtension: "json"),
+    private final class Token {}
+    private static let lock = NSLock()
+    private static var current: Bundle?
+    /// Where springs.json is read from. A host that embeds this code sets it before the first motion (a Swift
+    /// package: `Bundle.module`), as `MessagesLabLocalization.bundle`. Default: the bundle that contains this
+    /// code, then `Bundle.main` (the app's own build). Not `Bundle.main` alone: in a host app Bundle.main has
+    /// no springs.json, and every curve would fall back to the default spring without a sign (cx-3cb, hq-6d).
+    static var bundle: Bundle? {
+        get { lock.lock(); defer { lock.unlock() }; return current }
+        set { lock.lock(); current = newValue; lock.unlock() }
+    }
+    /// springs.json, read once for `all` and `travelLaws`. A missing or unreadable file is a build fault: it
+    /// stops a debug build and logs in a release build (the curves then are the default spring).
+    private static let json: [String: [String: Any]] = {
+        let candidates = [bundle, Bundle(for: Token.self), Bundle.main].compactMap { $0 }
+        guard let url = candidates.lazy.compactMap({ $0.url(forResource: "springs", withExtension: "json") }).first,
               let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else {
+            NSLog("MessagesLab: springs.json missing or unreadable in %@; set Springs.bundle", candidates.map(\.bundlePath).joined(separator: ", "))
+            assertionFailure("springs.json missing or unreadable; set Springs.bundle")
+            return [:]
+        }
+        return obj
+    }()
+    static let all: [String: SpringElement] = {
+        let obj = json
         var out: [String: SpringElement] = [:]
         for (name, e) in obj {
             let comps = (e["components"] as? [[String: Any]] ?? []).map { c in
@@ -151,9 +209,20 @@ enum Springs {
                                                spring: Spring(duration: duration, bounce: c["bounce"] as? Double ?? 0,
                                                               initialVelocity: c["initialVelocity"] as? Double ?? 0),
                                                delta: c["delta"] as? Double ?? 0,
-                                               curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // cmux: no force unwrap
+                                               curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // no force unwrap
             }
-            out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name) // cmux
+            out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name)
+        }
+        return out
+    }()
+    /// The `travelLaw` objects of springs.json, by element name.
+    static let travelLaws: [String: TravelLaw] = {
+        let obj = json
+        var out: [String: TravelLaw] = [:]
+        for (name, e) in obj {
+            guard let l = e["travelLaw"] as? [String: Double], let r = l["refPt"], let k0 = l["k0"], let q = l["q"], let d0 = l["d0"],
+                  let d1 = l["d1"], let lo = l["minPt"], let hi = l["maxPt"], r > 0, lo > 0, hi >= lo else { continue }
+            out.updateValue(TravelLaw(refPt: r, k0: k0, q: q, d0: d0, d1: d1, minPt: lo, maxPt: hi), forKey: name)
         }
         return out
     }()
@@ -161,10 +230,18 @@ enum Springs {
         all[name] ?? SpringElement(name: name, from: 0, to: 1, components: [.init(delay: 0, spring: Spring(duration: 0.3, bounce: 0), delta: 1)])
     }
     static var send: SpringElement { element("transcript.send") }
-    static var delivered: SpringElement { element("transcript.delivered") }
-    static var read: SpringElement { element("transcript.read") }
+    /// Delivered and Read: macOS 27 the shared TRUTH.md curve; macOS 26 its own fits on the original recording
+    /// (`.macOS26`: with the shared curve the motion gate's parity got worse at Delivered and Read).
+    static var delivered: SpringElement { osElement("transcript.delivered") }
+    static var read: SpringElement { osElement("transcript.read") }
     static var typing: SpringElement { element("transcript.typing") }
     static var receive: SpringElement { element("transcript.receive") }
+    /// The first inline reply to the last message: the rows above that new thread root make room for its
+    /// change-of-thread gap (RowBuilder), from `threadRootDip` below their old place (lossless typing-unfocused-take1).
+    static var receiveThreadRoot: SpringElement { element("transcript.receiveThreadRoot") }
+    /// How far the rows above a new thread root drop on the arrival's first frame (pt; the gap above the root
+    /// closes), before they rise with `receiveThreadRoot` (lossless typing-unfocused-take1: 881 -> 888 pt).
+    static let threadRootDip: CGFloat = 7
     /// A received photo or video (lossless send-typed-media take: an ease-in-out move, the
     /// photo's opacity following it).
     static var receiveMedia: SpringElement { element("transcript.receiveMedia") }
@@ -178,17 +255,86 @@ enum Springs {
     /// An outgoing message that arrives from outside the field (another
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
-    static var bubbleRight: SpringElement { element("bubble.right") }
-    /// The send morph's width and scale: macOS 27 fits (lossless takes), and the macOS 26 fits
-    /// (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    /// The send morph's right edge, width, center and scale: macOS 27 fits (lossless takes), and
+    /// the macOS 26 fits (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    static var bubbleRight: SpringElement { osElement("bubble.right") }
     static var bubbleWidth: SpringElement { osElement("bubble.width") }
-    static var bubbleCenterY: SpringElement { element("bubble.centerY") }
+    static var bubbleCenterY: SpringElement { osElement("bubble.centerY") }
     static var bubbleScale: SpringElement { osElement("bubble.scale") }
+    /// The send morph's elements for one send (macOS 27): after a draft that shrinks the field, the
+    /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, on macOS and Mac Catalyst the
+    /// `.oneLineMac` fits (right, width, centerY, scale: fit7, cx-3cb bubble-refit), on iOS the `.oneLine`
+    /// fits where they exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
+    /// macOS 26: the elements above. gpui and rawmath mirror this struct with the macOS 27 fits only (they have no macOS 26 path).
+    struct Bubble {
+        /// `height`: the body's height (and the tail's place) — the variant's width element; `width` can differ
+        /// (macOS 27 field-shrink drafts of 2 lines: `bubble.width.fieldShrinkMac2` on its travel law; 3+ lines:
+        /// `bubble.width.fieldShrinkMac<lines>`).
+        var right, width, height, centerY, scale, opacity: SpringElement
+        /// `lines`: the sent balloon's text lines (TextLayout.lines.count); 0 = not known (the scale-only callers).
+        /// `travel`: the width change of the send, field width minus balloon width (pt); 0 = not known.
+        init(fieldShrinks: Bool, lines: Int = 0, travel: Double = 0) {
+            func e(_ n: String, _ base: SpringElement) -> SpringElement {
+                guard !ComposeMetrics.macOS26 else { return base }
+                // macOS 27, 1-line draft: the `.oneLineMac` fit (four elements, fit7 on the four 1-line
+                // send references, ANIMATIONS.md section 1 "1-line seven-reference fit"). iOS keeps `.oneLine`.
+                #if os(macOS) || targetEnvironment(macCatalyst)
+                if !fieldShrinks, let mac = Springs.all[n + ".oneLineMac"] { return mac }
+                #endif
+                return Springs.all[n + (fieldShrinks ? ".fieldShrink" : ".oneLine")] ?? base
+            }
+            right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
+            centerY = e("bubble.centerY", Springs.bubbleCenterY); scale = e("bubble.scale", Springs.bubbleScale)
+            opacity = e("bubble.opacity", Springs.bubbleOpacity)
+            height = width
+            // macOS 27, a draft that shrinks the field with 3+ text lines: ONE width spring whose duration depends
+            // on the line count (3 / 4+: 0.213 / 0.236 s, start +50 ms, damping ratio 0.788). An empirical fit with
+            // no known physical cause (springtruth TRUTH.md section 8); the height keeps the variant's element.
+            // 1- and 2-line texts that shrink the field keep `.fieldShrink` (a 2-line rule made the gate's fitted
+            // scale of two wide takes worse than their take-to-take spread).
+            #if os(macOS) || targetEnvironment(macCatalyst)
+            if !ComposeMetrics.macOS26, fieldShrinks, lines >= 3, let w = Springs.all["bubble.width.fieldShrinkMac\(min(lines, 4))"] {
+                width = w
+            }
+            // macOS 27, a 2-line text that shrinks the field: `.fieldShrink`'s width curve on a clock set by the
+            // width change (cx-3cb send-width-typed, springs.json bubble.width.fieldShrinkMac2): a 158 pt change
+            // (2-line wide) runs at the same speed 8 ms later, a 472 pt change (2-line narrow) 0.87x from
+            // 12.8 ms later; between them ln-interpolated, outside clamped. The height keeps `.fieldShrink`.
+            if !ComposeMetrics.macOS26, fieldShrinks, lines == 2, travel > 0,
+               let w = Springs.all["bubble.width.fieldShrinkMac2"], let law = Springs.travelLaws["bubble.width.fieldShrinkMac2"] {
+                width = law.apply(w, travel: travel)
+            }
+            #endif
+        }
+    }
     static func osElement(_ name: String) -> SpringElement {
         ComposeMetrics.macOS26 ? (all[name + ".macOS26"] ?? element(name)) : element(name)
     }
     static var bubbleOpacity: SpringElement { osElement("bubble.opacity") }
     static var fieldTop: SpringElement { element("field.top") }
+    /// The send's phase (s, added to the send transaction's begin time): how far into its curves
+    /// Messages' first send frame is, against ours. Messages' first send frame shows the send about
+    /// 10 ms into every curve after a 1-line draft, and one frame later in its curves (about 21 ms)
+    /// after a draft that shrinks the field; ours shows 14.3 ms (our first frame after the commit).
+    /// Measured on the seven lossless macOS 27 send takes, the same in the flying bubble's four
+    /// edges, the rows and the field top (tools/evidence/ANIMATIONS.md, section 1, "Send phase"):
+    /// the field's shrink costs Messages one more frame before its first send frame while its
+    /// animations' clock has started. macOS 26 (the original recording): none.
+    static func sendPhase(fieldShrinks: Bool) -> Double {
+        guard !ComposeMetrics.macOS26 else { return 0 }
+        return fieldShrinks ? -0.0066 : 0
+    }
+    /// The transcript's own delay in a send (s, after the send's begin time, for the rows only). Live drop-free
+    /// paired takes on cmux-lawrence-2 (tools/evidence/ANIMATIONS.md section 5 "rows-later"; rows phase with the
+    /// anchor frame as the base, scroll.py phase_anchor): main's rows are ahead of Messages' by 13.0 ms after a
+    /// 1-line draft and 6.6 ms after a draft that shrinks the field; a first delay of 9.0 / 4.0 ms moved them by
+    /// 9.1 / 3.5 ms and left 4.0 / 3.0 ms. The flying bubble's width is 2-4 ms ahead in both and stays. The
+    /// rows' moves, the fades and receipts of the rows the send changes, and an older bubble still flying in its
+    /// row start this much later; the new bubble's flight and the field keep `sendPhase`. macOS 26: none.
+    static func sendRowsDelay(fieldShrinks: Bool) -> Double {
+        guard !ComposeMetrics.macOS26 else { return 0 }
+        return fieldShrinks ? 0.007 : 0.013
+    }
     static var fieldOpacity: SpringElement { element("field.opacity") }
 
     /// A single-spring element for small effects that the recording does not
@@ -198,15 +344,93 @@ enum Springs {
     }
     /// Effects measured in earlier rounds (receipt pop, typing pop, reply fade),
     /// expressed as springs.
+    /// The typing bubble's appearance, macOS (lossless send-typed-take1, send-typed-media-take1,
+    /// typing-unfocused-take1; tools/evidence/ANIMATIONS.md section 6): scale 0 -> 1 about
+    /// `RowDraw.typingAnchor`, opacity 0 -> 1 (the row's content: bubble, dots and discs fade as one), and
+    /// a drift of `typingDrift` (pt, window) to its place;
+    /// time 0 = the insert's begin (the rows' `transcript.typing`).
+    static var typingScale: SpringElement { element("typing.scale") }
+    static var typingOpacity: SpringElement { element("typing.opacity") }
+    static var typingDriftX: SpringElement { element("typing.driftX") }
+    static var typingDriftY: SpringElement { element("typing.driftY") }
+    static let typingDrift = CGPoint(x: 4.79, y: -7.66)
+    /// The two tail discs (`RowDraw.typingDiscs`, large then small), macOS: each a layer of its own at its
+    /// window place (not in the scaled bubble). Messages shows them from its first frames at 0.5 and 0.8 of
+    /// their size, a few points right of and above their place, and moves them there in about 0.25 s while
+    /// the bubble grows (lossless send-typed-media-take1, typing-unfocused-take1; ANIMATIONS.md section 6).
+    /// Offsets in window pt; their opacity is the bubble's (`typingOpacity`, on the row's content).
+    static let typingDiscFrom: [(x: Double, y: Double, scale: Double)] = [(2.531, -8.190, 0.496), (3.643, -10.700, 0.800)]
+    static func typingDiscX(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.x" : "typing.discS.x") }
+    static func typingDiscY(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.y" : "typing.discS.y") }
+    static func typingDiscScale(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.scale" : "typing.discS.scale") }
+    /// The dots' pulse phase (Cell.startTypingDots) starts this long after the insert's begin.
+    static let typingDotsPhase = 0.05
+    /// One breathing wave of the typing indicator (RowCell.breathe): an additive scale
+    /// `amplitude` x (1 - cos(2 pi (t - start) / period)) / 2 from `start` (s after the insert's begin) on,
+    /// repeating while the indicator shows: from its rest size (0) to 1 + amplitude and back.
+    struct Breath { var amplitude: Double; var period: Double; var start: Double }
+    /// Messages' typing indicator breathes while it shows, from the end of its appearance until the reply
+    /// (lossless send-typed-media-take1 +4.94 s, 2.2 s at rest; typing-unfocused-take1, link-ask-instinct-take1
+    /// and the 13 typing-dots stills agree; tools/evidence/ANIMATIONS.md section 6 "cx-3cb typing-breath"):
+    /// three waves of their own, each from its rest size up and back, all at rest when the appearance ends.
+    /// Large disc +10.6 % every 0.901 s, small disc +15.1 % every 0.700 s (each about its centre), the bubble
+    /// with its dots +2.9 % every 1.906 s about `typingBreathAnchor`. When the reply comes, all three are
+    /// at rest again on the arrival's first frame (RowCell.stopTypingBreath).
+    static let typingBreathBody = Breath(amplitude: 0.0290, period: 1.906, start: 0.296)
+    static let typingBreathDiscs = [Breath(amplitude: 0.1057, period: 0.901, start: 0.242),
+                                    Breath(amplitude: 0.1510, period: 0.700, start: 0.178)]
+    /// The point the bubble breathes about (row coordinates): 7.00 pt right of its left edge and 8.63 pt under its
+    /// top (15.00 pt left of and 4.87 pt above its centre). Read from the pixel edges of every frame of the media
+    /// take's 2.2 s at rest (tools/evidence/anim/typanchor.py, typanchorfit.py; ANIMATIONS.md section 6, cx-3cb
+    /// typing-anchor): right +1.073 pt, top -0.271, bottom +0.552 at the peak. With this wave's +2.9 % the right edge
+    /// gives x; y is the least-squares point of the top and bottom (their sum is 3.05 %: -0.250 and +0.533 here).
+    /// Messages' left edge does not show its -0.20 pt: it clips the bubble to its frame rounded to whole device
+    /// pixels (RowCell.clipTypingBody does the same). Before: 15.35 and 4.70 pt from the centre (a capsule fit with a
+    /// blur bias; within this measurement's spread of about 1 pt, 0.03 pt at the edges).
+    static var typingBreathAnchor: CGPoint {
+        CGPoint(x: RowDraw.typingBubble.minX + 7.00, y: RowDraw.typingBubble.minY + 8.63)
+    }
+    /// `--typing-phase S` (still scenes only): the typing dots hold S s into their cycle and the breathing
+    /// at rest (animation speed 0), so a still capture of the indicator is the same in every run.
+    static let typingStillPhase: Double? = {
+        let a = ProcessInfo.processInfo.arguments
+        guard let i = a.firstIndex(of: "--typing-phase") else { return nil }
+        guard let v = a.dropFirst(i + 1).first.flatMap({ Double($0) }), v.isFinite else {
+            FileHandle.standardError.write(Data("--typing-phase needs a finite number of seconds; the indicator animates\n".utf8))
+            return nil
+        }
+        return v
+    }()
+    /// The iOS app's typing pop and receipt cross-fade (ios/Sources/ChatColumn.swift; the macOS
+    /// transcript uses the fits above and below).
     static let typingPop = simple("typing.pop", delay: 0.05, duration: 0.209)
     static let typingFade = simple("typing.fade", delay: 0.05, duration: 0.12)
-    static let typingOut = simple("typing.out", delay: 0.02, duration: 0.2)
-    static let receivedFade = simple("received.fade", delay: 0.2, duration: 0.2)
-    static let receiptIn = simple("receipt.in", delay: 0.085, duration: 0.15)
-    static let receiptPop = simple("receipt.pop", delay: 0.085, duration: 0.251)
     static let receiptOldOut = simple("receipt.oldOut", delay: 0.042, duration: 0.163)   // fitted on luma, 6.55-7.25 s
     static let receiptNewIn = simple("receipt.newIn", delay: 0.262, duration: 0.243)    // fitted on luma, 6.55-7.25 s
+    static let typingOut = simple("typing.out", delay: 0.02, duration: 0.2)
+    static let receivedFade = simple("received.fade", delay: 0.2, duration: 0.2)
+    /// Reply arrival, macOS (lossless send-typed-take1, send-typed-media-take1, typing-unfocused-take1;
+    /// tools/evidence/ANIMATIONS.md section 3). A received text that is not a thread reply cross-fades
+    /// with the typing bubble from the first frame; a thread reply first draws its connector at full
+    /// opacity while the typing bubble fades (the same fade in both), then fades its bubble in.
+    static var receivedTextFade: SpringElement { element("received.textFade") }
+    static var typingOutOnReceive: SpringElement { element("typing.outOnReceive") }
+    static var connectorDrawOnReceive: SpringElement { element("connector.drawOnReceive") }
+    static var receivedThreadFade: SpringElement { element("received.threadFade") }
+    static let receiptIn = simple("receipt.in", delay: 0.085, duration: 0.15)
+    static let receiptPop = simple("receipt.pop", delay: 0.085, duration: 0.251)
+    /// A receipt label that appears (Delivered) and one that changes its text (Delivered -> Read), macOS
+    /// (lossless send-typed-take1, +1.04 s and +1.89 s; tools/evidence/ANIMATIONS.md section 7).
+    static var receiptAppearOpacity: SpringElement { element("receipt.appearOpacity") }
+    static var receiptAppearGrow: SpringElement { element("receipt.appearGrow") }
+    static let receiptAppearScale: CGFloat = 0.3
+    static var receiptChangeOut: SpringElement { element("receipt.changeOut") }
+    static var receiptChangeIn: SpringElement { element("receipt.changeIn") }
     static let ghostOut = simple("row.out", delay: 0, duration: 0.2)
+    /// The send overlay's fade over the landed cell (WindowView.landMorphs): live 120 Hz takes of main f0be76b
+    /// (tools/live-motion, cx-3cb) showed the hand-off as ONE frame that changed every glyph edge of the landed
+    /// balloon (send-typed #405: 10411 px, up to 180 levels, the frame before 1138 px); spread over ~12 frames.
+    static let landFade = simple("land.fade", delay: 0, duration: 0.1)
     static let connectorDraw = simple("connector.draw", delay: 0, duration: 0.25)
     static let textUnblur = simple("text.unblur", delay: 0.035, duration: 0.12)
     static let fieldGrow = simple("field.grow", delay: 0, duration: 0.1)
@@ -275,7 +499,7 @@ enum Animate {
     static func sampledPulse(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, depth: Double = 1,
                              begin: CFTimeInterval) {
         let end = element.settleTime
-        let n = max(2, CrashGuard.int(end * 240, in: 0...14_400)) // cmux: at most 60 s of samples, no trap on NaN
+        let n = max(2, CrashGuard.int(end * 240, in: 0...14_400)) // at most 60 s of samples, no trap on NaN
         let a = CAKeyframeAnimation(keyPath: keyPath)
         a.values = (0...n).map {
             NSNumber(value: min(1, max(0, base + depth * (element.value(Double($0) / 240, from: base, to: base) - base))))
@@ -294,9 +518,9 @@ enum Animate {
     /// lowest value and then stays at 0 (a surface that leaves with the
     /// pulse's fade-out and does not come back). Sampled at 240 Hz.
     static func sampledUntilMinimum(_ layer: CALayer, _ keyPath: String, _ element: SpringElement, base: Double, begin: CFTimeInterval) {
-        let n = max(2, CrashGuard.int(element.settleTime * 240, in: 0...14_400)) // cmux: at most 60 s, no trap on NaN
+        let n = max(2, CrashGuard.int(element.settleTime * 240, in: 0...14_400)) // at most 60 s, no trap on NaN
         let samples: [Double] = (0...n).map { min(1, max(0, element.value(Double($0) / 240, from: base, to: base))) }
-        // cmux: zero from the lowest sample on, without index math.
+        // zero from the lowest sample on, without index math.
         let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
         let values = samples.enumerated().map { $0.offset >= low ? 0 : $0.element }
         let a = CAKeyframeAnimation(keyPath: keyPath)
@@ -494,14 +718,14 @@ enum Presenter {
                 tau = 0
             }
             let total = k.duration * Double(max(1, k.repeatCount))
-            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : values.last.map { (kp, $0.doubleValue) } } // cmux: no force unwrap
+            if k.repeatCount < .infinity, tau >= total { return k.isRemovedOnCompletion ? nil : values.last.map { (kp, $0.doubleValue) } } // no force unwrap
             // Wrap only repeating animations (a one-shot at exactly its end
             // must not wrap to its first value).
             if k.repeatCount > 1 { tau = tau.truncatingRemainder(dividingBy: k.duration) }
             let u = tau / k.duration
             let times = (k.keyTimes ?? []).map(\.doubleValue)
             let ts = times.count == values.count ? times : values.indices.map { Double($0) / Double(values.count - 1) }
-            // cmux: the first inner key time at or past u, else the last; checked reads.
+            // the first inner key time at or past u, else the last; checked reads.
             let i = ts.dropFirst().dropLast().firstIndex(where: { $0 >= u }) ?? max(1, ts.count - 1)
             guard let t0 = ts[checked: i - 1], let t1 = ts[checked: i], let v0 = values[checked: i - 1]?.doubleValue,
                   let v1 = values[checked: i]?.doubleValue else { return (kp, values.last?.doubleValue ?? 0) }

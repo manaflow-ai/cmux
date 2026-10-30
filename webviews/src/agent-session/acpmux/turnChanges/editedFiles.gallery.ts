@@ -93,8 +93,18 @@ const variants: Record<string, AgentPaneVariant> = {
     snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
   },
   "three-files": {
-    note: "Three edited files (one new): the rows with their counts.",
+    note: "Three edited files (one new): the rows with their counts. No row's floating copy action shows at rest.",
     snapshot: turn(FILES),
+    play: async (ctx) => {
+      // The prompt's action row: the transcript has drawn. A prompt's bubble row has no floating
+      // copy action of its own any more (its Copy is in that row), so none may show here.
+      await ctx.waitFor(() => ctx.document.querySelector(".cv-user__actions"));
+      for (const copy of ctx.document.querySelectorAll(".acpmux-row__copy")) {
+        const style = ctx.document.defaultView!.getComputedStyle(copy);
+        if (style.position !== "absolute" || style.opacity !== "0")
+          throw new Error(`a row's copy action shows at rest (position ${style.position}, opacity ${style.opacity})`);
+      }
+    },
   },
   "fourteen-files": {
     note: "Fourteen files with three rows shown: Show 11 more files. Long directories lose their middle.",
@@ -175,6 +185,15 @@ const variants: Record<string, AgentPaneVariant> = {
       assistant("Wrote the generator and updated the client.", 5.2),
       summary(5.2, { status: "completed", toolCount: 4 }),
     ]),
+  },
+  "sources-changes": {
+    note: "Play: open Sources; Outputs lists the turn's fourteen files, five until View all, and Changes their totals. A file opens the turn's diff at it.",
+    height: 700,
+    snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
+    play: async ({ click, waitFor, document }) => {
+      await click({ selector: ".acpmux-summary-button" });
+      await waitFor(() => document.querySelector(".acpmux-summary-card .acpmux-summary-file"));
+    },
   },
   collapsed: {
     note: "agentPane.editedFiles.show = collapsed: the header only; its chevron shows the rows.",

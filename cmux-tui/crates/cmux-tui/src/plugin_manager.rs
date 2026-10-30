@@ -1,3 +1,4 @@
+use cmux_json::JsonSet as _;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
@@ -102,7 +103,7 @@ impl ManagerError {
             Self::Validation { field, reason } => {
                 let mut details = json!({"reason": reason});
                 if let Some(field) = field {
-                    details["field"] = Value::String((*field).to_string());
+                    details.set("field", Value::String((*field).to_string()));
                 }
                 details
             }
@@ -447,8 +448,8 @@ fn remove_command(
     }
     fs::remove_dir_all(&installed.dir)?;
     remove_registry_metadata(&install_root(kind)?, &installed.name, kind)?;
-    plugin["active"] = Value::Bool(false);
-    plugin["enabled"] = Value::Bool(false);
+    plugin.set("active", Value::Bool(false));
+    plugin.set("enabled", Value::Bool(false));
     Ok(json!({"plugin": plugin}))
 }
 
@@ -989,7 +990,11 @@ fn run_git<const N: usize>(
 }
 
 fn install_root(kind: PluginKind) -> anyhow::Result<PathBuf> {
-    let root = if let Some(data_home) = non_empty_env_path("XDG_DATA_HOME") {
+    // A relative XDG_DATA_HOME (a quoted "~/.local/share") is ignored, as the
+    // XDG spec says; it would resolve against the caller's project directory.
+    let root = if let Some(data_home) =
+        non_empty_env_path("XDG_DATA_HOME").filter(|path| path.is_absolute())
+    {
         data_home.join("cmux").join("mux-plugins")
     } else {
         let home = cmux_tui_core::platform::home_dir()
@@ -1121,7 +1126,7 @@ fn plugin_json(plugin: &InstalledPlugin) -> Value {
         "extra": extra,
     });
     if let Some(revision) = revision {
-        snapshot["revision"] = Value::String(revision);
+        snapshot.set("revision", Value::String(revision));
     }
     snapshot
 }

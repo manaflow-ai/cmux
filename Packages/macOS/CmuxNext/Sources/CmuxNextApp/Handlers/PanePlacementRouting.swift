@@ -68,13 +68,17 @@ enum PanePlacementRouting {
 
     /// The invocation aimed at `pane`, keeping its arguments and origin. A
     /// new terminal opens where the person works (NEW-TERMINAL-INHERITS-CWD):
-    /// without a `cwd` argument, the folder of `focused`'s selected terminal.
-    /// Any other focused tab leaves the split's own fallback (the target
+    /// without a `cwd` argument, the folder of `focused`'s selected terminal
+    /// or agent chat (NewTerminalStart.folder). Any other focused tab leaves the split's own fallback (the target
     /// pane's folder).
     static func aimed(_ invocation: ActionInvocation, at pane: PaneModel, from focused: PaneController?) -> ActionInvocation {
         var aimed = invocation
         aimed.target = ActionTargetRef(kind: .pane, id: pane.id)
-        if aimed["cwd"]?.stringValue == nil, let tab = focused?.selectedTab, tab.kind == .pty, let cwd = tab.cwd {
+        // Not when Ghostty's `split-inherit-working-directory` is false (PaneHandlers.split then
+        // starts it at home).
+        if aimed["cwd"]?.stringValue == nil,
+           NewTerminalStart.inherits(.split),
+           let focused, let cwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: focused.services) {
             aimed.arguments["cwd"] = .string(cwd)
         }
         return aimed

@@ -273,18 +273,3 @@ impl Chrome {
         Style::default().bg(self.selection_bg)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn colorfgbg_light_background_selects_light() {
-        // Direct construction; detect() reads the environment.
-        assert!(Chrome::dark().dark);
-        assert!(!Chrome::light().dark);
-        let v = "0;15";
-        let bg = v.rsplit(';').next().and_then(|s| s.parse::<u8>().ok());
-        assert_eq!(bg, Some(15));
-    }
-}

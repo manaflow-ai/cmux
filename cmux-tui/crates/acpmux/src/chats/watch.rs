@@ -67,6 +67,15 @@ impl Burst {
     fn add(&mut self, event: notify::Result<notify::Event>) {
         match event {
             Ok(event) => {
+                // Access events (inotify's open and close) change no data:
+                // the index's own reads of a store made them, so taking them
+                // as changes made every scan trigger the next one. A close
+                // after write is dropped too: SQLite opens a WAL read-write
+                // even for a read-only connection, so it closes "for write"
+                // with no write. Every real write also reports a Modify.
+                if matches!(event.kind, notify::EventKind::Access(_)) {
+                    return;
+                }
                 self.rescan |= event.need_rescan();
                 for path in event.paths {
                     if !self.paths.contains(&path) {

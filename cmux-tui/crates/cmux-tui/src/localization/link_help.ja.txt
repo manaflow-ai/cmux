@@ -1,4 +1,4 @@
-使用方法: cmux link <init|show|peer|serve|dial|install-agent|uninstall-agent> [オプション]
+使用方法: cmux link <init|show|peer|serve|ensure|stop|status|dial|install-agent|uninstall-agent> [オプション]
 
 link はこのマシンのオーバーレイ端点を持ちます。ペアリングしたすべてのマシンに
 WireGuard 鍵 1 つと UDP ポート 1 つを使います。同じネットワークのみ（リレーはまだありません）。
@@ -13,6 +13,15 @@ WireGuard 鍵 1 つと UDP ポート 1 つを使います。同じネットワ�
         [--server-config パス]        owner_session を含む server.json（既定
                                       ~/.config/cmux/server.json）。サーバーの所有者だけが
                                       Chief ブレインのデーモンにも届きます
+  ensure [--install ID] [--port ポート] [--session-socket パス] [--server-config パス]
+                                      この状態ディレクトリの link が動いていなければ、`serve` を
+                                      独自のセッションで起動します（設定がなければ先に init。
+                                      --port 0 は空いているポートを使います）。状態
+                                      running|started|restarted の JSON を 1 行出力します
+  stop                                この状態ディレクトリの link を停止します（登録された pid）
+  status                              link が動いているか、その pid、ソケット、ビルドを表示します
+  archive                             サインアウト後: インストールの鍵とピアをその名前で保管し、
+                                      設定を削除します（link は停止している必要があります）
   dial --host ID [--service daemon|ssh|owner_session] [--socket 絶対パス]
                                       標準入出力をペアのマシンまたは Cloud ホストにつなぎます。
                                       stderr に JSON 1 行。終了コード: 0 成功、2 不明なホスト、

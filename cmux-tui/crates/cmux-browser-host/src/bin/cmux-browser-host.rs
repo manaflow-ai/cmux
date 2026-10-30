@@ -30,6 +30,7 @@ mod unix {
     use cmux_browser_host::host::{Host, agent_bundle, bundle};
     use cmux_browser_host::idle_exit::{IdleExit, SystemClock};
     use cmux_browser_host::server::{bind, default_socket_path, serve};
+    use cmux_json::JsonSet as _;
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::net::UnixStream;
@@ -56,6 +57,9 @@ mod unix {
         /// Listening sockets the daemon bound and keeps (socket activation:
         /// it starts the host again on the next agent connect).
         agent_listen_fd: Option<i32>,
+        /// The daemon's history link (one end of a socketpair; five page
+        /// history operations only; made close-on-exec when taken).
+        history_fd: Option<i32>,
         provider_listen_fd: Option<i32>,
         /// With `--supervised`: exit after this long with no session and no
         /// provider (the idle stop).
@@ -73,6 +77,7 @@ mod unix {
             provider_secret_fd: None,
             supervised: false,
             agent_listen_fd: None,
+            history_fd: None,
             provider_listen_fd: None,
             idle_exit_ms: None,
         };
@@ -106,6 +111,13 @@ mod unix {
                     );
                 }
                 "--supervised" => options.supervised = true,
+                "--history-fd" => {
+                    options.history_fd = Some(
+                        value("--history-fd")?
+                            .parse()
+                            .map_err(|_| "--history-fd: expected a file descriptor")?,
+                    );
+                }
                 "--agent-listen-fd" => {
                     options.agent_listen_fd = Some(
                         value("--agent-listen-fd")?
@@ -270,7 +282,17 @@ mod unix {
             eprintln!("cmux-browser-host: {warning}");
         }
         let engines = Arc::new(HostEngines::new(agent_bundle()).with_egress(egress.clone()));
-        let host = Arc::new(Host::new(engines.clone(), cwd).with_egress(egress));
+        let mut host = Host::new(engines.clone(), cwd).with_egress(egress);
+        if let Some(fd) = options.history_fd {
+            match cmux_browser_host::history_link::inherited_link(fd) {
+                Ok(link) => host = host.with_history_link(link),
+                Err(error) => {
+                    eprintln!("cmux-browser-host: --history-fd: {error}");
+                    return 1;
+                }
+            }
+        }
+        let host = Arc::new(host);
         let idle = options.idle_exit_ms.filter(|_| options.supervised).map(|ms| {
             let (probe_host, slot) = (Arc::downgrade(&host), engines.provider_slot());
             let busy = move || {
@@ -506,17 +528,22 @@ mod unix {
             &mut stream,
             1,
             "browser.repl.open",
-            json!({"session": options.session, "engine": options.engine, "cwd": caller_cwd()}),
+            json!({
+                "session": options.session,
+                "engine": options.engine,
+                "cwd": caller_cwd(),
+                "terminal": caller_terminal(),
+            }),
         ) {
             eprintln!("{}", error["message"].as_str().unwrap_or("error"));
             return 1;
         }
         let mut params = json!({"session": options.session, "code": code});
         if let Some(max) = options.max_output {
-            params["maxOutput"] = json!(max);
+            params.set("maxOutput", json!(max));
         }
         if let Some(ms) = options.timeout_ms {
-            params["timeoutMs"] = json!(ms);
+            params.set("timeoutMs", json!(ms));
         }
         match request(&mut stream, 2, "browser.repl.eval", params) {
             Ok(result) => {
@@ -534,6 +561,12 @@ mod unix {
                 1
             }
         }
+    }
+
+    /// The caller's cmux terminal, so the app draws the session's lease in
+    /// that agent's presence colour (display only).
+    fn caller_terminal() -> Option<String> {
+        std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
 
     /// The caller's directory, the session's fs root when it is narrow enough.

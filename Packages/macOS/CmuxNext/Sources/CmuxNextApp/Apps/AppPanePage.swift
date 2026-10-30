@@ -31,8 +31,10 @@ final class AppPanePage: InternalPageProvider {
 
     private var app: AppRecord? { apps.client.app(appID) }
 
-    /// Whether this app has a page to open (installed, visible, with a scene pane).
-    static func opens(_ app: AppRecord) -> Bool { app.isVisible && app.manifest.scenePane != nil }
+    /// Whether this app has a page to open (installed, enabled, with a scene pane). A hidden
+    /// app still opens on an explicit `app.open`; hiding removes only its sidebar, palette and
+    /// menu presence (those callers check presence themselves).
+    static func opens(_ app: AppRecord) -> Bool { app.isActive && app.manifest.scenePane != nil }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let app, let pane = app.manifest.scenePane else { return NSView() }

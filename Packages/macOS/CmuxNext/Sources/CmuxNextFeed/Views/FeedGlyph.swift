@@ -1,6 +1,7 @@
 import CmuxNextIcons
 import Foundation
 import SwiftUI
+import CmuxNextDesign
 
 /// The kind of an item as a small registry icon; color only for attention.
 struct FeedGlyph: View {
@@ -20,36 +21,7 @@ struct FeedGlyph: View {
         .iconRowSize(forLabelPointSize: size)
     }
 
-    static func icon(for item: FeedItem) -> IconName {
-        switch item.prompt {
-        case .notice:
-            switch item.poster.kind {
-            case .integration: .integration
-            case .server, .vm: .machineRemote
-            case .automation: .automation
-            case .system: item.context.terminal != nil ? .terminal : .notification
-            default: .notification
-            }
-        case let .approve(approve):
-            switch approve.action.type {
-            case .command: .terminal
-            case .edit: .actionEdit
-            case .network: .network
-            case .install: .package
-            case .tool, .custom: .tools
-            }
-        case .question: .agentQuestion
-        case .choice: .feedChoice
-        case .confirm: .actionConfirm
-        case .signIn: .accountSignin
-        case .passkey: .accountPasskey
-        case .review: .actionReview
-        case .input: .feedInput
-        case .file: .fileNew
-        case .handoff: .agentHandoff
-        case .custom: .feedCustom
-        }
-    }
+    static func icon(for item: FeedItem) -> IconName { FeedRowContent.icon(for: item) }
 
     private var tint: Color {
         if item.isOpenRequest { return item.priority >= .high ? colors.attention : colors.primary }
@@ -82,7 +54,7 @@ struct PosterLine: View {
             Text(verbatim: "·")
             Text(FeedRelativeTime.string(item.createdAt, now: now)).monospacedDigit()
             if item.home.isLocal {
-                Icon(.machineLocal, size: .iconRowSize(forLabelPointSize: 11)).help(FeedStrings.thisMac)
+                Icon(.machineLocal, size: .iconRowSize(forLabelPointSize: 11)).themedHelp(FeedStrings.thisMac)
             }
             if item.count > 1 {
                 Text(verbatim: "×\(item.count)").monospacedDigit()

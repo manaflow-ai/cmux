@@ -1,8 +1,8 @@
 import Foundation
 
 /// Prompts of a Chromium tab that cmux asks itself (Chromium shows its own
-/// JavaScript dialogs and permission bubbles): the automatic-downloads
-/// question. The chrome's prompt bar shows the first pending one, over the
+/// JavaScript dialogs and other permission bubbles): automatic downloads and
+/// location (`CEFPermissionPrompts`). The prompt bar shows the first one, over the
 /// page (an occlusion of the page window).
 extension CEFTab {
     func enqueuePrompt(_ kind: BrowserPromptKind, origin: String, completion: @escaping (BrowserPromptResponse) -> Void) {
@@ -27,8 +27,9 @@ extension CEFTab {
 
     func makeAutomaticDownloadGate() -> AutomaticDownloadGate {
         let profile = profileID
+        let settings = pageInfoSettings  // the engine's registry (the App's one), also after the tab is gone
         return AutomaticDownloadGate(
-            permissions: { [weak self] in (self?.pageInfoSettings ?? .shared).permissions(for: profile) },
+            permissions: { settings.permissions(for: profile) },
             ask: { [weak self] site, answer in
                 // Fail closed: a tab that is closed or in no window cannot
                 // show the prompt bar, so nothing waits for it.

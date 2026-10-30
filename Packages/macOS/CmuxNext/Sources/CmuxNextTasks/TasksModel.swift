@@ -13,7 +13,8 @@ public final class TasksModel {
     public private(set) var projects: [String: TaskProjectItem] = [:]
     public private(set) var sessions: [String: TaskSessionItem] = [:]
     public private(set) var me: TaskPrincipal?
-    public private(set) var keyPrefix = "CMX"
+    public private(set) var settings = TasksSettings(keyPrefix: "CMX")
+    public var keyPrefix: String { settings.keyPrefix }
     public private(set) var seq: UInt64 = 0
     /// Owner-confirmed tasks by id (never written by intents).
     public private(set) var confirmed: [String: TaskItem] = [:]
@@ -56,11 +57,20 @@ public final class TasksModel {
 
     /// Mirror + pending intents, live tasks only, in manual order.
     public var visibleTasks: [TaskItem] {
-        var tasks = confirmed
-        for intent in pending {
-            intent.apply(to: &tasks, statuses: statusByID, prefix: keyPrefix, me: me?.stableID)
-        }
-        return tasks.values.filter { !$0.archived && !$0.deleted }.sorted { ($0.sortKey, $0.number) < ($1.sortKey, $1.number) }
+        let tasks = pending.isEmpty ? Array(confirmed.values) : preview()
+        return tasks.filter { !$0.archived && !$0.deleted }.sorted { ($0.sortKey, $0.number) < ($1.sortKey, $1.number) }
+    }
+
+    /// The confirmed mirror with the pending intents applied by the owner's
+    /// reducer; an intent it would refuse changes nothing.
+    private func preview() -> [TaskItem] {
+        guard let me else { return Array(confirmed.values) }
+        let mirror = TasksPreview.Mirror(seq: seq, me: me, settings: settings, statuses: statuses,
+                                         labels: Array(labels.values), projects: Array(projects.values),
+                                         tasks: Array(confirmed.values), sessions: Array(sessions.values))
+        let intents = pending.map { TasksPreview.Intent(key: $0.key, op: $0.wire.op, params: $0.wire.params) }
+        let request = TasksPreview.Request(mirror: mirror, intents: intents, now: Int64(Date().timeIntervalSince1970 * 1000))
+        return TasksPreview.run(request)?.tasks ?? Array(confirmed.values)
     }
 
     /// The tasks the layouts show: `visibleTasks` narrowed by `scope`.
@@ -92,6 +102,11 @@ public final class TasksModel {
 
     // MARK: - Intents
 
+    /// The refusal toast ended: the next refusal shows again.
+    public func clearReject() {
+        lastReject = nil
+    }
+
     /// Send an intent. Refused while the owner is unreachable.
     @discardableResult
     public func send(_ kind: TasksIntentKind) -> Bool {
@@ -113,10 +128,7 @@ public final class TasksModel {
 
     /// Reorder `task` to sit between `after` and `before` (visible order).
     public func move(_ task: String, after: String?, before: String?) {
-        let tasks = visibleTasks
-        let lower = after.flatMap { a in tasks.first { $0.id == a }?.sortKey }
-        let upper = before.flatMap { b in tasks.first { $0.id == b }?.sortKey }
-        send(.move(task: task, after: after, before: before, sortKey: TasksSortKey.between(lower, upper)))
+        send(.move(task: task, after: after, before: before))
     }
 
     // MARK: - Owner events
@@ -141,7 +153,7 @@ public final class TasksModel {
     private func apply(_ snapshot: TasksSnapshot) {
         seq = snapshot.seq
         me = snapshot.me
-        keyPrefix = snapshot.settings.keyPrefix
+        settings = snapshot.settings
         statuses = snapshot.statuses.sorted { ($0.category.rank, $0.position) < ($1.category.rank, $1.position) }
         statusByID = Dictionary(uniqueKeysWithValues: statuses.map { ($0.id, $0) })
         labels = Dictionary(uniqueKeysWithValues: snapshot.labels.map { ($0.id, $0) })
@@ -172,7 +184,7 @@ public final class TasksModel {
         case let .project(project):
             projects[project.id] = project.archived ? nil : project
         case let .settings(settings):
-            keyPrefix = settings.keyPrefix
+            self.settings = settings
         case let .session(session):
             sessions[session.id] = session
         case let .remove(entity, id):
@@ -185,18 +197,5 @@ public final class TasksModel {
         }
         // An intent leaves the log at its settle line, which follows every
         // event of its commit, so a multi-event commit never flickers.
-    }
-}
-
-/// Client-side fractional keys for the move overlay only; the owner
-/// computes the committed key (cmux-tasks-core sort_key).
-nonisolated enum TasksSortKey {
-    static func between(_ a: String?, _ b: String?) -> String {
-        switch (a, b) {
-        case (nil, nil): return "V"
-        case let (a?, nil): return a + "V"
-        case let (nil, b?): return b.count > 1 ? String(b.dropLast()) : "0" + b
-        case let (a?, b?): return a < b ? a + "V" : a
-        }
     }
 }

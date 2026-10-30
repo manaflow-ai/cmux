@@ -3,7 +3,7 @@
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 
 /** What following a link does. */
-export type LinkKind = "anchor" | "markdown" | "file" | "external" | "mail" | "unsafe";
+export type LinkKind = "anchor" | "markdown" | "file" | "external" | "mail" | "app" | "unsafe";
 
 export interface ParsedLink {
   kind: LinkKind;
@@ -12,6 +12,21 @@ export interface ParsedLink {
   path: string;
   /** The `#fragment`, decoded, without `#`; "" when none. */
   anchor: string;
+}
+
+/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
+ * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
+const APP_AUTHORITY = /^cmux(-[a-z0-9-]+)?:\/\//i;
+const APP_ORDINARY =
+  /^(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+const APP_AGENT =
+  /^agent\/[a-z0-9-]{1,64}\/(?!\.+(?:[?#]|$))[A-Za-z0-9._:-]{1,256}(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+
+function isAppLink(href: string): boolean {
+  const marker = href.indexOf("://");
+  if (!APP_AUTHORITY.test(href) || marker < 0) return false;
+  const rest = href.slice(marker + 3);
+  return APP_ORDINARY.test(rest) || APP_AGENT.test(rest);
 }
 
 const MARKDOWN_PATH = /\.(md|markdown|mdx|mdown|mkd)$/i;
@@ -32,6 +47,8 @@ export function parseLink(raw: string): ParsedLink {
   if (href.startsWith("#")) return { kind: "anchor", href, path: "", anchor };
   if (/^(mailto|tel):/i.test(href)) return { kind: "mail", href, path: "", anchor: "" };
   if (/^https?:\/\//i.test(href) || href.startsWith("//")) return { kind: "external", href, path: "", anchor: "" };
+  // A cmux app link (a workspace, pane, tab or chat): the host opens it inside cmux, never in another app.
+  if (isAppLink(href)) return { kind: "app", href, path: "", anchor: "" };
   if (/^[a-z][a-z0-9+.-]*:/i.test(href) || !href) return { kind: "unsafe", href, path: "", anchor: "" };
   const path = decode(href.replace(/[?#].*$/, ""));
   return { kind: MARKDOWN_PATH.test(path) ? "markdown" : "file", href, path, anchor };

@@ -15,7 +15,8 @@ page (React acpmux client)
   -> AcpmuxPaneSocket over a RemoteAcpmuxWire (instead of the local WebSocket)
   -> AgentSessionAttachClient: its own connection to the tab's session daemon
      (server reach: SSH carrier -> remote-sidecar -> daemon Unix socket, ClientTransport::Unix)
-  -> daemon agent-session-* verbs (cmux-tui-core server/agent_session_attach.rs)
+  -> daemon agent-session-* verbs (cmux-tui-core server/agent_session_attach.rs; read-only
+     observation uses agent-session-observe-v1)
   -> one acpmux unix-socket link per attached tab (server/agent_session_link.rs)
 ```
 
@@ -25,9 +26,13 @@ page (React acpmux client)
 `session/cancel`, `_acpmux/permission_respond`. Every other method, and every frame that names
 another session, gets `remote.unsupported`. Daemon pushes become `_acpmux/event` and
 `_acpmux/permission_pending` notifications, so the page's own connect, replay and reconnect code
-runs unchanged.
+runs unchanged. A read-only viewer explicitly requires `agent-session-observe-v1` and sends
+`agent-session-observe`; it never falls back to writable `agent-session-attach`. On that wire,
+`session/prompt`, `session/cancel`, and `_acpmux/permission_respond` are refused locally, while
+records, permission notifications, and `session_changed` remain visible.
 
-Daemon verbs (cmux-tui/spec/commands.md "Agent session attach"): `agent-session-attach`,
+Daemon verbs (cmux-tui/spec/commands.md "Agent session attach"): `agent-session-attach` or the
+read-only `agent-session-observe`,
 `agent-session-events`, `agent-session-prompt`, `agent-session-cancel`,
 `agent-session-permission`, `agent-session-detach`; events `agent-session-record`,
 `agent-session-permission`, `agent-session-changed` (status and queue of that session only),
@@ -108,6 +113,59 @@ Checked against the relay rules before landing on feat-cmux-next:
   Residual: records from the other machine render in this Mac's page with the same trust as a
   local agent's records, and page actions a user clicks (open tab, app actions) act on this Mac
   as they do for a local chat.
+
+## Remote start (`agent-session-start-v1`, cx-d0tq)
+
+A new chat in a pane of a Cloud or SSH machine runs in that machine's acpmux. The app creates the
+agent tab in that machine's store with `host` = `registry:<identify.session_id>` and no session,
+then sends `agent-session-start {surface, cwd, harness?}` to that daemon. The daemon starts the
+session in its own acpmux (starting acpmux once, as `cmux acp` does, when nothing listens) and
+binds it to the tab itself (the store's compare-and-swap from null), so the tab then shows through
+the attach path above with no other app change.
+
+Relay analysis (reviewed with the Cloud lane hq-84 and the chief, 2026-10-10):
+
+- Team VMs (hq-84 + chief rule, 2026-10-10): the verb refuses on a team VM
+  (`agent_session.team_vm_blocked`) and on a Cloud VM whose kind the daemon cannot tell
+  (`agent_session.host_unverified`, fail closed), decided from the machine's own identity at each
+  start (cmux-tui/src/agent_start_host.rs), never from the request. cmux-host records the kind in
+  the root-owned, world-readable `/etc/cmux/vm-kind` (`owner` at a machine bind, `team` at a team
+  enroll and every team sync pass), because the daemon cannot read /var/lib/cmux. Owner VMs and
+  plain SSH hosts stay allowed. `CMUX_AGENT_START_HOST` can only make the kind stricter (test
+  seam). Not containment: a member with a shell can run an agent directly; the gate only keeps the
+  app from starting local-control chats on team VMs.
+- Who: the same trusted local (Unix) connections as the attach verbs; the remote relay and
+  WebSocket clients are refused. A Team VM daemon runs as the member's own uid, so a member starts
+  only into a tab of their own store.
+- Local command or content execution: the verb starts an agent process on the daemon's machine.
+  That is the purpose, and the caller already has the owner's shell on that machine (the SSH or
+  Cloud carrier). The client names only an agent kind (`harness`, resolved by acpmux from its own
+  config) and an absolute folder (`cwd`, checked by acpmux). No command, argv, env, policy, mode,
+  peer, preset or MCP server param exists (`deny_unknown_fields`).
+- No widening at start: the session starts with policy `ask` whatever the daemon default is, and
+  must sit in a mode acpmux's remote table (`_acpmux/web_modes`, the remote guard's own data)
+  lists as asking. Refused families (Codex, opencode, D10) are refused before the start when
+  named and after it when a profile derives them; a session in a non-asking mode moves to its
+  family's asking default or is ended (`agent_session.not_asking`). The folder must already be
+  trusted (acpmux's trust record), checked before the agent starts and again for its real family
+  (`agent_session.untrusted_folder`); the daemon never answers the trust question. The person
+  answers it in the app's chat, which records it on that machine with `agent-session-trust`
+  (cx-1bhjj, the pane relay's gesture rule for a set that trusts), as for a chat on the Mac.
+- What is NOT repeated (security review 2026-10-10, open for the Cloud lane): the daemon is
+  acpmux's unix client, so the session is local-control. acpmux's remote approval floor
+  (`hub/remote_floor.rs`), the Claude sandbox, the folder-profile refusal
+  (`.cmux/harnesses/<id>.toml` under `cwd`) and the agent-tools rule do not apply, the user's
+  saved allow rules apply, and a profile whose argv pins a permission flag reports its cached
+  mode (`claude_stdio/mod.rs`), which the mode check trusts. The "owner already has a shell"
+  argument covers the owner; a Team VM decision is pending.
+- Access to unowned objects: only a tab of this store whose record names this store
+  (`registry:` + its own session id) and has no session; a tab recorded for another machine or
+  already bound is refused, and a start that loses the bind race ends its new session.
+- Gap: prompts and permission answers from the remote chat go through the attach verbs on a unix
+  link (local control). `agent-session-permission` passes any announced option, allow included:
+  no code makes Allow deny-only today. cx-0q7o owns that; this start does not work around it.
+- Residual: a `session/new` that times out (60 s) after acpmux created the session leaves it
+  running unbound; a failed `_acpmux/kill` on a refused start does too.
 
 ## Daemon config
 

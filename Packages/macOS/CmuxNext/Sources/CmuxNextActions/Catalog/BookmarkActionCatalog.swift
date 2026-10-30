@@ -21,7 +21,7 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "bookmark.add", title: t("action.bookmark.add", "Add Bookmark…"),
                 keywords: ["bookmark", "new", "url"], category: .browser, symbol: "plus",
-                surfaces: [.palette, .keyboard],
+                surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [
                     ActionArgument(name: "url", title: t("argument.bookmark.url", "URL"), kind: .string),
                     ActionArgument(name: "title", title: t("argument.bookmark.title", "Name"), kind: .string, isRequired: false),
@@ -72,6 +72,19 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], arguments: [query], targets: [.bookmark],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.bookmark, .inspect, 150)])
             ),
+            // A folder's own icon (`bookmark-icon-v1`): an icon argument sets it (CLI, MCP),
+            // else the icon picker opens beside the folder. A bookmark's menu leaves both out.
+            ActionDescriptor(
+                id: "bookmark.setIcon", title: t("action.bookmark.setIcon", "Set Bookmark Folder Icon…"),
+                keywords: ["bookmark", "folder", "icon", "emoji", "symbol"], category: .browser, symbol: "face.smiling",
+                surfaces: [.contextMenu], arguments: [query, CatalogArgument.iconString.optional], targets: [.bookmark],
+                cliName: "bookmark set-icon"
+            ),
+            ActionDescriptor(
+                id: "bookmark.clearIcon", title: t("action.bookmark.clearIcon", "Remove Bookmark Folder Icon"),
+                keywords: ["bookmark", "folder", "icon", "emoji", "symbol", "reset"], category: .browser, symbol: "xmark.circle",
+                surfaces: [.contextMenu], arguments: [query], targets: [.bookmark], cliName: "bookmark clear-icon"
+            ),
             ActionDescriptor(
                 id: "bookmark.move", title: t("action.bookmark.move", "Move Bookmark…"),
                 keywords: ["bookmark", "folder", "reorder", "move"], category: .browser, symbol: "arrow.up.arrow.down",
@@ -100,13 +113,13 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "bookmark.import", title: t("action.bookmark.import", "Import Bookmarks…"),
                 keywords: ["bookmark", "import", "html", "netscape", "chrome", "safari", "firefox"], category: .browser,
-                symbol: "square.and.arrow.down", surfaces: [.palette, .keyboard, .menu], arguments: [path, profile],
+                symbol: "square.and.arrow.down", surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [path, profile],
                 cliName: "bookmark import", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "bookmark.importFromBrowser", title: t("action.bookmark.importFromBrowser", "Import Bookmarks from Browser…"),
                 keywords: ["bookmark", "import", "browser", "chrome", "safari", "firefox", "arc", "brave", "edge", "dia", "zen", "helium", "comet"],
-                category: .browser, symbol: "square.and.arrow.down.on.square", surfaces: [.palette, .keyboard, .menu],
+                category: .browser, symbol: "square.and.arrow.down.on.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 arguments: [
                     ActionArgument(name: "browser", title: t("argument.bookmark.browser", "Browser"), kind: .string, isRequired: false),
                     ActionArgument(name: "source", title: t("argument.bookmark.sourceProfile", "Profile to Import"), kind: .string,
@@ -118,7 +131,7 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "bookmark.export", title: t("action.bookmark.export", "Export Bookmarks…"),
                 keywords: ["bookmark", "export", "html", "netscape", "backup"], category: .browser, symbol: "square.and.arrow.up",
-                surfaces: [.palette, .keyboard, .menu], arguments: [path, profile], cliName: "bookmark export", mainMenu: .file
+                surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [path, profile], cliName: "bookmark export", mainMenu: .file
             ),
         ]
     }

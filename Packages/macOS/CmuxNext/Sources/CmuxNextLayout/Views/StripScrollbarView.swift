@@ -5,12 +5,15 @@ import QuartzCore
 
 /// The thin scrollbar under the column strip (dock-column.md, B1 to B5):
 /// a neutral thumb showing the visible range, no track color. Dragging the
-/// thumb scrolls, a click beside it pages. `system` (the default) is `auto`
-/// for overlay scrollers and `always` for legacy ones, live on a change of the
-/// macOS setting (``SystemScrollers``). `auto` fades it in while the
+/// thumb scrolls, a click beside it pages. `system` (the default) follows
+/// ``SystemScrollers/nativeStyle``: `auto`, as every scroller in cmux is thin and
+/// shown only while scrolling (SCROLLBARS-THIN). `auto` fades it in while the
 /// strip scrolls or the pointer is over it and out after a one-shot
 /// deadline; `always` keeps it while columns overflow; `off` hides it.
 /// It takes the mouse only while shown, so clicks pass to the panes below.
+/// While shown, its thumb is an occluder of the window's overlay host, so a
+/// Chromium page under it (a child window above every view) leaves the thumb
+/// showing and its clicks to the bar (cx-6so.44).
 final class StripScrollbarView: NSView {
     struct Input: Equatable {
         var mode: StripScrollbarMode
@@ -38,6 +41,9 @@ final class StripScrollbarView: NSView {
     private var drag: (grab: CGFloat, width: CGFloat)?
     private(set) var isShown = false
     private let hideTimer: DemandTimer
+    /// The window whose overlay host holds this bar's occluder.
+    private weak var occludedWindow: NSWindow?
+    private var occluderID: String { "strip-scrollbar-\(ObjectIdentifier(self).hashValue)" }
 
     /// Idle time before `auto` fades out.
     static let idleDelay: Duration = .milliseconds(1200)
@@ -64,7 +70,7 @@ final class StripScrollbarView: NSView {
 
     /// The mode applied now: `system` resolved against the macOS scroller style.
     private static func applied(_ mode: StripScrollbarMode) -> StripScrollbarMode {
-        mode.resolved(legacyScrollers: SystemScrollers.preferredStyle == .legacy)
+        mode.resolved(legacyScrollers: SystemScrollers.nativeStyle == .legacy)
     }
     /// The mode the last `update` applied (a style change compares against it).
     private var appliedMode: StripScrollbarMode?
@@ -74,7 +80,7 @@ final class StripScrollbarView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Thumb thickness and the track inset from the band's bottom.
     static var thickness: CGFloat { Metrics.space2 }
@@ -110,6 +116,7 @@ final class StripScrollbarView: NSView {
                 flash()
             }
         }
+        syncOccluder()
     }
 
     private func layoutThumb() {
@@ -140,16 +147,48 @@ final class StripScrollbarView: NSView {
         if !shown { hideTimer.cancel() }
         guard shown != isShown else { return }
         isShown = shown
+        syncOccluder()
         applyColors()
         let value: Float = shown ? 1 : 0
         thumb.opacity = value
-        _ = Motion.set(thumb, "opacity", to: value, fade: shown ? .fadeIn : .fadeOut, from: shown ? Float(0) : Float(1))
+        _ = Motion.panes.set(thumb, "opacity", to: value, fade: shown ? .fadeIn : .fadeOut, from: shown ? Float(0) : Float(1))
     }
 
     private func applyColors() {
         performWithTheme {
             thumb.backgroundColor = Palette.textTertiary.withAlphaComponent(isHovered || drag != nil ? 0.7 : 0.5).cgColor
         }
+    }
+
+    // Called for the bar's own `isHidden` and for an ancestor's (a screen switch, an empty workspace).
+    override func viewDidHide() {
+        super.viewDidHide()
+        syncOccluder()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        syncOccluder()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        syncOccluder()
+    }
+
+    /// The shown thumb's band (full band height, so hover thickening stays inside it) in window
+    /// coordinates as this bar's occluder, nothing otherwise. A window it left drops it. Also run
+    /// when an ancestor moved without an `update` (a screen sliding in or out).
+    func syncOccluder() {
+        let rect = isShown && !isHiddenOrHasHiddenAncestor ? thumbRect.map { convert($0, to: nil) } : nil
+        // A window in deallocation counts as none: a weak reference to it aborts the runtime.
+        let window = self.window.flatMap { $0.isBeingDeallocated ? nil : $0 }
+        if let old = occludedWindow, old !== window {
+            WindowOverlayHost.existingHost(for: old)?.setOccluder(id: occluderID, rect: nil)
+        }
+        occludedWindow = window
+        guard let window else { return }
+        WindowOverlayHost.existingHost(for: window)?.setOccluder(id: occluderID, rect: rect)
     }
 
     override func viewDidChangeEffectiveAppearance() {

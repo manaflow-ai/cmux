@@ -76,6 +76,7 @@ impl FolderGate {
                 codex_config: user.join(".codex").join("config.toml"),
                 record: home.join("trust.json"),
                 agent_home: trust::agent_home_root(),
+                cmux_worktrees: trust::cmux_worktrees_root(),
             },
         })
     }
@@ -402,9 +403,15 @@ pub fn resolve_program(profile: &HarnessProfile, base: Option<&Path>) -> Option<
 }
 
 /// An executable regular file (a link counts by its target).
+#[cfg(unix)]
 fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+/// Windows has no execute bit: any regular file counts.
+#[cfg(not(unix))]
+fn executable(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Why a session may not start a folder profile now.
@@ -729,6 +736,7 @@ fn catalog_names(cfg: &Config) -> BTreeSet<String> {
 }
 
 /// The file's bytes after the type, size and owner checks.
+#[cfg(unix)]
 fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
     use std::os::unix::fs::MetadataExt;
     let shown = path.to_string_lossy().into_owned();
@@ -748,6 +756,38 @@ fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
                 .into(),
             Some(format!("chmod go-w {shown}")),
         ));
+    }
+    let bytes = std::fs::read(path).map_err(|e| error(format!("cannot read: {e}"), None))?;
+    if bytes.len() as u64 > MAX_PROFILE_BYTES {
+        return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
+    }
+    Ok(bytes)
+}
+/// Windows: as on Unix, with the owner and access list check
+/// (`owner_only.rs`) in place of the uid and mode bits.
+#[cfg(windows)]
+fn read_folder_file(path: &Path) -> Result<Vec<u8>, Diagnostic> {
+    let shown = path.to_string_lossy().into_owned();
+    let error = |m: String, fix: Option<String>| Diagnostic::error(&shown, None, m, fix);
+    let meta =
+        std::fs::symlink_metadata(path).map_err(|e| error(format!("cannot read: {e}"), None))?;
+    if !meta.file_type().is_file() {
+        return Err(error("a folder profile must be a regular file, not a symlink".into(), None));
+    }
+    if meta.len() > MAX_PROFILE_BYTES {
+        return Err(error(format!("the file is larger than {MAX_PROFILE_BYTES} bytes"), None));
+    }
+    match crate::owner_only::changer_other_than_us(path) {
+        Ok(None) => {}
+        Ok(Some(sid)) => {
+            return Err(error(
+                format!(
+                    "another user ({sid}) can change this file, and a profile runs a program with your rights"
+                ),
+                Some(format!("icacls \"{shown}\" /inheritance:r /grant:r \"%USERNAME%:F\"")),
+            ));
+        }
+        Err(e) => return Err(error(format!("cannot read the file's access list: {e}"), None)),
     }
     let bytes = std::fs::read(path).map_err(|e| error(format!("cannot read: {e}"), None))?;
     if bytes.len() as u64 > MAX_PROFILE_BYTES {
@@ -844,6 +884,6 @@ fn enabled_in(gate: &FolderGate, folder: &str, id: &str, sha: &str) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "folder_profiles_tests.rs"]
 mod tests;

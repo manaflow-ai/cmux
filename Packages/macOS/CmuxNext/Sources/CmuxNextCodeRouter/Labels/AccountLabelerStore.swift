@@ -11,8 +11,6 @@ public protocol AccountLabelSaltProviding: Sendable {
 public actor AccountLabelerStore {
     private let provider: any AccountLabelSaltProviding
     private var cached: AccountLabeler?
-    /// True when the Keychain salt failed and this process uses a random one.
-    public var usesEphemeralSalt: Bool { saltFailure != nil }
     /// Why the salt failed (for example `Keychain error -25308`); never a secret.
     public private(set) var saltFailure: String?
 

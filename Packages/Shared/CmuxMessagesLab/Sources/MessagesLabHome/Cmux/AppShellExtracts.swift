@@ -33,7 +33,7 @@ extension MessagesWindowView {
         let st = store.state
         let loaded = max(1, st.conversation.messages.count)
         let estimated = model.total * CGFloat(max(st.total, loaded)) / CGFloat(loaded)
-        return min(1, max(0.02, (anchorY - Fixture.headerHeight) / max(1, estimated)))
+        return min(1, max(0.02, (anchorY - visibleTop) / max(1, estimated)))
     }
 }
 
@@ -49,4 +49,12 @@ enum ResolutionAudit {
 /// hook (catalyst/Sources/Bench.swift; the shared window view reads it).
 enum MallocCounter {
     static var mainAllocations = 0
+}
+
+/// MessagesLab's rig frame-pacing log (appkit-native PacingLog.swift, a rig tool, not vendored):
+/// NativeScroll (3508ff9) notes its after-lift pacing in it when it is on. cmux: always off.
+final class PacingLog {
+    static let shared = PacingLog()
+    let isOn = false
+    func note(_ line: String) {}
 }

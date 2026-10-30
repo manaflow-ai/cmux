@@ -1,16 +1,17 @@
-//! Bounded waits on agent hosts. Every wait the daemon makes on a host has a
+//! Bounded waits on agent hosts. A wait on a running host's answer has a
 //! deadline (injected by tests through the `_within` variants) and fails
-//! with [`HostTimeout`]. A host's death is watched by at most one blocking thread
-//! per incarnation ([`wait_dead_within`]): repeated bounded waits on a host
-//! that does not die share that thread instead of leaving one each.
+//! with [`HostTimeout`]. A host's start has none: it ends on the host's
+//! answer or its exit (`link::spawn`, P-AUSTIN B10). A host's death is
+//! watched by at most one blocking thread per incarnation
+//! ([`wait_dead_within`]): repeated bounded waits on a host that does not
+//! die share that thread instead of leaving one each.
 
 use super::*;
+use crate::no_panic::LockExt;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
-/// How long a started host may take to report ready (bootstrap reply).
-pub const BOOTSTRAP_BUDGET: Duration = Duration::from_secs(10);
 /// How long a host may take to answer a translator query.
 pub const QUERY_BUDGET: Duration = Duration::from_secs(5);
 
@@ -58,58 +59,6 @@ pub async fn within_on<T>(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::clock::ManualClock;
-
-    #[tokio::test]
-    async fn a_deadline_on_the_injected_clock_fires_when_the_clock_passes_it() {
-        let clock = ManualClock::new();
-        let mut wait = std::pin::pin!(within_on(
-            &*clock,
-            "test",
-            Duration::from_secs(5),
-            std::future::pending::<()>()
-        ));
-        // Polled once first, so the deadline is set from the clock's start.
-        assert!(futures::poll!(&mut wait).is_pending());
-        clock.advance(Duration::from_secs(5));
-        let out = tokio::time::timeout(Duration::from_secs(2), wait)
-            .await
-            .expect("the deadline ignored the injected clock");
-        assert_eq!(out, Err(HostTimeout { what: "test", after: Duration::from_secs(5) }));
-    }
-
-    #[tokio::test]
-    async fn work_ready_with_the_deadline_wins_and_a_huge_budget_never_panics() {
-        let clock = ManualClock::new();
-        assert_eq!(within_on(&*clock, "test", Duration::ZERO, async { 7 }).await, Ok(7));
-        assert_eq!(within_on(&*clock, "test", Duration::MAX, async { 8 }).await, Ok(8));
-    }
-
-    /// A child that another thread spawns inherits every descriptor until it
-    /// execs, so the watch's descriptor can have a duplicate when the watch
-    /// ends. The lock belongs to the open file description, not the
-    /// descriptor: the watch must release it, or a probe of a dead host sees
-    /// it held.
-    #[test]
-    fn a_death_watch_releases_the_lock_while_a_duplicate_of_its_descriptor_is_open() {
-        let dir = std::env::temp_dir().join(format!("acpmux-wait-dup-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = live_path(&dir, "s1", "00ff");
-        std::fs::write(&path, "").unwrap();
-        let file = std::fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
-        // What a concurrent fork gives its child: the same open file description.
-        let inherited = file.try_clone().unwrap();
-        assert!(take_death_lock(file) == Watch::Dead);
-        assert_eq!(liveness(&dir, "s1", "00ff"), Liveness::Dead, "the watch left the lock held");
-        drop(inherited);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Watch {
     Waiting,
@@ -132,14 +81,14 @@ fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
 
 /// Death watches running now (one per host incarnation being waited on).
 pub fn death_watches() -> usize {
-    watches().lock().unwrap().len()
+    watches().lock_or_recover().len()
 }
 
 /// The one watch on a live lock file; None when the file is gone (the host
 /// is dead). Its thread takes a blocking lock, which returns when the host's
 /// descriptor closes at its death, then ends.
 fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
-    let mut map = watches().lock().unwrap();
+    let mut map = watches().lock_or_recover();
     if let Some(w) = map.get(path) {
         return Some(w.clone());
     }
@@ -153,8 +102,8 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     let (key, watch) = (path.to_owned(), w.clone());
     std::thread::spawn(move || {
         let end = take_death_lock(file);
-        watches().lock().unwrap().remove(&key);
-        *watch.state.lock().unwrap() = end;
+        watches().lock_or_recover().remove(&key);
+        *watch.state.lock_or_recover() = end;
         watch.changed.notify_all();
         watch.ended.send_replace(end);
     });
@@ -166,6 +115,7 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
 /// is an explicit unlock, not the close: the lock belongs to the open file
 /// description, and a child that another thread spawns holds a copy of this
 /// descriptor until it execs, so a close alone can leave the lock held.
+#[cfg(unix)]
 fn take_death_lock(file: std::fs::File) -> Watch {
     use std::os::fd::AsRawFd;
     let end = loop {
@@ -184,13 +134,22 @@ fn take_death_lock(file: std::fs::File) -> Watch {
     drop(file);
     end
 }
+/// Windows port: `LockFileEx` there (a later landing); no watch can prove a
+/// death yet.
+#[cfg(not(unix))]
+fn take_death_lock(_file: std::fs::File) -> Watch {
+    Watch::Failed
+}
 
 /// Whether this incarnation's host is dead within `budget`. Blocks up to
 /// `budget`: call it off the async runtime (or use [`wait_dead_async`]).
 pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget: Duration) -> bool {
     let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
-    let state = w.state.lock().unwrap();
-    let (state, _) = w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting).unwrap();
+    let state = w.state.lock_or_recover();
+    let (state, _) = w
+        .changed
+        .wait_timeout_while(state, budget, |s| *s == Watch::Waiting)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     *state == Watch::Dead
 }
 

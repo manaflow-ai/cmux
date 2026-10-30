@@ -1,6 +1,7 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub fn report_agent(
@@ -278,6 +279,16 @@ impl Mux {
         };
         let agent_session_id = hook_session_id
             .and_then(|session_id| published_agent_session_id(&terminal_id, &session_id));
+        // A report that keeps the state of the same agent session keeps when it began; a new
+        // session or source starts over.
+        let kept_since = records
+            .get(&terminal_id)
+            .filter(|existing| {
+                existing.state == agent_state
+                    && existing.source == source
+                    && existing.agent_session_id == agent_session_id
+            })
+            .map(|existing| existing.since_ms);
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             None if socket_report_ignored => match durable_stronger {
@@ -294,6 +305,7 @@ impl Mux {
                     agent: existing.agent,
                     agent_session_id: existing.agent_session_id,
                     updated_at_ms: existing.updated_at_ms,
+                    since_ms: existing.updated_at_ms,
                 },
                 None => TerminalAgentRecord {
                     state: agent_state,
@@ -302,6 +314,7 @@ impl Mux {
                     agent: agent_adapter,
                     agent_session_id,
                     updated_at_ms: now,
+                    since_ms: now,
                 },
             },
             _ => TerminalAgentRecord {
@@ -311,6 +324,7 @@ impl Mux {
                 agent: agent_adapter,
                 agent_session_id,
                 updated_at_ms: now,
+                since_ms: kept_since.unwrap_or(now),
             },
         };
         // A socket report that is intentionally ignored by the hook-owned
@@ -338,7 +352,7 @@ impl Mux {
             "extra":extra,
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.as_deref());
+        public_value.set("source_session", serde_json::json!(record.session.as_deref()));
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -392,8 +406,19 @@ impl Mux {
             source: record.source,
             session: record.session,
             agent: record.agent,
+            agent_session_id: record.agent_session_id,
             updated_at_ms: record.updated_at_ms,
+            since_ms: record.since_ms,
+            last_prompt: None,
         };
+        if matches!(agent.state, AgentState::Done) {
+            self.forget_agent_prompt(&agent.terminal_id);
+        }
+        // Working, idle or done: the agent no longer waits on its question.
+        if !matches!(agent.state, AgentState::Blocked) {
+            self.forget_agent_question(&agent.terminal_id);
+        }
+        let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
         if !commit.replayed {
             self.publish_resource_event();
             self.emit(MuxEvent::AgentChanged {
@@ -402,8 +427,14 @@ impl Mux {
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
                 agent: agent.agent.as_deref().map(Arc::from),
+                agent_session_id: agent.agent_session_id.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
+                since_ms: agent.since_ms,
+                last_prompt: agent.last_prompt.clone(),
             });
+            if matches!(agent.state, AgentState::Idle | AgentState::Done) {
+                self.clear_agent_presence(&agent.terminal_id, agent.surface);
+            }
             if origin == AgentReportOrigin::Direct {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
@@ -426,6 +457,16 @@ impl Mux {
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
         let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let agent_session_ids = self
+            .agent_records
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter_map(|(terminal_id, record)| {
+                Some((terminal_id.clone(), record.agent_session_id.clone()?))
+            })
+            .collect::<HashMap<_, _>>();
+        let prompts = self.agent_prompts.lock().unwrap().prompts.clone();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
@@ -448,6 +489,14 @@ impl Mux {
                     .or_else(|| {
                         state_snapshot.terminal_catalog.get(&terminal_id).map(|surface| surface.id)
                     })?;
+                // The roster's own clock, so `since_ms <= updated_at_ms` holds.
+                let since_ms = entry.since_ms();
+                // The hover card's folded cut; the whole prompt is the phone Feed's.
+                let last_prompt = prompts
+                    .get(&terminal_id)
+                    .and_then(|prompt| crate::agent_hooks::live_prompt_text(prompt))
+                    .map(Arc::from);
+                let agent_session_id = agent_session_ids.get(&terminal_id).cloned();
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
@@ -455,7 +504,10 @@ impl Mux {
                     source: entry.agent_source(),
                     session: entry.session,
                     agent: entry.agent,
+                    agent_session_id,
                     updated_at_ms: entry.updated_at_ms,
+                    since_ms,
+                    last_prompt,
                 })
             })
             .collect::<Vec<_>>();

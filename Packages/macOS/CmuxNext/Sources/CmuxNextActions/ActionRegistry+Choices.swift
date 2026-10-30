@@ -10,8 +10,10 @@ extension ActionRegistry {
     func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
         guard let title = title(for: descriptor.id), let action = action(for: descriptor.id),
               Self.isAvailable(descriptor, in: context), action.isEnabled(),
-              let (argument, cases, current) = ActionTargetChoices.resolve(descriptor, target: target, in: self), !cases.isEmpty
+              let (argument, cases, current) = ActionTargetChoices.resolve(descriptor, target: target, in: self)
         else { return nil }
+        let trailer = choiceTrailer(for: descriptor.id, target: target, in: context)
+        guard !cases.isEmpty || trailer != nil else { return nil }
         let submenu = NSMenu(title: title)
         let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target)
         // `NSMenu.delegate` is weak; the coordinator lives as long as the menu.
@@ -20,7 +22,13 @@ extension ActionRegistry {
         for choice in cases {
             let item = NSMenuItem(title: choice.title, action: #selector(ActionMenuTarget.performAction(_:)), keyEquivalent: "")
             item.target = menuTarget
-            item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [argument.name: .string(choice.value)])
+            // A listed object (Move to Group > Frontend) goes as a target, as the palette passes it.
+            let value: ActionValue = if case .target(let kind) = argument.kind {
+                .target(ActionTargetRef(kind: kind, id: choice.value))
+            } else {
+                .string(choice.value)
+            }
+            item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [argument.name: value])
             item.state = choice.value == current ? .on : .off
             submenu.addItem(item)
         }
@@ -32,8 +40,25 @@ extension ActionRegistry {
             more.representedObject = ActionMenuPayload(id: descriptor.id, target: target)
             submenu.addItem(more)
         }
+        if let trailer {
+            if !cases.isEmpty { submenu.addItem(.separator()) }
+            submenu.addItem(trailer)
+        }
         let item = NSMenuItem(title: title.hasSuffix("…") ? String(title.dropLast()) : title, action: nil, keyEquivalent: "")
         item.submenu = submenu
+        return item
+    }
+
+    /// The row a choices submenu always ends with, under its own title (Move Workspace to Group >
+    /// Move Workspace to New Group, never confused with a group named "New Group"), run on the same
+    /// target; nil when the choices have none or it is not bound and enabled here.
+    private func choiceTrailer(for id: ActionID, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
+        guard let trailerID = ContextMenuEssentials.choiceTrailers[id], let descriptor = descriptor(for: trailerID),
+              Self.isAvailable(descriptor, in: context), action(for: trailerID)?.isEnabled() == true,
+              let item = makeMenuItem(for: trailerID) else { return nil }
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
+        item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [:])
         return item
     }
 }

@@ -85,6 +85,7 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
+      retention_days: 30  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.version }}
       package_npm: true
       package_pypi: false
@@ -133,7 +134,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.4"
           registry-url: https://registry.npmjs.org
 
       - name: Install npm with OIDC support
@@ -401,7 +402,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.4"
           registry-url: https://registry.npmjs.org
 
       - name: Install npm with OIDC-compatible registry client

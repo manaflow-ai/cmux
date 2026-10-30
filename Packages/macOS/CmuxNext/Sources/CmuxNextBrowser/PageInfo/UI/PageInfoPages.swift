@@ -29,7 +29,6 @@ import CmuxNextDesign
             symbol: Self.connectionSymbol(connection), title: Self.shortSummary(connection),
             accessory: .chevron, tint: Self.isDanger(connection) ? PageInfoStyle.danger : nil, identifier: "pageInfo.security"
         )
-        security.toolTip = PageInfoStrings.showConnectionDetails
         security.onActivate = { send(.show(.security)) }
         views.append(security)
 
@@ -50,13 +49,11 @@ import CmuxNextDesign
 
         let cookies = PageInfoRowView(symbol: "cylinder.split.1x2", title: PageInfoStrings.cookiesHeader,
                                       accessory: .chevron, identifier: "pageInfo.cookies")
-        cookies.toolTip = PageInfoStrings.cookiesTooltip
         cookies.onActivate = { send(.show(.cookies)) }
         views.append(cookies)
 
         let settings = PageInfoRowView(symbol: "gearshape", title: PageInfoStrings.siteSettings,
                                        accessory: .externalLink, identifier: "pageInfo.siteSettings")
-        settings.toolTip = PageInfoStrings.siteSettingsTooltip
         settings.onActivate = { send(.siteSettings) }
         views.append(settings)
 
@@ -76,7 +73,6 @@ import CmuxNextDesign
             title: PageInfoStrings.name(state.kind), subtitle: PageInfoModel.stateText(state),
             accessory: .toggle(state.isOn), identifier: "pageInfo.permission.\(state.kind.rawValue)"
         )
-        row.toolTip = PageInfoStrings.permissionDetailsTooltip(PageInfoStrings.name(state.kind))
         row.onToggle = { on in send(.setPermission(state.kind, on ? state.kind.enabledSetting : .block)) }
         row.onActivate = { send(.show(.permission(state.kind))) }
         return row
@@ -127,7 +123,7 @@ import CmuxNextDesign
                                       accessory: .externalLink, tint: valid ? nil : PageInfoStyle.danger,
                                       identifier: "pageInfo.certificate")
             let issuer = model.certificates?.first?.issuer.commonName ?? model.certificates?.first?.issuer.organization
-            row.toolTip = valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate
+            row.themedToolTip = valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate
             row.onActivate = { send(.showCertificate) }
             views.append(row)
         }

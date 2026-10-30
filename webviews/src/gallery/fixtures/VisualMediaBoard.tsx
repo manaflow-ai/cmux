@@ -129,7 +129,7 @@ function PreviewCard({ item, autoplay, fit }: { item: MediaPreview; autoplay: bo
             ? `${item.title}, ${globallyPaused ? "paused by the global control" : paused ? "resume" : "pause"} preview`
             : `${item.title} preview`
         }
-        aria-pressed={hasMotion && autoplay ? paused : undefined}
+        aria-pressed={hasMotion ? paused || globallyPaused : undefined}
       >
         <img src={item.frames[frame]} alt="" style={{ objectFit: fit }} />
         <span className="cmux-gallery-media-stage-top" aria-hidden="true">
@@ -186,7 +186,12 @@ export function VisualMediaBoard() {
             </button>
           ))}
         </fieldset>
-        <button className="cmux-gallery-media-action" type="button" onClick={() => setAutoplay((current) => !current)}>
+        <button
+          className="cmux-gallery-media-action"
+          type="button"
+          aria-pressed={!autoplay}
+          onClick={() => setAutoplay((current) => !current)}
+        >
           {autoplay ? "Pause previews" : "Play previews"}
         </button>
         <fieldset className="cmux-gallery-media-filter">

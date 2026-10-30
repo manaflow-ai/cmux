@@ -3,6 +3,7 @@
 //! behavior unchanged).
 
 use super::*;
+use crate::panic_free::JsonFields;
 
 pub(super) fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
     json!({
@@ -12,6 +13,7 @@ pub(super) fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> 
             "color": group.color,
             "collapsed": group.collapsed,
             "saved_id": group.saved_id,
+            "icon": group.icon,
         })),
         "workspace": outcome.workspace,
         "key": outcome.key,
@@ -27,6 +29,7 @@ pub(super) fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value 
             "color": group.color,
             "collapsed": group.collapsed,
             "saved_id": group.saved_id,
+            "icon": group.icon,
         })),
         "pane": outcome.pane,
         "workspace": outcome.workspace,
@@ -51,12 +54,13 @@ pub(super) fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<P
         "color": run.group.color,
         "collapsed": run.group.collapsed,
         "saved_id": run.group.saved_id,
+        "icon": run.group.icon,
         "start": run.start,
         "count": run.members.len(),
         "surfaces": run.members,
     });
     if let Some(pane) = pane {
-        value["pane"] = json!(pane);
+        value.insert("pane", json!(pane));
     }
     value
 }

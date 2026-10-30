@@ -13,11 +13,13 @@ import {
   SCALES,
   WIDTHS,
   widthPx,
+  withColorScheme,
   ZOOMS,
   type GalleryEnv,
 } from "../env";
 import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
+import { APP_ACCENTS } from "../../theme/appTheme";
 import type { PlayReport } from "../play";
 import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
 import {
@@ -83,6 +85,8 @@ const FONTS = [
 export const SAMPLE_THEMES = [
   "Apple System Colors",
   "Apple System Colors Light",
+  "Rose Pine",
+  "Rose Pine Moon",
   "Dracula",
   "Nord",
   "Solarized Dark Higher Contrast",
@@ -127,6 +131,8 @@ export function Stage({
   state,
   env,
   tune,
+  opts,
+  sourcePath,
   label,
   available,
   thumbnail,
@@ -136,11 +142,15 @@ export function Stage({
   env: GalleryEnv;
   /** The edited tunables (router.tsx ShellSearch `tune`). */
   tune?: string;
+  /** The entry's changed options (router.tsx ShellSearch `opts`). */
+  opts?: string;
+  /** The entry source path, supplied by the shell so the frame need not preload every entry. */
+  sourcePath?: string;
   label?: string;
   available: { width: number; height: number };
   thumbnail: boolean;
 }) {
-  const query = frameQuery({ entry: entry.id, variant: state, tune }, env);
+  const query = frameQuery({ entry: entry.id, variant: state, tune, opts, source: sourcePath }, env);
   // Replay mounts the stage again, so its play steps run from the start.
   const [run, setRun] = useState(0);
   const [report, setReport] = useState<PlayReport | undefined>();
@@ -333,12 +343,11 @@ export function Stage({
       <figcaption>
         <strong>{label ?? state}</strong>
         {note && !thumbnail && <span className="gallery-note">{note}</span>}
-        {windowed && (
-          <span className="gallery-note">
-            {WINDOW_PRESETS[env.window as keyof typeof WINDOW_PRESETS]?.label ?? env.window} window · pane {frame.width}
-            ×{frame.height} pt · {Math.round(scale * 100)}%
-          </span>
-        )}
+        <span className="gallery-note gallery-surface-context">
+          {windowed
+            ? `${WINDOW_PRESETS[env.window as keyof typeof WINDOW_PRESETS]?.label ?? env.window} window · pane ${frame.width}×${frame.height} pt · ${Math.round(scale * 100)}%`
+            : `component surface · ${frame.width}×${frame.height} px`}
+        </span>
         <a href={`frame.html?${query}`} target="_blank" rel="noreferrer">
           open
         </a>
@@ -412,9 +421,16 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
       />
       <Select
         className={selectClass}
+        value={env.accent ?? "neutral"}
+        options={APP_ACCENTS.map((accent) => ({ value: accent, label: `Accent: ${accent}` }))}
+        onChange={(value) => set("accent", value as GalleryEnv["accent"])}
+        label="Accent"
+      />
+      <Select
+        className={selectClass}
         value={env.colorScheme}
         options={appearanceOptions}
-        onChange={(value) => set("colorScheme", value as GalleryEnv["colorScheme"])}
+        onChange={(value) => onChange(withColorScheme(env, value as GalleryEnv["colorScheme"]))}
         label="Appearance"
       />
       <button

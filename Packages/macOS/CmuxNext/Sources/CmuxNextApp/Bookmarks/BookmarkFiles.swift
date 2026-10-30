@@ -3,6 +3,8 @@ import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextBookmarks
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 import UniformTypeIdentifiers
 
 /// Netscape HTML import and export (bookmarks.md section 3): open and save
@@ -39,22 +41,38 @@ struct BookmarkFiles {
         registry.track(Task { @MainActor in
             do {
                 let html = try await Task.detached { try Self.read(url) }.value
-                let document = NetscapeBookmarkReader.read(html)
-                guard document.count > 0 else { return ActionWorkFailure(BookmarkAppStrings.importEmpty) }
-                try service.apply(BookmarkImportPlan.file(document, title: BookmarkAppStrings.importedFolder,
-                                                          barTitle: BookmarkStrings.barTitle), profile: profile)
-                return nil
+                return Self.importHTML(html, into: service, profile: profile)
             } catch {
                 return ActionWorkFailure(BookmarkAppStrings.failure(error))
             }
         })
     }
 
+    /// Netscape HTML already in memory (an export archive's Bookmarks.html) into one
+    /// "Imported" folder at the end of the bar; the failure, if any.
+    func importHTML(_ html: String, profile: String) -> ActionWorkFailure? {
+        Self.importHTML(html, into: services.bookmarks, profile: profile)
+    }
+
+    private static func importHTML(_ html: String, into service: BookmarkService, profile: String) -> ActionWorkFailure? {
+        let document = NetscapeBookmarkReader.read(html)
+        guard document.count > 0 else { return ActionWorkFailure(BookmarkAppStrings.importEmpty) }
+        do {
+            try service.apply(BookmarkImportPlan.file(document, title: BookmarkAppStrings.importedFolder,
+                                                      barTitle: BookmarkStrings.barTitle), profile: profile)
+            return nil
+        } catch {
+            return ActionWorkFailure(BookmarkAppStrings.failure(error))
+        }
+    }
+
     func exportFile(_ url: URL, profile: String) {
         let html = NetscapeBookmarkWriter.write(services.bookmarks.tree(profile), barTitle: BookmarkStrings.barTitle)
+        let work = services.work
         services.registry.track(Task { @MainActor in
             do {
-                try await Task.detached { try Data(html.utf8).write(to: url, options: .atomic) }.value
+                // The person waits for the export they asked for: the files lane at userBlocking.
+                try await work.run(.userBlocking, mayBlock: .files) { try Data(html.utf8).blockingWrite(to: url, options: .atomic) }
                 return nil
             } catch {
                 return ActionWorkFailure(BookmarkAppStrings.failure(error))

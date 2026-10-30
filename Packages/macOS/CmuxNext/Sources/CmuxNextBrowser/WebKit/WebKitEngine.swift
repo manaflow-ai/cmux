@@ -13,6 +13,8 @@ public final class WebKitEngine: BrowserEngine {
     ]
 
     public let profileStore: WebKitProfileStore
+    /// The App's browser stores, shared with the Chromium engine (``BrowserSharedStores``).
+    public let stores: BrowserSharedStores
     public let faviconLoader: any BrowserFaviconLoading
     /// Where downloads go. Read when each download starts.
     public var downloadsDirectory: URL
@@ -48,7 +50,7 @@ public final class WebKitEngine: BrowserEngine {
     }
 
     /// Per-profile site permissions, shared with the Chromium engine.
-    public var siteSettings: SiteSettingsRegistry = .shared
+    public var siteSettings: SiteSettingsRegistry { stores.siteSettings }
     /// Browser passkey authorization (one per app; tests inject a fake).
     public var passkeyAuthorization: WebKitPasskeyAuthorization = .shared
     /// Appended to WebKit's user agent, e.g. "cmux/1.0 Safari/605.1.15".
@@ -56,15 +58,34 @@ public final class WebKitEngine: BrowserEngine {
     /// What modified link clicks do (cmux.json `browser.links.*`). Read on
     /// each click.
     public var linkClicks: BrowserLinkClickMapping = .chrome
+    /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
+    /// and `URLAllowlist` policies); the App sets it from the managed policy.
+    public var urlFilter: BrowserURLFilter = .none
+    /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
+    /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
+    /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
+    /// and its dead-panel guard.
+    public let fileInput: any WebFileInputAnswering
 
+    /// An engine over the App's `stores`.
+    ///
+    /// - Parameters:
+    ///   - fileInput: Answers every tab's file input (the App's made-ahead panel; a test passes a stand-in,
+    ///     since a test host cannot make an `NSOpenPanel`).
+    ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
+    ///   - profileStore: The profiles' website data stores; nil builds one over `stores.offTheRecord`.
     public init(
-        profileStore: WebKitProfileStore = WebKitProfileStore(),
+        fileInput: any WebFileInputAnswering,
+        stores: BrowserSharedStores,
+        profileStore: WebKitProfileStore? = nil,
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
         lowPowerMode: LowPowerMode = .system
     ) {
-        self.profileStore = profileStore
+        self.fileInput = fileInput
+        self.stores = stores
+        self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
@@ -156,6 +177,13 @@ public final class WebKitEngine: BrowserEngine {
         configuration.preferences.isElementFullscreenEnabled = false
         // Private preference: enables "Inspect Element" in the context menu.
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // Private preference: a page's video may enter picture-in-picture
+        // (`requestPictureInPicture`, the controls' button); off, WebKit
+        // refuses it with NotSupportedError.
+        // crash-allow: guarded by responds(to:) on the private setter the KVC key resolves to; absent on older WebKit, skipped.
+        if configuration.preferences.responds(to: NSSelectorFromString("_setAllowsPictureInPictureMediaPlayback:")) { // crash-allow: same guard
+            configuration.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
+        }
         // Every tab gets its own controller. A page-opened configuration is a
         // copy of the opener's and would otherwise share its message handlers.
         configuration.userContentController = WKUserContentController()

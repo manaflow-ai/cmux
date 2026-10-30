@@ -11,18 +11,22 @@
 //! When the reconnect loop proves the host dead and the host left no exit
 //! record, the owner starts a replacement host on the held master
 //! (`launch_terminal_host_adopting`): same terminal id, incarnation and
-//! owner token, seeded with the owner's replica of the screen. The terminal
+//! owner token, seeded with the owner's replica of the screen and its
+//! OSC 7501 program status records. The terminal
 //! keeps its tab, surface and shell; the reconnect loop installs the new
 //! host like any reconnect. Without custody, a live shell or a replaceable
 //! state, the dead host is handled as before (a host loss).
+//!
+//! Windows v1 hosts have no PTY custody (cx-ko2e): a dead host is always a
+//! host loss there.
 
 use std::path::Path;
 use std::sync::PoisonError;
 
 use super::*;
-use crate::terminal_host_runtime::{
-    HostAttachment, TerminalHostAdoption, TerminalHostIdentity, TerminalHostRecord,
-};
+#[cfg(unix)]
+use crate::terminal_host_runtime::TerminalHostAdoption;
+use crate::terminal_host_runtime::{HostAttachment, TerminalHostIdentity, TerminalHostRecord};
 
 /// What the reconnect loop does after its host was proven dead.
 pub(super) enum DeadHost {
@@ -34,6 +38,7 @@ pub(super) enum DeadHost {
     Replaced(Box<HostAttachment>),
 }
 
+#[cfg(unix)]
 /// The seed budget: the replay plus a pending sequence and the progress
 /// suffix must fit the `LaunchAdopt` blob.
 const SEED_HEADROOM_BYTES: usize = 64 * 1024;
@@ -41,6 +46,10 @@ const SEED_HEADROOM_BYTES: usize = 64 * 1024;
 /// Take custody of the PTY master of the host `surface` is connected to,
 /// unless it holds it already or the host predates custody. Runs off the
 /// reader's path; a refusal (the child already ended) leaves no custody.
+#[cfg(windows)]
+pub(super) fn request_custody(_surface: &Arc<Surface>) {}
+
+#[cfg(unix)]
 pub(super) fn request_custody(surface: &Arc<Surface>) {
     // Runs on the surface's reader thread, which must never wait for
     // `pty.runtime`: a control request could hold that lock briefly while it
@@ -91,6 +100,8 @@ pub(super) fn after_host_death(
     scrollback: usize,
 ) -> DeadHost {
     let Some(pty) = surface.as_pty() else { return DeadHost::Stop };
+    #[cfg(windows)]
+    let _ = scrollback;
     // An earlier replacement whose install failed still serves the shell.
     if let Some(successor) =
         crate::terminal_host_runtime::live_successor_record(record_path, record)
@@ -117,15 +128,17 @@ pub(super) fn after_host_death(
         .filter(|(_, exit)| {
             exit.terminal_id == identity.terminal_id && exit.incarnation == identity.incarnation
         });
+    #[cfg(unix)]
     if sidecar.is_none()
         && let Some(attachment) =
             replace_host(surface, pty, mux, identity, (record, record_path), scrollback)
     {
         return DeadHost::Replaced(Box::new(attachment));
     }
-    let end = sidecar.map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit)).unwrap_or_else(|| {
-        TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
-    });
+    let end =
+        sidecar.map(|(_, exit)| TerminalEnd::from_host_exit(exit.exit)).unwrap_or_else(|| {
+            TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
+        });
     *pty.exit.lock().unwrap_or_else(PoisonError::into_inner) = Some(end);
     mark_hosted_runtime_exited(pty, identity);
     pty.host_connection_state.store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
@@ -141,6 +154,7 @@ pub(super) fn after_host_death(
 /// still leads its session. `None` falls back to the host-loss path; the
 /// custody it took is then dropped, which hangs up the shell as the dead
 /// host's own exit would have.
+#[cfg(unix)]
 fn replace_host(
     surface: &Arc<Surface>,
     pty: &PtySurface,
@@ -185,8 +199,17 @@ fn replace_host(
         seed: &seed,
         host_binary: None,
     };
+    // The owner's OSC 7501 records, so a daemon that later adopts the
+    // replacement keeps them (cx-6so.36.10).
+    let records =
+        pty.terminal_metadata.lock().unwrap_or_else(PoisonError::into_inner).program_status();
+    let program_status = records.lock().unwrap_or_else(PoisonError::into_inner).snapshot();
     let mut attachment =
-        match crate::terminal_host_runtime::launch_terminal_host_adopting(root, adoption) {
+        match crate::terminal_host_runtime::launch_terminal_host_adopting_with_program_status(
+            root,
+            adoption,
+            Some(program_status),
+        ) {
             Ok(attachment) => attachment,
             Err(error) => {
                 eprintln!(
@@ -214,6 +237,7 @@ fn replace_host(
 /// working directory) plus its last OSC 9;4 progress, which the replay does
 /// not carry. Empty when it cannot fit: the shell then keeps running on a
 /// blank screen rather than being lost.
+#[cfg(unix)]
 fn replacement_seed(pty: &PtySurface) -> Vec<u8> {
     let budget = VT_REPLAY_MAX_BYTES - SEED_HEADROOM_BYTES;
     let Ok(mut seed) =

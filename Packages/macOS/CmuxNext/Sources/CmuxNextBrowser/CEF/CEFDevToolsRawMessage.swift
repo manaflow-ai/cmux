@@ -13,16 +13,6 @@ public nonisolated struct CEFDevToolsRawMessage {
         id >= firstRawID && id <= Int(Int32.max)
     }
 
-    /// The raw-send id a `devToolsMessage` answers, or nil for an event
-    /// (no "id") or any other message. A scan of the top-level keys, not a
-    /// full parse: protocol output may hold a lone UTF-16 surrogate escape
-    /// or deep nesting that a JSON parser refuses (same rule as the shim's
-    /// devtools_message_id.h). A repeated "id" gives nil.
-    public static func replyID(in json: String) -> Int? {
-        guard let id = topLevelID(Array(json.utf8)), isRawID(id) else { return nil }
-        return id
-    }
-
     private static func isSpace(_ c: UInt8) -> Bool { c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D }
 
     private static func skipSpace(_ p: [UInt8], _ i: Int) -> Int {

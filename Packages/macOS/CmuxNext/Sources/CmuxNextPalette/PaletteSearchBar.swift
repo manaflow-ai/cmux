@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// `PaletteScopeChipStyle`), the query field, the keyword hint ("Search
 /// Tabs ⇥") and a spinner while providers load.
 final class PaletteSearchBar: NSView, NSTextFieldDelegate {
-    let field = NSTextField()
+    let field = PaletteSearchField()
     var onQueryChange: ((String) -> Void)?
     /// Pops to level `index` (a click on a chip or the breadcrumb).
     var onPopTo: ((Int) -> Void)? {
@@ -19,9 +19,10 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private let magnifier = NSImageView()
     private let chips = PaletteScopeChipsView()
     private let breadcrumb = PaletteClickView()
-    private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .tertiary)
+    // Secondary, not tertiary: the path is text you read (4.5:1), not a 3:1 mark.
+    private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let keywordHint = PaletteKeywordHintView()
-    private let spinner = NSProgressIndicator()
+    private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
     private var style: PaletteScopeChipStyle = .token
     private var depth = 0
@@ -36,23 +37,22 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.delegate = self
+        // An AX client reads the field through its cell (`PaletteSearchFieldCell`), so both carry its name.
         field.setAccessibilityIdentifier("palette.search")
+        field.cell?.setAccessibilityIdentifier("palette.search")
         magnifier.image = PaletteText.symbol("magnifyingglass", size: Metrics.iconSize)
         breadcrumb.addSubview(breadcrumbLabel)
         breadcrumb.onClick = { [weak self] in
             guard let self, self.depth > 1 else { return }
             self.onPopTo?(self.depth - 2)
         }
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
         [magnifier, chips, breadcrumb, field, keywordHint, spinner].forEach(addSubview)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// `chips` are the levels above the root; `rootTitle` names the root
     /// in the breadcrumb.
@@ -74,11 +74,13 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         magnifier.isHidden = showsChips
         breadcrumb.isHidden = style != .breadcrumb || scopeChips.isEmpty
         breadcrumbLabel.stringValue = ([rootTitle] + scopeChips.map(\.title)).joined(separator: " › ")
-        breadcrumb.toolTip = scopeChips.dropLast().last.map { PaletteStrings.backTo($0.title) } ?? PaletteStrings.backTo(rootTitle)
+        breadcrumb.themedToolTip = scopeChips.dropLast().last.map { PaletteStrings.backTo($0.title) } ?? PaletteStrings.backTo(rootTitle)
         keywordHint.update(title: hint)
-        field.setAccessibilityLabel(scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder)
+        let name = scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder
+        field.setAccessibilityLabel(name)
+        field.cell?.setAccessibilityLabel(name)
         field.font = Typography.search
-        if isLoading { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        spinner.spin(isLoading)
         needsLayout = true
     }
 
@@ -105,15 +107,15 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         super.layout()
         let padding = PaletteLayout.horizontalPadding
         var x = padding
-        let fieldHeight = field.intrinsicContentSize.height
+        let fieldHeight = PaletteText.height(field)
         var fieldY = (bounds.height - fieldHeight) / 2
         if !breadcrumb.isHidden {
             // Path above, field below, both inside the bar's height.
-            let labelHeight = breadcrumbLabel.intrinsicContentSize.height
+            let labelHeight = PaletteText.height(breadcrumbLabel)
             let total = labelHeight + fieldHeight
             let top = (bounds.height - total) / 2
             let width = min(PaletteText.fittingWidth(breadcrumbLabel), bounds.width - 2 * padding)
-            breadcrumb.frame = NSRect(x: padding + PaletteLayout.iconBox + Metrics.space4, y: top, width: width, height: labelHeight)
+            breadcrumb.frame = pixelAligned(NSRect(x: padding + PaletteLayout.iconBox + Metrics.space4, y: top, width: width, height: labelHeight))
             breadcrumbLabel.frame = breadcrumb.bounds
             fieldY = top + labelHeight
         }
@@ -133,9 +135,9 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         var right = spinner.frame.minX - Metrics.space4
         if !keywordHint.isHidden {
             let width = keywordHint.fittingWidth
-            keywordHint.frame = NSRect(x: right - width, y: 0, width: width, height: bounds.height)
+            keywordHint.frame = pixelAligned(NSRect(x: right - width, y: 0, width: width, height: bounds.height))
             right = keywordHint.frame.minX - Metrics.space4
         }
-        field.frame = NSRect(x: x, y: fieldY, width: max(0, right - x), height: fieldHeight)
+        field.frame = pixelAligned(NSRect(x: x, y: fieldY, width: max(0, right - x), height: fieldHeight))
     }
 }

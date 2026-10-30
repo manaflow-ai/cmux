@@ -120,7 +120,7 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let initial_pty_size = initial_geometry.pty_size()?;
+        let initial_pty_size = initial_geometry.pty_size();
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();
@@ -146,7 +146,7 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
 
         let render_state = RenderState::new()?;
-        let (frame_requests, _frame_rx) = sync_channel(1);
+        let frame_requests = frame_producer::FrameRequests::new();
         let test_master_control = Arc::new(TestMasterPtyControl::default());
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
 
@@ -162,6 +162,8 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -191,14 +193,16 @@ impl Surface {
                             control: test_master_control.clone(),
                         })),
                         killer: Box::new(TestChildKiller),
+                        #[cfg(unix)]
+                        holder: None,
                     },
                 ),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: None,
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
                 pid: Some(id as u32),
                 command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
@@ -209,6 +213,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),

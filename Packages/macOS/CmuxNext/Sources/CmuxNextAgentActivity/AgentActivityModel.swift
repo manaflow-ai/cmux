@@ -13,6 +13,10 @@ public protocol AgentActivitySource: AnyObject {
     func follow(session: String, _ on: Bool)
     /// Decoded pixels of a frame, or nil when unavailable.
     func image(for frame: AgentActivityFrameRef) async -> NSImage?
+    /// A frame's encoded bytes for the page, as the host stores them (no
+    /// decode on the main actor), or nil when unavailable. `session` is the
+    /// frame's session, which `full` needs to find the full frame.
+    func frame(_ frame: AgentActivityFrameRef, size: AgentActivityFrameSize, session: String?) async -> AgentActivityFrameData?
     /// Sends a user operation to the owning host.
     func perform(_ op: AgentActivityUserOp) async throws
 }
@@ -80,6 +84,11 @@ public final class AgentActivityModel {
             var current = eventsBySession[session] ?? []
             let next = current.last.map { $0.seq + 1 } ?? 0
             current.append(contentsOf: events.filter { $0.seq >= next })
+            // Every change sends each followed session's events to the page as JSON on the main
+            // actor, so a long session that kept every event made each new one cost more.
+            if current.count > Self.maxEventsPerSession {
+                current.removeFirst(current.count - Self.maxEventsPerSession)
+            }
             eventsBySession[session] = current
         case let .connection(machine, state):
             connections[machine] = state
@@ -108,15 +117,13 @@ public final class AgentActivityModel {
         }
     }
 
+    /// The newest events the pane keeps per session; the scrubber reaches back this far.
+    public static let maxEventsPerSession = 2000
+
     /// Machine id the App uses for this Mac.
     public static let localMachine = "local"
 
     public var allSessions: [AgentActivitySession] { sessionsByMachine.values.flatMap(\.self) }
-
-    /// Live sessions on this Mac, for the titlebar indicator.
-    public var liveLocalCount: Int {
-        (sessionsByMachine[Self.localMachine] ?? []).filter(\.status.isLive).count
-    }
 
     public var selectedSession: AgentActivitySession? {
         guard let selectedSessionID else { return nil }
@@ -143,9 +150,6 @@ public final class AgentActivityModel {
         return events[...index].last { $0.displayFrame != nil }
     }
 
-    /// Whether the scrubber follows new events.
-    public var isFollowingNewest: Bool { scrubSeq == nil }
-
     // MARK: View state (user actions in this client)
 
     public func select(session id: String?) {
@@ -160,6 +164,7 @@ public final class AgentActivityModel {
     public func scrub(to seq: UInt64?) {
         guard let seq, let last = selectedEvents.last, seq != last.seq else {
             scrubSeq = nil
+            notifyChange()
             return
         }
         scrubSeq = selectedEvents.contains { $0.seq == seq } ? seq : nil
@@ -190,19 +195,22 @@ public final class AgentActivityModel {
     // MARK: User operations (sent to the host; no optimistic change)
 
     public func perform(_ op: AgentActivityUserOp) {
-        if case let .watch(session, on) = op {
-            if on { watching.insert(session) } else { watching.remove(session) }
-            notifyChange()
-        }
-        Task { @MainActor [source] in
-            do {
-                try await source.perform(op)
-                self.lastOperationError = nil
-                self.notifyChange()
-            } catch {
-                self.lastOperationError = String(describing: error)
-                self.notifyChange()
+        Task { try? await performAndWait(op) }
+    }
+
+    /// Reports the host's result to page callers as well as native controls.
+    public func performAndWait(_ op: AgentActivityUserOp) async throws {
+        do {
+            try await source.perform(op)
+            lastOperationError = nil
+            if case let .watch(session, on) = op {
+                if on { watching.insert(session) } else { watching.remove(session) }
             }
+            notifyChange()
+        } catch {
+            lastOperationError = String(describing: error)
+            notifyChange()
+            throw error
         }
     }
 
@@ -237,7 +245,7 @@ public final class AgentActivityModel {
         updateFollow()
     }
 
-    /// Also follows `ids` (the lanes and grid layouts show every session's
+    /// Also follows `ids` (the timeline and grid layouts show every session's
     /// newest frame). The selection is always followed.
     public func follow(_ ids: Set<String>) {
         extraFollowed = ids

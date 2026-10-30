@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Debug-build control methods for extension verification without a real
 /// pointer: `debug.cef.devtools` runs a DevTools method on the focused
 /// Chromium tab (trusted `Input.*` events, such as a right click that opens
@@ -44,7 +44,8 @@ enum DebugExtensions {
     }
 
     static func menu(_ params: [String: JSONValue], presenter: BrowserContextMenuBuilder?) -> JSONValue {
-        guard let menu = presenter?.presentedMenu else { return .object(["open": .bool(false)]) }
+        // The page menu, else the device menu (Emulate Device…).
+        guard let menu = presenter?.presentedMenu ?? BrowserDeviceHandlers.presentedMenu else { return .object(["open": .bool(false)]) }
         let titles = menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
         if let choose = params["choose"]?.stringValue, let index = menu.items.firstIndex(where: { $0.title == choose }) {
             menu.cancelTracking()

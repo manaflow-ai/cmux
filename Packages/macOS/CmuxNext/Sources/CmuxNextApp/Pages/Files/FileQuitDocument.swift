@@ -174,15 +174,14 @@ private final class FlushAnswer {
 /// tab that edited the file still shows it. Each such tab is a holder; the document leaves with
 /// the last one.
 final class FileQuitDocuments {
-    /// The app's: both file pages share it, so a markdown tab and an editor tab on one file are one
-    /// document.
-    static let shared = FileQuitDocuments()
     private let drafts: RecoveryDraftStore
     private let registry: QuitUnsavedRegistry
     private let participantID: (URL) -> String
     private var documents: [String: (document: FileQuitDocument, registration: QuitUnsavedRegistration, holders: Set<String>)] = [:]
 
-    init(drafts: RecoveryDraftStore = .shared, registry: QuitUnsavedRegistry = .shared,
+    /// The app's (`AppServices.fileQuitDocuments`) is shared by both file pages, so a markdown tab
+    /// and an editor tab on one file are one document.
+    init(drafts: RecoveryDraftStore, registry: QuitUnsavedRegistry,
          participantID: @escaping (URL) -> String = { QuitParticipantID.file(path: $0.path) }) {
         self.drafts = drafts
         self.registry = registry

@@ -36,6 +36,12 @@ export class DiffLabelCatalog {
     return promise;
   }
 
+  /** A loaded language's table. */
+  table(language: string): Record<string, string> {
+    if (!this.loaded.has(language)) throw new Error(`Diff locale must load before rendering: ${language}`);
+    return this.tables[language] as Record<string, string>;
+  }
+
   strings(language: string): Strings {
     if (!this.loaded.has(language)) throw new Error(`Diff locale must load before rendering: ${language}`);
     return createStrings(this.tables, [language]);

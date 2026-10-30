@@ -4,7 +4,7 @@
 use super::*;
 
 impl Surface {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -22,7 +22,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -51,6 +51,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: true,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
@@ -62,7 +63,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted_with_terminal_public_id(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -87,6 +88,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: true,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
@@ -186,7 +188,7 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
-        let (frame_requests, frame_rx) = sync_channel(1);
+        let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let command = opts
@@ -206,6 +208,8 @@ impl Surface {
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_supported: true,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -244,6 +248,7 @@ impl Surface {
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
+                host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(true),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),
@@ -307,7 +312,7 @@ impl Surface {
             }),
             viewport: Mutex::new(TerminalViewportState::default()),
         }));
-        spawn_frame_producer(&surface, frame_rx)?;
+        spawn_frame_producer(&surface)?;
         Ok(surface)
     }
 }

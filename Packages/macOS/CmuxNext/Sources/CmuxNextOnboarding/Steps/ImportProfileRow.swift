@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Counts as "Bookmarks 1,204 · History 8,311 · Passwords 412", using the
 /// kind names the checkboxes show (no per-language plural rules needed).
@@ -8,8 +9,9 @@ enum ImportCountsText {
     static func line(_ counts: ImportCounts) -> String {
         let values: [(ImportDataKind, Int)] = [(.bookmarks, counts.bookmarks), (.history, counts.history),
                                                (.openTabs, counts.openTabs), (.cookies, counts.cookies), (.passwords, counts.passwords)]
-        return values.filter { $0.1 > 0 }
-            .map { "\(OnboardingStrings.kind($0.0)) \($0.1.formatted(.number))" }
+        // One default engine per profile: its name alone says it came over.
+        let engine = counts.searchEngines > 0 ? [OnboardingStrings.kind(.searchEngines)] : []
+        return (values.filter { $0.1 > 0 }.map { "\(OnboardingStrings.kind($0.0)) \($0.1.formatted(.number))" } + engine)
             .joined(separator: " · ")
     }
 }
@@ -21,8 +23,9 @@ enum ImportCountsText {
 final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
     private var toggle: (() -> Void)?
-    private let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-    private let spinner = NSProgressIndicator()
+    private let box = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
+    /// The shared themed spinner, in phase with every other one (cx-qtgj2).
+    private let spinner = StatusIndicatorView.spinner()
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()
     private let icon = NSImageView()
@@ -31,6 +34,10 @@ final class ImportProfileRow: NSView {
     private let sub = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let names = NSStackView()
     private let accessButton: NSButton
+    /// Which cmux profile the row goes into: its own new one, or one that exists.
+    private let targetMenu = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    private var targetIDs: [String?] = []
+    private var onTarget: ((String?) -> Void)?
     private var requiresFullDiskAccess = false
     private var onAccess: (() -> Void)?
     private var configured = false
@@ -56,16 +63,21 @@ final class ImportProfileRow: NSView {
         box.action = #selector(boxPressed)
         accessButton.target = self
         accessButton.controlSize = .small
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
-        mark.symbolConfiguration = .init(pointSize: 13, weight: .medium)
+        targetMenu.controlSize = .small
+        targetMenu.font = OnboardingMetrics.captionFont
+        targetMenu.target = self
+        targetMenu.action = #selector(targetPicked)
+        targetMenu.setAccessibilityLabel(OnboardingStrings.importInto)
+        targetMenu.setAccessibilityIdentifier("cmux.onboarding.import.target")
+        NSLayoutConstraint.activate([spinner.widthAnchor.constraint(equalToConstant: 16), spinner.heightAnchor.constraint(equalToConstant: 16)])
         detail.alignment = .right
         let spinnerSlot = Self.slot(width: 18, containing: spinner)
         let markSlot = Self.slot(width: 18, containing: mark)
         let accessSlot = Self.slot(width: 132, containing: accessButton)
         let boxSlot = Self.slot(width: 20, containing: box)
-        let trailing = NSStackView(views: [detail, spinnerSlot, markSlot, accessSlot, boxSlot])
+        targetMenu.translatesAutoresizingMaskIntoConstraints = false
+        targetMenu.widthAnchor.constraint(lessThanOrEqualToConstant: 160).isActive = true
+        let trailing = NSStackView(views: [detail, targetMenu, spinnerSlot, markSlot, accessSlot, boxSlot])
         trailing.spacing = 8
         for view in [icon, avatar, names, trailing] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -116,6 +128,7 @@ final class ImportProfileRow: NSView {
         self.onAccess = onAccess
         requiresFullDiskAccess = needsFullDiskAccess || profile.needsFullDiskAccess
         configured = true
+        (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.openSystemSettings)
         icon.image = Self.icon(appURL, browser: profile.browser)
         avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
         avatar.alphaValue = avatar.image == nil ? 0 : 1
@@ -125,6 +138,26 @@ final class ImportProfileRow: NSView {
         sub.stringValue = subtitle
         sub.alphaValue = subtitle.isEmpty ? 0 : 1
         box.setAccessibilityLabel(OnboardingStrings.profileName(profile))
+        alphaValue = 1
+        update(checked: false, editable: true, state: .idle)
+    }
+
+    /// A browser whose profile folder cmux has no grant for: its icon and
+    /// name, "No access yet", and Allow Access… (the grant explainer).
+    func configureAwaiting(_ browser: ImportBrowser, onAccess: @escaping () -> Void) {
+        toggle = nil
+        self.onAccess = onAccess
+        requiresFullDiskAccess = true
+        configured = true
+        (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.allowAccess)
+        icon.image = Self.icon(nil, browser: browser)
+        avatar.image = nil
+        avatar.alphaValue = 0
+        name.stringValue = browser.displayName
+        sub.stringValue = OnboardingStrings.accessNeeded
+        sub.alphaValue = 1
+        box.setAccessibilityLabel(browser.displayName)
+        configureTargets([], selected: nil, onPick: nil)
         alphaValue = 1
         update(checked: false, editable: true, state: .idle)
     }
@@ -146,7 +179,9 @@ final class ImportProfileRow: NSView {
         accessButton.alphaValue = 0
         spinner.alphaValue = 0
         mark.alphaValue = 0
-        spinner.stopAnimation(nil)
+        spinner.spin(false)
+        configureTargets([], selected: nil, onPick: nil)
+        targetMenu.isHidden = true
     }
 
     /// The installed browser's own icon. Resolve the bundle again for rows
@@ -163,7 +198,29 @@ final class ImportProfileRow: NSView {
         if FileManager.default.fileExists(atPath: conventionalURL.path) {
             return NSWorkspace.shared.icon(forFile: conventionalURL.path)
         }
-        return NSImage(systemSymbolName: "globe", accessibilityDescription: nil) ?? NSImage()
+        return NSImage.icon(.browser, size: 16)
+    }
+
+    /// The cmux profiles this row can go into: "New Profile" (its own,
+    /// matching the source) first, then each existing one; `selected` is
+    /// checked. No choices hides the menu (the step imports into one profile).
+    func configureTargets(_ choices: [ImportTargetChoice], selected: String?, onPick: ((String?) -> Void)?) {
+        onTarget = onPick
+        let ids: [String?] = onPick == nil || choices.isEmpty ? [] : [nil] + choices.map(\.id)
+        if ids != targetIDs || targetMenu.numberOfItems != ids.count {
+            targetIDs = ids
+            targetMenu.removeAllItems()
+            guard !ids.isEmpty else { return }
+            targetMenu.addItem(withTitle: OnboardingStrings.newMatchingProfile)
+            for choice in choices { targetMenu.addItem(withTitle: choice.name) }
+        }
+        targetMenu.selectItem(at: targetIDs.firstIndex(of: selected) ?? 0)
+    }
+
+    @objc private func targetPicked() {
+        let index = targetMenu.indexOfSelectedItem
+        guard targetIDs.indices.contains(index) else { return }
+        onTarget?(targetIDs[index])
     }
 
     @objc private func boxPressed() { toggle?() }
@@ -210,8 +267,8 @@ final class ImportProfileRow: NSView {
         accessButton.alphaValue = showsAccess ? 1 : 0
         var showsBox = false
         var spins = false
-        var symbol: String?
-        detail.toolTip = nil
+        var markIcon: IconName?
+        detail.themedToolTip = nil
         switch state {
         case .idle:
             showsBox = !showsAccess
@@ -223,19 +280,21 @@ final class ImportProfileRow: NSView {
             let running = ImportCountsText.line(counts)
             detail.stringValue = running.isEmpty ? kind.map(OnboardingStrings.kind) ?? "" : running
         case .done(let counts):
-            symbol = "checkmark.circle.fill"
+            markIcon = .statusComplete
             detail.stringValue = ImportCountsText.line(counts)
         case .failed(let reason):
-            symbol = "exclamationmark.triangle.fill"
+            markIcon = .statusError
             detail.stringValue = OnboardingStrings.importRowFailed
-            detail.toolTip = reason
+            detail.themedToolTip = reason
         }
         box.alphaValue = showsBox ? 1 : 0
-        if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        // Only while the row can still change; once it runs, the detail says where it went.
+        targetMenu.isHidden = !(showsBox && editable && checked && !targetIDs.isEmpty)
+        spinner.spin(spins)
         spinner.alphaValue = spins ? 1 : 0
-        mark.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+        mark.image = markIcon.map { NSImage.icon($0, size: 14) }
         mark.contentTintColor = Palette.textSecondary
-        mark.alphaValue = symbol == nil ? 0 : 1
+        mark.alphaValue = markIcon == nil ? 0 : 1
         alphaValue = showsBox && !checked ? 0.55 : 1
     }
 }

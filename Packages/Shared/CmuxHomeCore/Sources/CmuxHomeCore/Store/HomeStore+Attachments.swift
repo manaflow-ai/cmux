@@ -37,6 +37,23 @@ extension HomeStore {
         return prepared
     }
 
+    /// A link preview's picture (LinkPreviews' downloaded file) as an image
+    /// record to upload with the send that names it: a JPEG at most
+    /// `previewMaxPixel` and `previewMaxBytes` in the blob cache. Throws
+    /// when the file is not an image or cannot fit.
+    public func prepareLinkPreviewImage(fileURL: URL) async throws -> LocalAttachment {
+        await beginPrepare()
+        defer { preparing -= 1 }
+        let prepared = try await Self.makeLinkPreviewImage(fileURL, root: blobCacheDirectory)
+        localFiles[prepared.ref.hash] = prepared.files
+        return prepared
+    }
+
+    @concurrent
+    private nonisolated static func makeLinkPreviewImage(_ fileURL: URL, root: URL) async throws -> LocalAttachment {
+        try AttachmentMedia.prepareLinkPreviewImage(fileURL: fileURL, root: root)
+    }
+
     /// Waits for a running prune pass, then counts this prepare until its
     /// files are registered in `localFiles` (the prune's keep set).
     private func beginPrepare() async {
@@ -58,31 +75,108 @@ extension HomeStore {
     /// like a text send; `cancelSend` stops it
     /// (`CancellationError`). Throws like `perform`, and
     /// `HomeAttachmentError` (nothing logged) for a file the owner would
-    /// refuse.
+    /// refuse. `threadRoot` set: the message is a reply in that thread; `parent`: the
+    /// message of the thread it answers (HomeOp.sendMessage). Any number of
+    /// attachments goes, as `send(conversation:parts:uploads:key:)` sends them.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
-                     key: IdempotencyKey = .make()) async throws {
+                     key: IdempotencyKey = .make(), threadRoot: MessageID? = nil, parent: MessageID? = nil) async throws {
+        var parts = attachments.map { MessagePart.attachment($0.ref) }
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        try await send(conversation: conversation, parts: parts, uploads: attachments, key: key, threadRoot: threadRoot, parent: parent)
+    }
+
+    /// Sends `parts` as one message, uploading `uploads` first exactly as
+    /// `send(conversation:text:attachments:key:)` does (one pending row at
+    /// once, progress, the same queue, retry, resume and cancel rules).
+    /// `uploads` holds every blob the parts name that the owner may not have
+    /// yet: each attachment part's bytes, and a link preview's picture,
+    /// which has no attachment part of its own (an image record the sender
+    /// uploads, `prepareLinkPreviewImage`). Attachment parts and link
+    /// preview pictures take the owner's stored mime type and byte count.
+    ///
+    /// Any number of attachments goes: past the owner's parts per message
+    /// (``HomeAttachmentPolicy/maxParts``) the parts go as several messages,
+    /// consecutive slices in order (``HomeAttachmentPolicy/messageGroups(_:extraParts:)``):
+    /// the first has `key`, each later one its own key, and each uploads the
+    /// blobs its own parts name (attachments and link preview pictures; the
+    /// first also any blob no part names). Every file is checked
+    /// before any message is logged, so a refusal gives the whole draft back.
+    /// All of them are logged at once, then go strictly one after another:
+    /// this call returns when the first commits, and a failed one holds the
+    /// rest, in order, until its retry commits. Parts with no attachment at
+    /// all stay one message within the limit.
+    public func send(conversation: ConversationID, parts: [MessagePart], uploads: [LocalAttachment],
+                     key: IdempotencyKey = .make(), threadRoot: MessageID? = nil, parent: MessageID? = nil) async throws {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
         // The owner's spelling and ranges, also for refs built outside prepare.
-        let attachments = attachments.map { attachment -> LocalAttachment in
+        let attachments = uploads.map { attachment -> LocalAttachment in
             var attachment = attachment
             attachment.ref = HomeAttachmentPolicy.normalized(attachment.ref)
             return attachment
         }
-        var parts = attachments.map { MessagePart.attachment($0.ref) }
-        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        let parts = parts.map { part -> MessagePart in
+            guard case .attachment(let ref) = part else { return part }
+            return .attachment(HomeAttachmentPolicy.normalized(ref))
+        }
         guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
-        guard parts.count <= HomeAttachmentPolicy.maxParts else {
+        guard parts.count <= HomeAttachmentPolicy.maxParts || !attachments.isEmpty else {
             throw HomeAttachmentError.tooManyParts(limit: HomeAttachmentPolicy.maxParts)
         }
         for attachment in attachments {
             try HomeAttachmentPolicy.check(mimeType: attachment.ref.mimeType, byteCount: attachment.ref.byteCount,
                                            name: attachment.ref.name)
         }
-        let op = HomeOp.sendMessage(conversation: conversation, parts: parts)
-        guard !attachments.isEmpty else {
-            try await perform(op, key: key)
+        let groups = HomeAttachmentPolicy.messageGroups(parts, extraParts: 0)
+        guard groups.count > 1 else {
+            let op = HomeOp.sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot, parent: parent)
+            guard !attachments.isEmpty else {
+                try await perform(op, key: key)
+                return
+            }
+            try logAttachmentSend(op, uploads: attachments, key: key, in: conversation)
+            guard isOnline else { try queueUploadWhileOffline(key) }
+            try await uploadAndSubmit(key)
             return
         }
+        let named = Set(parts.compactMap(Self.attachmentHash))
+        var keys: [IdempotencyKey] = []
+        for (index, group) in groups.enumerated() {
+            let hashes = Set(group.compactMap(Self.attachmentHash))
+            let files = attachments.filter { hashes.contains($0.ref.hash) || (index == 0 && !named.contains($0.ref.hash)) }
+            let groupKey = index == 0 ? key : IdempotencyKey.make()
+            let op = HomeOp.sendMessage(conversation: conversation, parts: group, threadRoot: threadRoot, parent: parent)
+            try logAttachmentSend(op, uploads: files, key: groupKey, in: conversation)
+            keys.append(groupKey)
+        }
+        // One message at a time: each later one starts when the one before it
+        // commits (`advanceSendChain`), so the owner commits them in order; a
+        // failure holds the rest until its retry commits (`holdSendChain`).
+        // A key the caller reused leaves any older chain that still names it.
+        let fresh = Set(keys)
+        for index in sendChains.indices.reversed() {
+            sendChains[index].removeAll { fresh.contains($0) }
+            if sendChains[index].isEmpty { sendChains.remove(at: index) }
+        }
+        sendChains.append(keys)
+        for later in keys.dropFirst() { log.setQueued(later, true) }
+        guard isOnline else { try queueUploadWhileOffline(key) }
+        try await uploadAndSubmit(key)
+    }
+
+    /// The blob a part names: an attachment's, or a link preview's picture
+    /// (uploaded with the send that names it); nil for any other part.
+    private nonisolated static func attachmentHash(_ part: MessagePart) -> String? {
+        switch part {
+        case .attachment(let ref): ref.hash
+        case .linkPreview(let link): link.image?.hash
+        default: nil
+        }
+    }
+
+    /// Logs `op`, a send whose `uploads` go first, under `key`: its row shows
+    /// at once and it takes its place in the conversation's send queue.
+    private func logAttachmentSend(_ op: HomeOp, uploads attachments: [LocalAttachment], key: IdempotencyKey,
+                                   in conversation: ConversationID) throws {
         let intent = HomeIntent(key: key, op: op)
         guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
         log.setUploading(key, true)
@@ -91,11 +185,9 @@ extension HomeStore {
             unique.append(attachment)
             localFiles[attachment.ref.hash] = attachment.files
         }
-        uploads[key] = UploadJob(conversation: conversation, attachments: unique)
+        self.uploads[key] = UploadJob(conversation: conversation, attachments: unique)
         enqueueSend(key, in: conversation)
         afterLogChange(op)
-        guard isOnline else { try queueUploadWhileOffline(key) }
-        try await uploadAndSubmit(key)
     }
 
     /// A local file holding the variant's bytes: this client's own copy when
@@ -180,13 +272,11 @@ extension HomeStore {
     }
 
     /// The newest committed message part in `conversation` that references
-    /// `hash` (as the bytes or as a video's poster).
+    /// `hash` (as the bytes, a poster or preview, or a link preview's image).
     func location(of hash: String, in conversation: ConversationID) -> AttachmentLocation? {
         guard let window = mirror.windows[conversation] else { return nil }
         for message in window.messages.reversed() where !message.isRetracted {
-            for (index, part) in message.parts.enumerated() {
-                guard case .attachment(let ref) = part,
-                      ref.hash == hash || ref.posterHash == hash || ref.preview?.hash == hash else { continue }
+            for (index, part) in message.parts.enumerated() where part.blobHashes.contains(hash) {
                 return AttachmentLocation(conversation: conversation, message: message.id, partIndex: index)
             }
         }

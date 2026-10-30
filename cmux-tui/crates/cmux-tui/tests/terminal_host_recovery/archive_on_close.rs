@@ -136,9 +136,13 @@ fn shell_pwd(harness: &RecoveryHarness, surface: u64, tag: &str) -> String {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let text = screen(harness, surface);
+        // A line the shell is still drawing (`dir-$`) has no `-end` yet:
+        // only a value closed by `-end` on its own line, with no `$` left
+        // unexpanded, is the output.
         let value = text.match_indices(&needle).find_map(|(at, _)| {
-            let value = text[at + needle.len()..].split("-end").next()?;
-            (!value.contains("$PWD") && !value.is_empty()).then(|| value.to_string())
+            let line = text[at + needle.len()..].lines().next()?;
+            let (value, _) = line.split_once("-end")?;
+            (!value.contains('$') && !value.is_empty()).then(|| value.to_string())
         });
         if let Some(value) = value {
             return value;
@@ -322,4 +326,44 @@ fn a_closed_idle_shell_reopens_with_its_screen_and_no_stop_line() {
     send_line(&harness.socket, surface, "echo fresh-$((1+1))");
     let text = wait_for_screen(&harness.socket, surface, "fresh-2\n");
     assert!(text.find("idle-42").unwrap_or(usize::MAX) < text.find("fresh-2\n").unwrap_or(0));
+}
+
+/// e. A tab closed moments before the daemon and every terminal host die
+/// (a crash or a power loss inside the reap grace) still reopens with its
+/// screen: the reaper that archives a closed terminal never ran (cx-jc9vh).
+#[test]
+fn a_tab_closed_inside_the_reap_grace_reopens_with_its_screen_after_a_power_loss() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_with_args(
+        "archive-crash",
+        &["--terminal-reap-grace-seconds", "600"],
+    );
+    let (surface, terminal_id) = second_tab(&harness, "arccrash");
+    send_line(&harness.socket, surface, "echo crash-$((40+2))");
+    wait_for_screen(&harness.socket, surface, "crash-42\n");
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd":"close-tabs","surfaces":[surface],"end_terminals":false}),
+    );
+    // The closed terminal waits out its grace; nothing has ended it yet.
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(resolved["lifecycle"], "running", "{resolved}");
+
+    // Power loss: the daemon and every terminal host die at once.
+    harness.signal_daemon(libc::SIGSTOP);
+    for (_, record) in load_terminal_host_records(&harness.host_root()).unwrap() {
+        // SAFETY: each record PID is a harness-owned terminal host.
+        unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) };
+    }
+    harness.sigkill();
+    harness.restart();
+
+    let reopened = reopen_newest(&harness, "crash");
+    let tab_id = reopened["tab_ids"][0].as_str().expect("reopen returned no tab").to_string();
+    let surface = surface_of_tab(&harness, &tab_id);
+    let text = wait_for_screen(&harness.socket, surface, "crash-42");
+    assert!(text.contains("crash-42"), "the closed tab's screen was lost: {text}");
 }

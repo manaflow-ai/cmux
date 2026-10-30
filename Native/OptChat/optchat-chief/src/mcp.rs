@@ -8,10 +8,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::prompt::{
-    DATE_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
-};
 use crate::tools::{self, Call};
 
 /// The MCP revision this server speaks when the client names none it knows.
@@ -25,21 +21,14 @@ pub fn tool_list() -> Value {
 
 /// A subagent gets zoom and date, not spawn (section 9); the Chief all four.
 pub fn tools_for(subagent: bool) -> Value {
-    let int = json!({"type": "integer", "minimum": 0});
-    let text = json!({"type": "string", "minLength": 1});
-    let mut list = vec![
-        json!({"name": "zoom", "description": format!("{ZOOM_DESCRIPTION}{ZOOM_AGENT_DESCRIPTION}"),
-         "inputSchema": {"type": "object", "properties": {"id": {"type": ["integer", "string"]}, "n": int, "at": int}, "required": ["id"], "additionalProperties": false}}),
-        json!({"name": "date", "description": DATE_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
-    ];
-    if !subagent {
-        list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}}, "required": ["tasks"], "additionalProperties": false}}));
-        list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text}, "required": ["id", "message"], "additionalProperties": false}}));
-    }
-    Value::Array(list)
+    tools_granted(subagent, &crate::chief_profile::Grant::all())
+}
+
+/// The list for a Chief whose person granted `grant` (chief_profile.rs):
+/// zoom and date always, then spawn, tell, profile and chiefs when granted,
+/// then react and reply (a Chief's own conversation, always).
+pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Value {
+    chief_kernel::tools::tool_list(subagent, &|tool| grant.allows(tool))
 }
 
 /// How a tool call reaches the memory: the host socket, or a test memory.
@@ -49,6 +38,19 @@ pub trait Backend {
     fn subagent(&self) -> bool {
         false
     }
+    /// The Chief home this server belongs to (the move tool), if known.
+    fn home(&self) -> Option<PathBuf> {
+        None
+    }
+    /// The model tools this Chief may use (asked of the host at tools/list).
+    fn grant(&self) -> crate::chief_profile::Grant {
+        crate::chief_profile::Grant::all()
+    }
+    /// The `version` tool's answer (version_tool.rs). It runs here, in the
+    /// MCP server, never through the host: it only reads.
+    fn version(&self) -> Result<String, String> {
+        Ok(crate::version_tool::answer(&crate::paths::mux_home()))
+    }
 }
 
 /// The host socket; `subagent` marks a subagent's server (no spawn, tell).
@@ -56,11 +58,27 @@ pub struct SocketBackend(pub PathBuf, pub bool);
 
 impl Backend for SocketBackend {
     fn call(&self, call: Call) -> Result<String, String> {
-        tools::ask_as(&self.0, call, self.1)
+        tools::ask_as(&self.0, tools::with_turn_key(call), self.1)
     }
 
     fn subagent(&self) -> bool {
         self.1
+    }
+
+    /// `<home>/optchat/tools.sock`: the home is two levels up.
+    fn home(&self) -> Option<PathBuf> {
+        self.0.parent()?.parent().map(Path::to_path_buf)
+    }
+
+    /// The live host's grant. A host that does not answer the question (an
+    /// older host) grants what it always did; one that cannot be reached
+    /// answers no tool call either, so zoom and date alone are listed.
+    fn grant(&self) -> crate::chief_profile::Grant {
+        match tools::ask_grant(&self.0) {
+            Ok(value) => crate::chief_profile::Grant::from_mcp_value(Some(&value)),
+            Err(e) if e.contains("unknown tool") => crate::chief_profile::Grant::all(),
+            Err(_) => crate::chief_profile::Grant::from_mcp_value(Some("none")),
+        }
     }
 }
 
@@ -87,16 +105,44 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools": tools_for(backend.subagent())})),
+        "tools/list" => Ok(json!({"tools": if backend.subagent() {
+            tools_for(true)
+        } else {
+            tools_granted(false, &backend.grant())
+        }})),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            let answer = Call::parse(name, &args).and_then(|call| match call {
-                Call::Spawn { .. } | Call::Tell { .. } if backend.subagent() => {
-                    Err(format!("unknown tool {name}"))
+            let answer = if name == "version" {
+                backend.version()
+            } else if name == "move" {
+                match (backend.subagent(), backend.home()) {
+                    (true, _) => Err(format!("unknown tool {name}")),
+                    (false, None) => Err("move: this server does not know its Chief home".into()),
+                    (false, Some(home)) => move_call(&home, &args),
                 }
-                call => backend.call(call),
-            });
+            } else {
+                Call::parse(name, &args).and_then(|call| match call {
+                    Call::Spawn { .. }
+                    | Call::React { .. }
+                    | Call::Reply { .. }
+                    | Call::Send(_)
+                    | Call::Transcript { .. }
+                    | Call::Stop
+                    | Call::Sleep(_)
+                    | Call::Watch(_)
+                    | Call::Remember { .. }
+                    | Call::Control(_)
+                    | Call::CloudWorkspace(_)
+                    | Call::Profile { .. }
+                    | Call::Chiefs { .. }
+                        if backend.subagent() =>
+                    {
+                        Err(format!("unknown tool {name}"))
+                    }
+                    call => backend.call(call),
+                })
+            };
             Ok(match answer {
                 Ok(text) => json!({"content": [{"type": "text", "text": text}], "isError": false}),
                 Err(error) => {
@@ -145,4 +191,70 @@ pub fn run(socket: &Path, subagent: bool) -> std::io::Result<()> {
         std::io::stdout().lock(),
         &SocketBackend(socket.to_owned(), subagent),
     )
+}
+
+/// The `move` tool (plans/cmux-next/chief-migration-DESIGN.md section 8):
+/// the Chief moves itself. `dry_run` checks the target and answers at once;
+/// a real move runs `optchat-chief move --detach`, which waits for this turn
+/// to end, stops the host, and writes its report to `state/move.json`.
+/// `status` reads that report, `reach` probes what this home reached before
+/// a move, `rollback` lets the old copy answer again.
+pub use chief_kernel::tools::{MOVE_DESCRIPTION, move_tool};
+
+/// Runs the move tool for the Chief of `home` with this binary.
+pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
+    let action = args["action"].as_str().unwrap_or("move");
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut argv: Vec<String> = vec!["move".into()];
+    match action {
+        "status" => {
+            return std::fs::read_to_string(home.join("state").join("move.json"))
+                .map_err(|_| "no move has run from this home".to_owned());
+        }
+        "reach" => argv.push("reach".into()),
+        "rollback" => argv.push("rollback".into()),
+        "move" => {
+            let to = args["to"].as_str().ok_or("move needs `to`")?;
+            argv.extend(["--to".into(), to.into()]);
+            argv.push(
+                if args["dry_run"] == true {
+                    "--dry-run"
+                } else {
+                    "--detach"
+                }
+                .into(),
+            );
+            if args["without_transcripts"] == true {
+                argv.push("--without-transcripts".into());
+            }
+            if let Some(name) = args["name"].as_str() {
+                argv.extend(["--name".into(), name.into()]);
+            }
+        }
+        other => return Err(format!("unknown move action {other}")),
+    }
+    for (key, flag) in [
+        ("remote_bin", "--remote-bin"),
+        ("session_token_file", "--session-token-file"),
+    ] {
+        if let Some(v) = args[key].as_str() {
+            argv.extend([flag.into(), v.into()]);
+        }
+    }
+    argv.extend(["--home".into(), home.to_string_lossy().into_owned()]);
+    let out = std::process::Command::new(exe)
+        .args(&argv)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    if out.status.success() {
+        Ok(text)
+    } else {
+        Err(text)
+    }
 }

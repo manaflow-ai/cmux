@@ -17,10 +17,21 @@ use super::ViewReleasePreparation;
 use super::ViewResizePreparation;
 use super::mint_view_lease;
 use crate::SurfaceId;
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
 impl ClientRegistry {
+    /// Ends `client`'s connection at once, both ways (a link guest whose share or guest ended):
+    /// its reader sees the close and the usual disconnect forgets the connection.
+    pub(super) fn abort_connection(&self, client: u64) {
+        let writer =
+            self.state.lock().recover_poison().clients.get(&client).map(|r| r.writer.clone());
+        if let Some(writer) = writer {
+            writer.abort();
+        }
+    }
+
     pub(super) fn attach_surface(
         &self,
         client: u64,
@@ -47,7 +58,7 @@ impl ClientRegistry {
         stream: OutboundStream,
         require_lease: bool,
     ) -> anyhow::Result<Option<String>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state
             .clients
             .get_mut(&client)
@@ -82,6 +93,38 @@ impl ClientRegistry {
         Ok(lease)
     }
 
+    /// Makes `lease` a read-only view: it never owns the surface's geometry,
+    /// and its resizes are passive.
+    pub(super) fn mark_view_lease_read_only(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let attached = record
+            .attached
+            .get_mut(&surface)
+            .ok_or_else(|| anyhow::anyhow!("client {client} has no surface {surface}"))?;
+        anyhow::ensure!(
+            attached.view_sizes.contains_key(lease),
+            "view attachment lease is not attached to surface {surface}"
+        );
+        attached.read_only_leases.insert(lease.to_string());
+        if attached.geometry_lease.as_deref() == Some(lease) {
+            attached.geometry_lease = attached
+                .view_sizes
+                .keys()
+                .find(|other| !attached.read_only_leases.contains(*other))
+                .cloned();
+        }
+        Ok(())
+    }
+
     pub(super) fn commit_surface(
         &self,
         client: u64,
@@ -89,7 +132,7 @@ impl ClientRegistry {
         stream: u64,
         rollback: Option<crate::mux::ClientSizeRollback>,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state
             .clients
             .get_mut(&client)
@@ -120,7 +163,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         lease: &str,
     ) -> anyhow::Result<ViewLeaseStatus> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let record =
             state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         if let Some((lease_surface, _)) = record.view_leases.get(lease) {
@@ -151,7 +194,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         lease: &str,
     ) -> anyhow::Result<Option<(u64, OutboundStream)>> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let record =
             state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         let Some((lease_surface, stream)) = record.view_leases.get(lease).copied() else {
@@ -184,7 +227,7 @@ impl ClientRegistry {
         lease: &str,
         size: (u16, u16),
     ) -> anyhow::Result<ViewResizePreparation> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state
             .clients
             .get_mut(&client)
@@ -206,6 +249,13 @@ impl ClientRegistry {
         let Some(attached) = record.attached.get_mut(&surface) else {
             return Ok(ViewResizePreparation::Superseded);
         };
+        if attached.read_only_leases.contains(lease) {
+            return Ok(ViewResizePreparation::Passive {
+                changed: false,
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+            });
+        }
         let previous_view_size = attached.view_sizes.get(lease).copied().flatten();
         let changed = previous_view_size != Some(size);
         attached.view_sizes.insert(lease.to_string(), Some(size));
@@ -234,7 +284,7 @@ impl ClientRegistry {
         lease: &str,
         size: Option<(u16, u16)>,
     ) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let Some(record) = state.clients.get_mut(&client) else { return };
         let Some(attached) = record.attached.get_mut(&surface) else { return };
         if !attached.view_sizes.contains_key(lease) {
@@ -255,7 +305,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         lease: &str,
     ) -> anyhow::Result<ViewReleasePreparation> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state
             .clients
             .get_mut(&client)
@@ -295,7 +345,7 @@ impl ClientRegistry {
         &self,
         client: u64,
     ) -> anyhow::Result<Option<ClientAnnouncement>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state
             .clients
             .get_mut(&client)
@@ -342,7 +392,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         stream: u64,
     ) -> DetachedSurface {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let Some(record) = state.clients.get_mut(&client) else {
             return DetachedSurface {
                 final_stream: false,
@@ -365,6 +415,7 @@ impl ClientRegistry {
             .is_some_and(|lease| attached.geometry_lease.as_deref() == Some(lease));
         if let Some(lease) = &removed_lease {
             attached.view_sizes.remove(lease);
+            attached.read_only_leases.remove(lease);
         }
         let rollback = attached.size_rollbacks.remove(&stream);
         if let Some(removed) = rollback {
@@ -378,11 +429,12 @@ impl ClientRegistry {
         }
         let final_stream = attached.streams.is_empty() && attached.pending_streams.is_empty();
         let geometry_replacement = if removed_geometry_owner && !final_stream {
+            let sizing = |lease: &String| !attached.read_only_leases.contains(lease);
             let replacement = attached
                 .lease_by_stream
                 .iter()
-                .find(|(stream, _)| attached.streams.contains_key(stream))
-                .or_else(|| attached.lease_by_stream.iter().next())
+                .find(|(stream, lease)| attached.streams.contains_key(stream) && sizing(lease))
+                .or_else(|| attached.lease_by_stream.iter().find(|(_, lease)| sizing(lease)))
                 .map(|(_, lease)| lease.clone());
             attached.geometry_lease = replacement.clone();
             let size = replacement
@@ -429,7 +481,7 @@ impl ClientRegistry {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<Option<ClientSizeUpdate>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state
             .clients
             .get_mut(&client)
@@ -448,7 +500,7 @@ impl ClientRegistry {
         if let Some(attached) = self
             .state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .get_mut(&client)
             .and_then(|record| record.attached.get_mut(&surface))
@@ -461,7 +513,7 @@ impl ClientRegistry {
         if let Some(attached) = self
             .state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .get_mut(&client)
             .and_then(|record| record.attached.get_mut(&surface))
@@ -484,7 +536,7 @@ impl ClientRegistry {
         if let Some(attached) = self
             .state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .get_mut(&client)
             .and_then(|record| record.attached.get_mut(&surface))
@@ -498,7 +550,7 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
     ) -> Option<(bool, Option<String>, Option<String>)> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state.clients.get_mut(&client)?;
         let attached = record.attached.get_mut(&surface)?;
         let changed = attached.size.take().is_some();
@@ -517,7 +569,7 @@ impl ClientRegistry {
         self.scripts.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
         // record still goes, so a fail-closed close never panics here.
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         let record = state.clients.remove(&client)?;
         // After the record goes: a start that ends later sees the connection gone.
         #[cfg(unix)]
@@ -544,13 +596,13 @@ impl ClientRegistry {
     }
 
     pub(crate) fn contains(&self, client: u64) -> bool {
-        self.state.lock().unwrap().clients.contains_key(&client)
+        self.state.lock().recover_poison().clients.contains_key(&client)
     }
 
     pub(crate) fn client_info(&self, client: u64) -> Option<(Option<String>, Option<String>)> {
         self.state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .get(&client)
             .map(|record| (record.name.clone(), record.kind.clone()))
@@ -560,7 +612,7 @@ impl ClientRegistry {
     pub(crate) fn attached_client_ids(&self) -> HashSet<u64> {
         self.state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .iter()
             .filter_map(|(client, record)| (!record.attached.is_empty()).then_some(*client))
@@ -568,28 +620,34 @@ impl ClientRegistry {
     }
 
     pub(crate) fn attached_client_ids_by_surface(&self) -> HashMap<SurfaceId, HashSet<u64>> {
-        self.state.lock().unwrap().attached_by_surface.clone()
+        self.state.lock().recover_poison().attached_by_surface.clone()
     }
 
     /// Query one surface without walking every client's retained attachments.
     pub(crate) fn attached_client_ids_for_surface(&self, surface: SurfaceId) -> HashSet<u64> {
-        self.state.lock().unwrap().attached_by_surface.get(&surface).cloned().unwrap_or_default()
+        self.state
+            .lock()
+            .recover_poison()
+            .attached_by_surface
+            .get(&surface)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Whether any client holds an attach stream on one of `surfaces`, and
     /// the newest attach epoch among them (0 when none was ever attached).
     pub(crate) fn set_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
-        *self.detach_waker.lock().unwrap() = Some(Box::new(waker));
+        *self.detach_waker.lock().recover_poison() = Some(Box::new(waker));
     }
 
     pub(super) fn notify_detach(&self) {
-        if let Some(waker) = self.detach_waker.lock().unwrap().as_ref() {
+        if let Some(waker) = self.detach_waker.lock().recover_poison().as_ref() {
             waker();
         }
     }
 
     pub(crate) fn attach_observation(&self, surfaces: &[SurfaceId]) -> (bool, u64) {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let attached =
             surfaces.iter().any(|surface| state.attached_by_surface.contains_key(surface));
         let epoch = surfaces
@@ -602,6 +660,6 @@ impl ClientRegistry {
 
     /// Drop the attach epoch of a surface that no longer exists.
     pub(crate) fn forget_surface_attach_epoch(&self, surface: SurfaceId) {
-        self.state.lock().unwrap().attach_epochs.remove(&surface);
+        self.state.lock().recover_poison().attach_epochs.remove(&surface);
     }
 }

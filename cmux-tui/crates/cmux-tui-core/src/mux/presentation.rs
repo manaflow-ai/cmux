@@ -13,6 +13,7 @@ use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
+use cmux_json::JsonSet as _;
 use std::ops::Deref;
 
 mod frontend_browser_history;
@@ -338,9 +339,11 @@ impl Mux {
         self.emit_tab_changed_for_transaction(surface, None);
     }
 
-    /// A `tab-added` delta for a tab a topology commit just created (which
-    /// announces itself to raw clients with `tree-changed` only), carrying
-    /// the client's `transaction` so the client settles its provisional tab.
+    /// A `tab-added` delta carrying the client's `transaction`, for a tab
+    /// that arrived inside its new workspace's or screen's delta (which
+    /// carries no transaction), so the client settles its provisional tab. A
+    /// tab added to an existing pane carries the transaction on its own
+    /// `tab-added` instead and never gets this second one.
     pub(crate) fn emit_tab_added_for_transaction(&self, surface: SurfaceId, transaction: Arc<str>) {
         let decorations = self.tree_decorations();
         let delta = {
@@ -708,10 +711,10 @@ impl Mux {
         // Only a pin request carries the key, so a retry first sent to a
         // daemon without workspace-pin-v1 still replays.
         if let Some(pinned) = update.pinned {
-            fingerprint["pinned"] = pinned.into();
+            fingerprint.set("pinned", pinned.into());
         }
         if let Some(marked_unread) = update.marked_unread {
-            fingerprint["marked_unread"] = marked_unread.into();
+            fingerprint.set("marked_unread", marked_unread.into());
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {

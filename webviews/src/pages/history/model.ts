@@ -15,6 +15,10 @@ export const HISTORY_GROUPINGS: readonly HistoryGrouping[] = ["day", "workspace"
 /** The Swift page loads at most this many entries. */
 export const PAGE_LIMIT = 1000;
 
+/**
+ * The kinds a chip shows (empty: every kind). Clear History clears exactly these kinds under every
+ * chip: the daemon owns each kind, the location trail included (cx-hnmbt.12).
+ */
 export function filterKinds(filter: HistoryFilter): HistoryKind[] {
   switch (filter) {
     case "all":

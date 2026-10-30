@@ -1,9 +1,13 @@
-// A point-anchored context menu for page surfaces. Base UI owns the menu
-// semantics, keyboard navigation, dismissal and focus restoration; this adapter
-// only supplies the pointer location and page-specific actions.
-import { useMemo, useRef } from "react";
+// A point-anchored context menu for page surfaces. In the app it is the app's
+// standard macOS menu (ui/nativeMenu.ts). Without a host, or when the host
+// refuses, Base UI owns the menu semantics, keyboard navigation, dismissal and
+// focus restoration; this adapter only supplies the pointer location and
+// page-specific actions.
+import { useEffect, useMemo, useRef, useState } from "react";
+import { nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import { usePortalContainer } from "../../ui/UiProvider";
+import { usePopupHost, usePortalContainer } from "../../ui/UiProvider";
+import { useEscapingPopup } from "../../ui/popupHost";
 
 export interface PageMenuItem {
   id: string;
@@ -42,6 +46,32 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
     }),
     [x, y],
   );
+  // No room above or below the pointer in the page: past the window's edge (popupHost.ts).
+  const host = usePopupHost();
+  const [popup, setPopup] = useState<HTMLElement | null>(null);
+  useEscapingPopup(host, popup, () => anchor, { side: "bottom", align: "start", gap: 0 });
+  // The app's native menu, asked once per opening; a refusal (an older app) draws the page's.
+  const [drawn, setDrawn] = useState(() => nativeMenu() === null);
+  const asked = useRef(false);
+  useEffect(() => {
+    const native = nativeMenu();
+    if (!native || asked.current) return;
+    asked.current = true;
+    const rows = items.flatMap((item): NativeMenuRow[] => [
+      ...(item.separatorBefore ? [{ id: `separator:${item.id}`, label: "", separator: true }] : []),
+      { id: item.id, label: item.label, ...(item.disabled ? { disabled: true } : {}) },
+    ]);
+    native({ items: rows, point: { x, y } }).then(
+      (reply) => {
+        const chosen = items.find((item) => item.id === pickedId(reply));
+        onClose();
+        if (chosen) chosen.run();
+        else if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+      },
+      () => setDrawn(true),
+    );
+  }, [items, x, y, onClose]);
+  if (!drawn) return null;
 
   return (
     <BaseMenu.Root
@@ -61,7 +91,7 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
           align="start"
           sideOffset={0}
         >
-          <BaseMenu.Popup className="page-menu" finalFocus={() => opener.current}>
+          <BaseMenu.Popup ref={host ? setPopup : undefined} className="page-menu" finalFocus={() => opener.current}>
             {items.map((item) => (
               <PageMenuRow key={item.id} item={item} onClose={onClose} />
             ))}

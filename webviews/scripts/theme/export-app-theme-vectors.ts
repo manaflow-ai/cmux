@@ -17,15 +17,30 @@ export const VECTORS_PATH = path.resolve(
 
 /** Every 8th bundled theme by name, plus the cases that exercise the fallbacks. */
 const PINNED = ["Apple System Colors", "Apple System Colors Light", "Dracula", "Grass", "Hot Dog Stand", "Nord"];
+/** Themes replayed with `appearance.accent: theme` too (ThemeAccent), dark and light. */
+const ACCENTED = ["Apple System Colors Light", "Grass", "Rose Pine", "Rose Pine Dawn", "Rose Pine Moon"];
 
 export function vectors(): string {
   const themes = readShippedThemes().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const sample = themes.filter((theme, index) => index % 8 === 0 || PINNED.includes(theme.name));
-  const cases = sample.map((theme) => {
-    const app = deriveAppTheme(theme);
+  const accented = themes.filter((theme) => ACCENTED.includes(theme.name));
+  const runs = [
+    ...sample.map((theme) => ({ theme, accent: "neutral" as const })),
+    ...accented.map((theme) => ({ theme, accent: "theme" as const })),
+  ];
+  const cases = runs.map(({ theme, accent }) => {
+    const app = deriveAppTheme(theme, accent);
     return {
       name: theme.name,
-      input: { background: theme.background, foreground: theme.foreground, palette: theme.palette },
+      input: {
+        background: theme.background,
+        foreground: theme.foreground,
+        palette: theme.palette,
+        // The theme's own accent (`# cmux-accent`), which wins over `accent`; absent when the theme has none.
+        ...(theme.accent ? { accentColor: theme.accent } : {}),
+      },
+      // Absent: neutral, as before the accent setting.
+      ...(accent === "neutral" ? {} : { accent }),
       isDark: app.isDark,
       tokens: app.tokens,
     };

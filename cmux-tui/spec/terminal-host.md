@@ -237,7 +237,20 @@ child_pid:u32
 session_id:u32
 incarnation:[u8;16]
 seed:blob
+program_status?:ProgramStatus
 ```
+
+`ProgramStatus` is the owner's OSC 7501 records (cx-6so.36.10), in the layout
+of the Snapshot `FLAG_PROGRAM_STATUS` tail: `next_seq:u64`, `count:u16`, then
+per record `id:string`, `state:u8` (1 idle, 2 working, 3 done, 4 blocked,
+5 error), `kind:u8` (0 none, 1 permission, 2 question,
+3 auth), `progress:u8` (255 none, else at most 100),
+optional `app`, `title` and `message` strings, `updated_seq:u64` and
+`updated_at_ms:u64`. It is absent when the payload ends after `seed`. The
+whole payload fits one frame; when the records do not fit what the seed leaves
+(at least about 1 MiB), the owner sends no records, only `next_seq`. The host restores the
+records under the same rules as a daemon adopting a Snapshot, before it reads
+the PTY, so a daemon that later adopts it shows them with their `updated_seq`.
 
 `child_pid` and `session_id` are nonzero; `incarnation` is a canonical
 UUIDv4. `seed` is VT replay of the terminal's screen; the host applies it to
@@ -292,6 +305,14 @@ Unicode characters and no control characters. The value is captured while
 the host's authoritative VT parser is at the same snapshot boundary. A client
 that does not negotiate the flag receives the original v4 bytes and must
 reject an unnegotiated trailing field.
+
+With `FLAG_SHELL_ACTIVITY` also negotiated, the snapshot next appends the
+host's OSC 133 shell state: `flags:u8` (bit 0 a command runs, bit 1 it took
+the terminal for interaction, bit 2 its line modes were seen off, bit 3 the
+shell sits at its prompt; bits 1 and 2 only with bit 0, other bits zero), then
+`busy_since_ms:u64` when bit 0 is set and `prompt_since_ms:u64` when bit 3 is.
+The times are Unix ms, so they mean the same to the adopting daemon. Any
+`FLAG_PROGRAM_STATUS` tail follows it.
 
 Legacy `Resized` producer payload:
 
@@ -399,6 +420,11 @@ it only when the host record advertises `supports_viewer_size_priority`.
 `FLAG_PTY_CUSTODY` is bit 6 and is valid only in protocol-v4 `ClientHello` and
 `HostHello`, alone. Hosts that predate it reject a hello carrying it, so the
 owner sets it only when the host record advertises `supports_pty_custody`.
+
+`FLAG_SHELL_ACTIVITY` is bit 8 and is valid only in protocol-v4 `ClientHello`
+and `HostHello`, with `FLAG_TERMINAL_METADATA`. Hosts that predate it reject a
+hello carrying it, so a client sets it only when the host record advertises
+`supports_shell_activity`, which records before version 4 must not set.
 
 ## PTY custody and adoption
 

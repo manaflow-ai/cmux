@@ -41,6 +41,8 @@ describe("forkVm provider capability", () => {
     const repo = {
       findUserVm: () => Effect.succeed(source),
       findUserVmAnyStatus: () => Effect.succeed(source),
+      beginSnapshotRequest: () => Effect.succeed({ kind: "started" as const }),
+      finishSnapshotRequest: () => Effect.void,
       recordUsageEvent: () => Effect.void,
       markProviderObservedStatus: () => Effect.succeed(true),
       // The native path inserts the copy row before calling the provider; a

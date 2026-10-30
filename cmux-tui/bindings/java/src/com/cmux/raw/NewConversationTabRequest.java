@@ -20,7 +20,10 @@ public final class NewConversationTabRequest implements WireValue {
     private final Field<String> owner;
     private final Field<String> page;
     private final Field<UInt64> pane;
+    private final Field<String> route;
     private final Field<Integer> rows;
+    /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction. */
+    private final Field<ConversationTabSplit> split;
     /** Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result. */
     private final Field<String> transaction;
     private final Field<UInt64> workspace;
@@ -34,7 +37,9 @@ public final class NewConversationTabRequest implements WireValue {
         this.owner = builder.owner;
         this.page = builder.page;
         this.pane = builder.pane;
+        this.route = builder.route;
         this.rows = builder.rows;
+        this.split = builder.split;
         this.transaction = builder.transaction;
         this.workspace = builder.workspace;
     }
@@ -49,7 +54,9 @@ public final class NewConversationTabRequest implements WireValue {
     public Field<String> owner() { return owner; }
     public Field<String> page() { return page; }
     public Field<UInt64> pane() { return pane; }
+    public Field<String> route() { return route; }
     public Field<Integer> rows() { return rows; }
+    public Field<ConversationTabSplit> split() { return split; }
     public Field<String> transaction() { return transaction; }
     public Field<UInt64> workspace() { return workspace; }
 
@@ -88,9 +95,17 @@ public final class NewConversationTabRequest implements WireValue {
         if (!Wire.isMissing(rawPane)) {
             builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "NewConversationTabRequest.pane"));
         }
+        Object rawRoute = Wire.optional(object, "route");
+        if (!Wire.isMissing(rawRoute)) {
+            builder.route(rawRoute == null ? null : Wire.string(rawRoute, "NewConversationTabRequest.route"));
+        }
         Object rawRows = Wire.optional(object, "rows");
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "NewConversationTabRequest.rows"));
+        }
+        Object rawSplit = Wire.optional(object, "split");
+        if (!Wire.isMissing(rawSplit)) {
+            builder.split(rawSplit == null ? null : ConversationTabSplit.fromWire(rawSplit));
         }
         Object rawTransaction = Wire.optional(object, "transaction");
         if (!Wire.isMissing(rawTransaction)) {
@@ -114,7 +129,9 @@ public final class NewConversationTabRequest implements WireValue {
         Wire.put(object, "owner", owner);
         Wire.put(object, "page", page);
         Wire.put(object, "pane", pane);
+        Wire.put(object, "route", route);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "split", split);
         Wire.put(object, "transaction", transaction);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
@@ -123,11 +140,11 @@ public final class NewConversationTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewConversationTabRequest that)) return false;
-        return Objects.equals(agentSession, that.agentSession) && Objects.equals(cols, that.cols) && Objects.equals(conversation, that.conversation) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(owner, that.owner) && Objects.equals(page, that.page) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(agentSession, that.agentSession) && Objects.equals(cols, that.cols) && Objects.equals(conversation, that.conversation) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(owner, that.owner) && Objects.equals(page, that.page) && Objects.equals(pane, that.pane) && Objects.equals(route, that.route) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agentSession, cols, conversation, mutationId, origin, owner, page, pane, rows, transaction, workspace); }
+    public int hashCode() { return Objects.hash(agentSession, cols, conversation, mutationId, origin, owner, page, pane, route, rows, split, transaction, workspace); }
 
     @Override
     public String toString() { return "NewConversationTabRequest" + toWire(); }
@@ -141,7 +158,9 @@ public final class NewConversationTabRequest implements WireValue {
         private Field<String> owner = Field.omitted();
         private Field<String> page = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
+        private Field<String> route = Field.omitted();
         private Field<Integer> rows = Field.omitted();
+        private Field<ConversationTabSplit> split = Field.omitted();
         private Field<String> transaction = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
@@ -177,8 +196,16 @@ public final class NewConversationTabRequest implements WireValue {
             this.pane = Field.ofNullable(value);
             return this;
         }
+        public Builder route(String value) {
+            this.route = Field.ofNullable(value);
+            return this;
+        }
         public Builder rows(Integer value) {
             this.rows = Field.ofNullable(value);
+            return this;
+        }
+        public Builder split(ConversationTabSplit value) {
+            this.split = Field.ofNullable(value);
             return this;
         }
         public Builder transaction(String value) {

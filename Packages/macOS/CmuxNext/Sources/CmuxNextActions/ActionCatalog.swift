@@ -14,6 +14,25 @@ public nonisolated enum ActionCatalog {
     /// and lookup so older call sites keep working.
     public static let legacyAliases: [ActionID: ActionID] = [
         "app.quit": "quit",
+        // Classic cmux shortcut IDs next renamed (hq#1870 parity audit): a binding
+        // from classic's Settings or cmux.json keeps working.
+        "showWindowHints": "hints.show",
+        "agentInbox": "feed.show",
+        "resize-pane-left": "resizePaneLeft",
+        "resize-pane-right": "resizePaneRight",
+        "resize-pane-up": "resizePaneUp",
+        "resize-pane-down": "resizePaneDown",
+        "diffViewerScrollDown": "diffViewerNextLine",
+        "diffViewerScrollUp": "diffViewerPreviousLine",
+        "diffViewerScrollHalfPageDown": "diffViewerHalfPageDown",
+        "diffViewerScrollHalfPageUp": "diffViewerHalfPageUp",
+        "diffViewerScrollToBottom": "diffViewerGoToBottom",
+        "diffViewerScrollToTop": "diffViewerGoToTop",
+        // Cmd-T's id named a setting value; it opens the New Tab page (cmuxterm-hq#1829).
+        "newTab.sameKind": "newTab.default",
+        // New Workspace Like This keeps the directory and the group (cmuxterm-hq#1829).
+        "workspace.newInGroup": "workspace.newLikeThis",
+        "workspace.newInSameDirectory": "workspace.newLikeThis",
         "tab.new": "newSurface",
         "tab.close": "closeTab",
         "tab.next": "nextSurface",
@@ -65,6 +84,14 @@ public nonisolated enum ActionCatalog {
         "workspaceGroup.moveToRoom": "workspaceGroup.moveToSpace",
     ]
 
+    /// Actions whose work makes a browser tab with the keyed
+    /// `new-frontend-browser-tab` (`ActionDescriptor.waitsForKeyedCreate`).
+    static let keyedCreateActionIDs: Set<ActionID> = [
+        "openBrowser", "openBrowser.webkit", "openBrowser.chromium", "newBrowserWorkspace",
+        "browser.link.openInNewTab", "browser.image.openInNewTab", "browser.link.openInSplit",
+        "browser.link.openInNewWorkspace", "browser.selection.search",
+    ]
+
     /// The catalog's domain groups, in inventory order. `all` concatenates
     /// their descriptors in this order, which menu ranks tie-break on.
     static let groups: [any ActionCatalogGroup.Type] = [
@@ -79,6 +106,7 @@ public nonisolated enum ActionCatalog {
         TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,
+        HomeMessageActionCatalog.self,
         TabGroupActionCatalog.self,
         ScreenActionCatalog.self,
         ScreenGroupActionCatalog.self,
@@ -96,39 +124,76 @@ public nonisolated enum ActionCatalog {
         ProfileMenuActionCatalog.self,
         SidebarActionCatalog.self,
         NotificationActionCatalog.self,
+        NotificationSoundActionCatalog.self,
         AgentActionCatalog.self,
+        AgentChatMenuActionCatalog.self,
+        AgentConfigurationActionCatalog.self,
+        AgentTranscriptActionCatalog.self,
+        AgentChatIdentifierActionCatalog.self,
+        AgentChatCopyActionCatalog.self,
+        AgentChatViewActionCatalog.self,
+        AgentSideQuestionActionCatalog.self,
         AgentHarnessActionCatalog.self,
         CloudActionCatalog.self,
+        CloudPortActionCatalog.self,
         AccountActionCatalog.self,
         RemoteActionCatalog.self,
+        CloudSessionActionCatalog.self,
+        MachineIconActionCatalog.self,
         SettingsActionCatalog.self,
+        HelpLinkActionCatalog.self,
+        DensityActionCatalog.self,
+        ChromeStyleActionCatalog.self,
         BackdropActionCatalog.self,
+        PaneBackgroundActionCatalog.self,
         HibernationActionCatalog.self,
+        AutoArchiveActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
+        StashActionCatalog.self,
+        MusicActionCatalog.self,
+        VoiceRoomActionCatalog.self,
+        NowPlayingCardActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
+        SidebarPriorityActionCatalog.self,
+        JoinedMachineActionCatalog.self,
         AppStoreActionCatalog.self,
         TasksActionCatalog.self,
+        PhoneActionCatalog.self,
+        FilesPaneActionCatalog.self,
         LinkActionCatalog.self,
         ShareActionCatalog.self,
         ServerActionCatalog.self,
         MarkdownPageActionCatalog.self,
         ListActionCatalog.self,
         PaletteKeyActionCatalog.self,
+        ImportActionCatalog.self,
+        HangReportsActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
         for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
+        for index in all.indices where keyedCreateActionIDs.contains(all[index].id) { all[index].waitsForKeyedCreate = true }
         return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
     }
 }
 
 extension ActionRegistry {
-    /// A registry seeded with the full cmux catalog and legacy aliases.
+    /// A registry seeded with the full cmux catalog and legacy aliases whose runs are not timed.
+    ///
+    /// A separate symbol, not a default argument of ``standard(runTiming:)``: objects compiled
+    /// before the timing was injected call this one (warm fleet build trees link them).
     public static func standard() -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        standard(runTiming: NoActionRunTiming())
+    }
+
+    /// A registry seeded with the full cmux catalog and legacy aliases.
+    ///
+    /// - Parameter runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
+    public static func standard(runTiming: any ActionRunTiming) -> ActionRegistry {
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
     }
 }

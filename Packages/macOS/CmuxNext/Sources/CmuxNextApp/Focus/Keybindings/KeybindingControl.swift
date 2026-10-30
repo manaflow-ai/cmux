@@ -1,16 +1,27 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextPages
 import CmuxNextSettings
 
-/// Socket methods for the binding table's read ops (R59): `keybinding.list`,
+/// Socket methods for the binding table (R59): the read ops `keybinding.list`,
 /// `keybinding.resolve` (`{"keys": "ctrl+k s", "window"?}`) and
-/// `context.keys` (`{"window"?}`). A window is named by its id; the default
+/// `context.keys` (`{"window"?}`), and the edits `keybinding.set`, `remove`
+/// and `reset` (cx-9ce.26), the Keyboard Shortcuts page's own write
+/// (``KeybindingEdit``) with its params; each answers the action's rows as
+/// `keybinding.list` lists them. A window is named by its id; the default
 /// is the key cmux window, else the first one. The CLI and MCP verbs call
 /// these methods.
 enum KeybindingControl {
     static func methods(services: AppServices) -> [ControlMethod] {
-        [
+        let edits: [(String, KeybindingEdit)] = [("keybinding.set", .set), ("keybinding.remove", .remove), ("keybinding.reset", .reset)]
+        return edits.map { name, edit in
+            ControlMethod.mainActor(name) { [weak services] call in
+                guard let services else { return .value(.null) }
+                let params = call.params
+                return .followUp { try await Self.run(edit, params, services: services) }
+            }
+        } + [
             .mainActor("keybinding.list") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(KeybindingReports.list(call.params, registry: services.registry))
@@ -32,6 +43,20 @@ enum KeybindingControl {
                 return .value(KeybindingReports.contextKeys(context, window: window))
             },
         ]
+    }
+
+    /// Runs `edit`; the page's refusals answer as the socket's: unparsable keys, an unknown
+    /// action or a bad `when` are `invalid_params`, the rest (the recorder's refusals, a
+    /// conflict in the same place, a Ghostty row) `unavailable`, with the page's code as `reason`.
+    @MainActor
+    static func run(_ edit: KeybindingEdit, _ params: [String: JSONValue], services: AppServices) async throws -> JSONValue {
+        do {
+            try await edit.run(params, services: services)
+        } catch let error as PageError {
+            let code = error.code == "cmux.keybindings.invalid" ? "invalid_params" : "unavailable"
+            throw ControlError(code: code, message: error.message, data: ["reason": .string(error.code)])
+        }
+        return KeybindingReports.list(["command": params["command"] ?? .null], registry: services.registry)
     }
 
     /// The context keys of the window `params` names (or the key window).
@@ -77,6 +102,12 @@ enum KeybindingStrings {
     static var needsKeybindingsJSON: String {
         String(localized: "keybinding.error.needsKeybindingsJSON",
                defaultValue: "cmux.json holds one shortcut per action, with no When clause or arguments. This change needs keybindings.json, which is not ready yet.",
+               table: "Keybindings", bundle: .module)
+    }
+
+    static var familyNeedsDigit: String {
+        String(localized: "keybinding.error.familyNeedsDigit",
+               defaultValue: "A numbered shortcut takes a digit: press 1 with the modifiers you want.",
                table: "Keybindings", bundle: .module)
     }
 

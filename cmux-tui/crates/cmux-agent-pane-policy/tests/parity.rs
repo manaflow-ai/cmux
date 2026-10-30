@@ -1,12 +1,11 @@
-//! The shared case files (`tests/cases/*.json`) against this crate. The Swift
-//! host runs the same files against AcpmuxPaneMethods.swift
-//! (CmuxNextAgentPaneTests/AgentPanePolicyParityTests.swift), so a case that
-//! passes here and fails there is a difference between the two hosts.
+//! The shared case files (`tests/cases/*.json`) against this crate, which
+//! mirrors AcpmuxPaneMethods.swift. The Swift test that ran the same files was
+//! deleted with the CmuxNext unit suites (36f2381bf1a6).
 
 use cmux_agent_pane_policy::check::{
     Checked, FrameState, PaneScope, check_frame as full_check, closes_connection,
 };
-use cmux_agent_pane_policy::environment::{default_socket_path, resolve, tag_slug};
+use cmux_agent_pane_policy::environment::{default_socket_path, resolve, socket_path, tag_slug};
 use cmux_agent_pane_policy::gesture::{PermissionOptions, needs_gesture};
 use cmux_agent_pane_policy::params::{
     breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
@@ -115,7 +114,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 43, "check.json: the full order's 43 cases");
+    assert_eq!(all.as_array().unwrap().len(), 54, "check.json: the full order's 54 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -381,6 +380,15 @@ fn environment_tokens_and_sockets() {
             default_socket_path(Path::new(s[0].as_str().unwrap()), s[1].as_u64().unwrap() as u32);
         assert_eq!(got, s[2].as_str().unwrap(), "socket {}", s[0]);
     }
+    for s in group(&e, "configured_sockets") {
+        let configured = s[0].as_str().unwrap();
+        let got = socket_path(
+            Some(configured).filter(|c| !c.is_empty()),
+            Path::new(s[1].as_str().unwrap()),
+            s[2].as_u64().unwrap() as u32,
+        );
+        assert_eq!(got, s[3].as_str().unwrap(), "configured socket {configured}");
+    }
     for r in group(&e, "resolve") {
         let env: BTreeMap<String, String> = r["env"]
             .as_object()
@@ -394,8 +402,14 @@ fn environment_tokens_and_sockets() {
             .iter()
             .map(|p| PathBuf::from(p.as_str().unwrap()))
             .collect();
+        let build = r["bundle_id"].as_str().map(|bundle_id| {
+            cmux_agent_pane_policy::build_identity::BuildIdentity::new(
+                Some(bundle_id),
+                r["bundled_tag"].as_str(),
+            )
+        });
         let got = resolve(
-            r["tag"].as_str(),
+            build.as_ref(),
             r["bundled"].as_str().map(Path::new),
             &env,
             Path::new(r["user_home"].as_str().unwrap()),

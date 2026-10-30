@@ -118,14 +118,17 @@ mod unix {
         let mut directory = open_anchor(absolute)?;
         let mut trusted_symlinks = 0_usize;
         let mut final_component_created = false;
+        // The directory being checked, for an error that names it (cx-hgyq).
+        let mut walked = PathBuf::from(if absolute { "/" } else { "." });
         if !pending.is_empty() {
-            validate_ancestor(&directory, path, policy)?;
+            validate_ancestor(&directory, path, &walked, policy)?;
         }
 
         while let Some(component) = pending.pop_front() {
             match open_directory_at(directory.as_raw_fd(), &component) {
                 Ok(next) => {
-                    validate_ancestor(&next, path, policy)?;
+                    walked.push(&component);
+                    validate_ancestor(&next, path, &walked, policy)?;
                     directory = next;
                     final_component_created = false;
                 }
@@ -139,13 +142,18 @@ mod unix {
                                 "contains too many trusted system symlinks",
                             ));
                         }
-                        expand_trusted_symlink(
+                        let absolute_target = expand_trusted_symlink(
                             path,
                             &mut directory,
                             &mut pending,
                             &component,
                             status.expect("symlink status is present"),
                         )?;
+                        // The walk now follows the target: from the root for
+                        // an absolute one, else from the symlink's directory.
+                        if absolute_target {
+                            walked = PathBuf::from("/");
+                        }
                         continue;
                     }
                     if open_error.raw_os_error() != Some(libc::ENOENT) {
@@ -154,7 +162,8 @@ mod unix {
                     let created = create_directory_at(directory.as_raw_fd(), &component)?;
                     let next = open_directory_at(directory.as_raw_fd(), &component)
                         .map_err(|error| with_component_context(path, &component, error))?;
-                    validate_ancestor(&next, path, policy)?;
+                    walked.push(&component);
+                    validate_ancestor(&next, path, &walked, policy)?;
                     directory = next;
                     final_component_created = created;
                 }
@@ -280,7 +289,7 @@ mod unix {
         pending: &mut VecDeque<OsString>,
         component: &OsStr,
         status: libc::stat,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         let parent = directory.metadata()?;
         if status.st_uid != 0 || parent.uid() != 0 || parent.permissions().mode() & 0o022 != 0 {
             return Err(invalid_path(
@@ -300,7 +309,7 @@ mod unix {
         for component in components.into_iter().rev() {
             pending.push_front(component);
         }
-        Ok(())
+        Ok(absolute)
     }
 
     fn read_link_at(parent: RawFd, component: &OsStr) -> io::Result<OsString> {
@@ -335,6 +344,7 @@ mod unix {
     pub(super) fn validate_ancestor(
         directory: &File,
         path: &Path,
+        ancestor: &Path,
         policy: AncestorPolicy,
     ) -> io::Result<()> {
         if policy == AncestorPolicy::TrustSandbox {
@@ -350,12 +360,155 @@ mod unix {
             ));
         }
         if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+            // The user-private-group rule (OpenSSH's user-group-modes, as
+            // Debian and Ubuntu ship it): a directory of the effective user
+            // that only its own private group may write is the user's alone.
+            // Ubuntu's umask 0002 makes ~/.local 775 (cx-hgyq).
+            let why = if mode & 0o002 != 0 {
+                "it is writable by every user".to_owned()
+            } else if owner == 0 || owner != effective_uid() {
+                "it is owned by root and writable by its group".to_owned()
+            } else {
+                match private_group_problem(metadata.gid()) {
+                    None => return Ok(()),
+                    Some(problem) => problem,
+                }
+            };
             return Err(invalid_path(
                 path,
-                "has an ancestor writable by other users without sticky-directory protection",
+                &format!(
+                    "has an ancestor {} (mode {:04o}) writable by other users without sticky-directory protection: {why}",
+                    ancestor.display(),
+                    mode & 0o7777
+                ),
             ));
         }
         Ok(())
+    }
+
+    /// Why group `gid` is not the effective user's LOCAL private group, or
+    /// None when it is. Only the local files count, so a directory-service
+    /// group (LDAP, sssd, AD "Domain Users") never passes (cx-hgyq review):
+    /// /etc/passwd has the user's line with the same name and primary gid
+    /// the system reports, /etc/group names that gid after the user with no
+    /// member but the user, and no other /etc/passwd line has the gid. NIS
+    /// compat lines (`+`, `-`), an unparsable line, or a read error refuse.
+    fn private_group_problem(gid: u32) -> Option<String> {
+        let uid = effective_uid();
+        let Some((user, primary)) = passwd_name_and_gid(uid) else {
+            return Some("the effective user has no account entry".to_owned());
+        };
+        if gid != primary {
+            return Some(format!("its group {gid} is not your primary group {primary}"));
+        }
+        let (Ok(passwd), Ok(groups)) =
+            (std::fs::read_to_string("/etc/passwd"), std::fs::read_to_string("/etc/group"))
+        else {
+            return Some("/etc/passwd or /etc/group cannot be read".to_owned());
+        };
+        let passwd = match local_entries(&passwd, "/etc/passwd") {
+            Ok(entries) => entries,
+            Err(problem) => return Some(problem),
+        };
+        let groups = match local_entries(&groups, "/etc/group") {
+            Ok(entries) => entries,
+            Err(problem) => return Some(problem),
+        };
+        let mut own_line = false;
+        for fields in &passwd {
+            let (Some(name), Some(line_uid), Some(line_gid)) =
+                (fields.first(), fields.get(2), fields.get(3))
+            else {
+                return Some("/etc/passwd has a line without uid and gid fields".to_owned());
+            };
+            let (Ok(line_uid), Ok(line_gid)) = (line_uid.parse::<u32>(), line_gid.parse::<u32>())
+            else {
+                return Some("/etc/passwd has a line with an unparsable uid or gid".to_owned());
+            };
+            if line_uid == uid && *name == user && line_gid == gid {
+                own_line = true;
+            } else if line_gid == gid {
+                return Some(format!("another account has group {gid} as its primary group"));
+            }
+        }
+        if !own_line {
+            return Some(format!("{user} has no local /etc/passwd line with group {gid}"));
+        }
+        let mut own_group = false;
+        for fields in &groups {
+            let (Some(name), Some(line_gid)) = (fields.first(), fields.get(2)) else {
+                return Some("/etc/group has a line without a gid field".to_owned());
+            };
+            let Ok(line_gid) = line_gid.parse::<u32>() else {
+                return Some("/etc/group has a line with an unparsable gid".to_owned());
+            };
+            if line_gid != gid {
+                continue;
+            }
+            let members = fields.get(3).copied().unwrap_or_default();
+            if *name != user
+                || members.split(',').any(|member| !member.is_empty() && member != user)
+            {
+                return Some(format!("group {gid} is not {user}'s private group"));
+            }
+            own_group = true;
+        }
+        if !own_group {
+            return Some(format!("group {gid} has no local /etc/group line"));
+        }
+        None
+    }
+
+    /// The colon-separated fields of every entry line of a local account
+    /// file; Err for a NIS compat line (`+...`, `-...`), which would pull in
+    /// accounts this check cannot see.
+    fn local_entries<'a>(text: &'a str, file: &str) -> Result<Vec<Vec<&'a str>>, String> {
+        let mut entries = Vec::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if line.starts_with('+') || line.starts_with('-') {
+                return Err(format!("{file} has NIS compat entries"));
+            }
+            entries.push(line.split(':').collect());
+        }
+        Ok(entries)
+    }
+
+    /// The account name and primary gid that the system reports for `uid`
+    /// (`getpwuid_r`).
+    fn passwd_name_and_gid(uid: u32) -> Option<(String, u32)> {
+        let mut buffer = vec![0_u8; 16 * 1024];
+        let mut entry = MaybeUninit::<libc::passwd>::uninit();
+        let mut result: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: every pointer is valid for the call; the buffer outlives
+        // the reads of the entry's strings below.
+        let status = unsafe {
+            libc::getpwuid_r(
+                uid,
+                entry.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        if status != 0 || result.is_null() {
+            return None;
+        }
+        // SAFETY: getpwuid_r succeeded, so the entry is initialized and a
+        // non-NULL name is a NUL-terminated string inside `buffer`.
+        unsafe {
+            let entry = entry.assume_init();
+            if entry.pw_name.is_null() {
+                return None;
+            }
+            Some((
+                std::ffi::CStr::from_ptr(entry.pw_name).to_string_lossy().into_owned(),
+                entry.pw_gid,
+            ))
+        }
     }
 
     fn validate_final(

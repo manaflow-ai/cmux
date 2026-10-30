@@ -58,7 +58,9 @@ impl Mux {
         let tab_id = reservation.as_ref().and_then(|reservation| reservation.tab_id.clone());
         let reservation_env =
             reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
+        crate::debug_spans::mark("spawn.start");
         let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
+        crate::debug_spans::mark("spawn.options");
         #[cfg(test)]
         if let Some(hook) = self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap().clone() {
             let unlocked = match self.cell_pixel_lifecycle.try_lock() {
@@ -70,11 +72,11 @@ impl Mux {
             };
             hook(unlocked);
         }
-        #[cfg(all(test, unix))]
+        #[cfg(all(test, any(unix, windows)))]
         let use_host_runtime = !self.test_surface_runtime;
-        #[cfg(all(not(test), unix))]
+        #[cfg(all(not(test), any(unix, windows)))]
         let use_host_runtime = true;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let (Some(_), Some(workspace_key), true) =
             (opts.terminal_host_root.as_ref(), workspace_key, use_host_runtime)
         {
@@ -133,6 +135,7 @@ impl Mux {
                 }
                 replayed
             };
+            crate::debug_spans::mark("spawn.reserved");
             if reserve_replayed {
                 anyhow::bail!("terminal_create_replayed");
             }
@@ -148,11 +151,15 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (
-                        Some(terminal_id),
+                    crate::surface::HostLaunch {
+                        terminal_id: Some(terminal_id),
                         // Reopen Closed of an archived terminal (ARCHIVE-1).
-                        &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
-                    ),
+                        seed: &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
+                        // Its first record names the workspace, so the
+                        // recovery mirror below needs no second synced write.
+                        workspace_key,
+                        standby: None,
+                    },
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
@@ -169,10 +176,23 @@ impl Mux {
                     return Err(error);
                 }
             };
+            crate::debug_spans::mark("spawn.host_spawned");
             let _pending_host_release = PendingTerminalHostRelease(surface.clone());
-            let identity = surface
-                .terminal_host_identity()
-                .ok_or_else(|| anyhow::anyhow!("reserved terminal did not return host identity"))?;
+            // A Windows terminal whose host did not start runs in the daemon
+            // (`TerminalHostFallback::HostStartFailed`): it gets an
+            // incarnation here, as a terminal without hosts does.
+            let identity = match surface.terminal_host_identity() {
+                Some(identity) => identity,
+                None if surface.terminal_host_fallback()
+                    == Some(crate::surface::TerminalHostFallback::HostStartFailed) =>
+                {
+                    TerminalHostIdentity {
+                        terminal_id: terminal_hex.clone(),
+                        incarnation: TerminalId::random()?.to_hex(),
+                    }
+                }
+                None => anyhow::bail!("reserved terminal did not return host identity"),
+            };
             if identity.terminal_id != terminal_hex {
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,
@@ -202,6 +222,7 @@ impl Mux {
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
             }
+            crate::debug_spans::mark("spawn.ready_committed");
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
@@ -216,9 +237,10 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            crate::debug_spans::mark("spawn.cell_pixels_reconciled");
+            let insert_result = self.insert_created_terminal(surface.clone(), workspace_key);
             drop(cell_pixel_lifecycle);
+            crate::debug_spans::mark("spawn.inserted");
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,
@@ -230,6 +252,7 @@ impl Mux {
             }
             // Deprecated recovery mirror only; SQLite is placement authority.
             let _ = surface.persist_host_workspace(workspace_key);
+            crate::debug_spans::mark("spawn.host_workspace_persisted");
             return Ok(surface);
         }
         if let (Some(workspace_key), Some(reservation)) = (workspace_key, reservation.as_ref()) {
@@ -285,7 +308,7 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (None, &[]),
+                    crate::surface::HostLaunch::default(),
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
@@ -297,7 +320,7 @@ impl Mux {
                     id,
                     opts,
                     Arc::downgrade(self),
-                    (None, &[]),
+                    crate::surface::HostLaunch::default(),
                     Some(terminal_identity(tab_id)?),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
@@ -357,8 +380,7 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            let insert_result = self.insert_created_terminal(surface.clone(), workspace_key);
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(

@@ -1,6 +1,7 @@
 // Runs a variant's play steps in the stage frame and measures each one (play.ts has the rules).
 import {
   describeTarget,
+  isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
   overall,
@@ -17,14 +18,16 @@ import {
   type Shift,
   type StepReport,
 } from "../play";
+import { createMotionController } from "../motionEvidence";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
-type InputDriver = (action: {
-  kind: "click" | "hover" | "down" | "move" | "up" | "type" | "press";
+export type GalleryInputAction = {
+  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press";
   x?: number;
   y?: number;
   text?: string;
-}) => Promise<void>;
+};
+type InputDriver = (action: GalleryInputAction) => Promise<void>;
 
 /** What the matrix runner installs to take one still per settled step (a filmstrip). */
 type StepStill = (step: { index: number; step: string }) => Promise<void>;
@@ -44,16 +47,57 @@ const rectOf = (element: Element | null): Rect | null => {
 };
 
 /** The element's center in the top page's coordinates (through same-origin parent frames). */
-function pageCenter(element: Element): { x: number; y: number } {
-  const rect = element.getBoundingClientRect();
-  let x = rect.x + rect.width / 2;
-  let y = rect.y + rect.height / 2;
+function pagePoint(point: { x: number; y: number }): { x: number; y: number } {
+  let x = point.x;
+  let y = point.y;
   for (let frame: Window = window; frame !== frame.parent && frame.frameElement; frame = frame.parent) {
     const offset = frame.frameElement.getBoundingClientRect();
     x += offset.x;
     y += offset.y;
   }
   return { x, y };
+}
+
+function pageCenter(element: Element): { x: number; y: number } {
+  const rect = element.getBoundingClientRect();
+  return pagePoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+}
+
+type SelectionRect = Pick<DOMRect, "left" | "right" | "top" | "width" | "height">;
+type SelectionPoint = { x: number; y: number };
+
+/** The first and last line points a trusted mouse drag should cross for a text range. */
+export function selectionDragPoints(
+  rects: readonly SelectionRect[],
+): { start: SelectionPoint; end: SelectionPoint } | undefined {
+  const visible = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+  const first = visible[0];
+  const last = visible.at(-1);
+  if (!first || !last) return undefined;
+  const inset = (rect: SelectionRect) => Math.min(2, Math.max(0.5, rect.width / 2));
+  return {
+    start: { x: first.left + inset(first), y: first.top + first.height / 2 },
+    end: { x: last.right - inset(last), y: last.top + last.height / 2 },
+  };
+}
+
+/** Selects text with the matrix's trusted pointer driver, falling back to a DOM range in the shell. */
+export async function selectTextWithDriver(element: Element, driver?: InputDriver): Promise<void> {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const points = selectionDragPoints(Array.from(range.getClientRects()));
+  if (driver && points) {
+    const start = pagePoint(points.start);
+    const end = pagePoint(points.end);
+    await driver({ kind: "down", ...start });
+    await driver({ kind: "move", ...end });
+    await driver({ kind: "up", ...end });
+    return;
+  }
+  const selection = document.getSelection();
+  if (!selection) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -83,7 +127,8 @@ function synthetic(element: Element, kind: string): void {
     composed: true,
     clientX: x,
     clientY: y,
-    button: 0,
+    button: kind === "contextmenu" ? 2 : 0,
+    buttons: kind === "contextmenu" ? 2 : 0,
     pointerId: 1,
     pointerType: "mouse",
     isPrimary: true,
@@ -96,11 +141,97 @@ function synthetic(element: Element, kind: string): void {
   if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
   if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
   if (kind === "click") fire("click");
+  if (kind === "contextmenu") fire("contextmenu");
 }
 
-function syntheticKey(key: string): void {
+const TABBABLE_SELECTOR = [
+  "a[href]",
+  "area[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "iframe",
+  "object",
+  "embed",
+  "audio[controls]",
+  "video[controls]",
+  "summary",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function tabOrder(element: Element): number {
+  const value = element.getAttribute("tabindex");
+  if (value === null) return 0;
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) ? parsed : -1;
+}
+
+function composedParent(element: Element): Element | null {
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
+function hiddenByAncestor(element: Element): boolean {
+  for (let ancestor: Element | null = element; ancestor; ancestor = composedParent(ancestor)) {
+    if (ancestor.hasAttribute("hidden") || ancestor.hasAttribute("inert")) return true;
+    const style = ancestor.ownerDocument.defaultView?.getComputedStyle(ancestor);
+    if (style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse") return true;
+    if (ancestor.tagName === "DETAILS" && !ancestor.hasAttribute("open")) {
+      const summary = Array.from(ancestor.children).find((child) => child.tagName === "SUMMARY");
+      if (!summary?.contains(element)) return true;
+    }
+  }
+  return false;
+}
+
+function isTabbable(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || tabOrder(element) < 0) return false;
+  if (element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden") return false;
+  return !hiddenByAncestor(element);
+}
+
+function tabbableElements(): HTMLElement[] {
+  const elements: HTMLElement[] = [];
+  const visit = (root: Document | Element | ShadowRoot) => {
+    for (const child of Array.from(root.children)) {
+      if (isTabbable(child)) elements.push(child);
+      if (child.shadowRoot) visit(child.shadowRoot);
+      visit(child);
+    }
+  };
+  visit(document);
+  const normal = elements.filter((element) => tabOrder(element) === 0);
+  const positive = elements
+    .map((element, index) => ({ element, index }))
+    .filter(({ element }) => tabOrder(element) > 0)
+    .sort((a, b) => tabOrder(a.element) - tabOrder(b.element) || a.index - b.index)
+    .map(({ element }) => element);
+  return [...positive, ...normal];
+}
+
+function deepestActiveElement(): Element {
+  let target: Element = document.activeElement ?? document.body;
+  while (target instanceof HTMLElement && target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  return target;
+}
+
+function moveFocusForTab(backward: boolean): void {
+  const elements = tabbableElements();
+  if (!elements.length) return;
+  const current = deepestActiveElement();
+  const index = elements.indexOf(current as HTMLElement);
+  const next = index < 0 ? (backward ? elements.at(-1) : elements[0]) : elements[index + (backward ? -1 : 1)];
+  if (next && next !== current) next.focus({ preventScroll: true });
+}
+
+export function syntheticKey(key: string): void {
   const parts = key.split("+");
   const name = parts.pop()!;
+  // Playwright exposes the space key as " "; the gallery DSL spells it "Space".
+  const eventKey = name === "Space" ? " " : name;
   const modifiers = {
     metaKey: parts.includes("Meta"),
     ctrlKey: parts.includes("Control"),
@@ -108,25 +239,36 @@ function syntheticKey(key: string): void {
     shiftKey: parts.includes("Shift"),
   };
   // The focused element, inside open shadow roots too (a web component's focused row).
-  let target: Element = document.activeElement ?? document.body;
-  while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  const target = deepestActiveElement();
   const keydown = new KeyboardEvent("keydown", {
-    key: name,
+    key: eventKey,
     bubbles: true,
     cancelable: true,
     composed: true,
     ...modifiers,
   });
   target.dispatchEvent(keydown);
-  target.dispatchEvent(
-    new KeyboardEvent("keyup", { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),
+  // KeyboardEvent dispatch does not run the browser's default focus traversal. Reproduce Tab for
+  // the gallery shell, which has no trusted-input driver. The hosted matrix runner uses Playwright
+  // instead, so its native traversal remains authoritative.
+  if (!keydown.defaultPrevented && eventKey === "Tab") moveFocusForTab(modifiers.shiftKey);
+  deepestActiveElement().dispatchEvent(
+    new KeyboardEvent("keyup", { key: eventKey, bubbles: true, cancelable: true, composed: true, ...modifiers }),
   );
   // KeyboardEvent dispatch does not run the browser's default button activation.
   // Reproduce it for the shell runner so a native button behaves like the trusted
   // Playwright path used by the matrix runner.
-  if (!keydown.defaultPrevented && (name === "Enter" || name === " ") && target instanceof HTMLElement) {
+  if (!keydown.defaultPrevented && (eventKey === "Enter" || eventKey === " ") && target instanceof HTMLElement) {
     const role = target.getAttribute("role");
-    if (target instanceof HTMLButtonElement || role === "button") target.click();
+    if (
+      target instanceof HTMLButtonElement ||
+      role === "button" ||
+      (eventKey === " " &&
+        target instanceof HTMLInputElement &&
+        (target.type === "checkbox" || target.type === "radio")) ||
+      (eventKey === " " && (role === "checkbox" || role === "radio" || role === "switch"))
+    )
+      target.click();
   }
 }
 
@@ -147,6 +289,9 @@ function describeElement(element: Element): string {
  */
 function measurePopups(): PopupMeasure[] {
   const found = [...document.querySelectorAll(POPUP_SELECTOR)].filter((element) => {
+    // A closing popup fades out under data-ending-style (Base UI keeps it mounted for the fade); it
+    // is no longer the top layer, so what it fades over is not covering it (cx-xxga3).
+    if (element.closest("[data-ending-style]")) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
@@ -165,8 +310,14 @@ function measurePopups(): PopupMeasure[] {
       .filter(([, x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
       .map(([point, x, y]) => {
         const top = document.elementFromPoint(x, y);
-        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug.
-        const covered = !!top && !popup.contains(top) && !found.some((other) => other.contains(top));
+        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug. The
+        // popup's own positioner draws nothing over it: the point is in a rounded corner the popup
+        // does not paint (a 12 px radius leaves the 3 px inset outside it).
+        const covered =
+          !!top &&
+          !popup.contains(top) &&
+          top !== popup.closest(".ui-positioner") &&
+          !found.some((other) => other.contains(top));
         return covered ? { point, covered, by: describeElement(top!) } : { point, covered };
       });
     const clippedBy: string[] = [];
@@ -211,16 +362,33 @@ async function measured(
       for (const entry of list.getEntries() as (PerformanceEntry & {
         value: number;
         hadRecentInput: boolean;
-        sources?: { node?: Node }[];
-      })[])
+        sources?: {
+          node?: Node;
+          previousRect?: DOMRectReadOnly;
+          currentRect?: DOMRectReadOnly;
+        }[];
+      })[]) {
+        const sources = entry.sources ?? [];
+        // Chromium reports a layout-shift entry when a fractional layout position rounds to a
+        // different device pixel. It has no perceptible movement and is not a layout regression:
+        // ignore it only when every reported source moved by less than half a CSS pixel. Real
+        // shifts (including the composer's one-slot Send change) retain their normal CLS value.
+        if (isSubpixelLayoutShift(sources)) continue;
         shifts.push({
           value: entry.value,
-          sources: (entry.sources ?? []).map((source) =>
-            source.node instanceof Element
-              ? `${source.node.tagName.toLowerCase()}${source.node.className ? `.${String(source.node.className).split(" ")[0]}` : ""}`
-              : "#text",
-          ),
+          sources: sources.map((source) => {
+            const name =
+              source.node instanceof Element
+                ? `${source.node.tagName.toLowerCase()}${source.node.className ? `.${String(source.node.className).split(" ")[0]}` : ""}`
+                : "#text";
+            // How far it moved, so a red tells a nudge from a jump: its rect's change, x y w h.
+            const { previousRect: was, currentRect: now } = source;
+            if (!was || !now) return name;
+            const moved = [now.x - was.x, now.y - was.y, now.width - was.width, now.height - was.height];
+            return `${name} [${moved.map((delta) => Math.round(delta * 10) / 10).join(" ")}]`;
+          }),
         });
+      }
     });
     observer.observe({ type: "layout-shift", buffered: false });
     observers.push(observer);
@@ -295,6 +463,7 @@ export async function runPlay(
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
+  const motion = createMotionController();
   // Each step is recorded once it has settled; the matrix runner then takes that step's still.
   const record = async (step: StepReport) => {
     steps.push(step);
@@ -305,9 +474,13 @@ export async function runPlay(
     if (!element) throw new Error(`play: no element for ${describeTarget(target)}`);
     return element;
   };
-  const input = async (kind: "click" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
+  const input = async (kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
     const element = find(target);
-    const action: PlayAction = kind === "click" ? "click" : kind === "hover" ? "hover" : "press-drag";
+    const action: PlayAction =
+      kind === "click" ? "click" : kind === "contextmenu" ? "context-menu" : kind === "hover" ? "hover" : "press-drag";
+    // Trusted input lands at the target's on-screen point, so bring it into view first, as a person
+    // would, and before measuring, so the scroll is not counted as an anchor move or layout shift.
+    if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
@@ -327,8 +500,10 @@ export async function runPlay(
   };
   const ctx: PlayContext = {
     document,
+    motion,
     find,
     click: (target) => input("click", target),
+    contextMenu: (target) => input("contextmenu", target),
     hover: (target) => input("hover", target),
     focus: async (target) => {
       const element = find(target) as HTMLElement;
@@ -353,14 +528,9 @@ export async function runPlay(
     },
     selectText: async (target) => {
       const element = find(target);
-      await gesture(`select text in ${describeTarget(target)}`, "select", element, () => {
-        const selection = document.getSelection();
-        if (!selection) return;
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      });
+      await gesture(`select text in ${describeTarget(target)}`, "select", element, () =>
+        selectTextWithDriver(element, window.top?.cmuxGalleryInput),
+      );
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);
@@ -388,6 +558,12 @@ export async function runPlay(
     },
     waitFor: (condition, { capMs = 5000 } = {}) =>
       new Promise<void>((resolve, reject) => {
+        let frame = 0;
+        const stop = () => {
+          observer.disconnect();
+          cancelAnimationFrame(frame);
+          clearTimeout(cap);
+        };
         const check = () => {
           let held: unknown;
           try {
@@ -396,27 +572,35 @@ export async function runPlay(
             held = false;
           }
           if (!held) return false;
-          observer.disconnect();
-          clearTimeout(cap);
+          stop();
           resolve();
           return true;
+        };
+        // A condition can turn true with no DOM mutation (a posted message, focus, layout), so it is
+        // checked every frame too; the observer answers a DOM change right after it, in a microtask.
+        const poll = () => {
+          if (!check()) frame = requestAnimationFrame(poll);
         };
         const observer = new MutationObserver(() => void check());
         // The cap fails a wait that never comes true; it is not how the wait resolves.
         const cap = window.setTimeout(() => {
-          observer.disconnect();
+          stop();
           reject(new Error(`play: waitFor did not hold within ${capMs} ms`));
         }, capMs);
         observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-        document.addEventListener("animationend", check, { once: true });
-        document.addEventListener("transitionend", check, { once: true });
-        if (!check()) void nextFrame().then(check);
+        poll();
       }),
   };
   try {
     await play(ctx);
-    return { status: overall(steps), steps };
+    const evidence = motion.stop();
+    return { status: evidence?.status === "fail" ? "fail" : overall(steps), steps, motion: evidence };
   } catch (error) {
-    return { status: "fail", steps, error: error instanceof Error ? error.message : String(error) };
+    return {
+      status: "fail",
+      steps,
+      motion: motion.stop(),
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }

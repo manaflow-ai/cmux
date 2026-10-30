@@ -42,8 +42,9 @@ public nonisolated struct BookmarkDraft: Sendable, Hashable {
 public nonisolated enum BookmarkOperation: Sendable, Hashable {
     /// Insert `node` under `node.parent` at `index` (nil appends).
     case create(BookmarkNode, index: Int?)
+    /// `icon` (`bookmark-icon-v1`) is for folders only: set or clear it on a URL bookmark and the edit is refused.
     case update(id: String, title: String? = nil, url: URL? = nil, faviconKey: BookmarkFieldChange<String> = .unchanged,
-                lastUsed: BookmarkFieldChange<Date> = .unchanged)
+                lastUsed: BookmarkFieldChange<Date> = .unchanged, icon: BookmarkFieldChange<String> = .unchanged)
     /// `index` is the final position among the destination's children.
     case move(id: String, parent: String, index: Int)
     /// Removes the node and, for a folder, its subtree.

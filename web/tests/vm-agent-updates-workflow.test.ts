@@ -77,6 +77,7 @@ function harness(options: { vm?: CloudVmRow; exec?: () => Effect.Effect<{ exitCo
       execs.push(command);
       return options.exec?.() ?? Effect.succeed({ exitCode: 0, stdout: "", stderr: "" });
     },
+    getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
     supportsPrivateNetworking: () => true,
     ensureNetwork: () => Effect.succeed({ id: "network-1", slug: "cmux-agents", cidr: "10.0.0.0/24", cidrV6: "fd00::/64" }),
   } as unknown as VmProviderGatewayShape;
@@ -186,5 +187,21 @@ describe("agent updates workflows", () => {
     }).pipe(Effect.provide(h.layer)));
     expect(h.begun[0]?.agentUpdates).toBe("latest");
     expect(entry.agentUpdates).toBe("latest");
+  });
+
+  test("create hands its idle pause to the row's insert, and none leaves the default", async () => {
+    const create = (h: ReturnType<typeof harness>, idlePauseMinutes?: 0 | 30) => Effect.runPromise(createVm({
+      userId: "user-agents", billingCustomerType: "team", billingTeamId: "team-agents", billingPlanId: "pro",
+      maxActiveVms: 50, provider: "freestyle", image: "snapshot-test", ...(idlePauseMinutes === undefined ? {} : { idlePauseMinutes }),
+    }).pipe(Effect.provide(h.layer)));
+    const persistent = harness();
+    await create(persistent, 0);
+    expect(persistent.begun[0]?.idlePauseMinutes).toBe(0);
+    const thirty = harness();
+    await create(thirty, 30);
+    expect(thirty.begun[0]?.idlePauseMinutes).toBe(30);
+    const plain = harness();
+    await create(plain);
+    expect(plain.begun[0]?.idlePauseMinutes).toBeUndefined();
   });
 });

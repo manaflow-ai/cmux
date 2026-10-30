@@ -19,6 +19,11 @@ export function heldPrompts(reserve: (intent: Record<string, unknown>) => Promis
         () => undefined,
       );
     },
+    /// Holds a prompt the host already gave a ticket (a prompt a person's action seeded, which
+    /// goes out by itself: the handshake's `promptTicket`, cx-k21v gap 4).
+    keep(ticketed: Required<HeldPrompt>): void {
+      held = ticketed;
+    },
     /// The held prompt's id and ticket, once; undefined when nothing is held.
     take(): HeldPrompt | undefined {
       const taken = held;

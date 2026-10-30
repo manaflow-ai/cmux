@@ -13,20 +13,37 @@ fn a_new_generation_replaces_the_exit_snapshot_and_the_same_generation_does_not(
     append_terminal_output_for_test(&mut registry, &terminal_id, INCARNATION_ONE, &[output]);
     let first = vt_replay_blob_for_test(&terminal_id, 100, 30, b"first loss");
     assert!(
-        registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &first).unwrap()
+        registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                output.len() as u64,
+                &first
+            )
+            .unwrap()
     );
 
     append_terminal_output_for_test(&mut registry, &terminal_id, INCARNATION_TWO, &[output]);
     let second = vt_replay_blob_for_test(&terminal_id, 90, 20, b"second loss");
     assert!(
         registry
-            .put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_TWO, &second)
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_TWO,
+                output.len() as u64,
+                &second
+            )
             .unwrap()
     );
     let replayed = vt_replay_blob_for_test(&terminal_id, 80, 24, b"replayed");
     assert!(
         !registry
-            .put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_TWO, &replayed)
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_TWO,
+                output.len() as u64,
+                &replayed
+            )
             .unwrap()
     );
 

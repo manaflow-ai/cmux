@@ -53,6 +53,8 @@ final class LineTransport: Sendable {
         var order: [UInt64] = []
         var closed: TransportCloseReason?
         var sawShutdown = false
+        /// The daemon refused this connection at its connection limit (`server.busy`).
+        var sawBusyRefusal = false
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
@@ -146,12 +148,6 @@ final class LineTransport: Sendable {
         return fd
     }
 
-    /// The bridge child's pid (tests).
-    var bridgePIDForTesting: pid_t? { child?.pid }
-
-    /// The socket descriptor (tests: close-on-exec).
-    var descriptorForTesting: Int32 { socket.withLock { $0.fd } }
-
     deinit {
         writer.close()
         socket.withLock { socket in
@@ -183,12 +179,34 @@ final class LineTransport: Sendable {
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A traced new terminal: the request naming its id, and that request's reply.
+        var traced: String?
+        let submitted: Result<UInt64, any Error>
+        if NewTerminalTrace.shared.isArmed {
+            submitted = submit(.reply(cmd: cmd, slot), { id in
+                let line = try body(id)
+                traced = NewTerminalTrace.shared.requestSent(line)
+                return line
+            })
+        } else {
+            submitted = submit(.reply(cmd: cmd, slot), body)
+        }
+        #else
+        let submitted = submit(.reply(cmd: cmd, slot), body)
+        #endif
         // A failed submit resolved the slot already.
-        guard case .success(let id) = submit(.reply(cmd: cmd, slot), body) else { return try await slot.value() }
+        guard case .success(let id) = submitted else { return try await slot.value() }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let response = try await slot.value()
+        if let traced { NewTerminalTrace.shared.mark(.reply, terminal: traced) }
+        return response
+        #else
         return try await slot.value()
+        #endif
     }
 
     /// Fails a still-pending request with `timedOut`.
@@ -244,7 +262,14 @@ final class LineTransport: Sendable {
             submittedID = id
             var line = payload
             line.append(0x0A)
-            writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
+            if socket.fd < 0 {
+                writeFailure = "socket closed"
+            } else if let failure = writer.write(line) {
+                // A refused connection is closed right after its one line: a write can fail
+                // (broken pipe) before the reader routes that line. Keep it a busy refusal.
+                let refused = state.withLock { $0.sawBusyRefusal } || Self.hasPendingBusyRefusal(fd: socket.fd)
+                writeFailure = refused ? Self.busyRefusal : failure.description
+            }
             return nil
         }
         if let early {
@@ -266,6 +291,28 @@ final class LineTransport: Sendable {
         }
         child?.terminate()
     }
+
+    /// The close detail of a connection the daemon refused at its connection limit
+    /// (`{"type":"refused","code":"server.busy"}`, then EOF): the daemon is alive and busy.
+    static let busyRefusal = "refused: the session is at its connection limit (server.busy)"
+
+    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`).
+    private struct Refusal: Decodable { var code: String? }
+
+    /// The daemon's busy refusal line is waiting unread at the front of `fd`'s receive buffer
+    /// (`MSG_PEEK`, never blocks): the connection was refused, not broken.
+    static func hasPendingBusyRefusal(fd: Int32) -> Bool {
+        var buffer = [UInt8](repeating: 0, count: 512)
+        let count = buffer.withUnsafeMutableBytes { recv(fd, $0.baseAddress, $0.count, MSG_PEEK | MSG_DONTWAIT) }
+        guard count > 0 else { return false }
+        let head = buffer.prefix(count)
+        guard let line = head.split(separator: 0x0A, maxSplits: 1, omittingEmptySubsequences: false).first,
+              (try? JSONDecoder().decode(RefusalLine.self, from: Data(line))) == RefusalLine(type: "refused", code: "server.busy")
+        else { return false }
+        return true
+    }
+
+    private struct RefusalLine: Decodable, Equatable { var type: String?; var code: String? }
 
     // MARK: - Private
 
@@ -316,7 +363,8 @@ final class LineTransport: Sendable {
         }
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
-            return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
+            if state.sawShutdown { return .daemonShutdown }
+            return .lost(state.sawBusyRefusal ? Self.busyRefusal : closeDetail)
         }
         failAll(reason)
         writer.close()
@@ -349,6 +397,11 @@ final class LineTransport: Sendable {
                 return state.eventCount
             }
             onEvent(name, line, index)
+            return
+        }
+        if envelope.type == "refused" {
+            // The one line of a connection refused at the limit, then EOF: no request ran.
+            if (try? decoder.decode(Refusal.self, from: line))?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
             return
         }
         guard envelope.ok != nil || envelope.id != nil else { return }

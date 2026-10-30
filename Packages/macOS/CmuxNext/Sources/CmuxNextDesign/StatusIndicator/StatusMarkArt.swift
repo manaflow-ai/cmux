@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+public import CmuxNextDesignTokens
 
 /// Draws a `StatusMark` as an alpha mask (opaque where the mark is), the one
 /// drawing the live indicator layer and the image export both use. Vector
@@ -45,6 +46,10 @@ enum StatusMarkArt {
             context.setBlendMode(.normal)
         case .symbol(let name):
             drawSymbol(name, in: context, rect: rect)
+        case .vector(let glyph):
+            // Filled even-odd; the 1x pixel art's edges fall on whole pixels, so it draws with no soft edge.
+            context.addPath(glyph.path(in: rect))
+            context.fillPath(using: .evenOdd)
         }
     }
 
@@ -232,10 +237,42 @@ enum StatusMarkArt {
         let configuration = NSImage.SymbolConfiguration(pointSize: rect.height * 0.8, weight: .semibold)
         guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
         let fit = min(rect.width / image.size.width, rect.height / image.size.height)
-        let size = CGSize(width: image.size.width * fit, height: image.size.height * fit)
-        let target = CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height)
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        // Whole pixels (both callers draw a mask in pixels), rendered at that size and drawn 1:1.
+        // Without a proposed size the symbol rendered at the screen's scale and was resampled into
+        // the mask, which read soft (Leo 2026-10-13).
+        let size = CGSize(width: (image.size.width * fit).rounded(), height: (image.size.height * fit).rounded())
+        var proposed = CGRect(origin: .zero, size: size)
+        guard let cg = image.cgImage(forProposedRect: &proposed, context: nil, hints: [.ctm: NSAffineTransform()]) else { return }
+        // The ink, not the symbol's box, is centered vertically: a symbol's box carries baseline
+        // room that left the check a quarter point low. Across, the box keeps the symbol's own side
+        // bearings. Whole-pixel offsets keep it crisp.
+        let pixels = inkBounds(cg) ?? CGRect(x: 0, y: 0, width: cg.width, height: cg.height)
+        let ink = pixels.applying(CGAffineTransform(scaleX: size.width / CGFloat(max(1, cg.width)), y: size.height / CGFloat(max(1, cg.height))))
+        let target = CGRect(x: (rect.midX - size.width / 2).rounded(), y: (rect.midY - ink.midY).rounded(),
+                            width: size.width, height: size.height)
         // The template's alpha is the mark.
         context.draw(cg, in: target)
+    }
+
+    /// The box of `image`'s pixels more than half covered, bottom-left origin (CG drawing space).
+    private static func inkBounds(_ image: CGImage) -> CGRect? {
+        let width = image.width, height = image.height
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
+            else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var minX = width, minRow = height, maxX = -1, maxRow = -1
+        for (index, value) in alpha.enumerated() where value > 127 {
+            let x = index % width, row = index / width
+            minX = min(minX, x); maxX = max(maxX, x); minRow = min(minRow, row); maxRow = max(maxRow, row)
+        }
+        guard maxX >= 0 else { return nil }
+        // Buffer rows run top to bottom.
+        return CGRect(x: minX, y: height - 1 - maxRow, width: maxX - minX + 1, height: maxRow - minRow + 1)
     }
 }

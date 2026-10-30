@@ -30,14 +30,40 @@ extension AgentPaneTransport {
             case .decide(let facts, let box):
                 batch.next = .decide(facts, box)
                 return batch
+            case .status(_, let relayID, let path):
+                guard socket.statusRead.begin() else {
+                    // A refresh may overlap the initial read. Refuse just this request through
+                    // the bounded inbound path; never open another connection or close the pane.
+                    socket.receiveLocalReply(Self.statusError(relayID: relayID))
+                    batch.outcomes.append(.sent)
+                    continue
+                }
+                // task-owner: one read per socket, ending within two seconds; its slot is released
+                // on every exit. A closed socket drops the result through the normal inbound path.
+                Task.detached(priority: .utility) {
+                    defer { socket.statusRead.end() }
+                    let result = try? await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status",
+                                                                   deadline: .seconds(2))
+                    let reply = result.flatMap {
+                        AcpmuxRequestIds.encode(["jsonrpc": "2.0", "id": relayID, "result": $0])
+                    } ?? Self.statusError(relayID: relayID)
+                    // The regular inbound path bounds queued bytes/frames, resolves the relay id,
+                    // and applies the status reply shape before anything reaches the page.
+                    socket.receiveLocalReply(reply)
+                }
+                batch.outcomes.append(.sent)
             }
         }
         return batch
     }
 
+    nonisolated private static func statusError(relayID: Int) -> String {
+        "{\"jsonrpc\":\"2.0\",\"id\":\(relayID),\"error\":{\"code\":-32000,\"message\":\"status unavailable\"}}"
+    }
+
     /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
     /// any, is to be spent), or the checked frame and its facts. No socket and no request ids, so the
-    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, AgentPanePolicyParityTests).
+    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, tests/cases/check.json).
     nonisolated enum Checked: Sendable {
         case refuse(AcpmuxPaneMethods.Decision, spend: String?)
         case frame(Facts, FrameBox)
@@ -58,13 +84,25 @@ extension AgentPaneTransport {
         let pageID = facts.pageID
         guard facts.free else { return .decide(facts, box) }
         // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
+        // A start or open is counted before it goes, or refused while a Sandboxed send runs.
+        guard socket.sendingPageFrame(method: method) else {
+            return .refuse(.refuse(.methodRefused, method: method, requestID: pageID), spend: nil)
+        }
         var relayID: Int?
         if let pageID {
-            guard let next = ids.begin(pageID: pageID, method: method ?? "") else { return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil) }
+            guard let next = ids.begin(pageID: pageID, method: method ?? "") else {
+                socket.pageFrameNotSent(method: method)
+                return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil)
+            }
             relayID = next
+        }
+        if method == "_acpmux/status", let pageID, let relayID, let path = snapshot.socketPath,
+           !snapshot.remoteWire {
+            return .status(pageID: pageID, relayID: relayID, path: path)
         }
         if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
         let error = sendNow(box, relayID: relayID, socket: socket)
+        if error != nil { socket.pageFrameNotSent(method: method) }
         if error != nil, let relayID { ids.cancel(relayID) }
         if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
         return .sent(error)
@@ -115,6 +153,7 @@ extension AgentPaneTransport {
                 facts.handoffId = params["handoffId"] as? String
             }
             facts.harnessEnable = method == "_acpmux/harness_enable"
+            facts.startsLocalSession = method == "session/new" && !snapshot.remoteWire
         }
         if let requested = AcpmuxPaneMethods.requestedSetting(frame) {
             let value = requested.value ?? configValueText(frame)
@@ -159,7 +198,9 @@ extension AgentPaneTransport {
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.
-    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket) -> Step {
+    /// `detail`: acpmux's own reason, for the page to show; `reason`: why, as a code the page words.
+    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil,
+                                   reason: String? = nil) -> Step {
         guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
@@ -168,7 +209,7 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail, reason: reason))
         }
         return .refused(error)
     }
@@ -198,7 +239,15 @@ extension AgentPaneTransport {
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
         else { return nil }
         let session = named as? String
-        guard let session, sessions.contains(session) else {
+        // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
+        let params = object["params"] as? [String: Any]
+        let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
+            .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
+        // Ones that may name a session (an accepted offer's child): none is fine, a named one
+        // (even `null`) must be the pane's.
+        let optionalHeld = AcpmuxPaneMethods.optionalScopedSessionParams[method, default: []]
+            .allSatisfy { params?[$0] == nil || (params?[$0] as? String).map(sessions.contains) == true }
+        guard let session, sessions.contains(session), othersHeld, optionalHeld else {
             return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         }
         return nil

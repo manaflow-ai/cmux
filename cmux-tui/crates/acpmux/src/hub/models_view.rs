@@ -19,6 +19,7 @@
 use super::*;
 use crate::catalog::{Catalog, CatalogHarness, CatalogService, HarnessModel};
 use crate::config::HarnessKind;
+use cmux_json::JsonSet as _;
 use std::sync::PoisonError;
 
 /// The curated catalog entry for a profile (by its name, else its family).
@@ -60,7 +61,7 @@ fn curated_json(model: &HarnessModel, catalog: &Catalog) -> Value {
             }
         }
     }
-    v["curated"] = json!(true);
+    v.set("curated", json!(true));
     v
 }
 
@@ -145,6 +146,38 @@ fn offered(
     out
 }
 
+/// Preserve the harness's own picker order independently of the catalog's metadata order.
+/// An alias maps to the release row in `models`; repeated ids never add a second menu row.
+fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String> {
+    let mut top = Vec::new();
+    for (id, _) in reported {
+        if id == "default" {
+            continue;
+        }
+        let model = models.iter().find(|model| {
+            model["id"] == id.as_str()
+                || model["aliases"]
+                    .as_array()
+                    .is_some_and(|aliases| aliases.iter().any(|alias| alias == id.as_str()))
+        });
+        if let Some(id) = model.and_then(|model| model["id"].as_str())
+            && !top.iter().any(|known| known == id)
+        {
+            top.push(id.to_owned());
+        }
+    }
+    top
+}
+
+/// Whether pickers leave out the profile `name` (`pickerHidden` on its `_acpmux/models` and
+/// `_acpmux/harnesses` rows): the discovered `cmux` profile, Claude Code on the cmux model
+/// router, is Claude's automatic fallback, not an agent to pick. It showed as a "Cmux" harness
+/// above Claude Code (user, 2026-10-28). The row stays, so a chat that failed over to it keeps
+/// its name, icon and models. A `cmux` profile the person wrote in their config is pickable.
+pub(super) fn picker_hidden(cfg: &crate::config::Config, name: &str) -> bool {
+    name == crate::config::CMUX_ROUTER_PROFILE && cfg.discovered.contains(name)
+}
+
 /// The harness-level catalog fields a picker shows.
 fn harness_catalog_json(curated: &CatalogHarness) -> Value {
     let mut v = json!({"id": curated.id, "name": curated.name, "brand": curated.brand, "families": curated.families, "modelSource": curated.model_source});
@@ -193,12 +226,24 @@ impl Hub {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
             super::model_availability::mark_unavailable(&mut models, name, &refused);
+            let top =
+                if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
+                    Some(picker_models(&reported, &models))
+                } else {
+                    None
+                };
             let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
+            if let Some(top) = top {
+                entry.set("topModels", json!(top));
+            }
             if let Some(reason) = probe_errors.get(name) {
-                entry["probeError"] = json!(reason);
+                entry.set("probeError", json!(reason));
+            }
+            if picker_hidden(&cfg, name) {
+                entry.set("pickerHidden", json!(true));
             }
             if let Some(curated) = &curated {
-                entry["catalog"] = harness_catalog_json(curated);
+                entry.set("catalog", harness_catalog_json(curated));
             }
             out.push(entry);
         }
@@ -221,149 +266,101 @@ impl Hub {
                     .map(|(name, _)| name)
                     .collect();
                 let mut v = harness_catalog_json(h);
-                v["profiles"] = json!(profiles);
+                v.set("profiles", json!(profiles));
                 v
             })
             .collect();
         let mut summary = self.catalog.summary();
-        summary["harnesses"] = json!(list);
+        summary.set("harnesses", json!(list));
         summary
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod picker_models_tests {
     use super::*;
-    use crate::catalog::schema::parse;
-
-    fn catalog() -> Catalog {
-        let body = br#"{"schemaVersion":1,"generatedAt":"2026-10-07T00:00:00.000Z","source":"live","harnesses":[
-            {"id":"codex","name":"Codex","brand":"openai","families":["codex"],"modelSource":"catalog","models":[
-              {"id":"gpt-new","ref":"openai/gpt-new","name":"GPT New","shortName":"New","provider":"openai","fast":true},
-              {"id":"gpt-old","ref":"openai/gpt-old","name":"GPT Old","shortName":"Old","provider":"openai"}]},
-            {"id":"opencode","name":"OpenCode","brand":"opencode","families":["opencode"],"modelSource":"probe","models":[]}],
-          "models":{"openai/gpt-new":{"name":"GPT New","contextWindow":400000},"anthropic/claude-x":{"name":"Claude X","contextWindow":200000}},
-          "providers":{"openai":{"name":"OpenAI"}}}"#;
-        parse(body).unwrap_or_else(|e| panic!("{e}"))
-    }
-
-    fn ids(models: &[Value]) -> Vec<&str> {
-        models.iter().filter_map(|m| m["id"].as_str()).collect()
-    }
+    use std::collections::BTreeMap;
 
     #[test]
-    fn an_acp_harness_offers_the_curated_models_it_reported_then_its_own() {
-        let c = catalog();
-        let reported = vec![
-            ("gpt-old".to_owned(), "gpt old".to_owned()),
-            ("mine".to_owned(), "Mine".to_owned()),
+    fn harness_picker_order_survives_catalog_order_and_aliases() {
+        let models = vec![
+            json!({"id": "release-b", "aliases": ["b"]}),
+            json!({"id": "release-a", "aliases": ["a"]}),
+            json!({"id": "older"}),
         ];
-        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &reported, false);
-        assert_eq!(ids(&out), ["gpt-old", "mine"]);
-        assert_eq!(out[0]["name"], "GPT Old");
-        assert_eq!(out[0]["curated"], true);
-        assert_eq!(out[1]["curated"], false);
-        // Before the probe answers, the curated list is the whole list, with its metadata.
-        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[], false);
-        assert_eq!(ids(&out), ["gpt-new", "gpt-old"]);
-        assert_eq!(out[0]["contextWindow"], 400000);
+        let reported = [("default", "Default"), ("a", "A"), ("b", "B"), ("a", "A")]
+            .map(|(id, name)| (id.to_owned(), name.to_owned()));
+        assert_eq!(picker_models(&reported, &models), vec!["release-a", "release-b"]);
     }
 
     #[test]
-    fn a_probe_entry_shows_every_reported_model_with_catalog_metadata() {
-        let c = catalog();
-        let reported = vec![
-            ("anthropic/claude-x".to_owned(), "claude x".to_owned()),
-            ("local/llama".to_owned(), "Llama".to_owned()),
-        ];
-        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[1]), &c, &reported, false);
-        assert_eq!(ids(&out), ["anthropic/claude-x", "local/llama"]);
-        assert_eq!(out[0]["contextWindow"], 200000);
-        assert_eq!(out[0]["name"], "claude x");
+    fn a_new_harness_model_needs_no_cmux_top_list_update() {
+        let models = vec![json!({"id": "new-family"}), json!({"id": "existing"})];
+        let reported = [("existing", "Existing"), ("new-family", "New")]
+            .map(|(id, name)| (id.to_owned(), name.to_owned()));
+        assert_eq!(picker_models(&reported, &models), vec!["existing", "new-family"]);
     }
 
-    #[test]
-    fn claude_code_lists_default_then_the_curated_models() {
-        let c = catalog();
-        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &[], false);
-        assert_eq!(ids(&out), ["default", "gpt-new", "gpt-old"]);
-        assert_eq!(out[1]["fast"], true);
-        // No catalog entry: the built-in list.
+    /// A hub with Claude Code and the `cmux` router profile, discovered or user-written.
+    fn router_hub(discovered: bool) -> std::sync::Arc<Hub> {
+        use crate::config::{Config, StoreMode};
+        let mut found = BTreeMap::new();
+        crate::config::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
+        let claude = HarnessProfile {
+            env: BTreeMap::new(),
+            description: None,
+            models: vec![],
+            model: None,
+            ..found["cmux"].clone()
+        };
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("claude".into(), claude);
+        if discovered {
+            cfg.join_discovered(found);
+        } else {
+            cfg.harnesses.insert("cmux".into(), found["cmux"].clone());
+        }
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    fn models_row(reply: &Value, name: &str) -> Value {
+        reply["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["harness"] == name)
+            .cloned()
+            .unwrap()
+    }
+
+    /// The discovered `cmux` profile is Claude's automatic fallback to the cmux model router,
+    /// not an agent a person picks: pickers showed it as a "Cmux" harness above Claude Code
+    /// (user, 2026-10-28). Both replies keep its row (a chat that failed over to it still needs
+    /// its name, icon and models) and mark it `pickerHidden`.
+    #[tokio::test]
+    async fn the_discovered_cmux_router_fallback_is_hidden_from_pickers() {
+        let hub = router_hub(true);
         assert_eq!(
-            offered(&HarnessKind::ClaudeStdio, None, &c, &[], false).len(),
-            crate::claude_stdio::models().len()
+            hub.config.read().await.harnesses["claude"].fallback.as_deref(),
+            Some("cmux"),
+            "the router stays Claude's fallback"
         );
+        let models = hub.models_catalog().await;
+        assert_eq!(models_row(&models, "cmux")["pickerHidden"], json!(true));
+        assert!(models_row(&models, "cmux")["models"].as_array().is_some_and(|m| !m.is_empty()));
+        assert_eq!(models_row(&models, "claude").get("pickerHidden"), None);
+        let view = hub.harnesses_view().await;
+        assert_eq!(view["harnesses"]["cmux"]["pickerHidden"], json!(true));
+        assert_eq!(view["harnesses"]["claude"].get("pickerHidden"), None);
     }
 
-    fn live(
-        id: &str,
-        efforts: &[&str],
-        fast: Option<bool>,
-        is_default: bool,
-    ) -> crate::live_models::LiveModel {
-        crate::live_models::LiveModel {
-            id: id.into(),
-            name: id.into(),
-            efforts: efforts.iter().map(|e| (*e).to_owned()).collect(),
-            default_effort: None,
-            fast,
-            is_default,
-        }
-    }
-
-    #[test]
-    fn a_live_claude_list_replaces_the_static_list_and_picks_curated_models() {
-        let c = catalog();
-        // The CLI names gpt-new and a model the catalog does not have yet.
-        let reported = vec![
-            ("gpt-new".to_owned(), "gpt new".to_owned()),
-            ("brand-new".to_owned(), "Brand New".to_owned()),
-        ];
-        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &reported, true);
-        assert_eq!(ids(&out), ["default", "gpt-new", "brand-new"]);
-        assert_eq!(out[1]["curated"], true);
-        // Without a catalog entry the live list stands alone, after "default".
-        let out = offered(&HarnessKind::ClaudeStdio, None, &c, &reported, true);
-        assert_eq!(ids(&out), ["default", "gpt-new", "brand-new"]);
-    }
-
-    #[test]
-    fn live_fields_win_and_the_cli_default_moves_first() {
-        let c = catalog();
-        let mut models = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[], false);
-        let listed = [
-            live("gpt-new", &["low", "high"], Some(false), false),
-            live("gpt-old", &[], None, true),
-        ];
-        crate::live_models::overlay(&mut models, &listed);
-        assert_eq!(ids(&models), ["gpt-old", "gpt-new"]);
-        let new = &models[1];
-        assert_eq!(new["efforts"], json!(["low", "high"]));
-        assert_eq!(new["fast"], false, "the CLI knows the version it runs");
-        assert_eq!(new["contextWindow"], 400000, "curated metadata stays");
-    }
-
-    #[test]
-    fn a_live_alias_fills_the_curated_model_it_names() {
-        let mut models = vec![
-            json!({"id": "default", "name": "Default"}),
-            json!({"id": "claude-opus-5-5", "name": "Opus 5.5", "aliases": ["opus"]}),
-        ];
-        crate::live_models::overlay(&mut models, &[live("opus", &["max"], Some(true), true)]);
-        assert_eq!(models[1]["efforts"], json!(["max"]));
-        assert_eq!(models[1]["fast"], true);
-        assert_eq!(models[0]["id"], "default", "Claude Code's own default stays first");
-    }
-
-    #[test]
-    fn a_declared_model_keeps_its_fields_and_gains_curated_ones() {
-        let c = catalog();
-        let mut models = vec![json!({"id": "gpt-new", "name": "Mine", "declared": true})];
-        for entry in offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[], false) {
-            push_or_fill(&mut models, entry);
-        }
-        assert_eq!(models.len(), 2);
-        assert_eq!(models[0]["name"], "Mine");
-        assert_eq!(models[0]["fast"], true);
+    /// A `cmux` profile the person wrote in their config is theirs to pick.
+    #[tokio::test]
+    async fn a_user_written_cmux_profile_stays_in_pickers() {
+        let hub = router_hub(false);
+        assert_eq!(models_row(&hub.models_catalog().await, "cmux").get("pickerHidden"), None);
+        assert_eq!(hub.harnesses_view().await["harnesses"]["cmux"].get("pickerHidden"), None);
     }
 }

@@ -26,15 +26,3 @@ public final class UserDefaultsFrecencyPersistence: FrecencyPersisting {
         defaults.set(data, forKey: key)
     }
 }
-
-/// History that lives only in memory (tests, demos).
-public final class InMemoryFrecencyPersistence: FrecencyPersisting {
-    public private(set) var stored: FrecencyStore?
-
-    public init(_ store: FrecencyStore? = nil) {
-        stored = store
-    }
-
-    public func load() -> FrecencyStore? { stored }
-    public func save(_ store: FrecencyStore) { stored = store }
-}

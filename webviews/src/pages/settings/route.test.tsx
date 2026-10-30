@@ -44,6 +44,12 @@ test("the route comes from the fragment alone, never the page's query string", a
     removeEventListener() {},
   } as unknown as Window;
   const history = createFragmentHistory(fake);
-  expect(parseLocation(history.location.href)).toEqual({ section: "general", focus: "app.quitBehavior" });
+  expect(parseLocation(history.location.href)).toEqual({
+    section: "general",
+    focus: "app.quitBehavior",
+    workspace: null,
+    query: "",
+    changedOnly: false,
+  });
   expect(history.createHref("/settings/browser")).toBe("/frame.html?entry=pages.settings&variant=x#/settings/browser");
 });

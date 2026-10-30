@@ -17,7 +17,7 @@ enum AccountsHandlers {
             let provider = try provider(invocation)
             guard provider.reauthPlan != .none else { throw ActionFailure(message: AccountsAppStrings.nothingToSignIn) }
             guard services.windows.active?.focusedPane != nil else { throw ActionFailure(message: AccountsAppStrings.noWindow) }
-            services.accounts.model.reauthenticate(provider)
+            registry.track(Task { @MainActor [model = services.accounts.model] in await model.performReauthenticate(provider).map { ActionWorkFailure($0) } })
         })
         registry.bind("accounts.connect", run: { invocation in
             let provider = try provider(invocation)
@@ -26,7 +26,7 @@ enum AccountsHandlers {
             registry.track(Task { @MainActor in
                 // Fresh detection first: the CLI may run before the screen ever opened.
                 model.refresh()
-                for await busy in Observations({ model.isRefreshing }) where !busy { break }
+                await model.settle()
                 if model.row(provider).connectNeedsPaste {
                     try? services.settingsWindow.show(section: .accounts)
                     model.pasteTarget = provider

@@ -10,6 +10,7 @@ use crate::protocol::{DriverError, DriverEvent};
 use crate::provider::LeaseState;
 use crate::provider_link::ProviderDriver;
 use crate::tab_source::{TabCall, TabRow, TabSource};
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 use std::sync::{Arc, PoisonError};
 
@@ -18,7 +19,7 @@ const PAGE_ALIAS: &str = "cmux-page";
 
 /// One CEF tab's CDP driver on its relay.
 pub struct CefTab {
-    driver: CdpDriver,
+    pub(crate) driver: CdpDriver,
     /// The page's CDP target id (the driver's tab id).
     cdp_id: String,
 }
@@ -139,6 +140,10 @@ impl ProviderDriver {
             return Err(DriverError::closed(format!("tab {target_id} went away while attaching")));
         }
         tabs.insert(target_id.to_owned(), tab.clone());
+        // Under the cef_tabs lock (then the table's, as tab_engine above), so a
+        // concurrent re-announce (provider reader) cannot be overwritten by an older scale.
+        tab.driver.set_input_scale(self.tab_input_scale(target_id));
+        tab.driver.set_touch_emulation(self.tab_touch(target_id));
         drop(tabs);
         tab.driver.set_request_filter(self.tab_filter(target_id));
         Ok(tab)
@@ -166,10 +171,45 @@ impl ProviderDriver {
     ) -> Result<Value, DriverError> {
         let tab = self.cef_tab(target_id, agent_source)?;
         let mut params = params.clone();
-        params["targetId"] = Value::String(tab.cdp_id.clone());
+        params.set("targetId", Value::String(tab.cdp_id.clone()));
         let mut result = tab.driver.call(method, &params)?;
         rename_target(&mut result, &tab.cdp_id, target_id);
         Ok(result)
+    }
+}
+
+impl ProviderDriver {
+    /// The undo of a clear on an app CEF tab: the host kept the backup
+    /// (`host:` id) and it names the tab's CDP target, so the restore runs
+    /// on that tab's relay, in that tab's profile and nowhere else. None
+    /// when the id is no relayed tab's backup.
+    fn restore_relayed(&self, params: &Value) -> Option<Result<Value, DriverError>> {
+        let id = params.get("restoreId").and_then(Value::as_str)?;
+        if !id.starts_with(crate::cookie_backups::RESTORE_PREFIX) {
+            return None;
+        }
+        // A restored, purged or expired backup: the same answer a tab's
+        // driver gives (`invalid`), not "needs a targetId".
+        let record = match crate::cookie_backups::shared().and_then(|b| b.load(id)) {
+            Ok(record) => record,
+            Err(message) => {
+                return Some(Err(DriverError::invalid(format!("cookies.restore: {message}"))));
+            }
+        };
+        let target = record["relayTarget"].as_str()?.to_owned();
+        let tab = self
+            .cef_tabs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .find(|tab| tab.cdp_id == target)
+            .cloned();
+        Some(match tab {
+            Some(tab) => tab.driver.call("cookies.restore", params),
+            None => Err(DriverError::invalid(
+                "cookies.restore: the tab whose cookies were cleared is closed, so their store cannot be named",
+            )),
+        })
     }
 }
 
@@ -280,6 +320,7 @@ impl TabSource for ProviderSource {
             {
                 Some(Driver::call(&*self.0, method, params))
             }
+            "cookies.restore" => self.0.restore_relayed(params),
             _ => None,
         }
     }

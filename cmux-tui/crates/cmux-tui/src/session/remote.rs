@@ -146,14 +146,45 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
         anyhow::bail!("socket endpoint is not a cmux-tui session");
     }
     let protocol = ident.get("protocol").and_then(Value::as_u64).unwrap_or(0);
-    if protocol != SUPPORTED_PROTOCOL_VERSION {
-        anyhow::bail!(
-            "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
-        );
+    let (ours, _) = cmux_tui_core::server::api_revision_range();
+    let theirs_min = ident.get("min_api_revision").and_then(Value::as_u64);
+    let revision_error = if ident.get("api_revision").is_some() {
+        api_revision::RemoteApiRevision::from_identity(ident).err()
+    } else {
+        None
+    };
+    let client_too_old = protocol > SUPPORTED_PROTOCOL_VERSION
+        || theirs_min.is_some_and(|min| min > u64::from(ours));
+    if protocol != SUPPORTED_PROTOCOL_VERSION || revision_error.is_some() || client_too_old {
+        anyhow::bail!("{}", skew_refusal(ident, protocol, client_too_old));
     }
     parse_identity_capabilities(ident)
         .map_err(|reason| anyhow::anyhow!("invalid identity capabilities: {reason}"))?;
     Ok(())
+}
+
+/// The refusal for a version skew, naming the exact update command of the
+/// side that is too old (plans/cmux-next/tui-tester-rollout.md #4).
+fn skew_refusal(ident: &Value, protocol: u64, client_too_old: bool) -> String {
+    use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel, update_hint_for};
+    let server = ident.get("version").and_then(Value::as_str).unwrap_or("unknown");
+    if client_too_old {
+        format!(
+            "this cmux ({DISTRIBUTION_VERSION}) is too old for the cmux-tui server ({server}, protocol {protocol}). To fix it, {}",
+            InstallChannel::current().update_hint()
+        )
+    } else {
+        // The server is older. A daemon from before `install` was reported
+        // gets every package command; restarting it also picks up an update
+        // that is already installed.
+        let hint = match ident.get("update_command").and_then(Value::as_str) {
+            Some(command) => format!("run `{command}` on the server's machine"),
+            None => update_hint_for(ident.get("install").and_then(Value::as_str)),
+        };
+        format!(
+            "the cmux-tui server ({server}, protocol {protocol}) is older than this cmux ({DISTRIBUTION_VERSION}, protocol {SUPPORTED_PROTOCOL_VERSION}). To fix it, {hint}, then restart the server"
+        )
+    }
 }
 
 fn remote_terminal_size(value: &Value) -> Option<(u16, u16)> {
@@ -298,6 +329,7 @@ struct RemoteTreeCache {
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
     title_generation: u64,
     title_updates: HashMap<SurfaceId, TitleUpdate>,
+    program_status_updates: HashMap<SurfaceId, tab_updates::ProgramStatusUpdate>,
     agent_generation: u64,
     agent_updates: HashMap<SurfaceId, AgentUpdate>,
 }
@@ -336,20 +368,7 @@ impl RemoteTreeCache {
             }
         }
         self.view = view;
-
-        // A response snapshot can predate title events received while its
-        // request was in flight. Reapply only those later authoritative
-        // events; older events are already represented by the response.
-        let updates = std::mem::take(&mut self.title_updates);
-        for (surface_id, update) in updates {
-            if self.surface_tabs.contains_key(&surface_id) {
-                if update.generation > refresh_generation {
-                    self.update_view_title(surface_id, update.title);
-                }
-            } else if update.generation > refresh_generation {
-                self.title_updates.insert(surface_id, update);
-            }
-        }
+        self.reapply_tab_updates(refresh_generation);
     }
 
     fn update_title(&mut self, surface_id: SurfaceId, title: String) -> bool {
@@ -734,6 +753,9 @@ impl RemoteSurface {
             apply_terminal_colors(&mut fresh, colors);
         }
         fresh.vt_write(pending_sequence);
+        if let Some(rows_from_viewport_top_to_end) = scrolled_back_anchor(&term) {
+            restore_scrolled_back_anchor(&mut fresh, rows_from_viewport_top_to_end);
+        }
         *term = fresh;
         if daemon_replay {
             // Daemon-built replays carry resolved state, not application
@@ -965,6 +987,33 @@ enum RemoteGeometryTestStep {
     StreamResizeCommitBoundary,
     CellPixelStarted,
     CellPixelCommitBoundary,
+}
+
+/// Rows from the top of a scrolled-back viewport to the end of the screen,
+/// or `None` when the viewport follows the live bottom.
+///
+/// A rebuilt mirror keeps the same trailing content as the old one (the
+/// replay ends at the live screen) while its oldest history may differ, so
+/// the distance from the end is the stable anchor for the row being read.
+fn scrolled_back_anchor(term: &Terminal) -> Option<u64> {
+    let scrollbar = term.scrollbar()?;
+    scrollbar.scrolled_back().then(|| scrollbar.total.saturating_sub(scrollbar.offset))
+}
+
+/// Scroll a freshly rebuilt mirror so the viewport top sits the same number
+/// of rows from the end as before, clamped to the retained history.
+fn restore_scrolled_back_anchor(term: &mut Terminal, rows_from_viewport_top_to_end: u64) {
+    let Some(scrollbar) = term.scrollbar() else {
+        return;
+    };
+    let live_offset = scrollbar.total.saturating_sub(scrollbar.len);
+    let target = scrollbar.total.saturating_sub(rows_from_viewport_top_to_end).min(live_offset);
+    let delta = i128::from(target) - i128::from(scrollbar.offset);
+    if let Ok(delta) = isize::try_from(delta)
+        && delta != 0
+    {
+        term.scroll_delta(delta);
+    }
 }
 
 fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {
@@ -1579,6 +1628,7 @@ struct ExitedSurfaceState {
     handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
 }
 
+mod api_revision;
 mod connect;
 #[path = "remote_disconnect.rs"]
 mod disconnect;
@@ -1587,7 +1637,9 @@ mod requests;
 #[cfg(test)]
 #[path = "remote_shutdown_tests.rs"]
 mod shutdown_tests;
+pub(crate) mod sidebar_doc;
 mod surfaces;
+mod tab_updates;
 
 #[derive(Default)]
 enum DisconnectState {
@@ -1600,6 +1652,9 @@ enum DisconnectState {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    /// Translation state is installed after `identify`; older daemons do not
+    /// advertise it and stay on the legacy wire path.
+    api_revision: Mutex<Option<api_revision::RemoteApiRevision>>,
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
@@ -1634,6 +1689,66 @@ pub struct RemoteSession {
     size_states: Mutex<HashMap<SurfaceId, super::SurfaceSizeState>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
+    /// The daemon's sidebar document (`sidebar-doc-v1`), as a read model.
+    sidebar_doc: sidebar_doc::RemoteSidebarDoc,
+}
+
+impl RemoteSession {
+    fn install_api_revision(&self, revision: Option<api_revision::RemoteApiRevision>) {
+        *self.api_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = revision;
+    }
+
+    pub(super) fn translate_incoming_line(&self, line: &str) -> anyhow::Result<String> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or_else(|| Ok(line.to_owned()), |revision| revision.incoming(line))
+    }
+
+    pub(super) fn translate_outgoing_line(
+        &self,
+        id: u64,
+        command: &str,
+        line: &str,
+    ) -> anyhow::Result<String> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or_else(|| Ok(line.to_owned()), |revision| revision.outgoing(id, command, line))
+    }
+
+    pub(super) fn translate_outgoing_no_reply(
+        &self,
+        command: &str,
+        line: &str,
+    ) -> anyhow::Result<String> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or_else(
+                || Ok(line.to_owned()),
+                |revision| revision.outgoing_no_reply(command, line),
+            )
+    }
+
+    pub(super) fn api_revision(&self) -> Option<u32> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(api_revision::RemoteApiRevision::local_revision)
+    }
+
+    fn forget_api_request(&self, id: u64) {
+        if let Some(revision) =
+            self.api_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+        {
+            revision.forget(id);
+        }
+    }
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -2038,6 +2153,7 @@ impl RemoteSession {
         let retired_surface_ids = self.retired_surfaces.lock().unwrap().clone();
         let mut tree = tree;
         tree.retain_not_retired(&retired_surface_ids);
+        self.order_tree_by_sidebar_doc(&mut tree);
         let live_surface_ids = tree
             .workspaces()
             .iter()
@@ -2447,6 +2563,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        api_revision: Mutex::new(None),
         disconnect_state: disconnect::DisconnectCell::default(),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
@@ -2476,6 +2593,7 @@ fn test_session_with_writer(
         size_states: Mutex::new(HashMap::new()),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
+        sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
     })
 }
 

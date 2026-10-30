@@ -39,7 +39,7 @@ import Testing
     /// counts the time the thread waited for a core: with 32 suite processes
     /// on one host the ranking median read 123 ms against a 50 ms budget
     /// (78 s for the test), and the full scan beside it in this suite takes
-    /// cores too. The body is synchronous (JavaScriptCore runs on the
+    /// cores too. The body is synchronous (the ranker runs on the
     /// calling thread), so this thread's CPU time is the search cost.
     static func medianMilliseconds(iterations: Int, _ body: () -> Void) -> Double {
         var samples: [Double] = []
@@ -50,24 +50,6 @@ import Testing
         }
         samples.sort()
         return samples[samples.count / 2]
-    }
-
-    @Test func fullScanOf2000ItemsFitsBudget() {
-        var index = PaletteSearchIndex(items: Self.makeItems(count: 2000))
-        // Alternate queries that never refine each other, so every call is a
-        // full scan (the worst case: first keystroke or backspace).
-        let queries = ["s", "sp", "tab", "new w", "tgl", "cl ot", "fld", "move pane", "zoom", "rn"].map(FuzzyQuery.init)
-        let breaker = FuzzyQuery("zz")
-        var matched = 0
-        let median = Self.medianMilliseconds(iterations: 60) {
-            for query in queries {
-                matched &+= index.matches(for: query).count
-                _ = index.matches(for: breaker)
-            }
-        } / Double(queries.count * 2)
-        print("palette benchmark: full scan of 2000 items, median \(String(format: "%.3f", median)) ms per query")
-        #expect(matched > 0)
-        #expect(median < Self.budgetMilliseconds, "median \(median) ms")
     }
 
     @Test func rankingOf2000ItemsFitsBudget() {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
 
@@ -26,7 +27,7 @@ final class IconPickerService {
         let panel: IconPickerPanel
         let provider: IconPickerProvider
         let page: PageWebView
-        /// `workspace:<id>`, `screen:<id>`, `space:<id>`, `browserProfile:<id>`.
+        /// `workspace:<id>`, `screen:<id>`, `screenGroup:<id>`, `tabGroup:<id>`, `space:<id>`, `browserProfile:<id>`, `machine:<id>`.
         let target: String
         /// The anchor in screen coordinates.
         let anchor: NSRect
@@ -40,7 +41,7 @@ final class IconPickerService {
         let provider: IconPickerProvider
     }
 
-    private weak var services: AppServices?
+    private(set) weak var services: AppServices?
     private lazy var prefs = IconPickerPrefsStore(services: services)
     private let symbols = IconPickerSymbols()
     /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.
@@ -48,28 +49,59 @@ final class IconPickerService {
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
     private var warm: Warm?
+    /// Opens and closes the panel like every native popup (POLISH: calm motion).
+    private let fade = PopupFade()
 
-    init(services: AppServices) {
+    init(services: AppServices?) {
         self.services = services
+    }
+
+    /// Whether the panel, page and provider exist, so an open reuses them.
+    var isWarm: Bool { warm != nil }
+
+    /// Each open's timing (`debug.timings` lists them as `icon_picker_opens`).
+    var onOpened: ((IconPickerOpenTiming) -> Void)?
+
+    /// Makes the warm picker ahead of the first open (the app calls it at an idle moment after
+    /// launch); `then` runs when it is ready.
+    func prepare(then: (() -> Void)? = nil) {
+        guard let catalog else {
+            loadCatalog { [weak self] in self?.prepare(then: then) }
+            return
+        }
+        if warm == nil { _ = makeWarm(catalog: catalog) }
+        then?()
     }
 
     /// Opens the picker at `anchor` for `target` (an object whose icon is `current`);
     /// `completion` runs once with the outcome (a cancel when the panel closes without a pick).
-    func pick(current: String?, target: String, at anchor: Anchor, completion: @escaping (IconPickerResult) -> Void) {
+    /// `assets` is where the object's owner stores an Image or SVG pick; without it those tabs stay off.
+    func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore? = nil,
+              completion: @escaping (IconPickerResult) -> Void) {
+        pick(current: current, target: target, at: anchor, assets: assets, started: .now, completion: completion)
+    }
+
+    private func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore?, started: ContinuousClock.Instant,
+                      completion: @escaping (IconPickerResult) -> Void) {
         guard let catalog else {
-            loadCatalog { [weak self] in self?.pick(current: current, target: target, at: anchor, completion: completion) }
+            loadCatalog { [weak self] in
+                self?.pick(current: current, target: target, at: anchor, assets: assets, started: started, completion: completion)
+            }
             return
         }
+        let catalogReady = ContinuousClock.now
         open?.provider.finish(.cancel)
         prefs.load()
+        let createdPage = warm == nil
         guard let warm = warm ?? makeWarm(catalog: catalog) else {
             completion(.cancel)
             return
         }
+        let pageReady = ContinuousClock.now
         var session = IconPickerSession(id: UUID().uuidString, current: current)
         let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         session.symbolStyle = IconPickerSymbols.style(dark: dark)
-        warm.provider.begin(session) { [weak self] result in
+        warm.provider.begin(session, assets: assets) { [weak self] result in
             self?.close()
             completion(result)
         }
@@ -81,10 +113,13 @@ final class IconPickerService {
         open = OpenPicker(panel: panel, provider: warm.provider, page: warm.page, target: target, anchor: screenAnchor, parent: parent)
         // Shown over its window (a child moves with it); never on screen for a window that is not
         // (tests, windows not ordered in).
-        guard let parent, parent.isVisible else { return }
-        parent.addChildWindow(panel, ordered: .above)
-        panel.makeKeyAndOrderFront(nil)
-        warm.page.focusPage()
+        if let parent, parent.isVisible {
+            fade.open(panel, over: parent, toward: screenAnchor)
+            panel.makeKey()
+            warm.page.focusPage()
+        }
+        onOpened?(IconPickerOpenTiming(catalog: started.duration(to: catalogReady), page: catalogReady.duration(to: pageReady),
+                                       present: pageReady.duration(to: .now), createdPage: createdPage))
     }
 
     /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then`.
@@ -98,12 +133,17 @@ final class IconPickerService {
         }
     }
 
+    /// The picker page's engine options: it shows in a floating glass panel that closes when it
+    /// loses the keys, and a Chromium page is an opaque child window that takes them.
+    static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
+
     private func makeWarm(catalog: IconPickerSymbolCatalog) -> Warm? {
         let provider = IconPickerProvider(prefs: prefs, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
         var routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
         // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
-        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, dynamicResources: symbols) else { return nil }
+        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
+                                     dynamicResources: symbols) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made
@@ -128,7 +168,7 @@ final class IconPickerService {
     /// the middle of the active window's content.
     func anchor(group id: String) -> Anchor? {
         guard let controller = services?.windows.active, let content = controller.window?.contentView else { return nil }
-        if let screen = controller.sidebar.container.sidebarView.groupRowFrameOnScreen(for: CmuxNextSidebar.GroupID(id)),
+        if let screen = controller.sidebar.container.sidebarView.groupRowFrameOnScreen(for: controller.sidebar.model.groupID(personal: id)),
            let window = content.window {
             return Anchor(view: content, rect: content.convert(window.convertFromScreen(screen), from: nil))
         }
@@ -145,12 +185,22 @@ final class IconPickerService {
         return Anchor(view: content, rect: NSRect(x: bounds.midX - 1, y: bounds.maxY - 80, width: 2, height: 2))
     }
 
-    /// Hides the panel; the page stays loaded for the next open.
+    /// Fades the panel out; the page stays loaded for the next open.
     private func close() {
         guard let open else { return }
         self.open = nil
         open.panel.onDismiss = nil
-        open.parent?.removeChildWindow(open.panel)
-        open.panel.orderOut(nil)
+        fade.close(open.panel, toward: open.anchor)
     }
+}
+
+/// One icon picker open: waiting for the symbol catalog (a first open with no warm-up), making or
+/// reusing the panel and page, and showing it.
+struct IconPickerOpenTiming {
+    let catalog: Duration
+    let page: Duration
+    let present: Duration
+    /// The open made the panel and its page (no warm picker yet).
+    let createdPage: Bool
+    var total: Duration { catalog + page + present }
 }

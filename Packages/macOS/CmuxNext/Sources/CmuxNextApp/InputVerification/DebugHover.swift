@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 
 /// `debug.mouse` `hover` (DEBUG builds): hover without the user's pointer.
@@ -31,7 +31,9 @@ enum DebugHover {
             guard !view.isHidden else { return }
             for area in view.trackingAreas where area.options.contains(.mouseEnteredAndExited) || area.options.contains(.mouseMoved) {
                 let rect = area.options.contains(.inVisibleRect) ? view.visibleRect : area.rect
-                guard let owner = area.owner as? NSResponder, rect.contains(view.convert(location, from: nil)) else { continue }
+                // An owner that is no responder (WebKit's tracking observer) stands for its view: the web view.
+                let owner: NSResponder = (area.owner as? NSResponder) ?? view
+                guard rect.contains(view.convert(location, from: nil)) else { continue }
                 let id = ObjectIdentifier(owner)
                 now[id] = Inside(owner: owner)
                 if previous[id] == nil, area.options.contains(.mouseEnteredAndExited), let event = crossing(.mouseEntered, location, window) {

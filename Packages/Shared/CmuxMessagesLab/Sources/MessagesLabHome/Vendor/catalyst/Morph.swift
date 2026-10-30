@@ -19,6 +19,8 @@ import Accelerate
 /// - `tail`: fixed at the right-bottom corner.
 final class MorphBubble {
     let key: String
+    /// The scale its images are drawn at: the sending window view's renderScale (`rescale` on a change).
+    private(set) var scale: CGFloat
     let holder = CALayer()
     let bubble = CALayer()
     let body = CALayer()
@@ -43,11 +45,13 @@ final class MorphBubble {
     private let textLayout: TextLayout
     private let textSize: CGSize
     private let fieldRect: CGRect, flyingRect: CGRect
+    /// This send's elements (Springs.Bubble: the field-shrink fits after a multi-line draft).
+    private let springs: Springs.Bubble
 
     /// The background colour's alpha of `layer` from `e.from` to 1 with `e`'s timing: a keyframe
     /// animation sampled at 240 Hz (the layer's opacity would also fade its sublayers).
     static func fillAlpha(_ layer: CALayer, color: UIColor, _ e: SpringElement, begin: CFTimeInterval) {
-        let n = max(2, CrashGuard.int(e.settleTime * 240, in: 0...100_000)) // cmux: no trap on NaN
+        let n = max(2, CrashGuard.int(e.settleTime * 240, in: 0...100_000)) // no trap on NaN
         let a = CAKeyframeAnimation(keyPath: "backgroundColor")
         a.values = (0...n).map { color.withAlphaComponent(CGFloat(min(1, max(0, e.value(Double($0) / 240, from: e.from, to: 1))))).cgColor }
         a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
@@ -62,16 +66,23 @@ final class MorphBubble {
     /// Kept for callers; the morph no longer uses Core Image.
     static func warmUp() {}
 
+    /// `fieldShrinks`: the draft made the field taller than the platform's own 1-line field (more
+    /// lines or attachments), so the send uses the `.fieldShrink` curves (Springs.Bubble). The caller
+    /// decides with its own field metrics: the iOS field is 36 pt for 1 line, the macOS one 30-31 pt.
     init(key: String, in parent: CALayer, windowBounds: CGRect, from field: CGRect, to target: CGRect,
-         textLayout tl: TextLayout, size: CGSize, begin: CFTimeInterval) {
+         textLayout tl: TextLayout, size: CGSize, textOrigin: CGPoint = .zero, begin: CFTimeInterval,
+         scale: CGFloat = Fixture.renderScale, fieldShrinks: Bool) {
         self.key = key
+        self.scale = scale
         textLayout = tl
         textSize = size
         fieldRect = field
         flyingRect = target
+        let bs = Springs.Bubble(fieldShrinks: fieldShrinks, lines: tl.lines.count, travel: Double(field.width - target.width))
+        springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]
-        for l in [holder, bubble, body, text, blurred, tail, underlay] { l.actions = none; l.contentsScale = Fixture.renderScale }
+        for l in [holder, bubble, body, text, blurred, tail, underlay] { l.actions = none; l.contentsScale = scale }
         holder.frame = windowBounds
         insideClip.actions = none
         insideClip.frame = windowBounds
@@ -94,8 +105,8 @@ final class MorphBubble {
         // a draft on more lines starts at the field's height (send-typed-take1).
         let w0 = field.width, h0 = max(field.height, h1)
         let y0 = field.minY + h0 / 2
-        let o = Springs.bubbleOpacity
-        let images = MorphBubble.preparedImages(tl, size) ?? MorphBubble.textImages(tl, size)
+        let o = bs.opacity
+        let images = MorphBubble.preparedImages(tl, size, scale: scale) ?? MorphBubble.textImages(tl, size, scale: scale)
         /// One bubble tree (the main one, or the sharp copy) with every spring.
         func build(_ bubble: CALayer, _ body: CALayer, _ text: CALayer, _ tail: CAShapeLayer, _ underlay: CALayer, in holder: CALayer, blurred: CALayer?) {
             bubble.anchorPoint = CGPoint(x: 1, y: 0.5)
@@ -103,14 +114,14 @@ final class MorphBubble {
             bubble.position = CGPoint(x: target.maxX, y: target.midY)
             holder.addSublayer(bubble)
             body.backgroundColor = color.cgColor
-            body.cornerRadius = Fixture.bubbleRadius
+            body.cornerRadius = min(Fixture.bubbleRadius, h1 / 2) // BubblePath.make: a 1-line balloon is 29.917 pt
             body.masksToBounds = true
             body.bounds = CGRect(x: 0, y: 0, width: w1, height: h1)
             body.position = CGPoint(x: -w1 / 2, y: h1 / 2)
             // While translucent, the bubble shows a dark grey under it (MorphBubble.underlayGrey).
             // Fitted on the lossless send takes (catalyst/TRANSITIONS.md, "Field glass underlay").
             underlay.backgroundColor = UIColor(white: MorphBubble.underlayGrey / 255, alpha: 1).cgColor
-            underlay.cornerRadius = Fixture.bubbleRadius
+            underlay.cornerRadius = body.cornerRadius
             underlay.bounds = body.bounds
             underlay.position = body.position
             bubble.addSublayer(underlay)
@@ -128,7 +139,9 @@ final class MorphBubble {
             // layer only ever scales them down (resolution brief: no upscaled
             // snapshot during an animation).
             text.contents = images.0
-            text.frame = CGRect(origin: .zero, size: size)
+            // `textOrigin`: the text frame's place in the landed balloon (the balloon is drawn a little
+            // inside the frame the text is laid out in: RowDraw.balloon).
+            text.frame = CGRect(origin: textOrigin, size: size)
             body.addSublayer(text)
             if let blurred {
                 // The blurred copy has room for its glow (no hard edge where the
@@ -141,16 +154,16 @@ final class MorphBubble {
             bubble.opacity = 1
 
             // Springs (springs.json). Positions in points; the fits are in 2x px.
-            Animate.scalar(bubble, "position.x", from: Double(field.maxX), to: Double(target.maxX), Springs.bubbleRight, begin: begin)
-            Animate.scalar(bubble, "position.y", from: Double(y0), to: Double(target.midY), Springs.bubbleCenterY, begin: begin)
+            Animate.scalar(bubble, "position.x", from: Double(field.maxX), to: Double(target.maxX), bs.right, begin: begin)
+            Animate.scalar(bubble, "position.y", from: Double(y0), to: Double(target.midY), bs.centerY, begin: begin)
             for l in [body, underlay] {
-                Animate.scalar(l, "bounds.size.width", from: Double(w0), to: Double(w1), Springs.bubbleWidth, begin: begin)
-                Animate.scalar(l, "position.x", from: Double(-w0 / 2), to: Double(-w1 / 2), Springs.bubbleWidth, begin: begin)
-                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), Springs.bubbleWidth, begin: begin)
-                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), Springs.bubbleWidth, begin: begin)
+                Animate.scalar(l, "bounds.size.width", from: Double(w0), to: Double(w1), bs.width, begin: begin)
+                Animate.scalar(l, "position.x", from: Double(-w0 / 2), to: Double(-w1 / 2), bs.width, begin: begin)
+                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), bs.height, begin: begin)
+                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), bs.height, begin: begin)
             }
-            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), Springs.bubbleWidth, begin: begin)
-            Animate.pulse(bubble, "transform.scale", Springs.bubbleScale, begin: begin)
+            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), bs.height, begin: begin)
+            Animate.pulse(bubble, "transform.scale", bs.scale, begin: begin)
             // The blue fill is translucent at first, the text is not: Messages' text is white
             // (min channel > 215) from 75-92 ms, while its body is still translucent (lossless
             // send-typed-take1, send-2line-take2: body blue 186 of 247 at 75 ms). The body's
@@ -177,7 +190,7 @@ final class MorphBubble {
         // follows the field's own motion: `clipGlass`). Without that call it shows nothing.
         let sp = (bubble: CALayer(), body: CALayer(), text: CALayer(), tail: CAShapeLayer(), underlay: CALayer())
         sharpParts = sp
-        for l in [sharpClip, sharpHolder, glassAbove, sp.bubble, sp.body, sp.text, sp.tail, sp.underlay] { l.actions = none; l.contentsScale = Fixture.renderScale }
+        for l in [sharpClip, sharpHolder, glassAbove, sp.bubble, sp.body, sp.text, sp.tail, sp.underlay] { l.actions = none; l.contentsScale = scale }
         sharpClip.frame = windowBounds
         sharpHolder.frame = windowBounds
         sharpClip.addSublayer(sharpHolder)
@@ -196,22 +209,23 @@ final class MorphBubble {
         // Land when every element is within 0.1 pt (opacity 0.01) of its final
         // value: then the overlay and the cell show the same pixels.
         let checks: [(SpringElement, Double, Double, Double)] = [
-            (Springs.bubbleRight, Double(field.maxX), Double(target.maxX), 0.1),
-            (Springs.bubbleCenterY, Double(y0), Double(target.midY), 0.1),
-            (Springs.bubbleWidth, Double(w0), Double(w1), 0.1),
-            (Springs.bubbleScale, 1, 1, 0.1 / Double(max(w1, h1))),
+            (bs.right, Double(field.maxX), Double(target.maxX), 0.1),
+            (bs.centerY, Double(y0), Double(target.midY), 0.1),
+            (bs.width, Double(w0), Double(w1), 0.1),
+            (bs.height, Double(h0), Double(h1), 0.1),
+            (bs.scale, 1, 1, 0.1 / Double(max(w1, h1))),
             (o, o.from, 1, 0.01), (Springs.textUnblur, 0, 1, 0.01)]
         // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
         // tolerance (each step's checks evaluated once; same result as testing
         // 12 steps per candidate, about 12x less spring math on the send commit).
-        let steps = CrashGuard.int(((2.0 - 0.3) * 120).rounded(.up)) // cmux: same value, no trapping conversion
-        let ok = (0..<(steps + 12)).map { i in // cmux: no index writes
+        let steps = CrashGuard.int(((2.0 - 0.3) * 120).rounded(.up)) // same value, no trapping conversion
+        let ok = (0..<(steps + 12)).map { i in // no index writes
             let tau = 0.3 + Double(i) / 120
             return checks.allSatisfy { e, a, b, tol in abs(e.value(tau, from: a, to: b) - b) <= tol }
         }
         var first = steps
         var run = 0
-        for (i, good) in ok.enumerated() { // cmux: no index math
+        for (i, good) in ok.enumerated() { // no index math
             run = good ? run + 1 : 0
             if run == 12 { first = i - 11; break }
         }
@@ -245,32 +259,37 @@ final class MorphBubble {
     private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
     private static var prepSerial = 0
     static var preparedHits = 0
-    static func prepare(draft: String, width: CGFloat) {
+    /// `scale`: the sending view's (its renderScale); a send at another scale draws its own images.
+    static func prepare(draft: String, width: CGFloat, scale: CGFloat = Fixture.renderScale) {
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !LongText.isLong(t) else { return }
         prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
-        let scale = Fixture.renderScale
-        prepQueue.async {
+        let box = PaletteScope.effective // cmux: the typing chat's palette goes with the job
+        prepQueue.async { PaletteScope.with(box) {
             prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
             guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
-            let (size, tl) = Sizing.size(of: part, width: width)
-            guard let tl, scale == Fixture.renderScale else { return }
-            let images = textImages(tl, size)
+            let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
+            guard let tl else { return }
+            let images = textImages(tl, size, scale: scale)
             prepLock.lock()
             if serial == prepSerial { prepared = (tl, size, scale, images) }
             prepLock.unlock()
-        }
+        } }
     }
-    private static func preparedImages(_ tl: TextLayout, _ size: CGSize) -> (CGImage?, CGImage?)? {
+    private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
         prepLock.lock(); defer { prepLock.unlock() }
-        guard let p = prepared, p.size == size, p.scale == Fixture.renderScale, p.tl == tl else { return nil }
+        guard let p = prepared, p.size == size, p.scale == scale, p.tl == tl else { return nil }
         preparedHits += 1
         return p.images
     }
 
-    private static func textImages(_ tl: TextLayout, _ size: CGSize) -> (CGImage?, CGImage?) {
+    /// Any thread (prepQueue, main): the drawing reads `scale`.
+    private static func textImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
+        Fixture.withRenderScale(scale) { textImagesScoped(tl, size, scale: scale) }
+    }
+    private static func textImagesScoped(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?) {
         let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = Fixture.renderScale * MorphBubble.peakScale
+        fmt.scale = scale * MorphBubble.peakScale
         fmt.opaque = false
         let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
             PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(origin: .zero, size: size), outgoing: true)
@@ -279,16 +298,16 @@ final class MorphBubble {
         let padded = UIGraphicsImageRenderer(size: CGSize(width: size.width + 2 * p, height: size.height + 2 * p), format: fmt).image { ctx in
             PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(x: p, y: p, width: size.width, height: size.height), outgoing: true)
         }
-        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: CrashGuard.int((9 * Fixture.renderScale / 2).rounded(), in: 0...64)) }) // cmux
+        return (img.cgImage, padded.cgImage.flatMap { MorphBubble.boxBlur($0, radiusPx: CrashGuard.int((9 * scale / 2).rounded(), in: 0...64)) })
     }
 
     /// The body's bottom edge in window points, `tau` seconds after the send
     /// (closed form of the same elements the layers run).
     func bottom(at tau: Double) -> Double {
         let h1 = Double(flyingRect.height), h0 = max(Double(fieldRect.height), h1)
-        let cy = Springs.bubbleCenterY.value(tau, from: Double(fieldRect.minY) + h0 / 2, to: Double(flyingRect.midY))
-        let s = Springs.bubbleScale.value(tau, from: 1, to: 1)
-        let h = Springs.bubbleWidth.value(tau, from: h0, to: h1)
+        let cy = springs.centerY.value(tau, from: Double(fieldRect.minY) + h0 / 2, to: Double(flyingRect.midY))
+        let s = springs.scale.value(tau, from: 1, to: 1)
+        let h = springs.height.value(tau, from: h0, to: h1)
         return cy + (h - h1 / 2) * s
     }
 
@@ -357,12 +376,13 @@ final class MorphBubble {
 
     /// A display-scale change during the flight (the window moved to another
     /// screen): re-rasterize at the new scale; the animations keep running.
-    func rescale() {
+    func rescale(_ s: CGFloat) {
+        scale = s
         let sp = sharpParts
         for l in [holder, bubble, body, text, blurred, tail, underlay, insideClip, sharpClip, sharpHolder, sp.bubble, sp.body, sp.text, sp.tail, sp.underlay] {
-            l.contentsScale = Fixture.renderScale
+            l.contentsScale = s
         }
-        (text.contents, blurred.contents) = MorphBubble.textImages(textLayout, textSize)
+        (text.contents, blurred.contents) = MorphBubble.textImages(textLayout, textSize, scale: s)
         sp.text.contents = text.contents
     }
 
@@ -389,11 +409,27 @@ final class MorphBubble {
 
     func remove() { insideClip.removeFromSuperlayer(); sharpClip.removeFromSuperlayer() }
 
+    /// The landing hand-off (WindowView.landMorphs): the cell shows under the overlay in the same transaction,
+    /// and the overlay fades out over it (group opacity: the two trees blend as one picture). What changes at the
+    /// hand-off is the text raster, not the geometry (every element is within 0.1 pt at landTime): the overlay's
+    /// text image is drawn at `scale * peakScale` and shown scaled down, the cell draws it on the device pixels.
+    /// A one-frame swap moved every glyph edge (live takes, cx-3cb live-motion); the fade spreads that change.
+    func fadeOut(begin: CFTimeInterval) {
+        for l in [insideClip, sharpClip] {
+            l.allowsGroupOpacity = true
+            l.opacity = 0
+            Animate.scalar(l, "opacity", from: 1, to: 0, Springs.landFade, begin: begin)
+        }
+    }
+    /// Seconds after `fadeOut` begins when the overlay is invisible (Springs.landFade under 0.002).
+    static let fadeOutTime = 0.3
+
     /// The largest value of the fitted scale pulse (sampled at 240 Hz).
     static let peakScale: CGFloat = {
-        let e = Springs.bubbleScale
         var peak = 1.0
-        for i in 0..<CrashGuard.int(max(1, e.settleTime) * 240, in: 0...14_400) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) } // cmux: at most 60 s of samples
+        for e in [Springs.Bubble(fieldShrinks: false).scale, Springs.Bubble(fieldShrinks: true).scale] {
+            for i in 0..<CrashGuard.int(max(1, e.settleTime) * 240, in: 0...14_400) { peak = max(peak, e.value(Double(i) / 240, from: 1, to: 1)) } // at most 60 s of samples
+        }
         return CGFloat((peak * 1000).rounded(.up) / 1000)
     }()
 
@@ -401,10 +437,10 @@ final class MorphBubble {
     static func boxBlur(_ cg: CGImage, radiusPx r: Int) -> CGImage? {
         guard var format = vImage_CGImageFormat(cgImage: cg),
               var src = try? vImage_Buffer(cgImage: cg, format: format),
-              let width = Int(exactly: src.width), let height = Int(exactly: src.height), // cmux: no trapping conversion
+              let width = Int(exactly: src.width), let height = Int(exactly: src.height), // no trapping conversion
               var dst = try? vImage_Buffer(width: width, height: height, bitsPerPixel: format.bitsPerPixel) else { return nil }
         defer { src.free(); dst.free() }
-        let k = UInt32(clamping: 2 * max(0, r) + 1) // cmux: a negative radius does not trap
+        let k = UInt32(clamping: 2 * max(0, r) + 1) // a negative radius does not trap
         for _ in 0..<3 {
             vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
             swap(&src, &dst)
@@ -418,7 +454,7 @@ final class MorphBubble {
         // cmux: a themed accent interpolates its own stops.
         if let t = Fixture.themedGradient { return Fixture.color(in: t, atPx: px) }
         let s = Fixture.gradientStops
-        // cmux: the first inner stop at or past px, else the last stop (no index math).
+        // the first inner stop at or past px, else the last stop (no index math).
         let upper = s.dropFirst().dropLast().firstIndex(where: { $0.0 >= px }) ?? s.count - 1
         guard let a = s[checked: upper - 1], let b = s[checked: upper] else { return Fixture.gradientColor(0, 0) }
         let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))

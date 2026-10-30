@@ -21,6 +21,15 @@ public struct Participant: Hashable, Sendable, Codable, Identifiable {
         case invited
     }
 
+    /// A group member's role, stamped by the Cloud owner. Only an owner or admin changes the
+    /// group; a read-only member reads it and cannot post.
+    public enum Role: String, Hashable, Sendable, Codable {
+        case owner
+        case admin
+        case member
+        case readOnly = "read_only"
+    }
+
     public let id: ParticipantID
     public var kind: Kind
     public var displayName: String
@@ -30,6 +39,8 @@ public struct Participant: Hashable, Sendable, Codable, Identifiable {
     public var membership: Membership
     /// Email or phone the invite went to; only set while `membership == .invited`.
     public var invitedContact: String?
+    /// The member's role in a Cloud group; nil where the owner names none (local, DMs, older heads).
+    public var role: Role?
 
     public init(
         id: ParticipantID,
@@ -38,7 +49,8 @@ public struct Participant: Hashable, Sendable, Codable, Identifiable {
         agentClass: AgentClass? = nil,
         ownerUser: ParticipantID? = nil,
         membership: Membership = .active,
-        invitedContact: String? = nil
+        invitedContact: String? = nil,
+        role: Role? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -47,13 +59,24 @@ public struct Participant: Hashable, Sendable, Codable, Identifiable {
         self.ownerUser = ownerUser
         self.membership = membership
         self.invitedContact = invitedContact
+        self.role = role
     }
 
     public var isChief: Bool { kind == .agent && agentClass == .chief }
 
+    /// The name a person reads: the display name, else the invited email or phone (already
+    /// masked by the owner), else empty. Never an internal id (``Swift/String/isHomeInternalID``).
+    public var visibleName: String {
+        for candidate in [displayName, invitedContact ?? ""] {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, !trimmed.isHomeInternalID { return trimmed }
+        }
+        return ""
+    }
+
     /// One or two letters for a monogram avatar.
     public var initials: String {
-        let words = displayName.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" })
+        let words = visibleName.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" })
         let letters = words.prefix(2).compactMap { $0.first.map(String.init) }
         let joined = letters.joined().uppercased()
         return joined.isEmpty ? "?" : joined

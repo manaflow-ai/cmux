@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+#[cfg(test)]
+#[path = "auth_tests.rs"]
+mod tests;
+
 /// Env keys that carry credentials or point a harness at another login.
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
@@ -31,7 +35,7 @@ const AUTH_ENV: &[&str] = &[
 /// Where one family keeps its login, and how to read the account from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reader {
-    /// `~/.claude.json`: `oauthAccount.accountUuid` and `organizationUuid`.
+    /// `~/.claude.json`: OAuth account/organization and a saved `primaryApiKey`.
     ClaudeAccount,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
@@ -46,9 +50,13 @@ fn files(
     env: &dyn Fn(&str) -> Option<String>,
     home: &Path,
 ) -> Vec<(PathBuf, Reader)> {
+    let home = env("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.to_path_buf());
     match family {
         "claude" => {
-            let dir = env("CLAUDE_CONFIG_DIR").map(PathBuf::from);
+            let dir = env("CLAUDE_CONFIG_DIR").filter(|value| !value.is_empty()).map(PathBuf::from);
             let account = match &dir {
                 Some(d) => d.join(".claude.json"),
                 None => home.join(".claude.json"),
@@ -57,12 +65,17 @@ fn files(
             vec![(account, Reader::ClaudeAccount), (creds, Reader::Stat)]
         }
         "codex" => {
-            let dir = env("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".codex"));
+            let dir = env("CODEX_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".codex"));
             vec![(dir.join("auth.json"), Reader::CodexAuth)]
         }
         "opencode" | "opencode-v2" => {
             let data = env("XDG_DATA_HOME")
+                .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
                 .unwrap_or_else(|| home.join(".local/share"));
             vec![(data.join("opencode/auth.json"), Reader::OpencodeAuth)]
         }
@@ -94,7 +107,7 @@ impl AuthCache {
                 .get(k)
                 .cloned()
                 .or_else(|| std::env::var(k).ok())
-                .or_else(|| crate::login_env::var(k))
+                .or_else(|| crate::login_env::allowed_var(k))
         };
         let home = dirs::home_dir().unwrap_or_default();
         self.fingerprint_with(family, &env, &home)
@@ -166,7 +179,11 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let s = |v: &serde_json::Value, p: &str| v.pointer(p).map(|x| x.to_string());
     match reader {
         Reader::ClaudeAccount => {
-            (s(&v, "/oauthAccount/accountUuid"), s(&v, "/oauthAccount/organizationUuid"))
+            (
+                s(&v, "/oauthAccount/accountUuid"),
+                s(&v, "/oauthAccount/organizationUuid"),
+                s(&v, "/primaryApiKey"),
+            )
                 .hash(&mut h);
         }
         Reader::CodexAuth => {
@@ -185,103 +202,4 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
         Reader::Stat => {}
     }
     h.finish() | 1
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A fresh private directory under the system temp dir.
-    fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "acpmux-auth-{tag}-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn write(path: &Path, text: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, text).unwrap();
-    }
-
-    #[test]
-    fn an_account_switch_changes_the_fingerprint_and_a_token_refresh_does_not() {
-        let home = scratch("codex");
-        let cache = AuthCache::default();
-        let no_env = |_: &str| None;
-        let auth = home.as_path().join(".codex/auth.json");
-        write(
-            &auth,
-            r#"{"auth_mode":"chatgpt","tokens":{"account_id":"acct-1","access_token":"t1"}}"#,
-        );
-        let first = cache.fingerprint_with("codex", &no_env, home.as_path());
-        // A refreshed token for the same account (a longer file, too).
-        write(
-            &auth,
-            r#"{"auth_mode":"chatgpt","tokens":{"account_id":"acct-1","access_token":"t2-refreshed"}}"#,
-        );
-        assert_eq!(cache.fingerprint_with("codex", &no_env, home.as_path()), first);
-        write(
-            &auth,
-            r#"{"auth_mode":"chatgpt","tokens":{"account_id":"acct-2","access_token":"t3"}}"#,
-        );
-        let switched = cache.fingerprint_with("codex", &no_env, home.as_path());
-        assert_ne!(switched, first);
-        assert!(first.1.is_some(), "the login file names an account");
-        assert_ne!(switched.1, first.1, "the account part follows the account");
-        std::fs::remove_file(&auth).unwrap();
-        let out = cache.fingerprint_with("codex", &no_env, home.as_path());
-        assert_ne!(out, switched, "logout counts");
-        assert_eq!(out.1, None, "no account after a logout");
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn claude_account_and_api_key_env_are_part_of_it() {
-        let home = scratch("claude");
-        let cache = AuthCache::default();
-        let no_env = |_: &str| None;
-        let account = home.as_path().join(".claude.json");
-        write(
-            &account,
-            r#"{"numStartups":1,"oauthAccount":{"accountUuid":"a","organizationUuid":"o"}}"#,
-        );
-        let first = cache.fingerprint_with("claude", &no_env, home.as_path());
-        // Claude rewrites its state file on every start; same account.
-        write(
-            &account,
-            r#"{"numStartups":2,"oauthAccount":{"accountUuid":"a","organizationUuid":"o"}}"#,
-        );
-        assert_eq!(cache.fingerprint_with("claude", &no_env, home.as_path()), first);
-        write(
-            &account,
-            r#"{"numStartups":3,"oauthAccount":{"accountUuid":"b","organizationUuid":"o"}}"#,
-        );
-        assert_ne!(cache.fingerprint_with("claude", &no_env, home.as_path()), first);
-        let key = |k: &str| (k == "ANTHROPIC_API_KEY").then(|| "sk-1".to_owned());
-        assert_ne!(
-            cache.fingerprint_with("claude", &key, home.as_path()),
-            cache.fingerprint_with("claude", &no_env, home.as_path())
-        );
-    }
-
-    #[test]
-    fn opencode_provider_logins_count() {
-        let home = scratch("opencode");
-        let cache = AuthCache::default();
-        let no_env = |_: &str| None;
-        let auth = home.as_path().join(".local/share/opencode/auth.json");
-        write(&auth, r#"{"openai":{"type":"oauth","accountId":"x","access":"1"}}"#);
-        let first = cache.fingerprint_with("opencode", &no_env, home.as_path());
-        write(&auth, r#"{"openai":{"type":"oauth","accountId":"x","access":"2"}}"#);
-        assert_eq!(cache.fingerprint_with("opencode", &no_env, home.as_path()), first);
-        write(
-            &auth,
-            r#"{"openai":{"type":"oauth","accountId":"x","access":"2"},"zai":{"type":"api","key":"k"}}"#,
-        );
-        assert_ne!(cache.fingerprint_with("opencode", &no_env, home.as_path()), first);
-    }
 }

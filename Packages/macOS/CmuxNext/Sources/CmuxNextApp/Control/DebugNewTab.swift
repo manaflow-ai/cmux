@@ -1,8 +1,11 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
+import CmuxNextResources
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 import WebKit
 
@@ -18,6 +21,11 @@ import WebKit
 /// its text and whether it has focus), `retarget` (park the spare in window
 /// `window`, as a key-window change does). `window` (an index into the main
 /// windows, default 0) picks the window for `open_and_type` and `field`.
+/// `open_and_leave` (`text`): in ONE main-actor turn, the New Tab Page action, a switch back to
+/// the tab the pane showed, then each character as a key-down: the page is left before its field
+/// could report readiness, so its key hold must end and the keys reach the tab shown (nightly
+/// 2026-10-11: they waited forever and Cmd-T opened nothing).
+/// `drop_spare` drops the prewarmed spare, so the next opening loads cold.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -27,8 +35,14 @@ enum DebugNewTab {
             return state(services)
         case "open_and_type":
             return openAndType(params, services: services)
+        case "open_and_leave":
+            return openAndType(params, services: services, leave: true)
         case "field":
             return await field(params, services)
+        case "open_tab":
+            // Clicks Open Tabs row `index` of the focused split page (cx-jfo7), as a person does.
+            let index = params["index"]?.intValue ?? 0
+            return await field(params, services, before: "document.querySelectorAll('.nt-open-tab')[\(index)]?.click();")
         case "bench_close", "bench_bang", "bench_open":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
             switch params["action"]?.stringValue {
@@ -36,33 +50,48 @@ enum DebugNewTab {
             case "bench_open": return await DebugNewTabBench.open(params, controller, services)
             default: return await DebugNewTabBench.bang(params, controller, services)
             }
+        case "bench_create":
+            // Cmd-N / Cmd-T / Cmd-D / Cmd-Shift-D: key to visible and to confirmed (instant-new-surfaces).
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return await DebugInstantCreateBench.run(params, controller, services)
+        case "frame_strip":
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return await DebugFrameStrip.run(params, controller, services)
+        case "drop_spare":
+            // The next opening loads cold, as after memory pressure (scripts/ci/frame-pacing/golden.py).
+            services.newTabSpares.dropAll()
+            return state(services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
             services.newTabSpares.retarget(window)
             return state(services)
         default:
-            return .object(["error": .string("unknown action; use state, open_and_type or field")])
+            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field or open_tab")])
         }
     }
 
     private static func state(_ services: AppServices) -> JSONValue {
         let pool = services.newTabSpares
+        let omnibar = NewTabPage.omnibar(services, excluding: nil)
         var spares: [JSONValue] = []
         if let spare = pool.spare {
             // Ready: the page asked for its handshake, so it is loaded and rendered.
             var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake)]
-            if let pid = webProcess(spare.view.webView) {
+            if let pid = WebContentProcess.identifier(of: spare.view.webView) {
                 entry["pid"] = .number(Double(pid))
-                entry["footprint_mb"] = footprint(pid).map { .number($0) } ?? .null
+                entry["footprint_mb"] = ProcessUsage.sample(pid).map { .number(Double($0.physFootprint) / 1_048_576) } ?? .null
             }
             spares.append(.object(entry))
         }
         return .object([
-            "likely": .bool(pool.isLikely), "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
+            "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
+            // What a New Tab page opened now would suggest: its open tabs and other workspaces.
+            "omnibar_tabs": .array(omnibar.tabs.map { .object(["title": .string($0.title), "workspace": $0.workspace.map(JSONValue.string) ?? .null]) }),
+            "omnibar_workspaces": .array(omnibar.workspaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) }),
         ])
     }
 
@@ -78,13 +107,15 @@ enum DebugNewTab {
         return controllers.indices.contains(index) ? controllers[index] : nil
     }
 
-    private static func openAndType(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    private static func openAndType(_ params: [String: JSONValue], services: AppServices, leave: Bool = false) -> JSONValue {
         let text = params["text"]?.stringValue ?? ""
         let target = controller(params, services)
         guard let pane = target?.content?.focusedPane else {
             return .object(["error": .string("no focused pane")])
         }
+        let shown = pane.currentTabKey
         pane.newTabPage()
+        if leave, let shown { pane.select(StripTabID(shown)) }
         // Where the first key goes: the adopted page's web view, or a stale responder.
         let responder = pane.view.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
         for character in text {
@@ -95,38 +126,27 @@ enum DebugNewTab {
         return .object([
             "opening": services.newTabSpares.openings.last.map(opening) ?? .null,
             "first_responder": .string(responder),
+            "holding": .bool(services.keyRouter.newTabInputCoordinator.isHolding(in: pane.view.window)),
         ])
     }
 
-    private static func field(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
+    private static func field(_ params: [String: JSONValue], _ services: AppServices, before: String = "") async -> JSONValue {
         guard let pane = controller(params, services)?.content?.focusedPane, let key = pane.currentTabKey,
               let view = services.agentTabs.existingView(key) else {
             return .object(["error": .string("the focused pane shows no agent page")])
         }
         let script = """
+            \(before)
             const field = document.querySelector('.nt-field, .acpmux-newtab-field');
-            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field });
+            const openTabs = [...document.querySelectorAll('.nt-open-tab .nt-row-title')].map((title) => title.textContent);
+            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field,
+                                    open_tabs: openTabs });
             """
-        guard let text = try? await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page) as? String,
+        guard let text = try? await view.callPageScript(script) as? String,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {
             return .object(["error": .string("the page returned no JSON")])
         }
         return value
-    }
-
-    private static func webProcess(_ webView: WKWebView) -> Int32? {
-        guard webView.responds(to: NSSelectorFromString("_webProcessIdentifier")),
-              let pid = (webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return nil }
-        return pid
-    }
-
-    /// Physical footprint in MB (what Activity Monitor's Memory column shows).
-    private static func footprint(_ pid: Int32) -> Double? {
-        var info = rusage_info_v4()
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
-        }
-        return result == 0 ? Double(info.ri_phys_footprint) / 1_048_576 : nil
     }
 }
 #endif

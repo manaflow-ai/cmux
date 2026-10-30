@@ -29,11 +29,12 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 keywords: ["create", "last", "end"], category: .workspace, symbol: "arrow.down.to.line",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-at-bottom", startsTerminal: true
             ),
+            // Folds New Workspace in This Group and in Same Directory (cmuxterm-hq#1829; legacyAliases).
             ActionDescriptor(
-                id: "workspace.newInGroup",
-                title: String(localized: "action.workspace.newInGroup", defaultValue: "New Workspace in This Group", table: "WorkspaceActions", bundle: .module),
-                keywords: ["create", "group", "section"], category: .workspace, symbol: "folder.badge.plus",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-in-group", startsTerminal: true
+                id: "workspace.newLikeThis",
+                title: String(localized: "action.workspace.newLikeThis", defaultValue: "New Workspace Like This", table: "WorkspaceActions", bundle: .module),
+                keywords: ["create", "same", "group", "cwd", "folder", "directory"], category: .workspace, symbol: "square.on.square.dashed",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-like-this", startsTerminal: true
             ),
             ActionDescriptor(
                 id: "workspace.newInNewGroup",
@@ -48,12 +49,6 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine], targets: [.workspace], cliName: "workspace new-on-machine", startsTerminal: true
             ),
             ActionDescriptor(
-                id: "workspace.newInSameDirectory",
-                title: String(localized: "action.workspace.newInSameDirectory", defaultValue: "New Workspace in Same Directory", table: "WorkspaceActions", bundle: .module),
-                keywords: ["create", "cwd", "folder", "path"], category: .workspace, symbol: "folder",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace new-in-same-directory", startsTerminal: true
-            ),
-            ActionDescriptor(
                 id: "workspace.duplicate",
                 title: String(localized: "action.workspace.duplicate", defaultValue: "Duplicate Workspace", table: "WorkspaceActions", bundle: .module),
                 keywords: ["copy", "clone", "layout"], category: .workspace, symbol: "plus.square.on.square",
@@ -61,7 +56,7 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.duplicateTerminalsOnly",
-                title: String(localized: "action.workspace.duplicateTerminalsOnly", defaultValue: "Duplicate Workspace without Browser Tabs", table: "WorkspaceActions", bundle: .module),
+                title: String(localized: "action.workspace.duplicateTerminalsOnly", defaultValue: "Duplicate Workspace Without Browser Tabs", table: "WorkspaceActions", bundle: .module),
                 keywords: ["copy", "clone", "layout", "terminal"], category: .workspace, symbol: "terminal",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace duplicate-terminals-only", startsTerminal: true
             ),
@@ -74,8 +69,8 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.clearIcon",
-                title: String(localized: "action.workspace.clearIcon", defaultValue: "Clear Workspace Icon", table: "WorkspaceActions", bundle: .module),
-                keywords: ["emoji", "symbol", "reset"], category: .workspace, symbol: "xmark.circle",
+                title: String(localized: "action.workspace.clearIcon", defaultValue: "Remove Workspace Icon", table: "WorkspaceActions", bundle: .module),
+                keywords: ["emoji", "symbol", "reset", "clear"], category: .workspace, symbol: "circle.dashed",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-icon"
             ),
             ActionDescriptor(
@@ -158,7 +153,7 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.mergeInto",
-                title: String(localized: "action.workspace.mergeInto", defaultValue: "Merge Workspace into…", table: "WorkspaceActions", bundle: .module),
+                title: String(localized: "action.workspace.mergeInto", defaultValue: "Merge Workspace Into…", table: "WorkspaceActions", bundle: .module),
                 keywords: ["combine", "join", "move tabs"], category: .workspace, symbol: "arrow.triangle.merge",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.intoWorkspace], targets: [.workspace], cliName: "workspace merge-into"
             ),
@@ -167,6 +162,12 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.pane.moveToNewWorkspace", defaultValue: "Move Pane to New Workspace", table: "WorkspaceActions", bundle: .module),
                 keywords: ["split", "detach", "tear off"], category: .pane, symbol: "rectangle.portrait.and.arrow.right",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.pane], cliName: "pane move-to-new-workspace"
+            ),
+            ActionDescriptor(
+                id: "pane.moveToNewWindow",
+                title: String(localized: "action.pane.moveToNewWindow", defaultValue: "Move Pane to New Window", table: "WorkspaceActions", bundle: .module),
+                keywords: ["window", "detach", "tear off"], category: .pane, symbol: "macwindow.badge.plus",
+                surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "pane move-to-new-window"
             ),
         ]
     }

@@ -13,15 +13,20 @@
 
 use std::os::fd::{FromRawFd, OwnedFd};
 
+use crate::program_status::ProgramStatusSnapshot;
+use crate::terminal_host_runtime::shared::program_status_codec;
+
 use super::adopted_child::AdoptedChild;
 use super::pty_custody::PtyCustody;
 use super::pty_lock::PtyOwnershipLock;
 use super::*;
 
 /// The launch fields of `Launch` plus the PTY and session to adopt, the
-/// reused incarnation and a seed blob of VT replay. The seed may use the
-/// full blob budget on top of the `Launch` budget.
-const MAX_LAUNCH_ADOPT_PAYLOAD: usize = MAX_LAUNCH_PAYLOAD + size_of::<u32>() + MAX_BLOB;
+/// reused incarnation, a seed blob of VT replay and the owner's OSC 7501
+/// records. The seed may use the full blob budget on top of the `Launch`
+/// budget; the records get the rest of the frame.
+const MAX_LAUNCH_ADOPT_PAYLOAD: usize = MAX_FRAME_PAYLOAD;
+const _: () = assert!(MAX_LAUNCH_PAYLOAD + size_of::<u32>() + MAX_BLOB <= MAX_LAUNCH_ADOPT_PAYLOAD);
 const ADOPT_PTY_FD_FLAG: &str = "--adopt-pty-fd";
 /// The descriptor the owner passes the master at.
 const ADOPTED_PTY_FD: libc::c_int = 3;
@@ -33,6 +38,7 @@ pub(crate) struct AdoptSpec {
     child_pid: u32,
     session_id: u32,
     seed: Vec<u8>,
+    program_status: Option<ProgramStatusSnapshot>,
 }
 
 #[derive(Debug)]
@@ -42,6 +48,9 @@ struct HostLaunchAdopt {
     session_id: u32,
     incarnation: HostIncarnation,
     seed: Vec<u8>,
+    /// Optional trailing section (cx-6so.36.10): the records the dead host's
+    /// owner kept, so a later daemon adopts them from this host.
+    program_status: Option<ProgramStatusSnapshot>,
 }
 
 impl HostLaunchAdopt {
@@ -49,7 +58,6 @@ impl HostLaunchAdopt {
         let launch = &self.launch;
         let (cols, rows) = normalize_terminal_geometry(launch.cols, launch.rows)?;
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         anyhow::ensure!(self.child_pid != 0 && self.session_id != 0, "adopted session is unnamed");
         let mut output = Vec::new();
         put_string(&mut output, &launch.endpoint)?;
@@ -74,6 +82,10 @@ impl HostLaunchAdopt {
             "terminal-host adopt launch payload is too large"
         );
         put_blob(&mut output, &self.seed)?;
+        if let Some(program_status) = &self.program_status {
+            let room = MAX_LAUNCH_ADOPT_PAYLOAD.saturating_sub(output.len());
+            output.extend_from_slice(&program_status_tail(program_status, room));
+        }
         Ok(output)
     }
 
@@ -90,7 +102,6 @@ impl HostLaunchAdopt {
         let scrollback = decoder.u32()? as usize;
         let default_colors = decode_default_colors(&mut decoder)?;
         let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
         let child_pid = decoder.u32()?;
         let session_id = decoder.u32()?;
@@ -98,6 +109,10 @@ impl HostLaunchAdopt {
         let incarnation = HostIncarnation::from_hex(&encode_hex(&incarnation_bytes))
             .ok_or_else(|| anyhow::anyhow!("adopted incarnation is not a canonical UUIDv4"))?;
         let seed = decoder.blob()?.to_vec();
+        let program_status = decoder
+            .has_remaining()
+            .then(|| program_status_codec::program_status(&mut decoder))
+            .transpose()?;
         decoder.finish()?;
         anyhow::ensure!(child_pid != 0 && session_id != 0, "adopted session is unnamed");
         let launch = HostLaunch {
@@ -114,8 +129,25 @@ impl HostLaunchAdopt {
             default_colors,
             kitty_graphics_limits,
             seed: Vec::new(),
+            workspace_key: String::new(),
         };
-        Ok(Self { launch, child_pid, session_id, incarnation, seed })
+        Ok(Self { launch, child_pid, session_id, incarnation, seed, program_status })
+    }
+}
+
+/// The records section within `room` bytes. Records must never cost the
+/// shell its replacement host: past the room, or if they do not encode,
+/// only `next_seq` goes (as a Snapshot past its frame budget).
+fn program_status_tail(snapshot: &ProgramStatusSnapshot, room: usize) -> Vec<u8> {
+    let mut tail = Vec::new();
+    if program_status_codec::put_program_status(&mut tail, snapshot).is_ok() && tail.len() <= room {
+        return tail;
+    }
+    tail.clear();
+    let empty = ProgramStatusSnapshot { records: Vec::new(), next_seq: snapshot.next_seq };
+    match program_status_codec::put_program_status(&mut tail, &empty) {
+        Ok(()) if tail.len() <= room => tail,
+        _ => Vec::new(),
     }
 }
 
@@ -125,6 +157,11 @@ fn parse_fd(text: &str) -> Option<RawFd> {
 
 /// The adopted PTY descriptor of the hidden host's arguments, if any.
 pub(crate) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
+    // A trailing `--owner <value>` only labels the process (host_session.rs).
+    let args = match args {
+        [rest @ .., flag, _] if flag == OWNER_FLAG => rest,
+        args => args,
+    };
     match args {
         [mode] if mode == "--bootstrap-stdio" => Ok(None),
         [mode, flag, fd] if mode == "--bootstrap-stdio" && flag == ADOPT_PTY_FD_FLAG => {
@@ -139,9 +176,10 @@ pub(crate) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
 pub(super) fn adopt_pty_fd_from_process_args() -> Option<RawFd> {
     // args_os: a non-UTF-8 executable path must not panic the host.
     let args = std::env::args_os().collect::<Vec<_>>();
-    args.windows(2)
-        .find(|pair| pair[0] == ADOPT_PTY_FD_FLAG)
-        .and_then(|pair| pair[1].to_str().and_then(parse_fd))
+    args.windows(2).find_map(|pair| match pair {
+        [flag, value] if flag == ADOPT_PTY_FD_FLAG => value.to_str().and_then(parse_fd),
+        _ => None,
+    })
 }
 
 /// Both `Launch` (with its optional respawn seed, cx-6so.49 L2) and
@@ -173,6 +211,7 @@ pub(crate) fn decode(
         child_pid: adopt.child_pid,
         session_id: adopt.session_id,
         seed: adopt.seed,
+        program_status: adopt.program_status,
     };
     Ok((adopt.launch, Some(spec)))
 }
@@ -212,9 +251,10 @@ fn spawn_adopted_runtime(
     let fd = unsafe { OwnedFd::from_raw_fd(spec.fd) };
     let master = cmux_pty::adopt_master(fd)?;
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-    master.resize(pty_size(launch.cols, launch.rows, cell_pixels)?)?;
+    master.resize(pty_size(launch.cols, launch.rows, cell_pixels))?;
     crate::debug_spans::mark("host.pty_adopted");
-    start_host_runtime(launch, bootstrapped, master, HostChild::Adopted(child), &spec.seed)
+    let child = HostChild::Adopted(child);
+    start_host_runtime(launch, bootstrapped, master, child, &spec.seed, spec.program_status)
 }
 
 /// What a replacement host adopts and how it presents the terminal.
@@ -244,10 +284,15 @@ fn spawn_adopting_host(
     binary: Option<PathBuf>,
     master: RawFd,
 ) -> anyhow::Result<(SpawnedHostProcess, ChildStdinPair)> {
+    let orphan_env = host_orphan_env();
     let configure = |command: &mut Command| {
+        if let Some((name, value)) = &orphan_env {
+            command.env(name, value);
+        }
         command
             .args(["__terminal-host", "--bootstrap-stdio", ADOPT_PTY_FD_FLAG])
             .arg(ADOPTED_PTY_FD.to_string())
+            .args(host_owner_args())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -281,11 +326,10 @@ fn spawn_adopting_host(
         None => crate::host_exe::spawn_host(configure),
     }
     .context("spawn adopting terminal-host process")?;
-    let mut process = SpawnedHostProcess { child: Some(child) };
-    host_scope::place_host(process.child_mut().id());
-    let stdin = process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
-    let stdout =
-        process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
+    host_scope::place_host(child.id());
+    let (process, stdin, stdout) = SpawnedHostProcess::with_pipes(child);
+    let stdin = stdin.context("open terminal-host bootstrap stdin")?;
+    let stdout = stdout.context("open terminal-host bootstrap stdout")?;
     Ok((process, (stdin, stdout)))
 }
 
@@ -320,6 +364,16 @@ pub fn launch_terminal_host_adopting(
     root: &Path,
     adoption: TerminalHostAdoption<'_>,
 ) -> anyhow::Result<HostAttachment> {
+    launch_terminal_host_adopting_with_program_status(root, adoption, None)
+}
+
+/// [`launch_terminal_host_adopting`] whose host also starts with the
+/// owner's OSC 7501 records (cx-6so.36.10).
+pub(crate) fn launch_terminal_host_adopting_with_program_status(
+    root: &Path,
+    adoption: TerminalHostAdoption<'_>,
+    program_status: Option<ProgramStatusSnapshot>,
+) -> anyhow::Result<HostAttachment> {
     let terminal_id = TerminalId::from_hex(&adoption.identity.terminal_id)
         .ok_or_else(|| anyhow::anyhow!("terminal id is not a canonical UUIDv4"))?;
     let incarnation = HostIncarnation::from_hex(&adoption.identity.incarnation)
@@ -327,9 +381,9 @@ pub fn launch_terminal_host_adopting(
     let terminal_hex = terminal_id.to_hex();
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     let uid = fs::metadata(root)?.uid();
-    let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-    prepare_endpoint_dir(&endpoint_root)?;
-    let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
+    prepare_endpoint_dir(&sys::endpoint_dir(uid))?;
+    prepare_endpoint_dir(&sys::host_endpoint_dir(uid, root))?;
+    let endpoint = sys::host_endpoint(uid, root, &terminal_hex);
     let record_path =
         crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
     let predecessor = predecessor(&record_path, &adoption.identity)?;
@@ -342,18 +396,20 @@ pub fn launch_terminal_host_adopting(
             cols: options.cols,
             rows: options.rows,
             cell_pixels: adoption.cell_pixels,
-            scrollback: options.scrollback,
+            scrollback: HostLaunch::host_scrollback(options.scrollback),
             cwd: None,
             command: Vec::new(),
             extra_env: Vec::new(),
             default_colors: adoption.default_colors,
             kitty_graphics_limits: adoption.kitty_graphics_limits,
             seed: Vec::new(),
+            workspace_key: String::new(),
         },
         child_pid: adoption.custody.child_pid,
         session_id: adoption.custody.session_id,
         incarnation,
         seed: adoption.seed.to_vec(),
+        program_status,
     };
     let payload = launch.encode()?;
     let (process, (mut stdin, mut stdout)) =
@@ -447,11 +503,13 @@ mod tests {
                 default_colors: DefaultColors::default(),
                 kitty_graphics_limits: KittyGraphicsLimits::default(),
                 seed: Vec::new(),
+                workspace_key: String::new(),
             },
             child_pid: 4242,
             session_id: 4242,
             incarnation: HostIncarnation::random().unwrap(),
             seed,
+            program_status: None,
         }
     }
 

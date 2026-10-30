@@ -110,6 +110,35 @@ describe("UserDO membership index", { timeout: 60_000 }, () => {
 })
 
 describe("row-mode team events carry no admin state", { timeout: 60_000 }, () => {
+  it("a plain member's snapshot and live events show only their own personal AI limit (cx-ds09i review P2)", async () => {
+    const t = await token("team-rows-5")
+    const team = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value.personal_team as string
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as any
+    const [me, other] = ["user_00000000000000000081", "user_00000000000000000082"]
+    await runInDurableObject(stub, async (_i, state) => {
+      for (const u of [me, other]) state.storage.sql.exec("INSERT INTO own_rows (tbl, k, n, json) VALUES ('member', ?, NULL, ?)", u, JSON.stringify({ user: u, role: "member", display_name: "M" }))
+    })
+    // The owner sets the other member's limit before the subscription, so the snapshot holds it.
+    expect((await post("/v1/ops", t, { op: "team.ai_limit.member.set", params: { member: other, limit_usd: 70 }, idempotency_key: "l1", origin: "user" })).ok).toBe(true)
+    const res = await stub.fetch("https://do/", { headers: { Upgrade: "websocket", "x-cmux-entity": team, "x-cmux-principal": JSON.stringify({ identity: `session:${me}`, kind: "session", user: me, team }) } })
+    const ws = res.webSocket as WebSocket
+    const frames: Array<any> = []
+    ws.addEventListener("message", (e) => frames.push(JSON.parse(e.data as string)))
+    ws.accept()
+    ws.send(JSON.stringify({ t: "subscribe", pending: [] }))
+    for (let i = 0; i < 50 && !frames.some((f) => f.t === "snapshot"); i++) await new Promise((r) => setTimeout(r, 10))
+    const snapshot = frames.find((f) => f.t === "snapshot")
+    expect(snapshot).toBeDefined()
+    expect(snapshot.state.ai_member_limits?.[other]).toBeUndefined()
+    expect((await post("/v1/ops", t, { op: "team.ai_limit.member.set", params: { member: other, limit_usd: 80 }, idempotency_key: "l2", origin: "user" })).ok).toBe(true)
+    expect((await post("/v1/ops", t, { op: "team.ai_limit.member.set", params: { member: me, limit_usd: 50 }, idempotency_key: "l3", origin: "user" })).ok).toBe(true)
+    for (let i = 0; i < 100 && !frames.some((f) => f.t === "event" && f.params?.member === me); i++) await new Promise((r) => setTimeout(r, 10))
+    const events = frames.filter((f) => f.t === "event" && f.op === "team.ai_limit.member.set")
+    // Only the event naming this member arrives; no frame carries the other member's limit.
+    expect(events.map((e) => e.params.member)).toEqual([me])
+    for (const f of frames) expect(JSON.stringify(f.state ?? f.effects?.state ?? {})).not.toContain(other)
+  })
+
   it("a plain member's event frame has no policy history, tokens, SSO, domains or audit head", async () => {
     const t = await token("team-rows-4")
     const ensured = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value

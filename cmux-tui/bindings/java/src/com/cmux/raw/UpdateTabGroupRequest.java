@@ -15,6 +15,7 @@ public final class UpdateTabGroupRequest implements WireValue {
     private final Field<Boolean> collapsed;
     private final Field<String> color;
     private final String group;
+    private final Field<String> icon;
     private final Field<String> name;
 
     private UpdateTabGroupRequest(Builder builder) {
@@ -22,6 +23,7 @@ public final class UpdateTabGroupRequest implements WireValue {
         this.color = builder.color;
         if (!builder.groupSet) throw new IllegalArgumentException("group is required");
         this.group = Wire.nonNull(builder.group, "group");
+        this.icon = builder.icon;
         this.name = builder.name;
     }
 
@@ -30,6 +32,7 @@ public final class UpdateTabGroupRequest implements WireValue {
     public Field<Boolean> collapsed() { return collapsed; }
     public Field<String> color() { return color; }
     public String group() { return group; }
+    public Field<String> icon() { return icon; }
     public Field<String> name() { return name; }
 
     public static UpdateTabGroupRequest fromWire(Object value) {
@@ -45,6 +48,10 @@ public final class UpdateTabGroupRequest implements WireValue {
         }
         Object rawGroup = Wire.required(object, "group");
         builder.group(Wire.string(rawGroup, "UpdateTabGroupRequest.group"));
+        Object rawIcon = Wire.optional(object, "icon");
+        if (!Wire.isMissing(rawIcon)) {
+            builder.icon(rawIcon == null ? null : Wire.string(rawIcon, "UpdateTabGroupRequest.icon"));
+        }
         Object rawName = Wire.optional(object, "name");
         if (!Wire.isMissing(rawName)) {
             builder.name(rawName == null ? null : Wire.string(rawName, "UpdateTabGroupRequest.name"));
@@ -58,6 +65,7 @@ public final class UpdateTabGroupRequest implements WireValue {
         Wire.put(object, "collapsed", collapsed);
         Wire.put(object, "color", color);
         Wire.put(object, "group", group);
+        Wire.put(object, "icon", icon);
         Wire.put(object, "name", name);
         return Collections.unmodifiableMap(object);
     }
@@ -65,11 +73,11 @@ public final class UpdateTabGroupRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof UpdateTabGroupRequest that)) return false;
-        return Objects.equals(collapsed, that.collapsed) && Objects.equals(color, that.color) && Objects.equals(group, that.group) && Objects.equals(name, that.name);
+        return Objects.equals(collapsed, that.collapsed) && Objects.equals(color, that.color) && Objects.equals(group, that.group) && Objects.equals(icon, that.icon) && Objects.equals(name, that.name);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(collapsed, color, group, name); }
+    public int hashCode() { return Objects.hash(collapsed, color, group, icon, name); }
 
     @Override
     public String toString() { return "UpdateTabGroupRequest" + toWire(); }
@@ -79,6 +87,7 @@ public final class UpdateTabGroupRequest implements WireValue {
         private Field<String> color = Field.omitted();
         private String group;
         private boolean groupSet;
+        private Field<String> icon = Field.omitted();
         private Field<String> name = Field.omitted();
 
         public Builder collapsed(Boolean value) {
@@ -92,6 +101,10 @@ public final class UpdateTabGroupRequest implements WireValue {
         public Builder group(String value) {
             this.group = value;
             this.groupSet = true;
+            return this;
+        }
+        public Builder icon(String value) {
+            this.icon = Field.ofNullable(value);
             return this;
         }
         public Builder name(String value) {

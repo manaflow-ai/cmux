@@ -1,9 +1,11 @@
-// A listing's page: header (icon, name, publisher, tier, Install/Remove, Open), description,
-// screenshots (the live preview comes later with a web scene renderer; coordinator Q6),
-// permissions with reasons (grant switches once installed), versions, repository.
+// A listing's page: header (icon, name, publisher, tier, state, Open and the item action),
+// description, then the shared detail sections (items.tsx): screenshots (the live preview comes
+// later with a web scene renderer; coordinator Q6), what it adds, permissions with reasons (grant
+// switches once installed), settings once installed, versions, repository.
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
-import { isRemovable, orderScopes, RiskLabel, TierLabel } from "./model";
+import { AddsList, DetailSection, ItemAction, ItemSettings, ScreenshotStrip, StateBadge } from "./items";
+import { orderScopes, RiskLabel, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 
@@ -25,7 +27,51 @@ export function AppDetailView({
       ‹ {t("store.tab.discover")}
     </button>
   );
-  if (!detail) return <div className="apps-detail">{back}</div>;
+  const backAction = back || (
+    <button type="button" className="apps-back" onClick={() => void store.select(undefined)}>
+      ‹ {t("store.tab.discover")}
+    </button>
+  );
+  if (!detail) {
+    const state = snap.detailStatus;
+    if (state === "loading") {
+      return (
+        <div className="apps-detail apps-detail-state" data-detail-state="loading">
+          <div className="apps-detail-body">
+            {backAction}
+            <output className="apps-state" aria-busy="true">
+              <span className="apps-state-mark" aria-hidden="true">
+                …
+              </span>
+              <strong>{t("store.detail.loading")}</strong>
+            </output>
+          </div>
+        </div>
+      );
+    }
+    if (state === "not-found" || state === "error") {
+      return (
+        <div className="apps-detail apps-detail-state" data-detail-state={state}>
+          <div className="apps-detail-body">
+            {backAction}
+            <output className="apps-state apps-state-error" role="alert">
+              <span className="apps-state-mark" aria-hidden="true">
+                !
+              </span>
+              <strong>{state === "not-found" ? t("store.detail.notFound") : t("store.error.load")}</strong>
+              {snap.detailError && <span className="selectable">{snap.detailError}</span>}
+              <span className="apps-detail-state-actions">
+                <button type="button" className="apps-button" onClick={() => void store.retryDetail()}>
+                  {t("store.action.reload")}
+                </button>
+              </span>
+            </output>
+          </div>
+        </div>
+      );
+    }
+    return <div className="apps-detail">{back}</div>;
+  }
   const grants = snap.grants[detail.id];
   return (
     <div className="apps-detail">
@@ -38,9 +84,7 @@ export function AppDetailView({
             <div className="apps-detail-meta">
               <span>{format("store.detail.publisher", detail.publisher)}</span>
               <Badge text={t(TierLabel[detail.tier])} />
-              {detail.installed && (
-                <Badge text={t(detail.enabled === false ? "store.badge.disabled" : "store.badge.installed")} />
-              )}
+              <StateBadge app={detail} strings={strings} />
             </div>
           </div>
           <div className="apps-detail-actions">
@@ -49,40 +93,13 @@ export function AppDetailView({
                 {t("store.action.open")}
               </button>
             )}
-            {!detail.installed ? (
-              <button type="button" className="apps-button primary" onClick={() => void store.install(detail.id)}>
-                {t("store.action.install")}
-              </button>
-            ) : isRemovable(detail) ? (
-              <button type="button" className="apps-button" onClick={() => void store.uninstall(detail.id)}>
-                {t("store.action.remove")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="apps-button"
-                onClick={() => void store.setHidden(detail.id, !detail.hidden)}
-              >
-                {t(detail.hidden ? "store.action.show" : "store.action.hide")}
-              </button>
-            )}
+            <ItemAction app={detail} store={store} strings={strings} />
           </div>
         </header>
         <p className="apps-detail-description selectable">{detail.description}</p>
-        {detail.screenshots.length > 0 && (
-          <section className="apps-section">
-            <h2>{t("store.detail.screenshots")}</h2>
-            <div className="apps-screenshots">
-              {detail.screenshots
-                .filter((src) => src.startsWith("data:image/"))
-                .map((src, index) => (
-                  <img key={index} src={src} alt="" className="apps-screenshot" />
-                ))}
-            </div>
-          </section>
-        )}
-        <section className="apps-section">
-          <h2>{t("store.detail.permissions")}</h2>
+        <ScreenshotStrip screenshots={detail.screenshots} strings={strings} />
+        <AddsList contributes={detail.contributes} strings={strings} />
+        <DetailSection title={t("store.detail.permissions")}>
           {detail.scopes.length === 0 ? (
             <p className="apps-muted">{t("store.detail.noPermissions")}</p>
           ) : grants ? (
@@ -99,9 +116,9 @@ export function AppDetailView({
               ))}
             </ul>
           )}
-        </section>
-        <section className="apps-section">
-          <h2>{t("store.detail.versions")}</h2>
+        </DetailSection>
+        <ItemSettings app={detail} store={store} strings={strings} />
+        <DetailSection title={t("store.detail.versions")}>
           <ul className="apps-versions">
             {detail.versions.map((version) => (
               <li key={version.version}>
@@ -110,7 +127,7 @@ export function AppDetailView({
               </li>
             ))}
           </ul>
-        </section>
+        </DetailSection>
         {detail.repository?.startsWith("https://") && (
           <a className="apps-link" href={detail.repository} target="_blank" rel="noreferrer">
             {t("store.action.repository")} ↗

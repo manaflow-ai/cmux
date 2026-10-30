@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import datetime as dt
 import importlib.util
+import io
 import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
@@ -18,8 +22,9 @@ sys.modules[spec.name] = picker
 spec.loader.exec_module(picker)
 
 
-def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserved: int = 0, free: int | None = None):
-    return picker.Pool(label, capacity, running, queued, free=free, reserved=reserved)
+def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserved: int = 0,
+         free: int | None = None, xcode_app: str = ""):
+    return picker.Pool(label, capacity, running, queued, free=free, reserved=reserved, xcode_app=xcode_app)
 
 
 class PickRuleTests(unittest.TestCase):
@@ -72,6 +77,46 @@ class PickRuleTests(unittest.TestCase):
         state = picker.State(jobs=3, owned=(pool("glaeda-std-xcode-26.6", 8, running=5, queued=20),),
                              blacksmith=(pool(picker.BLACKSMITH[0], 5),), owned_enabled=True)
         self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+
+    def test_gui_required_skips_aws_owned_pool(self):
+        state = picker.State(
+            jobs=1,
+            owned=(pool("glaeda-aws-std-xcode-26.6", 5, free=5),),
+            blacksmith=(pool(picker.BLACKSMITH[1], 10),),
+            owned_enabled=True,
+            gui_required=True,
+        )
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, picker.BLACKSMITH[1])
+        self.assertFalse(choice.owned)
+
+    def test_gui_required_prefers_a_gui_capable_mini_over_aws(self):
+        state = picker.State(
+            jobs=1,
+            owned=(
+                pool("glaeda-aws-std-xcode-26.6", 5, free=5),
+                pool("glaeda-std-xcode-26.6", 5, free=5),
+            ),
+            blacksmith=(pool(picker.BLACKSMITH[1], 10),),
+            owned_enabled=True,
+            gui_required=True,
+        )
+        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+
+    def test_owned_retry_uses_matching_blacksmith_xcode(self):
+        state = picker.State(
+            jobs=1,
+            owned=(pool("glaeda-aws-std-xcode-26.3", 5, free=5,
+                        xcode_app="/Applications/Xcode_26.3.app"),),
+            blacksmith=(
+                pool(picker.BLACKSMITH[0], 5, xcode_app="/Applications/Xcode_26.6.app"),
+                pool(picker.BLACKSMITH[2], 10, xcode_app="/Applications/Xcode_26.3.app"),
+            ),
+            owned_enabled=True,
+        )
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, "glaeda-aws-std-xcode-26.3")
+        self.assertEqual(choice.retry_label, picker.BLACKSMITH[2])
 
 
 LIGHT = "glaeda-light-xcode-26.6"
@@ -142,6 +187,72 @@ class ConfiguredPoolTests(unittest.TestCase):
         self.assertNotEqual(picker.pick(observed(aws + busy_minis, {})).label, "glaeda-std-xcode-26.3")
 
 
+class BlacksmithStallTests(unittest.TestCase):
+    """One stall rule (blacksmith_stalled): a label whose oldest job has waited BLACKSMITH_STALL_MINUTES
+    with nothing starting has no free slot, whatever its running count says."""
+
+    @staticmethod
+    def state(pools, *, age=0.0, jobs=1):
+        with mock.patch.object(picker, "snapshot_age", return_value=age):
+            return picker.state_from(jobs=jobs, env={}, fork=False, runners=None,
+                                     snapshot={"generated_at": "2026-10-27T06:13:01Z", "pools": pools},
+                                     fallback=picker.BLACKSMITH[1], owned_enabled=False)
+
+    def test_a_stalled_macos_26_label_beside_a_free_macos_15_slot_picks_macos_15(self):
+        """2026-10-27 06:13Z: 12 vCPU macOS 26 had 44 queued (oldest 396 min) and 0 running, so it
+        read as 5 free slots and took nightly 40452273751's verify jobs."""
+        state = self.state({picker.BLACKSMITH[0]: {"queued": 3, "running": 0, "oldest_queued_minutes": 50},
+                            picker.BLACKSMITH[1]: {"queued": 3, "running": 0, "oldest_queued_minutes": 50},
+                            picker.BLACKSMITH[2]: {"queued": 0, "running": 1}})
+        by_label = {item.label: item for item in state.blacksmith}
+        self.assertTrue(by_label[picker.BLACKSMITH[0]].stalled)
+        self.assertEqual(by_label[picker.BLACKSMITH[0]].available, 0)
+        self.assertFalse(by_label[picker.BLACKSMITH[2]].stalled)
+        self.assertEqual(picker.pick(state).label, picker.BLACKSMITH[2])
+
+    def test_the_threshold_is_the_named_constant_and_counts_the_snapshot_age(self):
+        limit = picker.BLACKSMITH_STALL_MINUTES
+        self.assertEqual(limit, 10)
+        self.assertFalse(picker.blacksmith_stalled(2, limit - 1))
+        self.assertTrue(picker.blacksmith_stalled(2, limit))
+        self.assertTrue(picker.blacksmith_stalled(2, limit - 4, age=4))
+        self.assertFalse(picker.blacksmith_stalled(0, 500))
+        young = self.state({picker.BLACKSMITH[0]: {"queued": 2, "running": 0, "oldest_queued_minutes": limit - 1}})
+        self.assertEqual(picker.pick(young).label, picker.BLACKSMITH[0])
+        aged = self.state({picker.BLACKSMITH[0]: {"queued": 2, "running": 0, "oldest_queued_minutes": limit - 1}}, age=2)
+        self.assertNotEqual(picker.pick(aged).label, picker.BLACKSMITH[0])
+
+    def test_a_dead_macos_26_label_with_its_queue_cleared_has_no_free_slot(self):
+        """2026-10-30: blacksmith-12vcpu-macos-26 ran nothing and started no job for about a day; with its queue
+        cleared the stall rule alone read its five slots free (blacksmith_dead())."""
+        large, small = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        stamp = (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        pools = {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 5}}
+        snap = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "pools": pools,
+                "label_started": {small: stamp}}
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        by_label = {item.label: item for item in state.blacksmith}
+        self.assertTrue(by_label[large].stalled)
+        self.assertNotEqual(picker.pick(state).label, large)
+        # Without start evidence (an older janitor) the label reads as before.
+        del snap["label_started"]
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        self.assertFalse({item.label: item for item in state.blacksmith}[large].stalled)
+
+    def test_with_every_label_full_a_moving_one_beats_a_stalled_one(self):
+        state = picker.State(jobs=1, blacksmith=(
+            dataclasses.replace(pool(picker.BLACKSMITH[0], 5, 0, 1), stalled=True),
+            pool(picker.BLACKSMITH[1], 10, 10, 30),
+            dataclasses.replace(pool(picker.BLACKSMITH[2], 10, 0, 1), stalled=True)))
+        self.assertEqual(picker.pick(state).label, picker.BLACKSMITH[1])
+        every = picker.State(jobs=1, blacksmith=tuple(
+            dataclasses.replace(item, stalled=True) for item in state.blacksmith))
+        self.assertTrue(picker.pick(every).label.startswith("blacksmith-"))
+
+
 class LiveRunnerReadTests(unittest.TestCase):
     """The organization has hundreds of runners; the minis are not on the first page."""
 
@@ -153,6 +264,9 @@ class LiveRunnerReadTests(unittest.TestCase):
         asked = []
 
         class Paged(picker.LiveState):
+            def _group_runners(self):
+                raise RuntimeError("group unread")
+
             def _get(self, path):
                 asked.append(path)
                 page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
@@ -304,12 +418,111 @@ class OwnedQueueTests(unittest.TestCase):
         self.assertTrue(values["retry_runner"].startswith("blacksmith-"))
 
 
+class ApiBudgetTests(unittest.TestCase):
+    """main() spends no GitHub request it cannot use (ci.yml runs it on every pull request push)."""
+
+    def run_main(self, env):
+        calls = []
+
+        class Recording(picker.LiveState):
+            def runners(self):
+                calls.append("runners")
+                return []
+
+            def snapshot(self):
+                calls.append("snapshot")
+                return None
+
+        original = picker.LiveState
+        picker.LiveState = Recording
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                picker.main([], env={"GITHUB_REPOSITORY": "manaflow-ai/cmux", **OWNED_ENV, **env})
+        finally:
+            picker.LiveState = original
+        return calls
+
+    def test_a_run_with_no_macos_jobs_reads_nothing(self):
+        # A feat-cmux-next pull request: next-route sets every macOS route false.
+        calls = self.run_main({"GH_TOKEN": "g", "ROUTE_TOKEN": "r", "RUN_MACOS": "false",
+                               "RUN_SWIFT_PACKAGES": "false", "RUN_RELEASE_BUILD": "false"})
+        self.assertEqual(calls, [])
+
+    def test_without_the_routing_token_the_org_runners_are_not_listed(self):
+        # GITHUB_TOKEN always gets a 403 from /orgs/*/actions/runners.
+        self.assertEqual(self.run_main({"GH_TOKEN": "g", "RUN_MACOS": "true"}), ["snapshot"])
+
+    def test_the_routing_token_lists_the_org_runners(self):
+        self.assertEqual(self.run_main({"GH_TOKEN": "g", "ROUTE_TOKEN": "r", "RUN_MACOS": "true"}),
+                         ["runners", "snapshot"])
+
+
 class LiveReaderTests(unittest.TestCase):
+    def test_the_minis_come_from_their_runner_group_not_the_org_pages(self):
+        """2,862 org runners on 2026-10-27: the org pages held no mini, so every owned pool read offline."""
+        minis = [{"id": index, "status": "online", "busy": False,
+                  "labels": [{"name": "glaeda-std-xcode-26.6"}]} for index in range(3)]
+
+        class Grouped(picker.LiveState):
+            def _group_runners(self):
+                return minis
+
+            def _get(self, path):
+                raise AssertionError(f"read the org-wide pages: {path}")
+
+        self.assertEqual(Grouped("token", "manaflow-ai/cmux").runners(), minis)
+        self.assertIn("runner-groups", (ROOT / "scripts/ci/pr_runner_pool.py").read_text())
+
+    def test_a_mini_past_page_ten_of_the_org_list_is_still_read(self):
+        """More than MAX_RUNNER_PAGES * 100 org runners, the minis only in the glaeda-minis group:
+        the minis are still read, and an owned pick takes them (2026-10-27, 2,862 org runners)."""
+        org = [runner(f"blacksmith-{index}", ["blacksmith-6vcpu-macos-26"], busy=True)
+               for index in range(picker.MAX_RUNNER_PAGES * 100 + 400)]
+        minis = [std_runner(index, busy=False) for index in range(6)]
+        for index, item in enumerate(org + minis):
+            item["id"] = index
+        org_tail = org + minis  # the org-wide list holds the minis only past page MAX_RUNNER_PAGES
+
+        def page_of(items, path):
+            page = int(path.rsplit("page=", 1)[1]) if "page=" in path else 1
+            return {"runners": items[(page - 1) * 100: page * 100]}
+
+        def group_api(_self, path):
+            if "/runner-groups?" in path:
+                return {"runner_groups": [{"id": 7, "name": "glaeda-minis"}]}
+            if "/runner-groups/7/runners" in path:
+                return page_of(minis, path)
+            if path.startswith("/repos/"):
+                return {"runners": []}
+            raise AssertionError(path)
+
+        class Live(picker.LiveState):
+            def _get(self, path):
+                return page_of(org_tail, path)
+
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_runner_pool
+
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", group_api):
+            read = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual({item["name"] for item in read}, {item["name"] for item in minis})
+        # The old org-wide read stops at MAX_RUNNER_PAGES and never sees a mini.
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", side_effect=RuntimeError("no group")):
+            fallback = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual(len(fallback), picker.MAX_RUNNER_PAGES * 100)
+        self.assertFalse(any(item["name"].startswith("std-") for item in fallback))
+        # observe() over the group read: the owned pool is online and picked.
+        self.assertEqual(picker.pick(observed(read, {}, jobs=1)).label, STD)
+        self.assertFalse(picker.pick(observed(fallback, {}, jobs=1)).owned)
+
     def test_live_reader_reads_the_org_runners_once(self):
         class Fake(picker.LiveState):
             def __init__(self):
                 super().__init__("token", "manaflow-ai/cmux")
                 self.paths = []
+
+            def _group_runners(self):
+                raise RuntimeError("group unread")
 
             def _get(self, path):
                 self.paths.append(path)
@@ -350,6 +563,50 @@ class LiveReaderTests(unittest.TestCase):
         self.assertEqual(values["root_runner"], "glaeda-aws-root-std-xcode-26.3")
         self.assertEqual(values["side_runner"], "glaeda-aws-side-std-xcode-26.3")
         self.assertEqual(values["admission_runner"], '["glaeda-aws-root-std-xcode-26.3"]')
+
+    def test_an_overflow_run_compiles_on_a_free_12vcpu_slot(self):
+        """Compile admission is the critical leg; on 6vcpu it takes about 18 min, on 12vcpu about 10."""
+        large, small, mac15 = picker.BLACKSMITH
+        state = picker.State(jobs=3, blacksmith=(pool(large, 5, 3), pool(small, 10), pool(mac15, 10)))
+        choice = picker.pick(state)
+        self.assertEqual((choice.label, choice.admission_label), (small, large))
+        values = picker.write_outputs(choice, 3, env={"RUN_MACOS": "true"})
+        self.assertEqual(values["runner"], small)
+        self.assertEqual(values["retry_runner"], small)
+        self.assertEqual(values["admission_runner"], json.dumps([large]))
+        # No compile, nothing to move.
+        self.assertEqual(picker.write_outputs(choice, 3, env={"RUN_CLI": "true"})["admission_runner"], "")
+
+    def test_the_compile_stays_put_without_a_free_12vcpu_slot(self):
+        large, small, mac15 = picker.BLACKSMITH
+        for busy in (pool(large, 5, 5), pool(large, 5, 4, reserved=1)):
+            choice = picker.pick(picker.State(jobs=3, blacksmith=(busy, pool(small, 10), pool(mac15, 10))))
+            self.assertEqual((choice.label, choice.admission_label), (small, ""), busy)
+        # A run that fits 12vcpu already compiles there.
+        choice = picker.pick(picker.State(jobs=2, blacksmith=(pool(large, 5), pool(small, 10))))
+        self.assertEqual((choice.label, choice.admission_label), (large, ""))
+
+    def test_owned_runs_and_the_macos_15_pool_never_borrow_12vcpu(self):
+        large, small, mac15 = picker.BLACKSMITH
+        owned = picker.pick(picker.State(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, free=2),),
+                                         blacksmith=(pool(large, 5), pool(small, 10)), owned_enabled=True))
+        self.assertEqual(owned.admission_label, "")
+        # The macOS 15 pool runs another Xcode; its product must come from that Xcode.
+        older = picker.pick(picker.State(jobs=4, blacksmith=(pool(large, 5, 3), pool(small, 10, 10),
+                                                             pool(mac15, 10, xcode_app="/Applications/Xcode_26.3.app"))))
+        self.assertEqual((older.label, older.admission_label), (mac15, ""))
+        # A fork is placed on its own route.
+        fork = picker.pick(picker.State(jobs=3, fork=True, blacksmith=(pool(large, 5, 3), pool(small, 10))))
+        self.assertEqual(fork.admission_label, "")
+
+    def test_the_compile_route_takes_the_overflow_admission_runner_on_attempt_one(self):
+        workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        borrowed = ("!contains(inputs.pr_owned_jobs, ' admission ')) && (github.run_attempt == 1 && "
+                    "!contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_admission_runner && "
+                    "fromJSON(inputs.pr_admission_runner){index} || inputs.pr_retry_runner)")
+        # runs-on takes the list; the product's runner output names its label.
+        self.assertEqual(workflow.count(borrowed.format(index="")), 1)
+        self.assertEqual(workflow.count(borrowed.format(index="[0]")), 1)
 
     def test_full_suite_release_build_keeps_swift_package_off_the_minis(self):
         """swift-package-tests builds the SDK 15 helper there, which the minis cannot."""

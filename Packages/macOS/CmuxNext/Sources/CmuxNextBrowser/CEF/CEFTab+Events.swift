@@ -10,6 +10,11 @@ extension CEFTab {
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
         defer { CEFAgentURLGuard.check(self, after: event) }
+        if case .title = event {} else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
+            // A title that waited goes before this event, so the state sees them in order.
+            titleTimer.cancel()
+            machine.apply(.titleChanged(waiting.title))
+        }
         switch event {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)
@@ -23,8 +28,13 @@ extension CEFTab {
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
-            if !loading { clearTitleBeforeCommit() }
-        case .loadStart(_, let url):
+            if !loading {
+                clearTitleBeforeCommit()
+                // A load that ends without OnLoadEnd (stopped, aborted) also
+                // leaves the page area to its document.
+                documentDidSettle()
+            }
+        case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
@@ -32,27 +42,53 @@ extension CEFTab {
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
             restored.navigationCommitted(url: URL(string: url))
+            restored.documentCommitted(url: URL(string: url), formPost: fromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
+            resetPageBackdrop()
+            // The document that just committed is the only one that can hear
+            // `prefers-color-scheme`, and after a renderer restart it never did
+            // (`rendererTerminated` forgets what the dead one was told). Costs
+            // nothing on an ordinary navigation: the memo already matches.
+            reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            documentDidSettle()
+            samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
             // Extensions finish loading after the first window exists and
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()
-        case .loadError(_, let code, let text, let url):
+        case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             guard let navigation else { return }
-            machine.apply(.failed(navigation, Self.loadError(code: code, text: text, url: url)))
+            let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
+            machine.apply(.failed(navigation, error))
+            if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
+                // The failed address is the tab's document now (Chrome's
+                // omnibox shows it), even when Chromium sends no address
+                // change for its error page, as after a New Tab page. After
+                // `.failed` the machine also takes it as the committed URL,
+                // so a later cancelled load does not revert to the New Tab.
+                machine.apply(.urlChanged(failing))
+                committedURL = failing
+                // Chromium's interstitial commits with no OnLoadStart: it ends
+                // the New Tab page's hole, as a committed page does (cx-2nfi).
+                // The interstitial has not committed yet, so the page area
+                // keeps the theme base until `.loadingState` ends the load:
+                // handing it back here would show white until the error page
+                // paints, the very flash this stands in for.
+                if error.engineShowsPage { reachedFirstRealPage() }
+            }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
-            machine.apply(.titleChanged(title.isEmpty ? nil : title))
+            offerTitle(title.isEmpty ? nil : title)
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
@@ -66,9 +102,9 @@ extension CEFTab {
             findRequests.result(count: count, active: active, isFinal: isFinal)
         case .closeRequested:
             emit(.close)
-        case .navigationReroute(_, let url, _):
-            if let url = URL(string: url) { emit(.rerouteStore(url)) }
+        case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
+        case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -79,10 +115,10 @@ extension CEFTab {
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
-        case .renderUnresponsive:
-            machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive:
-            machine.apply(.unresponsiveChanged(false))
+        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
+        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:
@@ -90,13 +126,28 @@ extension CEFTab {
         }
     }
 
-    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load.
-    static func loadError(code: Int, text: String, url: String) -> BrowserLoadError {
+    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
+    /// a replacing navigation, a download, a rerouted URL). Every other
+    /// main-frame failure shows Chromium's own page, as in Chrome (Lawrence
+    /// 2026-10-13): its net error page or certificate interstitial, which it
+    /// commits right after OnLoadError; cmux shows no page over it. cmux's
+    /// page shows for a failure whose Chromium page is empty, and for a
+    /// certificate error Chromium shows no interstitial for (the shim
+    /// cancels it in an agent-driven tab, so only a person can Proceed).
+    static func loadError(code: Int, text: String, url: String, chromiumInterstitial: Bool = false) -> BrowserLoadError {
         if code == -3 {
             return BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: text, failingURL: URL(string: url))
         }
-        return BrowserLoadError(domain: "net", code: code, message: text.isEmpty ? "net::\(code)" : text, failingURL: URL(string: url))
+        let cmuxPage = ChromiumNetError.certificateCodes.contains(code) || chromiumDrawsEmptyPage.contains(code)
+        let chromiumPage = chromiumInterstitial || !cmuxPage
+        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url), engineShowsPage: chromiumPage)
     }
+
+    /// Net errors whose Chromium error page is empty (seen live, cx-zjcq):
+    /// cmux's error page shows for them, not a blank tab.
+    static let chromiumDrawsEmptyPage: Set<Int> = [
+        -338, // ERR_INVALID_AUTH_CREDENTIALS
+    ]
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
@@ -105,19 +156,44 @@ extension CEFTab {
             favicon = nil
             return
         }
-        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
+            let image = await self?.fetchFavicon(url)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }
     }
 
+    /// Through this tab's own request context first (its cookies and profile, Chromium's
+    /// cache; cx-d0d.8), kept in the shared loader's cache, else the app's cookieless fetch.
+    public func fetchFavicon(_ url: URL) async -> NSImage? {
+        let loader = BrowserFaviconLoader.shared
+        if let cached = loader.cachedFavicon(at: url, profile: profileID) { return cached }
+        if let browserID, let png = await runtime.favicon(browserID, url: url, maxPixels: BrowserFaviconLoader.maximumPixels),
+           let image = loader.store(png, at: url, profile: profileID) {
+            return image
+        }
+        return await loader.favicon(at: url, profile: profileID)
+    }
+
     // MARK: Scripts
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
+        // `runtime` is `unowned`, so it is read once here, while it is known alive, and held for the
+        // calls below: an isolated-world evaluate is four round trips, and re-reading it after one
+        // of them would trap once the runtime's last owner went (see `CEFMediaBridge.run`).
+        let runtime = self.runtime
+        // No DevTools session for the tab's own scripts (fork API 29): its renderer stays shareable.
+        if runtime.forkFeatures.rendererPaths {
+            let result = try await runtime.evaluate(browserID, world: world == .isolated ? "cmux" : "", script: script,
+                                                    userGesture: gesture == .agent)
+            return try await result.value()
+        }
         var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
+        // An agent's script runs as a user gesture: its `cmux browser click` on a target=_blank
+        // link or a window.open button opens the tab instead of hitting the popup blocker
+        // (browser use thread, 2026-10-19). cmux's own scripts never do (`BrowserScriptGesture`).
+        if gesture == .agent { params["userGesture"] = true }
         if world == .isolated {
             let tree = try await runtime.devTools(browserID, method: "Page.getFrameTree")
             guard let frame = CEFDevToolsResult.mainFrameID(tree) else { throw BrowserTabError.javaScript("no main frame") }
@@ -131,6 +207,23 @@ extension CEFTab {
         }
         let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
         return try CEFDevToolsResult.evaluation(json)
+    }
+
+    /// Applies a page title now, or keeps the latest for the end of the
+    /// coalescing interval (`TitleCoalescer`): a title that changes every
+    /// frame re-rendered the toolbar and the tab's rows every frame.
+    private func offerTitle(_ title: String?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch titleCoalescer.offer(title, now: now) {
+        case .apply(let update):
+            machine.apply(.titleChanged(update.title))
+        case .later(let until):
+            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+                guard let self, !self.isClosed,
+                      let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.machine.apply(.titleChanged(update.title))
+            }
+        }
     }
 
     /// Runs a DevTools protocol method on this tab in process (diagnostics
@@ -164,7 +257,7 @@ extension CEFTab {
         if actions != extensionActions { extensionActions = actions }
     }
 
-    public var extensionStore: BrowserExtensionStore { runtime.extensionStores.store(for: profileID) }
+    public var extensionStore: BrowserExtensionStore { runtime.extensionStores.readyStore(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
         guard let browserID else {

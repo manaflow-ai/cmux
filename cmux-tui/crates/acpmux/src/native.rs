@@ -161,31 +161,145 @@ pub fn restore(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
     Ok(n)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The most agent store files a guarded move restores, and their total size.
+pub const MAX_GUARDED_FILES: usize = 8;
+pub const MAX_GUARDED_BYTES: u64 = 1 << 30;
 
-    #[test]
-    fn restore_accepts_only_the_sessions_own_file() {
-        let mut meta: SessionMeta = serde_json::from_value(serde_json::json!({
-            "schema": "acpmux.session.v1", "id": "s1", "name": "n", "harness": "claude",
-            "cwd": "/work/my.repo", "agentSessionId": "abc", "status": "idle",
-            "createdAt": 0, "updatedAt": 0
-        }))
-        .unwrap();
-        let target = |label: &str, rel: &str| restore_target(&meta, label, Path::new(rel));
-        assert_eq!(
-            target("claude-project", ".claude/projects/-old/abc.jsonl"),
-            Some(PathBuf::from(".claude/projects/-work-my-repo/abc.jsonl"))
-        );
-        assert!(target("claude-project", ".ssh/authorized_keys").is_none());
-        assert!(target("codex-rollout", ".codex/sessions/abc.jsonl").is_none());
-        assert!(target("claude-project", ".claude/projects/x/zzz.jsonl").is_none());
-        meta.harness = "codex".into();
-        let rollout = ".codex/sessions/2026/01/02/rollout-1-abc.jsonl";
-        assert_eq!(
-            restore_target(&meta, "codex-rollout", Path::new(rollout)),
-            Some(PathBuf::from(rollout))
-        );
+/// A guarded move's agent store files (`hub/transfer_guard.rs`): each bundled file and where it
+/// goes under the home directory. Unlike [`restore`], which skips a stray file, any file that is
+/// not exactly this session's refuses the move: a Claude project file named `<sid>.jsonl`, or a
+/// Codex rollout `rollout-*-<sid>.jsonl`, for the session's own harness and label only.
+pub fn guarded_plan(bundle: &Path, meta: &SessionMeta) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    let native = bundle.join("native");
+    let Ok(labels) = std::fs::read_dir(&native) else {
+        return Ok(vec![]);
+    };
+    let sid = meta.agent_session_id.as_deref().filter(|s| !s.is_empty());
+    let (mut plan, mut total) = (Vec::new(), 0u64);
+    for label in labels.flatten() {
+        let label_name = label.file_name().to_string_lossy().into_owned();
+        for file in walk(&label.path(), 8) {
+            let rel = file.strip_prefix(label.path()).unwrap_or(&file);
+            let target = sid.and_then(|sid| guarded_target(meta, sid, &label_name, rel));
+            let target = target.ok_or_else(|| {
+                format!("{label_name}/{} is not this chat's agent file", rel.display())
+            })?;
+            total =
+                total.saturating_add(std::fs::metadata(&file).map_err(|e| e.to_string())?.len());
+            plan.push((file, target));
+        }
     }
+    if plan.len() > MAX_GUARDED_FILES || total > MAX_GUARDED_BYTES {
+        return Err(format!("{} agent store files, {total} bytes", plan.len()));
+    }
+    Ok(plan)
+}
+
+fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    if !rel.components().all(|c| matches!(c, Component::Normal(_))) {
+        return None;
+    }
+    let name = rel.file_name()?.to_str()?;
+    match (meta.harness.as_str(), label) {
+        ("claude", "claude-project")
+            if rel.starts_with(".claude/projects")
+                && rel.components().count() == 4
+                && name == format!("{sid}.jsonl") =>
+        {
+            Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
+        }
+        ("codex", "codex-rollout")
+            if rel.starts_with(".codex/sessions")
+                && name.starts_with("rollout-")
+                && name.ends_with(&format!("-{sid}.jsonl")) =>
+        {
+            Some(rel.to_path_buf())
+        }
+        _ => None,
+    }
+}
+
+/// Copies a [`guarded_plan`] under the home directory without the records that set the agent's
+/// permission mode ([`without_mode`]). Each file is written to a part file beside its target and
+/// then put in place: linked, so an existing file is never overwritten, or with `replace` (the
+/// chat's own moved-away copy, `hub/transfer_guard.rs`) renamed over it. Any failure removes the
+/// part file and the files this call created, and is returned. Returns the number restored.
+pub fn restore_guarded(plan: &[(PathBuf, PathBuf)], replace: bool) -> Result<usize> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home directory"))?;
+    let mut created: Vec<PathBuf> = Vec::new();
+    for (src, rel) in plan {
+        let target = home.join(rel);
+        if let Err(e) = restore_one(src, &target, replace) {
+            if !replace {
+                for done in &created {
+                    let _ = std::fs::remove_file(done);
+                }
+            }
+            return Err(e.context(format!("restore {}", rel.display())));
+        }
+        created.push(target);
+    }
+    Ok(created.len())
+}
+
+fn restore_one(src: &Path, target: &Path, replace: bool) -> Result<()> {
+    let parent = target.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    std::fs::create_dir_all(parent)?;
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let part = parent.join(format!(".{name}.{}.part", uuid::Uuid::now_v7()));
+    let placed = write_without_mode(src, &part).and_then(|()| {
+        if replace {
+            std::fs::rename(&part, target)?;
+        } else {
+            std::fs::hard_link(&part, target)?;
+            std::fs::remove_file(&part)?;
+        }
+        Ok(())
+    });
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    placed
+}
+
+fn write_without_mode(src: &Path, dest: &Path) -> Result<()> {
+    use std::io::Write;
+    let text = std::fs::read(src)?;
+    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
+    let mut out = std::io::BufWriter::new(file);
+    for line in text.split(|b| *b == b'\n') {
+        if let Some(kept) = without_mode(line) {
+            out.write_all(&kept)?;
+            out.write_all(b"\n")?;
+        }
+    }
+    out.flush()?;
+    Ok(())
+}
+
+/// One agent store line as a guarded move restores it. A resumed agent can take its permission
+/// mode back from its own store: Claude Code restores the last `permissionMode` a transcript
+/// records, and a Codex `turn_context` record carries the turn's approval and sandbox policies.
+/// So a record that sets a mode (`turn_context`, a permission mode record) and a line that is
+/// not a JSON object are dropped, and a `permissionMode` field is removed.
+fn without_mode(line: &[u8]) -> Option<Vec<u8>> {
+    if line.iter().all(u8::is_ascii_whitespace) {
+        return None;
+    }
+    let mut v: serde_json::Value = serde_json::from_slice(line).ok()?;
+    let obj = v.as_object_mut()?;
+    let sets_mode = ["type", "subtype"].iter().any(|k| {
+        obj.get(*k).and_then(serde_json::Value::as_str).is_some_and(|t| {
+            let t = t.to_ascii_lowercase().replace(['-', '_'], "");
+            t == "turncontext" || t.contains("permissionmode")
+        })
+    });
+    if sets_mode {
+        return None;
+    }
+    if obj.remove("permissionMode").is_none() {
+        return Some(line.to_vec());
+    }
+    serde_json::to_vec(&v).ok()
 }

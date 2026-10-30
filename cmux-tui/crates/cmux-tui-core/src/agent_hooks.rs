@@ -38,6 +38,117 @@ const AGENT_EVENT_KINDS: [&str; 13] = [
     "agent.plugin.exited",
 ];
 
+/// Longest prompt kept for the hover card's task line (characters).
+pub const LIVE_PROMPT_CHARS: usize = 200;
+
+/// The prompt a turn-start hook carries, for the hover card's task line and the phone's Feed
+/// quote: shown text with its line breaks (no other control or invisible formatting
+/// characters), trimmed, at most [`LIVE_MESSAGE_CHARS`] characters (the daemon cuts the hover
+/// card's copy to [`LIVE_PROMPT_CHARS`]). Read before redaction; it never enters the journal
+/// or a log (Lawrence 2026-10-14: memory only). `None` for other events and empty prompts.
+pub fn agent_hook_live_prompt(native_event: &str, native: &Value) -> Option<String> {
+    if semantic_key(native_event) != "userpromptsubmit" {
+        return None;
+    }
+    let text =
+        first_string_at(native, &[&["prompt"][..], &["user_prompt"][..], &["userPrompt"][..]])?;
+    live_message_text(text)
+}
+
+/// The agent's last message a finished turn carries (Claude's `last_assistant_message`, a
+/// provider's `message`/`response`/`summary`), or the error text a failed one carries, for
+/// the banner's preview and the phone's Feed: markdown with its line breaks, at most
+/// [`LIVE_MESSAGE_CHARS`] characters (the banner's preview is cut to [`LIVE_PROMPT_CHARS`],
+/// whitespace folded). Read before redaction; like the prompt it travels beside the event and
+/// is kept in memory only until its notification takes it (cx-kz6m0). `None` for other events
+/// and empty messages.
+pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -> Option<String> {
+    let normalized = normalized_fields(native);
+    let kind = semantic_kind(source, native_event, &normalized);
+    let message = normalized.get("message").and_then(Value::as_str);
+    match kind {
+        "agent.turn.completed" => live_message_text(message?),
+        // A failed tool or turn says what went wrong in `error` (Claude's PostToolUseFailure and
+        // StopFailure), not in `message`.
+        "agent.error.reported" => live_message_text(message.or_else(|| {
+            first_string_at(
+                native,
+                &[
+                    &["error"][..],
+                    &["error", "message"][..],
+                    &["error_message"][..],
+                    &["errorMessage"][..],
+                    &["reason"][..],
+                    &["event", "error"][..],
+                    &["event", "error", "message"][..],
+                    &["properties", "error", "message"][..],
+                    &["event", "properties", "error", "message"][..],
+                ],
+            )
+        })?),
+        _ => None,
+    }
+}
+
+/// The texts a hook sends beside its journal event, memory only (`session.journal.append`
+/// `live_prompt`, `live_reply`, `live_question`). Read them before the event redacts its payload.
+pub fn agent_hook_live_fields(
+    source: &str,
+    native_event: &str,
+    native: &Value,
+) -> Map<String, Value> {
+    let mut fields = Map::new();
+    if let Some(prompt) = agent_hook_live_prompt(native_event, native) {
+        fields.insert("live_prompt".into(), Value::String(prompt));
+    }
+    if let Some(reply) = agent_hook_live_reply(source, native_event, native) {
+        fields.insert("live_reply".into(), Value::String(reply));
+    }
+    if let Some(question) =
+        crate::agent_hook_question::agent_hook_live_question(native_event, native)
+    {
+        fields.insert("live_question".into(), Value::String(question));
+    }
+    fields
+}
+
+/// Longest prompt or last message kept for the phone's Feed (characters): a terminal agent's
+/// card shows what a GUI chat's shows, memory only on the Mac.
+pub const LIVE_MESSAGE_CHARS: usize = 4000;
+
+/// `text` as a kept Feed text: markdown with its line breaks and tabs (no other control or
+/// invisible formatting characters), trimmed, cut to [`LIVE_MESSAGE_CHARS`].
+pub(crate) fn live_message_text(text: &str) -> Option<String> {
+    let lines = text.replace("\r\n", "\n").replace('\r', "\n");
+    let kept: String = lines
+        .chars()
+        .filter(|character| {
+            matches!(character, '\n' | '\t')
+                || (!character.is_control()
+                    && !crate::program_status::is_invisible_format(*character))
+        })
+        .collect();
+    let kept = kept.trim();
+    if kept.is_empty() {
+        return None;
+    }
+    let mut shown: String = kept.chars().take(LIVE_MESSAGE_CHARS).collect();
+    // A cut inside a code block would render the rest of the card as code: close it.
+    if shown.len() < kept.len()
+        && shown.lines().filter(|line| line.trim_start().starts_with("```")).count() % 2 == 1
+    {
+        shown.push_str("\n```");
+    }
+    Some(shown)
+}
+
+/// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].
+pub(crate) fn live_prompt_text(text: &str) -> Option<String> {
+    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let shown = crate::program_status::shown_text(&folded, LIVE_PROMPT_CHARS);
+    (!shown.is_empty()).then_some(shown)
+}
+
 pub fn agent_hook_journal_ingress(
     source: &str,
     native_event: &str,
@@ -47,10 +158,22 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    // Read before redaction: `tool_input` is redacted whole, and live
+    // presence needs only its file target.
+    let tool_target = tool_target_fields(&native);
+    // Read the structured reason before redaction replaces free-form strings.
+    let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
+    normalized.extend(tool_target);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
-    let kind = semantic_kind(source, native_event, &normalized);
+    let kind = if resumable_interruption {
+        // OpenCode keeps a shutdown-interrupted execution and resumes it, so
+        // the turn is still running rather than completed.
+        "agent.state.changed"
+    } else {
+        semantic_kind(source, native_event, &normalized)
+    };
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -131,6 +254,78 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
         }),
         causation_id: None,
         correlation_id: None,
+    })
+}
+
+const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
+
+/// The file a tool call targets, copied from the tool input before it is
+/// redacted: `tool_target_path` and, when the input names one,
+/// `tool_target_line`. Only these two values are kept. Commands, contents and
+/// patches stay redacted; a Codex `apply_patch` contributes only the first
+/// file header it names.
+fn tool_target_fields(native: &Value) -> Map<String, Value> {
+    const CONTAINERS: [&[&str]; 9] = [
+        &["tool_input"],
+        &["toolInput"],
+        &["input"],
+        &["args"],
+        &["arguments"],
+        &["params"],
+        &["event", "properties", "args"],
+        &["event", "properties", "input"],
+        &[],
+    ];
+    const PATH_KEYS: [&str; 6] =
+        ["file_path", "filePath", "notebook_path", "absolute_path", "path", "target_file"];
+    const LINE_KEYS: [&str; 5] = ["line", "offset", "start_line", "startLine", "line_number"];
+    let mut fields = Map::new();
+    for container in CONTAINERS {
+        let Some(Value::Object(input)) = value_at(native, container) else { continue };
+        let path = PATH_KEYS
+            .iter()
+            .find_map(|key| input.get(*key).and_then(Value::as_str))
+            .or_else(|| {
+                ["command", "patch", "input"]
+                    .iter()
+                    .find_map(|key| input.get(*key).and_then(Value::as_str))
+                    .and_then(apply_patch_first_path)
+            })
+            .filter(|path| tool_target_path_is_valid(path));
+        let Some(path) = path else { continue };
+        fields.insert("tool_target_path".into(), Value::String(path.to_owned()));
+        if let Some(line) = LINE_KEYS
+            .iter()
+            .find_map(|key| input.get(*key).and_then(Value::as_u64))
+            .filter(|line| *line > 0)
+        {
+            fields.insert("tool_target_line".into(), Value::from(line));
+        }
+        break;
+    }
+    fields
+}
+
+fn value_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter().try_fold(value, |value, key| value.get(*key))
+}
+
+fn tool_target_path_is_valid(path: &str) -> bool {
+    !path.trim().is_empty()
+        && path.len() <= MAX_TOOL_TARGET_PATH_BYTES
+        && !path.chars().any(char::is_control)
+}
+
+/// The first file an `apply_patch` envelope adds, updates or deletes.
+fn apply_patch_first_path(patch: &str) -> Option<&str> {
+    if !patch.trim_start().starts_with("*** Begin Patch") {
+        return None;
+    }
+    patch.lines().find_map(|line| {
+        ["*** Update File: ", "*** Add File: ", "*** Delete File: "]
+            .iter()
+            .find_map(|header| line.strip_prefix(header))
+            .map(str::trim)
     })
 }
 
@@ -300,10 +495,13 @@ fn semantic_kind(
     let event = semantic_key(native_event);
     let tool =
         normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
-    if tool == "askuserquestion" {
+    // A question or plan review is asked when its tool call starts. The call's completion is the
+    // person's answer and the agent going on, so it is not another question.
+    let asks = !is_tool_completion(native_event);
+    if tool == "askuserquestion" && asks {
         return "agent.question.requested";
     }
-    if tool == "exitplanmode" {
+    if tool == "exitplanmode" && asks {
         return "agent.plan_review.requested";
     }
     if event == "questionasked" {
@@ -315,6 +513,12 @@ fn semantic_kind(
         ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
+        ("opencode", "sessionexecutionsucceeded" | "sessionexecutioninterrupted") => {
+            "agent.turn.completed"
+        }
+        ("opencode", "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror") => {
+            "agent.error.reported"
+        }
         ("opencode", "sessiondeleted") => "agent.session.ended",
         (_, event) if is_child_spawn(event) => "agent.child.spawned",
         (_, event) if is_child_completion(event) => "agent.child.completed",
@@ -343,6 +547,17 @@ fn semantic_kind(
         }
         _ => "agent.state.changed",
     }
+}
+
+fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {
+    if source != "opencode" || semantic_key(native_event) != "sessionexecutioninterrupted" {
+        return false;
+    }
+    let event = native.get("event").unwrap_or(native);
+    ["data", "properties"]
+        .iter()
+        .filter_map(|key| event.get(key))
+        .any(|properties| properties.get("reason").and_then(Value::as_str) == Some("shutdown"))
 }
 
 fn is_child_spawn(event: &str) -> bool {
@@ -829,10 +1044,16 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
     value[..boundary].into()
 }
 
-fn semantic_key(value: &str) -> String {
+pub(crate) fn semantic_key(value: &str) -> String {
     value
         .bytes()
         .filter(|byte| byte.is_ascii_alphanumeric())
         .map(|byte| byte.to_ascii_lowercase() as char)
         .collect()
+}
+
+/// Whether a hook event says a tool call finished (Claude's `PostToolUse`, or its failure): the
+/// agent runs on in its turn after it, so a question or approval it waited on is answered.
+pub(crate) fn is_tool_completion(native_event: &str) -> bool {
+    matches!(semantic_key(native_event).as_str(), "posttooluse" | "posttoolusefailure")
 }

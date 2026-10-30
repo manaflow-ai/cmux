@@ -1,0 +1,426 @@
+{
+  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
+  "lists": [
+    {
+      "name": "updates",
+      "section": "general",
+      "group": {
+        "key": "settings.group.updates",
+        "text": "Updates"
+      },
+      "note": "Automatic updates under General (R114): every step of checking, downloading and installing is a row; the defaults keep cmux current with no clicks beyond the one that relaunches.",
+      "rows": [
+        {
+          "key": "updates.channel",
+          "note": "Release ring inside the one cmux NEXT appcast: each choice allows its own sparkle:channel tag plus every slower one (stable < nightly < canary < dev). Design: cmuxterm-hq docs/release-rings.md.",
+          "title": {
+            "key": "settings.updates.channel",
+            "text": "Update Channel"
+          },
+          "help": {
+            "key": "settings.updates.channel.help",
+            "text": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "stable",
+              "title": {
+                "key": "settings.choice.updatesChannelStable",
+                "text": "Stable"
+              }
+            },
+            {
+              "value": "nightly",
+              "title": {
+                "key": "settings.choice.updatesChannelNightly",
+                "text": "Nightly"
+              }
+            },
+            {
+              "value": "canary",
+              "title": {
+                "key": "settings.choice.updatesChannelCanary",
+                "text": "Canary"
+              }
+            },
+            {
+              "value": "dev",
+              "title": {
+                "key": "settings.choice.updatesChannelDev",
+                "text": "Dev"
+              }
+            }
+          ],
+          "default": "nightly",
+          "keywords": [
+            "update",
+            "channel",
+            "ring",
+            "release",
+            "stable",
+            "nightly",
+            "canary",
+            "beta",
+            "dev"
+          ]
+        },
+        {
+          "key": "updates.checkAutomatically",
+          "title": {
+            "key": "settings.updates.checkAutomatically",
+            "text": "Check for Updates Automatically"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "update",
+            "sparkle",
+            "check",
+            "automatic"
+          ]
+        },
+        {
+          "key": "updates.checkIntervalSeconds",
+          "name": "checkInterval",
+          "note": "Seconds between automatic checks.",
+          "title": {
+            "key": "settings.updates.checkInterval",
+            "text": "Check Every"
+          },
+          "kind": "number",
+          "range": {
+            "min": 900,
+            "max": 604800,
+            "step": 900,
+            "unit": "seconds"
+          },
+          "default": 3600,
+          "keywords": [
+            "update",
+            "interval",
+            "frequency",
+            "hourly",
+            "daily"
+          ]
+        },
+        {
+          "key": "updates.downloadAutomatically",
+          "title": {
+            "key": "settings.updates.downloadAutomatically",
+            "text": "Download Updates Automatically"
+          },
+          "help": {
+            "key": "settings.updates.downloadAutomatically.help",
+            "text": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "download",
+            "background",
+            "metered"
+          ]
+        },
+        {
+          "key": "updates.meteredNetwork",
+          "note": "What automatic downloads do on a metered link.",
+          "title": {
+            "key": "settings.updates.meteredNetwork",
+            "text": "On Metered Networks"
+          },
+          "help": {
+            "key": "settings.updates.meteredNetwork.help",
+            "text": "While downloads wait, a found update shows on Settings and one click downloads it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "defer-low-data",
+              "title": {
+                "key": "settings.choice.updatesDeferLowData",
+                "text": "Wait in Low Data Mode"
+              }
+            },
+            {
+              "value": "defer-expensive",
+              "title": {
+                "key": "settings.choice.updatesDeferExpensive",
+                "text": "Wait on Cellular and Low Data"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.updatesDownloadAlways",
+                "text": "Always Download"
+              }
+            }
+          ],
+          "default": "defer-low-data",
+          "keywords": [
+            "update",
+            "metered",
+            "cellular",
+            "low data",
+            "hotspot"
+          ]
+        },
+        {
+          "key": "updates.web",
+          "note": "Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.",
+          "title": {
+            "key": "settings.updates.web",
+            "text": "Web UI Updates"
+          },
+          "help": {
+            "key": "settings.updates.web.help",
+            "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "every-merge",
+              "title": {
+                "key": "settings.choice.updatesWebEveryMerge",
+                "text": "Every Merge"
+              }
+            },
+            {
+              "value": "nightly",
+              "title": {
+                "key": "settings.choice.updatesWebNightly",
+                "text": "With Nightly"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesWebOff",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "every-merge",
+          "keywords": [
+            "update",
+            "web",
+            "ota",
+            "hot reload",
+            "bundle",
+            "nightly",
+            "merge"
+          ]
+        },
+        {
+          "key": "updates.installOnQuit",
+          "title": {
+            "key": "settings.updates.installOnQuit",
+            "text": "Install Updates When Quitting"
+          },
+          "help": {
+            "key": "settings.updates.installOnQuit.help",
+            "text": "A downloaded update installs as cmux quits. Terminals keep running."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "quit"
+          ]
+        },
+        {
+          "key": "updates.notify",
+          "note": "How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.",
+          "title": {
+            "key": "settings.updates.notify",
+            "text": "When an Update Is Ready"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.updatesBadge",
+                "text": "Badge Settings Only"
+              }
+            },
+            {
+              "value": "silent",
+              "title": {
+                "key": "settings.choice.updatesSilent",
+                "text": "Install Silently on Quit"
+              }
+            }
+          ],
+          "default": "badge",
+          "aliases": {
+            "card": "badge"
+          },
+          "keywords": [
+            "update",
+            "notify",
+            "badge",
+            "silent"
+          ]
+        },
+        {
+          "key": "updates.keepPreviousVersions",
+          "note": "Previous builds kept for rollback (cmux update rollback); a whole number.",
+          "title": {
+            "key": "settings.updates.keepPreviousVersions",
+            "text": "Keep Previous Versions"
+          },
+          "help": {
+            "key": "settings.updates.keepPreviousVersions.help",
+            "text": "Earlier builds kept so you can roll back. Uses almost no disk until files change."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 5,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 1,
+          "keywords": [
+            "update",
+            "rollback",
+            "previous",
+            "downgrade"
+          ]
+        },
+        {
+          "key": "updates.showWhatsNew",
+          "note": "The bottom-left \"cmux Updated!\" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.",
+          "title": {
+            "key": "settings.updates.showWhatsNew",
+            "text": "Show What's New After Updates"
+          },
+          "help": {
+            "key": "settings.updates.showWhatsNew.help",
+            "text": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "whats new",
+            "release notes",
+            "changelog",
+            "update",
+            "sidebar"
+          ]
+        },
+        {
+          "key": "updates.idleInstallMaxWaitSeconds",
+          "name": "idleInstallMaxWait",
+          "note": "Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.",
+          "title": {
+            "key": "settings.updates.idleInstallMaxWait",
+            "text": "Install Within"
+          },
+          "help": {
+            "key": "settings.updates.idleInstallMaxWait.help",
+            "text": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+          },
+          "kind": "number",
+          "range": {
+            "min": 60,
+            "max": 7200,
+            "step": 60,
+            "unit": "seconds"
+          },
+          "default": 600,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "wait",
+            "automatic",
+            "nightly"
+          ]
+        },
+        {
+          "key": "updates.idleInstallQuietSeconds",
+          "name": "idleInstallQuiet",
+          "note": "Nightly idle install (#20295): how long keyboard and pointer input must be quiet before it installs.",
+          "title": {
+            "key": "settings.updates.idleInstallQuiet",
+            "text": "Quiet Time Before Installing"
+          },
+          "help": {
+            "key": "settings.updates.idleInstallQuiet.help",
+            "text": "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+          },
+          "kind": "number",
+          "range": {
+            "min": 5,
+            "max": 600,
+            "step": 5,
+            "unit": "seconds"
+          },
+          "default": 60,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "quiet",
+            "typing",
+            "nightly"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "announcements",
+      "section": "general",
+      "group": {
+        "key": "settings.group.announcements",
+        "text": "Announcements"
+      },
+      "note": "The cmux announcement cards above Settings (R114). enabled false hides them for good (Settings or the palette brings them back); fetch false means no network for them.",
+      "rows": [
+        {
+          "key": "announcements.enabled",
+          "title": {
+            "key": "settings.announcements.enabled",
+            "text": "Show Announcements"
+          },
+          "help": {
+            "key": "settings.announcements.enabled.help",
+            "text": "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "announcements",
+            "news",
+            "cards",
+            "whats new"
+          ]
+        },
+        {
+          "key": "announcements.fetch",
+          "title": {
+            "key": "settings.announcements.fetch",
+            "text": "Download Announcements"
+          },
+          "help": {
+            "key": "settings.announcements.fetch.help",
+            "text": "Off: cmux never asks the network for announcements. The request carries no identifiers."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "announcements",
+            "privacy",
+            "offline",
+            "network"
+          ]
+        }
+      ]
+    }
+  ]
+}

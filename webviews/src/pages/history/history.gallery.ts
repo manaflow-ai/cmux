@@ -73,6 +73,17 @@ const entries: HistoryEntry[] = [
   },
 ];
 
+const closedTerminal: HistoryEntry = {
+  id: "closed:local:2",
+  kind: "closed",
+  at_ms: ago(3),
+  title: "atlas-web",
+  detail: "/Users/you/src/atlas-web",
+  cwd: "/Users/you/src/atlas-web",
+  closed_kind: "terminal_tab",
+  available: true,
+};
+
 const many = Array.from({ length: 48 }, (_, index): HistoryEntry => ({
   id: `command:build:${index + 1}`,
   kind: "command",
@@ -92,11 +103,28 @@ export default historyPageEntry({
   area: "Pages",
   height: 640,
   widths: { narrow: 560, normal: 1000, wide: 1400 },
+  checks: {
+    longFrameFailMs: {
+      value: 33,
+      reason: "History menu actions should settle without a long frame on the gallery host.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason: "A history mutation refusal should announce its result within a quarter second.",
+    },
+  },
   covers: ["page:cmux.history", "pages/history/HistoryPage.tsx#HistoryPage", "pages/history/KindIcon.tsx#KindIcon"],
   variants: {
     empty: { note: "No history entries have been recorded.", entries: [] },
-    loading: { note: "The history owner is still loading the timeline.", loading: true, entries },
-    normal: { note: "All five history kinds, including a running agent and an unavailable row.", entries },
+    loading: {
+      note: "The history owner is still loading the timeline.",
+      loading: true,
+      entries,
+    },
+    normal: {
+      note: "All five history kinds, including a running agent and an unavailable row.",
+      entries,
+    },
     "many-entries": {
       note: "A long command timeline that scrolls and wraps long names.",
       entries: [...many, ...entries],
@@ -111,9 +139,13 @@ export default historyPageEntry({
       entries,
       query: { menuIndex: 1 },
     },
-    "network-error": { note: "The history owner is disconnected.", entries, error: "network" },
+    "network-error": {
+      note: "The history owner is disconnected.",
+      entries,
+      error: "network",
+    },
     "permission-error": {
-      note: "A refused remove leaves the timeline intact; this page has no visible error notice yet.",
+      note: "A refused remove announces the host error and leaves the timeline intact.",
       entries,
       error: "permission",
       query: { menuIndex: 1 },
@@ -121,8 +153,39 @@ export default historyPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
         await ctx.click({ selector: ".page-menu-item.destructive" });
         await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector<HTMLElement>('[role="alert"].history-error')?.textContent ===
+            "history cannot be changed",
+        );
+        if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");
       },
     },
-    "not-found-error": { note: "The history owner reports a missing source.", entries, error: "not-found" },
+    "closed-remove-clear": {
+      note: "Remove on a Closed row deletes it; Clear History under Closed deletes the rest.",
+      entries: [...entries, closedTerminal],
+      query: { filter: "closed" },
+      play: async (ctx) => {
+        const rows = () => ctx.document.querySelectorAll(".history-row").length;
+        await ctx.waitFor(() => rows() === 2);
+        // The bottom row (the older one), so no row moves when it goes.
+        await ctx.contextMenu({ role: "option", name: /^atlas-web/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+        await ctx.click({ selector: ".page-menu-item.destructive" });
+        await ctx.waitFor(() => rows() === 1);
+        await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+        const clear = ctx.find({ role: "button", name: /^Clear History/ }) as HTMLButtonElement;
+        if (clear.disabled) throw new Error("Clear History is off under the Closed chip");
+        await ctx.click({ role: "button", name: /^Clear History/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".page-menu-item").length === 5);
+        await ctx.click({ role: "menuitem", name: "All Time" });
+        await ctx.waitFor(() => rows() === 0);
+      },
+    },
+    "not-found-error": {
+      note: "The history owner reports a missing source.",
+      entries,
+      error: "not-found",
+    },
   },
 });

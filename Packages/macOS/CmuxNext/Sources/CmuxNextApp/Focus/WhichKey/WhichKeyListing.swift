@@ -1,14 +1,5 @@
 import CmuxNextActions
 
-/// One row of the which-key overlay: the key after the leader and the
-/// action it runs.
-struct WhichKeyRow: Equatable {
-    var key: String
-    var title: String
-    /// False when the action cannot run in this focus (drawn dimmed).
-    var isEnabled: Bool
-}
-
 /// The which-key overlay's rows: one per key under an armed prefix
 /// (`KeyBindingTable.nextKeys`), ordered by key. Where several actions share
 /// a key, the one that key would run now is listed, else the first; a key
@@ -16,7 +7,12 @@ struct WhichKeyRow: Equatable {
 enum WhichKeyListing {
     static func rows(after keys: [Shortcut], table: KeyBindingTable, context: KeyContext, isRunnable: (ActionID) -> Bool,
                      registry: ActionRegistry) -> [WhichKeyRow] {
-        table.nextKeys(after: keys, in: context, isRunnable: isRunnable).map { next in
+        // An action unavailable up front (a preview feature that is off, a
+        // missing capability) is not offered; one this focus cannot run is
+        // listed dimmed.
+        table.nextKeys(after: keys, in: context, isRunnable: isRunnable).filter { next in
+            next.binding.map { registry.unavailableReason(for: $0.command) == nil } ?? true
+        }.map { next in
             let isDigitFamily = next.binding?.argument != nil && next.key.key == "1"
             let key = isDigitFamily ? (next.key.modifierGlyphs + ["1…9"]).joined() : next.key.displayString
             let ranHere = next.binding.map { isRunnable($0.command) && $0.applies(in: context) } ?? false
@@ -33,21 +29,5 @@ enum WhichKeyListing {
         let context = KeyContext(bits: registry.context)
         return rows(after: [prefix], table: bindings.table, context: context,
                     isRunnable: { bindings.canPerform($0, in: context.bits) }, registry: registry)
-    }
-}
-
-/// The overlay's own text (WhichKey.xcstrings).
-enum WhichKeyStrings {
-    static var cancelHint: String {
-        String(localized: "whichKey.cancelHint", defaultValue: "esc to cancel", table: "WhichKey", bundle: .module)
-    }
-
-    /// A key that leads to longer chords.
-    static var moreKeys: String {
-        String(localized: "whichKey.moreKeys", defaultValue: "more keys…", table: "WhichKey", bundle: .module)
-    }
-
-    static var accessibilityLabel: String {
-        String(localized: "whichKey.accessibilityLabel", defaultValue: "Leader keys", table: "WhichKey", bundle: .module)
     }
 }

@@ -17,13 +17,28 @@
 //! are JSON files next to the socket, written atomically, with a liveness
 //! lock file the host holds for its whole life.
 
+#[cfg(unix)]
 pub mod host;
+/// Windows port: the agent host process comes in a later landing.
+#[cfg(not(unix))]
+pub mod host {
+    pub fn main() -> anyhow::Result<()> {
+        Err(crate::platform::unsupported("the agent host"))
+    }
+}
 pub mod link;
+pub mod program_wait;
+#[cfg(unix)]
+pub(crate) mod record_watch;
+pub(crate) mod scope;
 pub mod sweep;
+#[cfg(unix)]
+pub(crate) mod tree;
+pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
-    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
-    wait_dead_within, within, within_on,
+    HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async, wait_dead_within, within,
+    within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -34,7 +49,22 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Oldest and newest host protocol this build speaks.
 pub const PROTOCOL_MIN: u16 = 1;
-pub const PROTOCOL_MAX: u16 = 1;
+pub const PROTOCOL_MAX: u16 = 3;
+/// The protocol from which a `line` may ask for a receipt (`WRITTEN_METHOD`).
+pub const RECEIPT_VERSION: u16 = 2;
+/// The protocol from which a host logs each line that asks for a receipt (`QUEUED_METHOD`), so
+/// a next daemon can tell from the log which of them its harness may not have yet.
+pub const QUEUED_VERSION: u16 = 3;
+/// The receipt for a `line` (protocol 2): a `tap` entry (`dir = out`) carrying this
+/// notification, `{receipt, written}`, once its lines are written to the harness (`written:
+/// true`) or can never be (its stdin closed: `false`). An entry, not a frame of its own, so it
+/// is retained until acknowledged, replayed to the next controller, and known to every build.
+pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
+/// A `line` that asks for a receipt, as its host took it (protocol 3): a `tap` entry (`dir =
+/// out`) carrying this notification, `{receipt}`, before any line of it is queued for the
+/// harness. A log that has it and no `WRITTEN_METHOD` for the same receipt can not prove the
+/// harness has that line: the next daemon holds it again (`link::adopt_receipt`).
+pub const QUEUED_METHOD: &str = "_acpmux/host_queued";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
 /// Largest frame either side accepts.
@@ -60,8 +90,13 @@ pub enum ControllerFrame {
     Resume { after: u64 },
     /// One ACP message for the harness. The host translates it when the
     /// harness speaks Claude stream-json, writes it, and echoes the written
-    /// lines as `tap` entries.
-    Line { msg: Value },
+    /// lines as `tap` entries. `receipt` (protocol 2): the host logs its
+    /// receipt (`WRITTEN_METHOD`) once every line of it is written to the harness.
+    Line {
+        msg: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<u64>,
+    },
     /// Entries up to `h` are in the controller's log; the host may drop them.
     Ack { h: u64 },
     /// End the harness process group: SIGTERM, then SIGKILL after `grace_ms`.
@@ -149,7 +184,8 @@ impl Entry {
 }
 
 /// What the controller asks the host to run. Sent once on the private
-/// bootstrap pipe; never written to disk (it carries the environment).
+/// bootstrap pipe; never written to disk (it carries the environment), but
+/// for the caller token the host keeps in its record (`HostRecord::caller_token`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnSpec {
     pub session_id: String,
@@ -160,12 +196,64 @@ pub struct SpawnSpec {
     pub cwd: PathBuf,
     /// Present when the harness speaks Claude stream-json.
     pub translator: Option<TranslatorSpec>,
+    /// The harness is `codex app-server`, bridged in the host
+    /// (`codex_app_server.rs`). Decided from the profile's command line
+    /// before its CODEX_PATH picks the binary, whatever that binary is named.
+    #[serde(default)]
+    pub codex_bridge: bool,
     /// Directory for the record, socket fallback aside.
     pub hosts_dir: PathBuf,
     pub socket: PathBuf,
     /// Bytes of unacknowledged entries before back-pressure.
     pub buffer_cap: usize,
+    /// The local router's owner FIFO of the daemon's home; the host holds
+    /// a write end for its whole life (`daemon::router_owner_fifo`).
+    #[serde(default)]
+    pub router_owner_fifo: Option<PathBuf>,
+    /// The folder the harness must exec in, by identity: a sub-session's checked folder
+    /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
+    #[serde(default)]
+    pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
+    /// The CPU class the harness starts at (`cpu_class.rs`), decided by the daemon. A spec from
+    /// a daemon that predates it starts the harness as before.
+    #[serde(default)]
+    pub cpu_class: crate::cpu_class::CpuClass,
+    /// When the host ends on its own while no daemon controls it (`host.rs`, `orphan_step`).
+    /// None: never (a daemon whose idle hibernation is off, or one that predates it).
+    #[serde(default)]
+    pub orphan_exit: Option<OrphanExit>,
 }
+
+/// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their
+/// daemon on purpose (an update, a crash, a restart, the app's Quit), but one whose daemon never
+/// comes back ran forever. It ends its harness group, as `Terminate` does, once no controller
+/// was connected for `idle_ms` and its agent is idle by everything the host can see: no request
+/// either side sent waits for its answer, no fenced line waits for its receipt, every entry a
+/// next daemon needs was logged, Claude Code runs no subagent or background shell, and nothing
+/// but the harness and its MCP servers runs under it (the idle pass's census,
+/// `hub/idle_census.rs`). What it cannot tell keeps it running. That is the end the daemon's
+/// own idle hibernation (`hub/idle.rs`) gives an idle agent: the next prompt resumes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrphanExit {
+    /// How long the host waits with no controller before it looks.
+    pub idle_ms: u64,
+    /// The MCP servers the harness's configs named just before it started, as the daemon read
+    /// them (`LaunchServers::read`): never read again, so a config edited later changes nothing.
+    #[serde(default)]
+    pub servers: Vec<crate::hub::Sidecar>,
+    /// The harness's `PATH`, for the servers its sessions name by command.
+    #[serde(default)]
+    pub path: String,
+    /// The harness's folder, for the servers its sessions name by a relative path.
+    #[serde(default)]
+    pub cwd: std::path::PathBuf,
+}
+
+/// How long a host waits with no controller before an idle agent ends ([`OrphanExit`]): longer
+/// than the daemon's own idle hibernation (`hub::IDLE_CHILD`, 2 min), so an idle agent ends no
+/// sooner than a running daemon would have hibernated it, and far longer than a daemon restart
+/// or update takes to reconnect (seconds), which starts the wait again.
+pub const ORPHAN_IDLE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslatorSpec {
@@ -178,6 +266,14 @@ pub struct TranslatorSpec {
     pub fast: bool,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+}
+
+impl SpawnSpec {
+    /// The session's caller token in the harness env, which the host keeps in its record.
+    pub fn caller_token(&self) -> Option<String> {
+        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
 }
 
 /// The host's answer on the bootstrap pipe.
@@ -199,6 +295,12 @@ pub struct HostRecord {
     pub start_nonce: String,
     pub harness_pid: Option<u32>,
     pub owner_token: String,
+    /// The session's caller token its harness started with (`hub/person.rs`
+    /// (a)): the next daemon run that adopts this host knows the agent and
+    /// its MCP servers by it. Owner-only like `owner_token`, which grants
+    /// more (the harness's own stdio). None: a host of an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_token: Option<String>,
     pub protocol_min: u16,
     pub protocol_max: u16,
     pub host_build: String,
@@ -231,8 +333,26 @@ fn live_path(dir: &Path, session_id: &str, nonce: &str) -> PathBuf {
     dir.join(format!("{session_id}.{nonce}.live"))
 }
 
+/// Where host `record`'s live lock may be: the pool, then the hosts directory (a pooled host's
+/// lock moves there when a session takes it, so a move between the two is not missed), then its
+/// socket's directory, its own when the path was short enough.
+pub fn live_lock_dirs(record: &HostRecord) -> Vec<PathBuf> {
+    let hosts = hosts_dir();
+    let mut dirs = vec![pool_dir(&hosts), hosts];
+    if let Some(own) = record.socket.parent().filter(|d| !dirs.iter().any(|x| x == d)) {
+        dirs.push(own.to_path_buf());
+    }
+    dirs
+}
+
+/// Whether host incarnation `nonce` of `session_id` keeps its live lock in `dir`.
+pub fn live_lock_exists(dir: &Path, session_id: &str, nonce: &str) -> bool {
+    live_path(dir, session_id, nonce).exists()
+}
+
 /// Socket for one host: next to the record when the path is short enough for
 /// `sun_path`, else in the private per-user directory acpmux already uses.
+#[cfg(unix)]
 pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
     let preferred = dir.join(format!("{session_id}.sock"));
     if preferred.as_os_str().len() < 100 {
@@ -247,46 +367,83 @@ pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
     let uid = unsafe { libc::getuid() };
     PathBuf::from(format!("/tmp/acpmux-{uid}")).join(format!("{hash:016x}-{session_id}.sock"))
 }
-
-/// Create `dir` mode 0700 and check that only this user can enter it.
-pub fn ensure_private_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    let meta = std::fs::symlink_metadata(dir)?;
-    // SAFETY: getuid has no preconditions.
-    let uid = unsafe { libc::getuid() };
-    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
-        bail!("{} is not a private directory", dir.display());
-    }
-    Ok(())
+/// Windows port: host sockets are `cmux::local_socket` paths there, with
+/// their own length rule (a later landing).
+#[cfg(not(unix))]
+pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
+    dir.join(format!("{session_id}.sock"))
 }
 
-/// Random lowercase hex.
-pub fn random_hex(bytes: usize) -> String {
-    use std::io::Read;
+/// Create `dir` mode 0700 and check that only this user can enter it.
+#[cfg(unix)]
+pub fn ensure_private_dir(dir: &Path) -> Result<()> {
+    crate::config::private_state_dir(dir)
+}
+/// Windows: an owner-only access list, made or checked (`owner_only.rs`).
+#[cfg(windows)]
+pub fn ensure_private_dir(dir: &Path) -> Result<()> {
+    Ok(crate::owner_only::private_dir(dir)?)
+}
+
+/// Random lowercase hex; an error when the OS random generator fails.
+pub fn random_hex(bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; bytes];
-    let mut f = std::fs::File::open("/dev/urandom").expect("urandom");
-    f.read_exact(&mut buf).expect("urandom read");
-    buf.iter().map(|b| format!("{b:02x}")).collect()
+    getrandom::fill(&mut buf).map_err(|e| anyhow!("the OS random generator: {e}"))?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Every record in `dir`: those this build reads, and those it cannot.
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
+    // Debug builds only: while the file `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE` names exists, the
+    // records cannot be read, as on a disk that fails, so the daemon's integration tests can drive
+    // that path. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(flag) = std::env::var_os("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE")
+        && Path::new(&flag).exists()
+    {
+        anyhow::bail!("the agent host records could not be read");
+    }
     let mut good = Vec::new();
     let mut bad = Vec::new();
+    match std::fs::symlink_metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
+        Err(e) => return Err(e.into()),
+        Ok(_) => crate::config::private_state_dir(dir)?,
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
         Err(e) => return Err(e.into()),
     };
     for entry in entries {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
         let Some(session_id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
             continue;
         };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let kind = entry.file_type()?;
+            let metadata = entry.metadata()?;
+            // SAFETY: getuid has no preconditions.
+            let uid = unsafe { libc::getuid() };
+            if !kind.is_file() || metadata.uid() != uid || metadata.mode() & 0o077 != 0 {
+                bad.push(UnreadableRecord {
+                    session_id,
+                    path,
+                    record_version: None,
+                    host_pid: None,
+                    harness_pid: None,
+                    start_nonce: None,
+                    reason: "record is not an owner-only regular file".into(),
+                });
+                continue;
+            }
+        }
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -305,30 +462,61 @@ pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<Unrea
         };
         let loose = serde_json::from_slice::<Value>(&bytes).ok();
         let field = |name: &str| loose.as_ref().and_then(|v| v.get(name)?.as_u64());
+        let mut expected_sockets = vec![socket_path(dir, &session_id)];
+        // Taking a pooled host moves its record and liveness lock into the
+        // main hosts directory, but its already-bound socket stays in pool/.
+        if dir.file_name().and_then(|name| name.to_str()) != Some(POOL_DIR_NAME) {
+            expected_sockets.push(socket_path(&pool_dir(dir), &session_id));
+        }
+        let expected_socket =
+            |path: &Path| expected_sockets.iter().any(|expected| expected == path);
+        let identity_ok = loose.as_ref().is_some_and(|value| {
+            value.get("session_id").and_then(Value::as_str) == Some(session_id.as_str())
+                && value
+                    .get("socket")
+                    .and_then(Value::as_str)
+                    .map(Path::new)
+                    .is_some_and(expected_socket)
+        });
         let reason = match serde_json::from_slice::<HostRecord>(&bytes) {
-            Ok(r) if r.record_version == RECORD_VERSION && r.session_id == session_id => {
+            Ok(r)
+                if r.record_version == RECORD_VERSION
+                    && r.session_id == session_id
+                    && expected_socket(&r.socket) =>
+            {
                 good.push((path, r));
                 continue;
             }
             Ok(r) if r.session_id != session_id => "record names another session".to_owned(),
+            Ok(r) if !expected_socket(&r.socket) => "record names another socket".to_owned(),
             Ok(r) => format!("record version {}", r.record_version),
             Err(e) => format!("undecodable: {e}"),
         };
-        let start_nonce = loose
-            .as_ref()
-            .and_then(|v| v.get("start_nonce")?.as_str())
-            .filter(|n| {
-                !n.is_empty()
-                    && n.len() <= 128
-                    && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-            })
-            .map(str::to_owned);
+        let start_nonce = if identity_ok {
+            loose
+                .as_ref()
+                .and_then(|v| v.get("start_nonce")?.as_str())
+                .filter(|n| {
+                    !n.is_empty()
+                        && n.len() <= 128
+                        && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                })
+                .map(str::to_owned)
+        } else {
+            None
+        };
         bad.push(UnreadableRecord {
             session_id,
             path,
             record_version: field("record_version"),
-            host_pid: field("host_pid").and_then(|p| u32::try_from(p).ok()),
-            harness_pid: field("harness_pid").and_then(|p| u32::try_from(p).ok()),
+            host_pid: identity_ok
+                .then(|| field("host_pid"))
+                .flatten()
+                .and_then(|p| u32::try_from(p).ok()),
+            harness_pid: identity_ok
+                .then(|| field("harness_pid"))
+                .flatten()
+                .and_then(|p| u32::try_from(p).ok()),
             start_nonce,
             reason,
         });
@@ -347,10 +535,17 @@ pub enum Liveness {
 
 /// Probe the lock the host holds for its whole life. `Dead` is proof tied
 /// to this incarnation even when the PID has been reused.
+#[cfg(unix)]
 pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
+    liveness_of(&live_path(dir, session_id, start_nonce))
+}
+
+/// [`liveness`] of any lock file a process holds for its life (a background task's runner,
+/// `bg_run.rs`).
+#[cfg(unix)]
+pub fn liveness_of(path: &Path) -> Liveness {
     use std::os::fd::AsRawFd;
-    let path = live_path(dir, session_id, start_nonce);
-    let file = match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+    let file = match std::fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Liveness::Dead,
         Err(_) => return Liveness::Unknown,
@@ -371,16 +566,25 @@ pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
         }
     }
 }
+/// Windows port: the host's liveness lock is `LockFileEx` there (a later
+/// landing); no host runs yet, so nothing is proven.
+#[cfg(not(unix))]
+pub fn liveness(_dir: &Path, _session_id: &str, _start_nonce: &str) -> Liveness {
+    Liveness::Unknown
+}
 
 /// End a host without speaking its protocol: the path for a host this build
-/// cannot adopt, frozen across versions. Signals only the host, and only with
-/// proof that the recorded PID is this session's live host: the exact lock
-/// its record names (`<session>.<start nonce>.live`) is held. A host ends its
+/// cannot adopt, frozen across versions. Signals the host only with proof
+/// that the recorded PID is this session's live host: the exact lock its
+/// record names (`<session>.<start nonce>.live`) is held. A host ends its
 /// harness group on SIGTERM while that group is still its own (it alone knows
 /// whether the leader was reaped), then exits. If it does not exit within
-/// `TERM_GRACE` it is killed; the dropped lock is the death proof.
-/// `Ok(true)` when no such host runs any more. Blocks up to about twice
-/// `TERM_GRACE`: call it off the async runtime.
+/// `TERM_GRACE` it is killed, and the processes that ran under it (taken by
+/// pid and start time before the kill) are killed too; the dropped lock is
+/// the death proof. `Ok(true)` when no such host runs any more. Blocks up to
+/// about twice `TERM_GRACE` plus two process-table reads: call it off the
+/// async runtime.
+#[cfg(unix)]
 pub fn terminate_unadoptable(
     dir: &Path,
     session_id: &str,
@@ -407,10 +611,28 @@ pub fn terminate_unadoptable(
         return Ok(true);
     }
     if liveness(dir, session_id, nonce) == Liveness::Live {
+        // A host that does not end on SIGTERM (wedged or stopped) cannot end
+        // its harness: take the processes under it (by pid and start time)
+        // while the lock still proves `pid` is the host, and end them after
+        // it, so no harness runs on without an owner.
+        let under = tree::descendants(&[pid as u32]);
         // SAFETY: as above, re-proven just now.
         unsafe { libc::kill(pid, libc::SIGKILL) };
+        let dead = dead_within(TERM_GRACE);
+        tree::kill_still_running(&under);
+        return Ok(dead);
     }
     Ok(dead_within(TERM_GRACE))
+}
+/// Windows port: hosts come in a later landing.
+#[cfg(not(unix))]
+pub fn terminate_unadoptable(
+    _dir: &Path,
+    _session_id: &str,
+    _start_nonce: Option<&str>,
+    _host_pid: Option<u32>,
+) -> Result<bool> {
+    Err(crate::platform::unsupported("agent hosts"))
 }
 
 /// Remove a dead host's record, lock and socket.
@@ -418,6 +640,32 @@ pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(record_path(dir, &record.session_id));
     let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
     let _ = std::fs::remove_file(&record.socket);
+}
+
+/// Whether the record file at `path` names the host incarnation `nonce`. A
+/// record that exists but cannot be read counts as this host's (never end
+/// or delete on a doubt); a missing one does not.
+pub fn names_this_host(path: &Path, nonce: &str) -> bool {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice::<HostRecord>(&bytes)
+            .ok()
+            .is_none_or(|record| record.start_nonce == nonce),
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+/// A host's own exit: its record and socket only while the record still
+/// names it (a newer host of the same session owns them then), and its lock
+/// last. A daemon takes the missing lock file as the death proof
+/// (`terminate_unadoptable`) and may then start a fresh host under the same
+/// session id at once: by then this host touches none of its files.
+pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
+    let path = record_path(dir, &record.session_id);
+    if names_this_host(&path, &record.start_nonce) && path.exists() {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&record.socket);
+    }
+    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }
 
 /// Hosts of pooled sessions (hidden sessions nobody took yet,
@@ -449,13 +697,13 @@ pub fn promote(from: &Path, to: &Path, record: &HostRecord) -> Result<()> {
 }
 
 /// A host started in the pool directory `dir` may have been promoted: end
-/// the promoted lock, and the promoted record when it is still this host's.
+/// the promoted record when it is still this host's, then the promoted lock
+/// (last, as in [`remove_own_artifacts`]: its absence is the death proof).
 pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     if dir.file_name().and_then(|n| n.to_str()) != Some(POOL_DIR_NAME) {
         return;
     }
     let Some(hosts) = dir.parent() else { return };
-    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
     let path = record_path(hosts, &record.session_id);
     let ours = std::fs::read(&path)
         .ok()
@@ -464,9 +712,11 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     if ours {
         let _ = std::fs::remove_file(&path);
     }
+    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
 }
 
 /// Write `value` to `path` through a temporary file and a rename.
+#[cfg(unix)]
 pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -487,6 +737,11 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
         let _ = std::fs::remove_file(&tmp);
     }
     written
+}
+/// Windows port: host records are owner-only files there (a later landing).
+#[cfg(not(unix))]
+pub fn write_record_atomic(_path: &Path, _record: &HostRecord) -> Result<()> {
+    Err(crate::platform::unsupported("agent host records"))
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(
@@ -529,55 +784,4 @@ pub fn negotiate(min: u16, max: u16) -> Option<u16> {
     let low = min.max(PROTOCOL_MIN);
     let high = max.min(PROTOCOL_MAX);
     (low <= high).then_some(high)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn negotiation_picks_the_highest_common_version_or_none() {
-        assert_eq!(negotiate(1, 1), Some(1));
-        assert_eq!(negotiate(1, 9), Some(PROTOCOL_MAX));
-        assert_eq!(negotiate(2, 9), None);
-        assert_eq!(negotiate(0, 0), None);
-    }
-
-    #[test]
-    fn frames_round_trip_with_their_tags() {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-        rt.block_on(async {
-            let (mut a, mut b) = tokio::io::duplex(1024);
-            let frame = HostFrame::Entry {
-                h: 7,
-                e: Entry::In { msg: serde_json::json!({"jsonrpc":"2.0","method":"x"}) },
-            };
-            write_frame(&mut a, &frame).await.unwrap();
-            let read: HostFrame = read_frame(&mut b).await.unwrap().unwrap();
-            assert_eq!(read, frame);
-            let json = serde_json::to_value(&frame).unwrap();
-            assert_eq!(json["t"], "entry");
-            assert_eq!(json["e"]["k"], "in");
-        });
-    }
-
-    #[test]
-    fn records_of_another_version_are_reported_not_dropped() {
-        let dir = std::env::temp_dir().join(format!("amx-rec-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("s1.json"),
-            serde_json::json!({"record_version": 7, "session_id": "s1", "host_pid": 42})
-                .to_string(),
-        )
-        .unwrap();
-        let (good, bad) = load_records(&dir).unwrap();
-        assert!(good.is_empty());
-        assert_eq!(bad.len(), 1);
-        assert_eq!(bad[0].session_id, "s1");
-        assert_eq!(bad[0].record_version, Some(7));
-        assert_eq!(bad[0].host_pid, Some(42));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

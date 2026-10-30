@@ -34,6 +34,20 @@ export function isPageURL(value: unknown): value is string {
   return bare !== null && bare.includes(".");
 }
 
+/**
+ * An http or https address with a host and nothing else: no user info, no path other than "/",
+ * no query, no fragment (Swift `SettingDescriptor.httpOrigin`, cmux-config `is_http_origin`).
+ */
+export function isHttpOrigin(value: unknown): value is string {
+  if (typeof value !== "string" || /[\s?#@]/.test(value) || !/^https?:\/\//i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname !== "" && url.pathname === "/";
+  } catch {
+    return false;
+  }
+}
+
 function hostOf(url: string): string | null {
   try {
     const host = new URL(url).hostname;
@@ -78,13 +92,43 @@ export function isSearchTemplate(value: unknown): value is string {
   return isPageURL(text.replaceAll("%s", "x").replaceAll("{searchTerms}", "x"));
 }
 
+/**
+ * One custom density (`appearance.customDensities`): a lowercase id, a name, and optional numbers.
+ * The Swift rule is `CustomDensitiesSetting.density(from:)`.
+ */
+export function isCustomDensity(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  const id = entry.id;
+  if (typeof id !== "string" || id.length < 1 || id.length > 64 || id.startsWith("-") || !/^[a-z0-9-]+$/.test(id))
+    return false;
+  if (typeof entry.name !== "string" || entry.name.trim() === "") return false;
+  for (const key of ["level", "spacing", "fontSize"]) {
+    const number = entry[key];
+    if (number !== undefined && (typeof number !== "number" || !Number.isFinite(number))) return false;
+  }
+  const tokens = entry.tokens;
+  if (tokens === undefined) return true;
+  if (typeof tokens !== "object" || tokens === null || Array.isArray(tokens)) return false;
+  return Object.values(tokens).every((token) => typeof token === "number" && Number.isFinite(token) && token >= 0);
+}
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
   if (row.validation === "domain:backdrop_selection") {
-    // A listed painting or a macOS wallpaper by absolute path (each Mac has its own set).
-    if (typeof value === "string" && (choices.includes(value) || value.startsWith("system:/"))) return null;
-    return "expected none, a listed painting or system:<absolute path>";
+    // A listed painting, Shuffle Paintings, a shuffled folder, or a macOS wallpaper by absolute path (each Mac has its own set).
+    if (
+      typeof value === "string" &&
+      (choices.includes(value) || value === "daily" || /^(system|file|folder):\//.test(value))
+    )
+      return null;
+    return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>";
+  }
+  if (row.validation === "domain:custom_densities") {
+    return Array.isArray(value) && value.every(isCustomDensity)
+      ? null
+      : "expected a list of densities, each with a lowercase id and a name";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";
@@ -99,6 +143,14 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return inRange(row, value)
         ? null
         : `expected one of ${choices.join(", ")} or a number from ${row.range?.min} to ${row.range?.max}`;
+    case "choice_or_url": {
+      if (typeof value === "string" && choices.includes(value)) return null;
+      const key = row.url_key ?? "url";
+      const members = typeof value === "object" && value !== null && !Array.isArray(value) ? Object.keys(value) : [];
+      return members.length === 1 && members[0] === key && isHttpOrigin((value as Record<string, unknown>)[key])
+        ? null
+        : `expected one of ${choices.join(", ")} or {"${key}": "http(s)://host[:port]"}`;
+    }
     case "number":
       return inRange(row, value) ? null : `expected a number from ${row.range?.min} to ${row.range?.max}`;
     case "color":
@@ -137,6 +189,8 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return themeInDomain(domains?.themes, value) ? null : "unknown theme";
     case "font_family":
       return inDomain(domains?.font_families, value) ? null : "unknown font family";
+    case "text":
+      return typeof value === "string" ? null : "expected text";
     case "sound":
       return inDomain(domains?.sounds, value) ? null : "unknown sound";
     case "number_list":
@@ -150,6 +204,15 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         Object.values(value).every((item) => typeof item === "string")
         ? null
         : "expected an object of strings";
+    case "sound_rules":
+      return typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.values(value).every(
+          (item) => typeof item === "string" || (typeof item === "object" && item !== null && !Array.isArray(item)),
+        )
+        ? null
+        : "expected an object of sound rules";
     case "string_list":
       if (row.choices) {
         const values = row.choices.map((choice) => choice.value);

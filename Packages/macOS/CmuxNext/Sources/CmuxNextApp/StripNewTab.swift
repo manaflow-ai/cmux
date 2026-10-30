@@ -1,22 +1,25 @@
 import CmuxNextActions
 
-/// The tab strip's "+" (a click, a double-click on the empty strip): one
+/// The tab strip's "+" (a click): one
 /// registry action on the strip's pane, so it matches every other entry
 /// point of that action.
 enum StripNewTab {
-    static let action: ActionID = "newTab.sameKind"
+    static let action: ActionID = "newTab.default"
+    /// Option-click on the +: New <Kind> Tab, the selected tab's kind, picked on purpose.
+    static let sameKindAction: ActionID = "newTab.ofKind"
 
-    static func request(pane: String, opensWorkspace: Bool = false, perform: (ActionID, ActionInvocation) -> Void) {
+    static func request(pane: String, opensWorkspace: Bool = false, sameKind: Bool = false,
+                        perform: (ActionID, ActionInvocation) -> Void) {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane))
         if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }
-        perform(action, invocation)
+        perform(sameKind ? sameKindAction : action, invocation)
     }
 
     /// The tab group editor's New Tab. `selected` is the pane's selected
     /// tab, `groupTabs` the group's tabs in strip order. The group's
-    /// selected tab decides the kind (`newTab.sameKind` on that tab), else
+    /// selected tab decides the kind (`newTab.default` on that tab), else
     /// its last tab (cmux keeps no per-tab focus history); a group without
-    /// tabs gets a terminal tab in the pane.
+    /// tabs gets `newTab.default` on the pane, like the strip's + (cx-hvc57).
     static func requestInGroup(selected: String?, groupTabs: [String], pane: String,
                                opensWorkspace: Bool = false,
                                perform: (ActionID, ActionInvocation) -> Void) {
@@ -24,7 +27,7 @@ enum StripNewTab {
         guard let source else {
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane))
             if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }
-            return perform("newSurface", invocation)
+            return perform(action, invocation)
         }
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: source))
         if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }

@@ -22,6 +22,7 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_json::JsonSet as _;
 
 mod accounts;
 
@@ -453,7 +454,7 @@ fn run_owned(global: &GlobalArgs, verb: Verb) -> i32 {
                 _ => 1,
             };
             if let Some(message) = error.get("message").and_then(Value::as_str) {
-                error["message"] = json!(redact_emails(message));
+                error.set("message", json!(redact_emails(message)));
             }
             super::wire::print_local_error(&error, global.output, exit_code)
         }
@@ -554,10 +555,8 @@ struct AppClient {
 
 impl AppClient {
     fn connect(global: &GlobalArgs) -> Result<Self, i32> {
-        let socket = super::app::socket_path(global)
-            .map_err(|error| super::app::failure("app.not_found", &error, global.output, 3))?;
-        let stream = super::app::connect(&socket)
-            .map_err(|error| super::app::failure("app.unreachable", &error, global.output, 3))?;
+        let stream = super::app::connect_command(global)
+            .map_err(|error| super::wire::print_local_error(&error, global.output, 3))?;
         Ok(Self { stream })
     }
 

@@ -8,6 +8,7 @@ Values for `shortcuts.bindings.<action>`:
 
 - A string like `"cmd+b"` for a single shortcut.
 - A two-element array like `["ctrl+b","c"]` for a chord.
+- `{"any": ["ctrl+tab","cmd+]"]}` for several keys on one action, each item a single stroke or a chord. The first item is the one menus show; `{"any": []}` unbinds.
 - `null` or an empty string (`""`, `"none"`, `"clear"`, `"unbound"`, `"disabled"`) to unbind.
 
 ## App
@@ -29,6 +30,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.closeOtherTabsInPane`
 - `shortcuts.bindings.closeTab`
 - `shortcuts.bindings.newBrowserWorkspace`
+- `shortcuts.bindings.newLocalWorkspace`
 - `shortcuts.bindings.newTab`
 - `shortcuts.bindings.renameTab`
 - `shortcuts.bindings.reopenPreviousSession`
@@ -67,6 +69,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusHistoryLast`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusNextPane`
+- `shortcuts.bindings.focusPaneByNumber`
 - `shortcuts.bindings.focusPreviousPane`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusTextBoxInput`
@@ -128,6 +131,7 @@ Values for `shortcuts.bindings.<action>`:
 ## Notifications
 
 - `shortcuts.bindings.clearAllNotifications`
+- `shortcuts.bindings.jumpToLastPrompt`
 - `shortcuts.bindings.jumpToUnread`
 - `shortcuts.bindings.markAllNotificationsRead`
 - `shortcuts.bindings.markOldestUnreadAndJumpNext`
@@ -138,6 +142,8 @@ Values for `shortcuts.bindings.<action>`:
 ## Right sidebar
 
 - `shortcuts.bindings.focusRightSidebar`
+- `shortcuts.bindings.focusSidebar`
+- `shortcuts.bindings.showWindowHints`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.nextSidebarTabInGroup`
 - `shortcuts.bindings.nextWorkspaceGroup`

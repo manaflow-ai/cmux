@@ -37,9 +37,13 @@ final class PageFloatingOverlays {
         self.page = page
     }
 
-    isolated deinit {
-        if let pagesObserver { NotificationCenter.default.removeObserver(pagesObserver) }
-        for card in cards { card.handle?.dismiss() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let pagesObserver { NotificationCenter.default.removeObserver(pagesObserver) }
+            for card in cards { card.handle?.dismiss() }
+        }
     }
 
     /// The cards, bottom of the stack first (tests, diagnostics, lookups).

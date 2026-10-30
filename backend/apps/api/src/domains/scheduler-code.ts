@@ -5,6 +5,7 @@ import { deniedPattern } from "../egress-hosts.ts"
 import { decodeParams, reject } from "./common.ts"
 import type { SchedulerStore } from "./scheduler-store.ts"
 import type { SchedulerState } from "./scheduler.ts"
+import { invalidStepRef } from "../automation-machine.ts"
 
 /**
  * Code bodies in the SchedulerDO reducer (decisions A11, A12, C1): the daily
@@ -37,6 +38,9 @@ export const countDeploy = (state: SchedulerState, prev: Body | undefined, next:
   return { ok: true, deploys: { day, count: count + 1 } }
 }
 
+/** The member scheduled and delivered runs of `automation` are charged to from now on (cx-ds09i). */
+export const chargeTo = (state: SchedulerState, automation: string, user: string): SchedulerState => ({ ...state, charged_to: { ...state.charged_to, [automation]: user } })
+
 export const reduceDeploy = (state: SchedulerState, st: SchedulerStore, params: unknown, ctx: ReduceContext): ReduceResult<SchedulerState> => {
   const d = decodeParams<typeof AutomationDeploy.params.Type>(AutomationDeploy, params)
   if (!d.ok) return d
@@ -55,7 +59,7 @@ export const reduceDeploy = (state: SchedulerState, st: SchedulerStore, params: 
   st.putAutomation(next)
   return {
     ok: true,
-    state: st.head({ ...state, ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
+    state: st.head({ ...(ctx.principal.user ? chargeTo(state, a.id, ctx.principal.user) : state), ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
     value: next,
     outbox: [automationOutbox(next)],
     writes: st.writes()
@@ -73,6 +77,8 @@ export const invalidBody = (body: Body): ({ ok: false } & Reject) | undefined =>
   }
   if (body.type !== "steps") return undefined
   for (const [i, s] of body.steps.entries()) {
+    const ref = invalidStepRef(body.steps, i)
+    if (ref) return reject("validation.invalid", ref)
     if (s.type !== "op") continue
     const def = cloudOpByName.get(s.op)
     if (!def || Exit.isFailure(Schema.decodeUnknownExit(def.params as Schema.Codec<unknown>)(s.params ?? {}))) {

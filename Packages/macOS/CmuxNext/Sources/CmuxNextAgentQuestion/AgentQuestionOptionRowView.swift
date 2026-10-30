@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One option row: number keycap, label, description and a checkmark. It
 /// is an accessibility radio button (single select) or checkbox (multi).
@@ -19,13 +20,13 @@ final class AgentQuestionOptionRowView: NSView {
     var onClick: (() -> Void)?
     private(set) var content: Content?
     private let keycap = CALayer()
-    private let keycapLabel = NSTextField(labelWithString: "")
-    private let title = NSTextField(wrappingLabelWithString: "")
-    private let detail = NSTextField(wrappingLabelWithString: "")
+    private let keycapLabel = ChromeLabel(labelWithString: "")
+    private let title = ChromeLabel(wrappingLabelWithString: "")
+    private let detail = ChromeLabel(wrappingLabelWithString: "")
     private let check = NSImageView()
     private var frames: AgentQuestionCardLayout.Row?
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     init() {
         super.init(frame: .zero)
@@ -36,7 +37,6 @@ final class AgentQuestionOptionRowView: NSView {
         for label in [keycapLabel, title, detail] {
             label.isSelectable = false
             label.drawsBackground = false
-            label.isBordered = false
             addSubview(label)
         }
         keycapLabel.alignment = .center
@@ -63,8 +63,8 @@ final class AgentQuestionOptionRowView: NSView {
         detail.font = style.detailFont
         detail.stringValue = content.detail ?? ""
         detail.isHidden = content.detail == nil
-        let symbol = content.multiSelect ? (content.chosen ? "checkmark.square.fill" : "square") : "checkmark"
-        check.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        let icon: IconName = content.multiSelect ? (content.chosen ? .checkboxOn : .checkboxOff) : .stateSelected
+        check.image = NSImage.icon(icon, size: style.checkSize)
         check.isHidden = !content.multiSelect && !content.chosen
         applyColors()
         needsLayout = true

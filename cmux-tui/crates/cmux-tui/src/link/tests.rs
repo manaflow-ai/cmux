@@ -214,9 +214,19 @@ async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
         serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session, None).await
     });
     let (impostor_side, _) = impostor.accept().await.unwrap();
+    // The link first checks the entry's code signature (on macOS that alone
+    // can take seconds for a large test binary under load), then waits up to
+    // HANDSHAKE_TIMEOUT for the banner. Wait for its verdict, bounded so a
+    // link that splices instead fails here rather than hanging.
+    let refused = tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT * 12, task)
+        .await
+        .expect("the link never gave up on a socket that sent no entry banner")
+        .unwrap();
+    assert_eq!(refused, Err(InboundRefused::NotAnEntry));
+    // It closed the socket having written nothing: no stamp, no peer bytes.
     let mut first = String::new();
     let read = tokio::time::timeout(
-        super::lines::HANDSHAKE_TIMEOUT * 2,
+        super::lines::HANDSHAKE_TIMEOUT,
         BufReader::new(impostor_side).read_line(&mut first),
     )
     .await;
@@ -224,7 +234,6 @@ async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
         matches!(read, Ok(Ok(0))),
         "the link wrote {first:?} to a socket that never sent the entry banner"
     );
-    assert_eq!(task.await.unwrap(), Err(InboundRefused::NotAnEntry));
 }
 
 /// RED (security): the link entry's gate admits exactly the seven `fs-v1`
@@ -469,7 +478,13 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
 fn link_show_names_the_pairing_file() {
     let directory = cmux_unix_socket::short_test_dir("linkshow");
     let state = super::state::LinkState::open(Some(directory.path().join("link"))).unwrap();
-    state.init(&super::state::LinkConfig { install: "inst_show".into(), port: 4101 }).unwrap();
+    state
+        .init(&super::state::LinkConfig {
+            install: "inst_show".into(),
+            port: 4101,
+            server_identity: None,
+        })
+        .unwrap();
     let shown = super::show_json(&state).unwrap();
     assert_eq!(shown["peers_file"].as_str(), state.peers_path().to_str());
     assert_eq!(shown["install"].as_str(), Some("inst_show"));

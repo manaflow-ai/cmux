@@ -5,7 +5,7 @@
 //! names one by `targetId` in every call. Tab lifecycle calls (`tabs.open`,
 //! `tabs.close`, `tabs.activate`) go to the source, which owns tabs. Every
 //! call that names a tab passes the source's refusal rules first (browser
-//! pages, the interim extension rule). The ownership rules live here, once
+//! pages). The ownership rules live here, once
 //! for every source: created tabs close at the session's end unless kept,
 //! automation leases, the session's request filter, its events.
 
@@ -14,6 +14,7 @@ use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider_link::ProviderDriver;
 use crate::tab_source::{TabCall, TabSource};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -355,7 +356,7 @@ impl ProviderEngine {
                 let mut close = json!({"targetId": target_id, "reason": SESSION_END_REASON,
                     "timeoutMs": SESSION_END_CLOSE_MS});
                 if let Some(timeout) = params.get("timeoutMs") {
-                    close["timeoutMs"] = timeout.clone();
+                    close.set("timeoutMs", timeout.clone());
                 }
                 return self.provider.call("tabs.close", &close).map(Reply::Value);
             }
@@ -452,6 +453,61 @@ impl Driver for ProviderEngine {
     /// filter (the gate fails closed where it cannot).
     fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
         self.provider.set_request_filter(self.subscription, &self.engine, filter)
+    }
+
+    /// The session's connection policy; when its new tabs just moved to a
+    /// checked store, each live tab it created before reopens there at the
+    /// same URL (the old one closes), so no page of the session keeps a way
+    /// out. One tab that cannot move (the person holds it) stops none of the
+    /// others: it stays refused to the session (crate::headless_policy).
+    fn set_connection_policy(
+        &self,
+        policy: Option<crate::policy_proxy::ConnectionPolicy>,
+    ) -> Result<(), DriverError> {
+        // A fetch that ends after the session must not make a new store.
+        if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(());
+        }
+        if !self.provider.set_connection_policy(self.subscription, &self.engine, policy)? {
+            return Ok(());
+        }
+        let created: Vec<String> = self.created_tabs().iter().cloned().collect();
+        let listed = self.call("tabs.list", &json!({}))?;
+        for target in created {
+            // A tab that is gone (closed by its page or the person) has
+            // nothing to move.
+            let Some(tab) = listed
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|tab| tab["targetId"].as_str() == Some(target.as_str()))
+            else {
+                continue;
+            };
+            if !self.provider.outside_connection_policy(self.subscription, &target) {
+                continue;
+            }
+            let url = tab["url"]
+                .as_str()
+                .filter(|url| !url.is_empty() && *url != "about:blank")
+                .map(str::to_owned);
+            // An incognito tab reopens incognito or not at all (a session
+            // that is not incognito opens no incognito tab under a policy).
+            let incognito = tab["incognito"].as_bool().unwrap_or(false);
+            let opened =
+                self.call("tabs.open", &json!({"background": true, "incognito": incognito}));
+            // A URL the policy refuses stays blank: the old page goes anyway.
+            if let (Some(url), Some(new)) =
+                (url, opened.as_ref().ok().and_then(|tab| tab["targetId"].as_str()))
+            {
+                let _ = self.call(
+                    "tab.navigate",
+                    &json!({"targetId": new, "url": url, "waitUntil": "commit"}),
+                );
+            }
+            let _ = self.call("tabs.close", &json!({"targetId": target}));
+        }
+        Ok(())
     }
 
     fn capabilities(&self) -> Vec<&'static str> {

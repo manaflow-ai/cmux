@@ -1,12 +1,19 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextMacScreen
 import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
+import CmuxNextScreenshots
+import CmuxNextStash
 import Foundation
+import os
 #if DEBUG
 import CmuxNextRemoteBrowser
 #endif
@@ -16,6 +23,9 @@ import CmuxNextRemoteBrowser
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
+    /// The Stashed page's stashes (stash-v1), History's sibling page.
+    private(set) lazy var stash = StashService(host: stashHost)
+    private(set) lazy var stashHost = StashAppHost(services)
 
     init(services: AppServices) {
         self.services = services
@@ -66,6 +76,25 @@ final class HistoryPageService: HistoryPageSource {
     func copy(_ text: String) {
         HistoryRestorer(services: services).copy(text)
     }
+
+    /// The app's cookie backups (WebKit tabs' agent clears), read off the
+    /// main actor: the files are decrypted with the Keychain key.
+    func cookieBackups() async -> [HistoryCookieBackup] {
+        guard let backups = services.browserHost?.driver.cookieBackups else { return [] }
+        return await Task.detached {
+            backups.pruneExpired()
+            return backups.summaries().map { HistoryCookieBackup(id: $0.restoreID, site: $0.site, createdAt: $0.createdAt) }
+        }.value
+    }
+
+    /// The person confirmed: the backups go for good (an agent never gets here).
+    func deleteCookieBackups(_ ids: [String]) async {
+        guard let backups = services.browserHost?.driver.cookieBackups else { return }
+        let deleted = await Task.detached { ids.filter { (try? backups.remove($0)) != nil }.count }.value
+        Self.logger.info("deleted \(deleted, privacy: .public) of \(ids.count, privacy: .public) cookie backups at the person's request")
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cookie-backups")
 }
 
 extension TabContentCache {
@@ -85,15 +114,31 @@ extension TabContentCache {
     /// restart) or a page this process made for the tab before (hibernation
     /// wake, engine switch). A tab created later, by anyone, records its
     /// first visit. Typing an app page address (`cmux://history`,
-    /// `cmux://bookmarks`) into the address bar shows that page.
+    /// `cmux://bookmarks`, or `chrome://history`, `chrome://bookmarks`:
+    /// `ChromiumPageRouter`) into the address bar shows that page.
     func serveAppPages(_ entry: BrowserEntry, key: String) {
         guard let services = pageRequests.services else { return }
         let installedBefore = !services.history.installedPageKeys.insert(key).inserted
         if let tab = tabModel(key), installedBefore || services.machines.daemon(forTab: tab).store.restoredTabIDs.contains(key) {
             entry.chrome.markRestored(tab.url.flatMap(URL.init(string:)))
         }
-        entry.chrome.loadOverride = { [weak self] url in
-            guard Self.isAppPage(url), let self, let tab = tabModel(key) else { return false }
+        entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
+            // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
+            // cmux://mac-screen opens the Mac Screen tab beside this one (nil: nothing loads here).
+            guard let url = ChromiumPageRouter.routed(typed, services: services, in: services.paneController(listing: key)) else {
+                chrome?.addressBar.showPageURL()
+                return true
+            }
+            // A Mac Screen pairing link typed or pasted in the address bar: link pairing is
+            // gone, so it is refused with a word; it never loads or searches (it carried a secret).
+            if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
+                chrome?.addressBar.showPageURL()
+                services.registry.refuse(refusal)
+                return true
+            }
+            guard Self.isAppPage(url) else { return false }
+            // Never load a cmux page address in the engine (WebKit cancels it without a word).
+            guard let self, let tab = tabModel(key) else { return true }
             // Typed in the address bar (or a bookmark a person opened).
             if RemoteViewTabRecord.matches(url) { services.remoteViewPages.confirm(key, url: url) }
             showAppPage(url, in: tab)
@@ -112,6 +157,7 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+            || ScreenshotsPageAddress.matches(url) || VaultPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
 
@@ -143,6 +189,11 @@ extension TabContentCache {
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
+        if ScreenshotsPageAddress.matches(url) {
+            let page = services.screenshotsPage.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            return page
+        }
         if let url, RemoteViewTabRecord.matches(url) {
             let pages = services.remoteViewPages
             let source = pages.source(for: key, url: url, isLocal: services.machines.daemon(forTab: tab).isLocal)
@@ -155,11 +206,19 @@ extension TabContentCache {
                     pages.confirm(key, url: confirmedURL)
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
-                })
+                },
+                cloudTransport: { [weak services] machine in services?.cloudDesktopTransport(machine: machine) },
+                cloudRd: { [weak services] machine, control in services?.cloudDesktopRdTransport(machine: machine, control: control) },
+                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
+            return page
+        }
+        if VaultPageAddress.matches(url) {
+            let page = services.vaultPages.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
         if BookmarkPageAddress.matches(url) {

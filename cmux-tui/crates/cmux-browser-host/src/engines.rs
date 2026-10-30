@@ -141,6 +141,7 @@ impl HostEngines {
             on_behalf_of: session.caller.on_behalf_of.clone(),
             origin: session.caller.origin.clone(),
             label: session.label.clone(),
+            terminal: session.terminal.clone(),
             // Host::open refused an unnamed cef/webkit session already.
             implicit_session: false,
             engine: engine.to_owned(),
@@ -211,6 +212,7 @@ impl HostEngines {
                 options
                     .extra_args
                     .extend(isolated.chromium_args().map_err(|e| unavailable("headless", &e))?);
+                options.egress_listener = isolated.listener_addr();
             }
             HeadlessSource::launch(&options, self.agent_source.clone(), &session.profile)
         })?;
@@ -220,6 +222,7 @@ impl HostEngines {
             on_behalf_of: session.caller.on_behalf_of.clone(),
             origin: session.caller.origin.clone(),
             label: session.label.clone(),
+            terminal: session.terminal.clone(),
             implicit_session: false,
             engine: "headless".to_owned(),
         };

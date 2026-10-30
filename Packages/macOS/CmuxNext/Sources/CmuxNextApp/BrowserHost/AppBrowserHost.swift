@@ -3,7 +3,9 @@ import CmuxNextAgentCursor
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 import Observation
 import os
@@ -26,6 +28,10 @@ final class AppBrowserHost {
     private let inputBridge: AgentCursorInputBridge
     private var inputObservation: ProviderInputObservation?
     private var inputLeaseObservation: ProviderLeaseObservation?
+    /// Follows `browser.showAgentCursor` (`follow(_:)`).
+    private var agentCursorSettingObservation: Task<Void, Never>?
+    /// The agent cursor of `cmux browser <tab>` page commands.
+    let pageInputCursor: AppPageInputCursor
 
     /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
     /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
@@ -43,6 +49,7 @@ final class AppBrowserHost {
 
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
+        pageInputCursor = AppPageInputCursor(services: services)
         let tabs = AppBrowserHostTabs(services: services)
         let relay = AppDevToolsRelay(services: services, marking: tabs)
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
@@ -85,7 +92,10 @@ final class AppBrowserHost {
                   let parent = services.locateTab(surface: opener) else { return }
             provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
         }
-        leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
+        leaseObservation = provider.observeLeases { [cursorLeases, weak services] targetID, lease in
+            // A page an agent holds never freezes or hibernates (smarter hibernation, msg 9103).
+            services?.cache.hibernation?.noteLease(targetID, held: lease != nil)
+            AgentCursorPresenceColors.shared.leaseChanged(target: targetID, session: lease?.session, terminal: lease?.terminal)
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
         inputObservation = provider.observeInputs { [inputBridge, weak services] event in
@@ -104,6 +114,28 @@ final class AppBrowserHost {
         inputLeaseObservation = provider.observeLeases { [inputBridge] targetID, lease in
             inputBridge.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
+        // What a type or key input types goes to the window that will draw
+        // it, beside the event (its keystroke caption).
+        inputBridge.onTyping = { [weak services, weak tabs] event, typing in
+            guard let services, let workspaceID = tabs?.workspaceID(ofTab: event.targetID) else { return }
+            Self.window(ofWorkspace: workspaceID, in: services)?.agentCursor.noteTyping(typing, for: event)
+        }
+    }
+
+    /// Follows `browser.showAgentCursor`: off, agent inputs draw nothing and
+    /// every window's agent cursors go; on again, the next input draws.
+    func follow(_ settings: SettingsController) {
+        agentCursorSettingObservation?.cancel()
+        // task-owner: lives as long as the host; event-driven (Observation)
+        agentCursorSettingObservation = Task { [weak self] in
+            for await shown in ObservationStream({ settings.snapshot.browserShowAgentCursor }) {
+                guard let self else { return }
+                self.inputBridge.isEnabled = shown
+                if !shown, let services = self.services {
+                    for slot in AgentCursorWiring.slots(in: services) { slot.removeAll() }
+                }
+            }
+        }
     }
 
     /// Starts the provider (it dials once the daemon gives credentials) and feeds it a person's key
@@ -115,6 +147,8 @@ final class AppBrowserHost {
     /// to the clicked page).
     func start() {
         provider.start()
+        // AppServices.settings follows from its didSet; a controller set before the host is followed here.
+        if let settings = services?.settings { follow(settings) }
         watchDaemonConnection()
         let application = NSApp as? CmuxApplication
         let earlier = application?.inputObserver
@@ -154,12 +188,13 @@ final class AppBrowserHost {
     }
 
     /// The content that shows or parks `workspaceID`: its window's shown content first.
-    /// The window that shows `workspaceID`, else one that keeps it parked:
-    /// its window-level cursor slot draws the workspace's agent cursors.
+    /// The window that shows `workspaceID`, else one that keeps it parked or lists it (a parked one
+    /// released under memory pressure): its window-level cursor slot draws the workspace's agent cursors.
     static func window(ofWorkspace workspaceID: String, in services: AppServices) -> WindowController? {
         let controllers = services.windows.controllers
         if let shown = controllers.first(where: { $0.content?.workspace.id == workspaceID }) { return shown }
-        return controllers.first { controller in controller.parked.contains { $0.workspace.id == workspaceID } }
+        return controllers.first { controller in controller.parked[workspaceID] != nil }
+            ?? controllers.first { services.windows.registry.members(of: $0.state.id).contains(workspaceID) }
     }
 
     /// One provider per install: a random id kept in the app's defaults.
@@ -184,7 +219,7 @@ final class AppProviderCredentials: ProviderCredentialsSource {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host")
 
     func providerCredentials() async -> ProviderCredentials? {
-        guard let daemon, daemon.supports(DaemonCapabilities.shared.browserHostProvider),
+        guard let daemon, daemon.supports(DaemonCapability.browserHostProvider.rawValue),
               let connection = daemon.connection else { return nil }
         let reply: BrowserHostProviderRequest.Response
         do {

@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use portable_pty::{Child, ChildKiller, ExitStatus};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, TerminateJobObject,
 };
 
 /// The open job handles, as integers (a HANDLE is a pointer).
@@ -65,6 +65,19 @@ pub fn contains(process: *mut c_void) -> bool {
         // SAFETY: valid handles; `result` is written on success.
         unsafe { IsProcessInJob(process as HANDLE, job as HANDLE, &mut result) != 0 && result != 0 }
     })
+}
+
+/// Ends every process in every terminal job of this process with
+/// `exit_code` (`TerminateJobObject`) and returns how many jobs it ended.
+/// For a terminal-host process, which runs one terminal: the Windows side of
+/// the host's final process-group kill (cx-ko2e). A daemon that runs several
+/// terminals in-process must not call it.
+pub fn terminate_every_job(exit_code: u32) -> usize {
+    let jobs = jobs();
+    jobs.iter()
+        // SAFETY: open job handles this process created (full access).
+        .filter(|&&job| unsafe { TerminateJobObject(job as HANDLE, exit_code) } != 0)
+        .count()
 }
 
 /// A spawned child and its job.

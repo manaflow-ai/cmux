@@ -4,14 +4,14 @@ import QuartzCore
 
 /// The workspace group editor (cx-rcby, Lawrence 2026-10-08: the Chrome tab
 /// group bubble): a name field that opens focused with the name selected,
-/// a row of color dots (none, then the theme's palette) and the group's
+/// a row of color dots (none, then the group palette) and the group's
 /// actions in sections. Opened from the group chip, its more button or a
 /// right-click. Every edit goes out through the callbacks; the editor
 /// never edits sidebar state.
 @MainActor
 final class SidebarGroupEditor {
     var onRename: ((GroupID, String) -> Void)?
-    var onColor: ((GroupID, GroupColor) -> Void)?
+    var onColor: ((GroupID, GroupTint) -> Void)?
     var onItem: ((GroupID, String) -> Void)?
     /// The editor closed, after any rename it committed.
     var onClose: ((GroupID) -> Void)?
@@ -22,14 +22,18 @@ final class SidebarGroupEditor {
     private var member: WorkspaceID?
     /// The groups the last update showed (`follow`).
     private var known: Set<GroupID> = []
-    /// The group whose editor closed last, and the event time it closed at.
-    private var lastClosed: (group: GroupID, time: TimeInterval)?
+    /// The group whose editor closed last, the event time it closed at, and
+    /// the click it closed during (a mouse-up has its mouse-down's number).
+    private var lastClosed: (group: GroupID, time: TimeInterval, click: Int?)?
+    /// The shown group's color, where the color panel starts.
+    private var shownTint: GroupTint?
+    private let colorPanel = GroupColorPanel.shared
 
     var isVisible: Bool { shownGroup != nil }
     /// False in tests: the bubble is laid out but never put on screen.
     var ordersFront = true
 
-    func show(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]], anchor: CGRect, parent: NSWindow, themeAnchor: NSView) {
+    func show(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]], anchor: PopupAnchor, parent: NSWindow, themeAnchor: NSView) {
         if let shownGroup, shownGroup != group.id { hide() }
         let panel = panel ?? SidebarGroupEditorPanel()
         self.panel = panel
@@ -41,6 +45,13 @@ final class SidebarGroupEditor {
             guard let self, let id = self.shownGroup else { return }
             self.onColor?(id, color)
         }
+        panel.onCustomColor = { [weak self] in
+            guard let self, let id = self.shownGroup else { return }
+            // The panel takes focus and the bubble closes; the color panel keeps the
+            // group, and a new empty group is kept for it (not deleted on close).
+            self.onItem?(id, SidebarGroupEditing.keepGroupItem)
+            self.colorPanel.open(current: self.shownTint) { [weak self] tint in self?.onColor?(id, tint) }
+        }
         panel.onItem = { [weak self] item in
             guard let self, let id = self.shownGroup else { return }
             self.onItem?(id, item)
@@ -49,15 +60,17 @@ final class SidebarGroupEditor {
             guard let self, let id = self.shownGroup else { return }
             self.shownGroup = nil
             self.member = nil
-            self.lastClosed = (id, NSApp.currentEvent?.timestamp ?? ProcessInfo.processInfo.systemUptime)
+            let event = NSApp.currentEvent
+            self.lastClosed = (id, event?.timestamp ?? ProcessInfo.processInfo.systemUptime, Self.clickNumber(event))
             self.onClose?(id)
         }
         shownGroup = group.id
+        shownTint = group.tint
         member = group.workspaces.first?.id
         panel.configure(group, items: items)
         panel.adoptThemeScope(of: themeAnchor)
         // A window off screen (tests, a hidden window) gets no bubble on screen.
-        panel.present(below: anchor, parent: parent, ordersFront: ordersFront && parent.isVisible)
+        panel.present(at: anchor, parent: parent, ordersFront: ordersFront && parent.isVisible)
     }
 
     /// Keeps the open editor on its group after a sidebar update: the same
@@ -67,6 +80,7 @@ final class SidebarGroupEditor {
         defer { known = Set(groups.keys) }
         guard let shown = shownGroup else { return }
         if let group = groups[shown] {
+            shownTint = group.tint
             panel?.refresh(group)
             if member == nil { member = group.workspaces.first?.id }
             return
@@ -84,9 +98,20 @@ final class SidebarGroupEditor {
     /// Whether the editor of `group` closed during the click that is
     /// happening now (the click made the sidebar's window key, which closes
     /// the bubble first): that click toggles it closed, it does not reopen it.
-    func closedByThisClick(_ group: GroupID, at timestamp: TimeInterval?) -> Bool {
-        guard let closed = lastClosed, closed.group == group, let timestamp else { return false }
-        return timestamp - closed.time <= NSEvent.doubleClickInterval
+    /// Clicks are matched by their event number, so fast repeated clicks
+    /// toggle open, closed, open (cx-q5jw); a close outside a click falls
+    /// back to the double-click time.
+    func closedByThisClick(_ group: GroupID, event: NSEvent?) -> Bool {
+        guard let closed = lastClosed, closed.group == group, let event else { return false }
+        if let click = Self.clickNumber(event), let closedClick = closed.click { return click == closedClick }
+        return event.timestamp - closed.time <= NSEvent.doubleClickInterval
+    }
+
+    private static func clickNumber(_ event: NSEvent?) -> Int? {
+        switch event?.type {
+        case .leftMouseDown?, .leftMouseUp?: event?.eventNumber
+        default: nil
+        }
     }
 
     func hide() {
@@ -101,17 +126,27 @@ final class SidebarGroupEditor {
 /// the sidebar's theme scope.
 final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onRename: ((String) -> Void)?
-    var onColor: ((GroupColor) -> Void)?
+    var onColor: ((GroupTint) -> Void)?
+    var onCustomColor: (() -> Void)?
     var onItem: ((String) -> Void)?
     var onClose: (() -> Void)?
 
     let nameField = NSTextField()
     private let field = NSView()
     private(set) var swatches: [SidebarGroupSwatchView] = []
+    /// After the palette dots, icon-only (cx-25az): a custom color and the emoji or icon picker.
+    let customSwatch = GroupCustomSwatchView(label: GroupEditorStrings.customColor)
+    let emojiButton = SidebarIconButton(symbol: "face.smiling", pointSize: { Metrics.smallIconSize },
+                                        label: GroupEditorStrings.emoji)
     private let stack = NSStackView()
     private var name = ""
     private var fieldWidth: NSLayoutConstraint?
     private var dismissing = false
+    /// The header the editor opened from (screen coordinates), where it closes to.
+    private var anchor: CGRect = .zero
+    /// Bumped by every open and close, so a finished close that a reopen and
+    /// a second close overtook leaves the panel to the newer close.
+    private var generation = 0
     /// The bubble's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
     /// Shown (on screen, or laid out in a test) and not yet dismissed.
@@ -150,6 +185,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         nameField.delegate = self
         nameField.lineBreakMode = .byTruncatingTail
         nameField.setAccessibilityLabel(GroupEditorStrings.nameLabel)
+        nameField.setAccessibilityIdentifier("cmux.sidebar.groupEditor.name")
         field.wantsLayer = true
         field.layer?.cornerRadius = Metrics.itemCornerRadius
         field.layer?.cornerCurve = .continuous
@@ -161,6 +197,11 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             swatch.onPick = { [weak self] picked in self?.pick(picked) }
             return swatch
         }
+        customSwatch.onPress = { [weak self] in self?.onCustomColor?() }
+        // The workspace group's Set Icon action: the shared icon picker, emoji included.
+        emojiButton.onPress = { [weak self] in self?.press("workspaceGroup.setIcon") }
+        emojiButton.setAccessibilityIdentifier("cmux.sidebar.groupEditor.icon")
+        customSwatch.setAccessibilityIdentifier("cmux.sidebar.groupEditor.customColor")
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space1
@@ -172,7 +213,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
-            field.heightAnchor.constraint(equalToConstant: Metrics.tabHeight),
+            field.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
             stack.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.width - 2 * p),
             nameField.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: Metrics.space3),
             nameField.trailingAnchor.constraint(equalTo: field.trailingAnchor, constant: -Metrics.space3),
@@ -184,9 +225,9 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     func configure(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]]) {
         name = group.name
         nameField.stringValue = group.name
-        for swatch in swatches { swatch.isChosen = swatch.color == group.color }
+        showChosen(group.tint)
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let dots = NSStackView(views: swatches)
+        let dots = NSStackView(views: swatches + [customSwatch, emojiButton])
         dots.spacing = Metrics.space1
         dots.distribution = .equalSpacing
         var views: [NSView] = [dots]
@@ -220,7 +261,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// The group changed while the editor is open: its color; its name only
     /// when the field is not being edited.
     func refresh(_ group: SidebarGroup) {
-        for swatch in swatches { swatch.isChosen = swatch.color == group.color }
+        showChosen(group.tint)
         // A name the person typed is kept; an untouched field follows the group.
         if nameField.stringValue == name {
             nameField.stringValue = group.name
@@ -232,6 +273,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let content = glass else { return }
         content.performWithTheme {
             nameField.textColor = Palette.textPrimary
+            nameField.applyThemedPlaceholder(GroupEditorStrings.namePlaceholder)
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
             field.layer?.borderColor = Palette.focusRing.cgColor
             field.layer?.borderWidth = Metrics.dividerThickness
@@ -240,8 +282,15 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func pick(_ color: GroupColor) {
-        for swatch in swatches { swatch.isChosen = swatch.color == color }
-        onColor?(color)
+        showChosen(.palette(color))
+        onColor?(.palette(color))
+    }
+
+    /// The chosen ring: a palette dot, or the custom dot showing its color.
+    private func showChosen(_ tint: GroupTint) {
+        for swatch in swatches { swatch.isChosen = tint == .palette(swatch.color) }
+        if case .custom = tint { customSwatch.custom = tint } else { customSwatch.custom = nil }
+        customSwatch.isChosen = customSwatch.custom != nil
     }
 
     func press(_ item: String) {
@@ -257,30 +306,30 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         onRename?(text)
     }
 
-    func present(below anchor: CGRect, parent: NSWindow, ordersFront: Bool = true) {
+    /// Opens the bubble at `anchor` (screen coordinates): under the control that opened it,
+    /// on the anchor's edge, above it when there is no room below.
+    func present(at anchor: PopupAnchor, parent: NSWindow, ordersFront: Bool = true) {
         dismissing = false
         isPresented = true
+        ignoresMouseEvents = false
+        self.anchor = anchor.rect
+        generation += 1
+        // Restore the whole card before ordering it front, including during a closing fade.
+        if ordersFront { showPopupAtOnce() }
         if ordersFront, self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space1 - size.height)
-        if let screen = parent.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
-            // No room below: open above the chip.
-            if origin.y < visible.minY + Metrics.space2 { origin.y = anchor.maxY + Metrics.space1 }
-        }
-        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
+        let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame,
+                                    window: parent.convertToScreen(parent.contentLayoutRect))
+        setFrame(PopupStyle.standard.windowFrame(forCard: card), display: ordersFront)
         guard ordersFront else { return }
-        alphaValue = 0
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
@@ -288,7 +337,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let editor = nameField.currentEditor() as? NSTextView else { return }
         nameField.performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
         }
     }
 
@@ -297,9 +346,20 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismissing = true
         isPresented = false
         commitName()
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        ignoresMouseEvents = true
+        // The keys go back to the window under it now, not when the fade ends.
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
         onClose?()
+        generation += 1
+        let closing = generation
+        closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
+            // A reopen during the close keeps the panel.
+            guard let self, self.dismissing, self.generation == closing else { return }
+            self.parent?.removeChildWindow(self)
+            self.orderOut(nil)
+            self.resetPopupScale()
+        }
     }
 
     override func resignKey() {

@@ -15,27 +15,15 @@ public nonisolated struct AgentPaneOpenTab: Equatable, Sendable {
     public var search: Bool
     /// Terminal: run `text` (variant A's Enter) or only type it at the prompt (`!`).
     public var run: Bool
+    /// The page stays open beside the new tab (the Harnesses page's Sign In and Install…).
+    public var keep: Bool
 
-    public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true) {
+    public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true, keep: Bool = false) {
         self.kind = kind
         self.text = text
         self.cwd = cwd
         self.search = search
         self.run = run
-    }
-}
-
-/// A setting the new tab page writes: its "default: X" toggle or a template dot. The App checks the value.
-public nonisolated enum AgentPaneNewTabSetting: Equatable, Sendable {
-    case defaultKind(String)
-    case template(String)
-}
-
-extension AgentPaneModel {
-    /// Only while the tab is still the page.
-    func write(_ setting: AgentPaneNewTabSetting, method: String) -> [String: Any] {
-        guard newTab != nil, let onNewTabSetting else { return Self.unsupported(method) }
-        onNewTabSetting(setting)
-        return AgentPaneReply.success()
+        self.keep = keep
     }
 }

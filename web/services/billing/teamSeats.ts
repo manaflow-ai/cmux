@@ -9,6 +9,7 @@ import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
 import { databaseTeamSeatQueue, TEAM_SEATS_BUSY, type TeamSeatQueue } from "./teamSeatQueue";
 import { billingPlanIdFromMetadata } from "./teamResolution";
+import { planItem } from "./subscriptionItems";
 
 /**
  * Seat rules for a Team subscription. Every current member is a billed seat,
@@ -57,7 +58,10 @@ export type TeamSeatReconcileDependencies = {
   readonly activeSubscription?: (stackTeamId: string) => Promise<ActiveTeamSubscriptionRow | null>;
   readonly stripe?: TeamSeatStripeClient;
   /** Mirrors the updated subscription into our rows and Stack `cmuxSeats`. */
-  readonly apply?: (subscription: Stripe.Subscription) => Promise<unknown>;
+  readonly apply?: (
+    subscription: Stripe.Subscription,
+    dependencies: { readonly markTeamSeatsDirty: false },
+  ) => Promise<unknown>;
   readonly captureError?: (error: unknown, context: Record<string, string | number | boolean>) => void;
 };
 
@@ -161,15 +165,15 @@ async function updateStripeQuantity(
 ): Promise<{ changed: boolean; value: number | null }> {
   const client = dependencies.stripe ?? defaultTeamSeatStripeClient();
   const live = await client.retrieve(subscriptionId);
-  const item = live.items?.data?.[0];
+  const item = planItem(live);
   const current = typeof item?.quantity === "number" ? item.quantity : null;
   if (!item || !(ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(live.status)) {
     return { changed: false, value: current };
   }
   if (current === to) return { changed: false, value: current };
   const updated = await client.updateQuantity(subscriptionId, item.id, to);
-  await (dependencies.apply ?? applySubscriptionUpdate)(updated);
-  return { changed: true, value: updated.items?.data?.[0]?.quantity ?? to };
+  await (dependencies.apply ?? applySubscriptionUpdate)(updated, { markTeamSeatsDirty: false });
+  return { changed: true, value: planItem(updated)?.quantity ?? to };
 }
 
 async function activeTeamSubscriptionRow(stackTeamId: string): Promise<ActiveTeamSubscriptionRow | null> {

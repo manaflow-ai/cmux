@@ -7,11 +7,15 @@ nonisolated enum Strings {
     static var back: String { String(localized: "browser.toolbar.back", defaultValue: "Back", bundle: .module) }
     static var forward: String { String(localized: "browser.toolbar.forward", defaultValue: "Forward", bundle: .module) }
     static var reload: String { String(localized: "browser.toolbar.reload", defaultValue: "Reload This Page", bundle: .module) }
+    /// The Reload button's right-click menu (cx-2lm4).
+    static var menuReload: String { String(localized: "browser.toolbar.menu.reload", defaultValue: "Reload Page", bundle: .module) }
+    static var menuHardReload: String { String(localized: "browser.toolbar.menu.hardReload", defaultValue: "Hard Reload Page", bundle: .module) }
     static var stop: String { String(localized: "browser.toolbar.stop", defaultValue: "Stop Loading", bundle: .module) }
     static var bookmarkAdd: String { String(localized: "browser.bookmark.add", defaultValue: "Bookmark This Page", bundle: .module) }
     static var bookmarkEdit: String { String(localized: "browser.bookmark.edit", defaultValue: "Edit Bookmark", bundle: .module) }
     static var extensions: String { String(localized: "browser.toolbar.extensions", defaultValue: "Extensions", bundle: .module) }
     static var extensionMoreFormat: String { String(localized: "browser.extensions.moreFormat", defaultValue: "More Actions for %@", bundle: .module) }
+    static var builtInAdBlocker: String { String(localized: "browser.extensions.builtInAdBlocker", defaultValue: "uBlock Origin (full) is built in", bundle: .module) }
     static var noExtensions: String { String(localized: "browser.extensions.none", defaultValue: "No extensions installed", bundle: .module) }
 
     static func extensionMenuTitle(_ operation: ExtensionMenuOperation) -> String {
@@ -28,6 +32,49 @@ nonisolated enum Strings {
         case .loadUnpacked: String(localized: "browser.extensions.loadUnpacked", defaultValue: "Load Unpacked…", bundle: .module)
         case .webStore: String(localized: "browser.extensions.webStore", defaultValue: "Chrome Web Store", bundle: .module)
         case .manage: String(localized: "browser.extensions.manage", defaultValue: "Manage Extensions", bundle: .module)
+        case .homePage: String(localized: "browser.extensions.context.homePage", defaultValue: "Home Page", bundle: .module)
+        case .manageExtension: extensionContextManageExtension
+        case .webPermissions: extensionContextViewWebPermissions
+        }
+    }
+
+    // Extensions bubble and context menu: Chrome's Mac text (generated_resources.grd, use_titlecase).
+    static var extensionMenuClose: String { String(localized: "browser.extensions.menu.close", defaultValue: "Close", bundle: .module) }
+    static var extensionMenuPinTooltip: String { String(localized: "browser.extensions.menu.pinTooltip", defaultValue: "Pin", bundle: .module) }
+    static var extensionMenuUnpinTooltip: String { String(localized: "browser.extensions.menu.unpinTooltip", defaultValue: "Unpin", bundle: .module) }
+    static var extensionMenuPinAccessible: String { String(localized: "browser.extensions.menu.pinAccessible", defaultValue: "Pin %@", bundle: .module) }
+    static var extensionMenuUnpinAccessible: String { String(localized: "browser.extensions.menu.unpinAccessible", defaultValue: "Unpin %@", bundle: .module) }
+    static var extensionMenuPinnedAnnouncement: String { String(localized: "browser.extensions.menu.pinnedAnnouncement", defaultValue: "Extension pinned", bundle: .module) }
+    static var extensionMenuUnpinnedAnnouncement: String { String(localized: "browser.extensions.menu.unpinnedAnnouncement", defaultValue: "Extension unpinned", bundle: .module) }
+    static var extensionContextSiteData: String { String(localized: "browser.extensions.context.siteData", defaultValue: "This Can Read and Change Site Data", bundle: .module) }
+    static var extensionContextRemove: String { String(localized: "browser.extensions.context.remove", defaultValue: "Remove from cmux", bundle: .module) }
+    static var extensionContextInstalledByAdmin: String { String(localized: "browser.extensions.context.installedByAdmin", defaultValue: "Installed by Your Administrator", bundle: .module) }
+    static var extensionContextManageExtension: String { String(localized: "browser.extensions.context.manageExtension", defaultValue: "Manage Extension", bundle: .module) }
+    static var extensionContextViewWebPermissions: String { String(localized: "browser.extensions.context.viewWebPermissions", defaultValue: "View Web Permissions", bundle: .module) }
+    static var extensionMenuMoreTooltip: String { String(localized: "browser.extensions.menu.moreTooltip", defaultValue: "More options", bundle: .module) }
+    static var extensionMenuSidePanelTooltip: String { String(localized: "browser.extensions.menu.sidePanelTooltip", defaultValue: "Open side panel", bundle: .module) }
+    static var extensionMenuSidePanelAccessible: String { String(localized: "browser.extensions.menu.sidePanelAccessible", defaultValue: "Open side panel of %@", bundle: .module) }
+    static var extensionMenuGetExtensions: String { String(localized: "browser.extensions.menu.getExtensions", defaultValue: "Get Extensions", bundle: .module) }
+    static var extensionMenuEmptyDetail: String { String(localized: "browser.extensions.menu.emptyDetail", defaultValue: "Add extensions from the Chrome Web Store.", bundle: .module) }
+
+    /// The title of a section of the Extensions bubble (Chrome's site-access sections).
+    static func extensionSection(_ group: ExtensionSiteAccess.Group) -> String {
+        switch group {
+        case .canSeeAndChange: String(localized: "browser.extensions.menu.section.canSeeAndChange", defaultValue: "Can see and change this site", bundle: .module)
+        case .whenClicked: String(localized: "browser.extensions.menu.section.whenClicked", defaultValue: "Allowed only when clicked", bundle: .module)
+        case .noAccess: String(localized: "browser.extensions.menu.section.noAccess", defaultValue: "No access needed", bundle: .module)
+        }
+    }
+
+    /// The line under an extension's name: what it can see and change (Edge's wording); empty
+    /// when its manifest was not read.
+    static func extensionAccess(_ access: ExtensionSiteAccess) -> String {
+        switch access {
+        case .allSites: String(localized: "browser.extensions.menu.access.allSites", defaultValue: "Allowed on all sites", bundle: .module)
+        case .thisSite: String(localized: "browser.extensions.menu.access.thisSite", defaultValue: "Allowed on this site", bundle: .module)
+        case .whenClicked: String(localized: "browser.extensions.menu.access.whenClicked", defaultValue: "Allowed when clicked", bundle: .module)
+        case .none: String(localized: "browser.extensions.menu.access.none", defaultValue: "No site access", bundle: .module)
+        case .unknown: ""
         }
     }
 
@@ -43,14 +90,27 @@ nonisolated enum Strings {
     static var calculatorCopyHint: String {
         String(localized: "browser.suggestion.calculatorCopyHint", defaultValue: "Return Copies", bundle: .module)
     }
+    /// Chromium's `IDS_OMNIBOX_KEYWORD_TEXT`: the chip of a search engine keyword session.
+    static func searchKeyword(engine: String) -> String {
+        String(localized: "browser.omnibar.searchKeyword", defaultValue: "Search \(engine)", bundle: .module)
+    }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
         String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .module)
+    }
+    /// Chromium `IDS_CONTEXT_MENU_SHOW_FULL_URLS`.
+    static var alwaysShowFullURLs: String {
+        String(localized: "browser.omnibar.alwaysShowFullURLs", defaultValue: "Always Show Full URLs", bundle: .module)
+    }
+    /// Chromium `IDS_MANAGE_SEARCH_ENGINES_AND_SITE_SEARCH`: opens Settings at the search engine.
+    static var manageSearchEngines: String {
+        String(localized: "browser.omnibar.manageSearchEngines", defaultValue: "Manage Search Engines…", bundle: .module)
     }
     static var pasteAndGo: String { String(localized: "browser.omnibar.pasteAndGo", defaultValue: "Paste and Go", bundle: .module) }
     static var pasteAndSearch: String { String(localized: "browser.omnibar.pasteAndSearch", defaultValue: "Paste and Search", bundle: .module) }
     static var newTab: String { String(localized: "browser.tab.new", defaultValue: "New Tab", bundle: .module) }
     static var notSecure: String { String(localized: "browser.address.notSecure", defaultValue: "Not Secure", bundle: .module) }
+    /// Accessibility label of a popup window's read-only address field.
 
     // Find
     static var findPlaceholder: String { String(localized: "browser.find.placeholder", defaultValue: "Find in page", bundle: .module) }
@@ -58,6 +118,7 @@ nonisolated enum Strings {
     static var findNext: String { String(localized: "browser.find.next", defaultValue: "Next Match", bundle: .module) }
     static var dismissNotice: String { String(localized: "browser.notice.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var findDone: String { String(localized: "browser.find.done", defaultValue: "Done", bundle: .module) }
+    static var findMatchCase: String { String(localized: "browser.find.matchCase", defaultValue: "Match Case", bundle: .module) }
     static var findNoMatches: String { String(localized: "browser.find.noMatches", defaultValue: "No matches", bundle: .module) }
     static func findPosition(_ index: Int, of count: Int) -> String {
         String(localized: "browser.find.position", defaultValue: "\(index) of \(count)", bundle: .module)
@@ -75,6 +136,12 @@ nonisolated enum Strings {
     }
     static func permissionCameraAndMicrophone(_ origin: String) -> String {
         String(localized: "browser.permission.cameraAndMicrophone", defaultValue: "\(origin) wants to use your camera and microphone.", bundle: .module)
+    }
+    static func permissionLocation(_ origin: String) -> String {
+        String(localized: "browser.permission.location", defaultValue: "\(origin) wants to know your location.", bundle: .module)
+    }
+    static func permissionNotifications(_ origin: String) -> String {
+        String(localized: "browser.permission.notifications", defaultValue: "\(origin) wants to show notifications.", bundle: .module)
     }
     /// The automatic-downloads question; `origin` is empty for a page
     /// without one (data:, about:blank).
@@ -101,9 +168,16 @@ nonisolated enum Strings {
         String(localized: "browser.dialog.from", defaultValue: "\(origin) says", bundle: .module)
     }
     static var allow: String { String(localized: "browser.prompt.allow", defaultValue: "Allow", bundle: .module) }
-    static var dontAllow: String { String(localized: "browser.prompt.deny", defaultValue: "Don’t Allow", bundle: .module) }
     static var ok: String { String(localized: "browser.prompt.ok", defaultValue: "OK", bundle: .module) }
     static var cancel: String { String(localized: "browser.prompt.cancel", defaultValue: "Cancel", bundle: .module) }
+    // beforeunload (Chrome's wording)
+    static var beforeUnloadLeaveTitle: String { String(localized: "browser.beforeUnload.leaveTitle", defaultValue: "Leave site?", bundle: .module) }
+    static var beforeUnloadReloadTitle: String { String(localized: "browser.beforeUnload.reloadTitle", defaultValue: "Reload site?", bundle: .module) }
+    static var beforeUnloadMessage: String {
+        String(localized: "browser.beforeUnload.message", defaultValue: "Changes that you made may not be saved.", bundle: .module)
+    }
+    static var beforeUnloadLeave: String { String(localized: "browser.beforeUnload.leave", defaultValue: "Leave", bundle: .module) }
+    static var beforeUnloadReload: String { String(localized: "browser.beforeUnload.reload", defaultValue: "Reload", bundle: .module) }
 
     // Context menu
     static var openImageInNewTab: String { String(localized: "browser.menu.openImageInNewTab", defaultValue: "Open Image in New Tab", bundle: .module) }

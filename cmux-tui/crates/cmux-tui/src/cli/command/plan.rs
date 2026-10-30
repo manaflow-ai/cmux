@@ -20,17 +20,46 @@ pub(in crate::cli) struct RequestPlan {
 /// The part of a result a command prints. `TerminalProgramStatus` is
 /// `terminal <selector> status`: the `extra.program_status` records of the
 /// `terminal.get` result (OSC 7501), `[]` when the terminal has none.
+/// `AgentRoster` is `agent list`: the `agent.list` rows ranked, limited and
+/// counted on the client (wire/agent_roster.rs).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) enum ResponseView {
     #[default]
     Full,
     TerminalProgramStatus,
+    AgentRoster(AgentRosterView),
+}
+
+/// How `agent list` orders and trims its rows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::cli) struct AgentRosterView {
+    pub sort: AgentSort,
+    /// At most this many rows; the counts still cover every listed agent.
+    pub limit: Option<usize>,
+    /// `--counts`: `--json` prints `{"agents","counts"}` instead of the
+    /// bare agent array.
+    pub counts: bool,
+}
+
+/// `agent list --sort`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::cli) enum AgentSort {
+    /// Blocked first, then working, then idle and done, then unknown; the
+    /// most recently updated first within each group.
+    #[default]
+    NeedsMe,
+    /// The most recently updated first.
+    Recent,
+    /// The daemon's order.
+    None,
 }
 
 impl ResponseView {
     pub(in crate::cli) fn project(self, result: Value) -> Value {
         match self {
-            Self::Full => result,
+            // wire/agent_roster.rs shapes the roster once it has the
+            // terminals' titles and folders.
+            Self::Full | Self::AgentRoster(_) => result,
             Self::TerminalProgramStatus => match result.pointer("/extra/program_status") {
                 Some(Value::Array(records)) => Value::Array(records.clone()),
                 _ => Value::Array(Vec::new()),
@@ -48,12 +77,22 @@ pub(in crate::cli) enum Resolve {
     /// caller's own terminal (`CMUX_TUI_TERMINAL_ID`). With `--socket` or
     /// `--session` the target is that session's `current` workspace.
     CallerWorkspace { terminal: String },
+    /// The command names a structural scope `caller`, or `current`: each
+    /// becomes the caller's own object at that scope (its terminal's tab,
+    /// pane, screen and workspace, or an agent session's, as
+    /// `system.identify` reports). `current` stays the focused object when
+    /// no caller is known or the request routes to another session.
+    Caller,
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
     /// The request is a terminal's font zoom (`tab.update`). A browser tab's
     /// page zoom goes to the app instead (cli/resolve.rs).
     TabZoom { step: ZoomStep },
+    /// `tab` becomes the tab that shows an agent's terminal (`agent <agent>
+    /// focus`): an `agent_...` id from `agent.list`, or the `term_...` id of
+    /// a terminal that has an agent.
+    AgentTab { agent: String },
 }
 
 /// What `tab … zoom` asks for.
@@ -100,6 +139,39 @@ impl super::CommandPlan {
             other => other,
         }
     }
+
+    /// `agent list`: the `agent.list` request printed as a ranked roster.
+    pub(super) fn agent_roster(self, view: AgentRosterView) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentRoster(view);
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+}
+
+/// The scopes a `caller` selector names, outermost first.
+pub(in crate::cli) const CALLER_SCOPES: [&str; 5] =
+    ["workspace", "screen", "pane", "tab", "terminal"];
+
+/// `plan` with a [`Resolve::Caller`] lookup when a structural selector is
+/// `caller` or `current`, which the CLI resolves against the caller before it
+/// sends the request.
+pub(super) fn with_caller_lookup(
+    mut plan: super::CommandPlan,
+    selectors: &std::collections::BTreeMap<&'static str, String>,
+) -> super::CommandPlan {
+    let named = CALLER_SCOPES.iter().any(|scope| {
+        selectors.get(scope).is_some_and(|value| value == "caller" || value == "current")
+    });
+    if let super::CommandPlan::Protocol(plan) = &mut plan
+        && named
+    {
+        plan.resolve.push(Resolve::Caller);
+    }
+    plan
 }
 
 #[cfg(test)]

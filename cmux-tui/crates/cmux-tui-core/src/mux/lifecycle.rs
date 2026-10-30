@@ -38,6 +38,7 @@ impl Mux {
                 sizing.terminal_size_policies.remove(&runtime);
             } else {
                 sizing.note_size_state(runtime, changed);
+                self.refresh_host_policy_locked(&mut sizing, runtime);
                 self.apply_terminal_grid(&sizing, runtime);
             }
         }
@@ -61,18 +62,24 @@ impl Mux {
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
+        self.agent_presence.lock().unwrap().remove(terminal_id);
+        self.agent_prompts.lock().unwrap().forget(terminal_id);
+        self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly.
-        // The snapshot persists so a restart does not resurrect the entry;
-        // the roster lock is released before the registry lock per the
-        // host's lock-ordering rule.
+        // The snapshot persists so a restart does not resurrect the entry.
+        // The fold lock orders this save with `fold_agent_roster`'s, so
+        // neither writes an older snapshot over the other's. The write takes
+        // the registry connection alone, never the workspace registry lock,
+        // so state commits do not wait behind it (issue 23038).
+        let fold = self.agent_roster_fold.lock().unwrap();
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             let retired = host.roster.retire_terminal(terminal_id.as_str());
             retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
         };
         if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+            && let Err(error) = self.registry_connection.put_journal_reducer_state(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
                 cursor,
@@ -81,6 +88,7 @@ impl Mux {
         {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
+        drop(fold);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
     }
@@ -107,7 +115,12 @@ impl Mux {
     }
 
     pub fn shutdown(&self) {
+        let screen_checkpoint = self.wants_shutdown_checkpoint();
         self.shutting_down.store(true, Ordering::Release);
+        // An in-flight maintenance tick must not delay the rest of shutdown.
+        self.stop_journal_maintenance();
+        #[cfg(unix)]
+        self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
@@ -125,15 +138,36 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
-        self.finalize_terminal_journal("shutdown");
+        self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
     }
 
-    pub(super) fn finalize_terminal_journal(&self, context: &str) {
+    /// The owner's last step after `shutdown`: free the session for the
+    /// next owner, the writer lease and then the session guard a new owner
+    /// takes first, then remove the control socket. `server stop` reports a
+    /// stop when this owner's connection closes, which is the process exit;
+    /// the kernel could close that socket before these lock files, so an
+    /// owner started right after the stop found the session still owned
+    /// (feed_local, "detached session owner did not become ready"). The
+    /// leases go first: this owner keeps listening until it exits, so no new
+    /// owner binds the socket before it is removed here.
+    pub fn release_ownership(&self, socket_path: &Path) {
+        {
+            let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
+            drop(registry.lease.take());
+            drop(registry.session_guard.take());
+        }
+        crate::server::cleanup(socket_path);
+    }
+
+    /// Stop the terminal readers and the journal writer; with
+    /// `screen_checkpoint`, checkpoint the terminal screens in between.
+    pub(super) fn finalize_terminal_journal(&self, context: &str, screen_checkpoint: bool) {
         if self.journal_ingress.is_closed() {
+            self.output_store.shutdown(self);
             if let Err(error) = self.journal_ingress.close_and_join() {
                 eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
             }
@@ -165,18 +199,17 @@ impl Mux {
             }
             return;
         }
-        for gap in terminal_gaps {
-            if let Err(error) = self.journal_ingress.send_durable(
-                crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-                    terminal_id: gap.terminal_id,
-                    generation: gap.generation,
-                    occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-                    reason: gap.reason,
-                },
-            ) {
-                eprintln!("cmux-tui: record terminal output gap during {context}: {error:#}");
-            }
+        // Output is not journaled (output_store.rs): a reader that missed
+        // the shutdown grace only costs the output store its last bytes.
+        for gap in &terminal_gaps {
+            eprintln!(
+                "cmux-tui: terminal {} ({}) reader did not drain during {context}: {}",
+                gap.terminal_id, gap.generation, gap.reason
+            );
         }
+        // Readers are stopped and every terminal is still alive: write the
+        // output store's last snapshots and segment frames.
+        self.output_store.shutdown(self);
         // Each terminal reader has drained or its journal capture gate has
         // closed. An update that exceeded the extra active-update grace has a
         // durable gap above. Fence the terminal ingress lane while this Mux
@@ -184,6 +217,9 @@ impl Mux {
         // from inserting output after the barrier.
         if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during {context}: {error:#}");
+        }
+        if screen_checkpoint {
+            self.capture_shutdown_checkpoint();
         }
         if let Err(error) = self.journal_ingress.close_and_join() {
             eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
@@ -194,6 +230,12 @@ impl Mux {
     /// is installed. Ordinary control clients may connect before this point.
     pub fn mark_server_lifecycle_ready(&self) {
         self.server_lifecycle_ready.store(true, Ordering::Release);
+        // The first terminal must not pay for the host executable's install
+        // (cx-b4sjc); unit tests start no daemon and install nothing.
+        #[cfg(all(unix, not(test)))]
+        crate::host_exe::prepare_in_background();
+        #[cfg(all(unix, not(test)))]
+        crate::holder_runtime::prepare_in_background();
     }
 
     pub fn server_lifecycle_ready(&self) -> bool {
@@ -250,6 +292,8 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        #[cfg(unix)]
+        self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         // The journal hook dispatcher waits on the shared journal.

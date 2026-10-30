@@ -3,15 +3,25 @@
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
 
+use cmux_json::JsonSet as _;
+
 mod auxiliary;
+mod browser_engine;
+mod close_value;
+mod config;
 mod content;
+mod credential;
 mod effects;
 mod mouse;
+mod open_url;
 mod owner;
 mod revision_conflict;
 mod session;
 mod topology;
 
+pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
+pub(crate) use open_url::is_web_url;
+pub(crate) use open_url::right_pane_beside_focused_dock;
 pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};
 pub(crate) use revision_conflict::is_revision_conflict;
@@ -26,7 +36,7 @@ use serde_json::{Map, Value, json};
 
 use crate::resource::{
     NotificationPublicId, RequestEnvelope, RequestId, ResourceError, ResourceOperation,
-    ResponseEnvelope, Selector, TerminalPublicId, WireDecimal,
+    ResponseEnvelope, Selector, TerminalPublicId, WireDecimal, WorkspacePublicId,
 };
 use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
@@ -155,18 +165,34 @@ pub(crate) fn handle_trusted_local_auxiliary(
 
 pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -> Value {
     let request = serde_json::from_str::<Value>(message).ok();
-    let id = request
-        .as_ref()
-        .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
+    let raw_id = request.as_ref().and_then(|value| value.get("id"));
+    let id = raw_id
+        .and_then(Value::as_str)
         .and_then(|id| RequestId::parse(id).ok())
         .unwrap_or_else(|| RequestId::parse("invalid").expect("static request id"));
+    // A v1-style numeric id (a line client that numbers its requests): the
+    // refusal names the id, and the response carries it as sent, so the
+    // client gets its answer instead of waiting for it (cx-rhf2).
+    let numeric_id = raw_id.filter(|id| id.is_i64() || id.is_u64()).cloned();
+    let error = if numeric_id.is_some() {
+        ResourceError::validation_invalid(
+            Some("id"),
+            "request id must be a string of 1 to 128 UTF-8 bytes",
+        )
+    } else {
+        error
+    };
     let error = request
         .as_ref()
         .and_then(|value| value.get("operation").cloned())
         .and_then(|operation| serde_json::from_value(operation).ok())
         .map_or(error.clone(), |operation| validate_operation_error(operation, error));
-    serde_json::to_value(ResponseEnvelope::failure(id, error))
-        .expect("resource failure envelopes are serializable")
+    let mut response = serde_json::to_value(ResponseEnvelope::failure(id, error))
+        .expect("resource failure envelopes are serializable");
+    if let Some(numeric_id) = numeric_id {
+        response.set("id", numeric_id);
+    }
+    response
 }
 
 impl ParsedResourceRequest {
@@ -222,9 +248,13 @@ pub(crate) fn validate_resource_envelope(
 
 fn dispatch_resource_request(
     mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
+    mut request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
+    crate::debug_spans::mark("router.dispatch");
+    browser_engine::route_to_frontend(mux, &mut request)?;
+    browser_engine::refuse_without_provider(mux, &request)?;
+    crate::debug_spans::mark("router.provider_checked");
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),
@@ -232,6 +262,12 @@ fn dispatch_resource_request(
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
         OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
+        OperationOwner::History => crate::history_ops::dispatch(mux, request),
+        OperationOwner::BrowserProfile => crate::browser_profile_ops::dispatch(mux, request),
+        OperationOwner::Credential => credential::dispatch(mux, request),
+        OperationOwner::Config => config::dispatch(mux, request),
+        OperationOwner::OpenUrl => open_url::dispatch(mux, request),
+        OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -463,6 +499,13 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     {
         return Err(ResourceError::not_found("terminal", terminal_id.as_str()));
     }
+    let workspace_id = notification_workspace(mux, &request.fields)?;
+    if terminal_id.is_some() && workspace_id.is_some() {
+        return Err(validation_error(
+            "give terminal_id or workspace_id, not both: a terminal's notification already belongs to its workspace",
+            json!({}),
+        ));
+    }
     let notification_id = NotificationPublicId::random()?;
     let created_at_ms: u64 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -489,8 +532,11 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         "body": required_string(&request.fields, "body")?,
         "level": required_string(&request.fields, "level")?,
         "terminal_id": terminal_id,
+        "workspace_id": workspace_id,
         "created_at_ms": created_at_ms,
         "source": crate::NotificationSource::Cli.as_str(),
+        "desktop": request.fields.get("desktop").and_then(Value::as_bool).unwrap_or(true),
+        "reply": request.fields.get("reply").and_then(Value::as_bool).unwrap_or(false),
     });
     let preparation = mux
         .prepare_resource_effect(
@@ -558,8 +604,28 @@ fn execute_notification_effect(
         })?;
     let surface =
         terminal_id.as_ref().and_then(|terminal_id| mux.resource_surface_for_terminal(terminal_id));
-    if let Some(terminal_id) = terminal_id.as_ref().filter(|_| surface.is_none()) {
-        let error = ResourceError::not_found("terminal", terminal_id.as_str());
+    let workspace_id = intent
+        .get("workspace_id")
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<WorkspacePublicId>(value.clone()))
+        .transpose()
+        .map_err(|error| {
+            ResourceError::operation_failed(
+                "notification.create",
+                "stored notification intent has an invalid workspace identity",
+                json!({"error":error.to_string()}),
+            )
+        })?;
+    let missing = match (&terminal_id, &workspace_id) {
+        (Some(terminal_id), _) if surface.is_none() => {
+            Some(ResourceError::not_found("terminal", terminal_id.as_str()))
+        }
+        (_, Some(workspace_id)) if !workspace_exists(mux, workspace_id) => {
+            Some(ResourceError::not_found("workspace", workspace_id.as_str()))
+        }
+        _ => None,
+    };
+    if let Some(error) = missing {
         let outcome = ResourceEffectOutcome::Failure(error.clone());
         if mux
             .commit_resource_effect(
@@ -621,6 +687,9 @@ fn execute_notification_effect(
         .and_then(Value::as_str)
         .and_then(crate::NotificationSource::parse)
         .unwrap_or(crate::NotificationSource::Cli);
+    // Intents written before the field existed post a banner.
+    let desktop = intent.get("desktop").and_then(Value::as_bool).unwrap_or(true);
+    let reply = intent.get("reply").and_then(Value::as_bool).unwrap_or(false);
     let numeric_id = mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
@@ -629,8 +698,11 @@ fn execute_notification_effect(
         level,
         surface,
         terminal_id.clone(),
+        workspace_id.clone(),
         created_at_ms,
         source,
+        desktop,
+        reply,
     );
     let notification = crate::ResourceNotification {
         id: notification_id.clone(),
@@ -639,9 +711,12 @@ fn execute_notification_effect(
         body: body.to_string(),
         level,
         terminal_id,
+        workspace_id,
         created_at_ms,
         source,
         surface,
+        desktop,
+        reply,
     };
     let value = mux.created_notification_value(&notification, &session_id);
     let outcome = ResourceEffectOutcome::Success(value.clone());
@@ -714,9 +789,18 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })
         .transpose()?;
+    let workspace_id = notification_workspace(mux, &request.fields)?;
+    let scope = match (&terminal_id, &workspace_id) {
+        (Some(_), Some(_)) => {
+            return Err(validation_error("give terminal_id or workspace_id, not both", json!({})));
+        }
+        (Some(terminal), None) => crate::mux::NotificationClearScope::Terminal(terminal),
+        (None, Some(workspace)) => crate::mux::NotificationClearScope::Workspace(workspace),
+        (None, None) => crate::mux::NotificationClearScope::Session,
+    };
     let mutation = request.mutation().map_err(resource_operation_error)?;
     let commit = mux
-        .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
+        .clear_notifications_in(&mutation, expected_revision(&request.fields)?, scope)
         .map_err(|error| {
             // Revision conflicts keep their typed error; anything else is an
             // internal failure whose raw cause stays in the daemon log.
@@ -735,6 +819,31 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
+}
+
+/// The `workspace_id` field of a notification create or clear: a workspace of
+/// this session, else `selector.not_found`.
+fn notification_workspace(
+    mux: &Mux,
+    fields: &Map<String, Value>,
+) -> Result<Option<WorkspacePublicId>, ResourceError> {
+    let Some(value) = fields.get("workspace_id") else { return Ok(None) };
+    let workspace = WorkspacePublicId::parse(
+        value
+            .as_str()
+            .ok_or_else(|| validation_error("workspace_id must be a string", json!({})))?
+            .to_string(),
+    )?;
+    if !workspace_exists(mux, &workspace) {
+        return Err(ResourceError::not_found("workspace", workspace.as_str()));
+    }
+    Ok(Some(workspace))
+}
+
+fn workspace_exists(mux: &Mux, workspace: &WorkspacePublicId) -> bool {
+    mux.with_state(|state| {
+        state.workspaces.iter().any(|candidate| candidate.public_id == *workspace)
+    })
 }
 
 fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {
@@ -866,8 +975,16 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 }
 
 #[cfg(test)]
+mod browser_engine_tests;
+#[cfg(test)]
 mod closed_content_tests;
 #[cfg(test)]
+mod create_argv_tests;
+#[cfg(test)]
+mod frontend_browser_effect_tests;
+#[cfg(test)]
 mod partial_create_tests;
+#[cfg(test)]
+mod split_focus_tests;
 #[cfg(test)]
 mod tests;

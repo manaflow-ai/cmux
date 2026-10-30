@@ -49,24 +49,35 @@ public extension ActionRunScope {
     /// Runs `body` with `scope` bound. For a callback stored by a run and
     /// called later outside its task tree (a store waiter, a placement
     /// continuation): it keeps the permission of the run that stored it.
-    nonisolated static func carrying<T>(_ scope: ActionRunScope?, _ body: () throws -> T) rethrows -> T {
-        try ActionRunScope.$current.withValue(scope, operation: body)
+    /// The binding is made inside a task (`TaskLocal.withValueInTask`).
+    @MainActor
+    static func carrying<T>(_ scope: ActionRunScope?, _ body: () -> T) -> T {
+        ActionRunScope.$current.withValueInTask(scope, operation: body)
     }
 }
 
 extension ActionRegistry {
     /// Runs `action`'s handler with its run scope bound as a task local, so
     /// the tasks the handler starts keep the run's view-change permission,
-    /// inside the App's `invocationScope` (daemon routing).
+    /// inside the App's `invocationScope` (daemon routing). A gesture runs it
+    /// where no task is current, so the binding is made inside a task
+    /// (`TaskLocal.withValueInTask`, cx-bpcj).
     func runScoped(_ action: Action, _ id: ActionID, _ invocation: ActionInvocation) {
         let run = ActionRunScope(invocation, focuses: descriptor(for: id)?.focuses ?? false).nested(in: ActionRunScope.current)
-        ActionRunScope.$current.withValue(run) {
+        for observer in willRunObservers { observer(id, run.origin) }
+        // The run's timing has read the press; the handler gets none, so an action it performs
+        // later with this invocation does not report this press's age.
+        var handed = invocation
+        handed.inputTimestamp = nil
+        // The effect is settled inside the run's scopes, so the remote half it starts keeps the run's
+        // view-change permission and machine routing.
+        ActionRunScope.$current.withValueInTask(run) {
             if let invocationScope {
-                invocationScope(invocation) { action.run(invocation) }
+                invocationScope(handed) { settle(action.run(handed), of: id, handed) }
             } else {
-                action.run(invocation)
+                settle(action.run(handed), of: id, handed)
             }
         }
-        runObserver?(id, invocation)
+        runObserver?(id, handed)
     }
 }

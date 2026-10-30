@@ -27,10 +27,21 @@ pub(crate) struct LocalServerMessages {
     pub not_running: &'static str,
     pub owner_spawn_failed: &'static str,
     pub owner_not_ready: &'static str,
+    pub owner_restore_timeout: &'static str,
+    pub owner_restoring: &'static str,
+    pub replaced: &'static str,
+    pub replace_refused: &'static str,
+    pub registry_compacted: &'static str,
+    pub registry_compact_owner_running: &'static str,
+    pub registry_compact_no_registry: &'static str,
+    pub registry_compact_failed: &'static str,
+    pub registry_compact_needs_session: &'static str,
     pub reloaded: &'static str,
     pub connect_failed: &'static str,
     pub starting: &'static str,
     pub identity_failed: &'static str,
+    /// `identify` timed out: the session is busy, not another build.
+    pub identity_timeout: &'static str,
     pub communication_failed: &'static str,
     pub invalid_response: &'static str,
     pub reload_rejected: &'static str,
@@ -38,6 +49,7 @@ pub(crate) struct LocalServerMessages {
     pub stop_rejected: &'static str,
     pub wrong_owner: &'static str,
     pub different_session: &'static str,
+    pub different_state: &'static str,
     pub invalid_identity: &'static str,
     pub install_key_invalid: &'static str,
     pub unsupported_protocol: &'static str,
@@ -56,12 +68,39 @@ pub(crate) struct LocalServerMessages {
     pub suggestion: &'static str,
     pub unexpected_after_stop: &'static str,
     pub stop_timeout: &'static str,
+    /// `--restore-wait-seconds` is not a whole number of seconds in range.
+    pub stop_restore_wait_invalid: &'static str,
+    /// Progress while `server stop` waits for an owner that holds its
+    /// connections unanswered (it restores its session): `{waited}`, `{limit}`.
+    pub stop_waiting_restoring: &'static str,
+    /// Progress while `server stop` waits for an owner that restored but
+    /// reports `lifecycle_ready: false`: `{waited}`, `{limit}`.
+    pub stop_waiting_starting: &'static str,
+    /// `server stop` gave up on an owner still restoring: `{seconds}`, `{command}`.
+    pub stop_gave_up_restoring: &'static str,
+    /// `server stop` gave up on an owner still finishing its startup:
+    /// `{seconds}`, `{command}`.
+    pub stop_gave_up_starting: &'static str,
     pub all_sessions_agent_refused: &'static str,
 }
 
 impl LocalServerMessages {
     pub(crate) fn owner_spawn_failed(&self) -> String {
         self.owner_spawn_failed.to_string()
+    }
+
+    /// The progress line of a stop that waits `waited` of `limit` seconds
+    /// for a restoring owner (`starting`: it restored and finishes startup).
+    pub(crate) fn stop_waiting(&self, starting: bool, waited: u64, limit: u64) -> String {
+        let text = if starting { self.stop_waiting_starting } else { self.stop_waiting_restoring };
+        text.replace("{waited}", &waited.to_string()).replace("{limit}", &limit.to_string())
+    }
+
+    /// Why a stop gave up after `seconds` on a restoring owner, and the
+    /// `command` that retries with a longer wait.
+    pub(crate) fn stop_gave_up(&self, starting: bool, seconds: u64, command: &str) -> String {
+        let text = if starting { self.stop_gave_up_starting } else { self.stop_gave_up_restoring };
+        text.replace("{seconds}", &seconds.to_string()).replace("{command}", command)
     }
 
     pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
@@ -90,7 +129,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     root_server_usage: "  cmux daemon <start|ensure|status|stats|stop|reload-config> [OPTIONS]",
     root_server_scope: "  daemon        Manage one named local durable session owner",
     root_acp_scope: "  acp           Agent sessions (acpmux); `cmux acp --help`",
-    cmux_root_help: "cmux - terminal multiplexer and cmux app control\n\nUSAGE\n  cmux                          Open the TUI (attach to or start the session)\n  cmux attach [START OPTIONS]\n  cmux [GLOBAL OPTIONS] <scope> <action>\n\nGLOBAL OPTIONS\n  --socket <path>           Connect to an exact local session socket\n  --session <name>          Route through a named local session\n  --all-sessions            Run a list on every local session (records gain `session`)\n  <session>:<id>            An id on another local session (`build:ws_…`) routes there\n  --app-socket <path>       Connect to an exact app control socket\n  --idempotency-key <key>   Retry a failed change with the key it printed\n  --json                    Print one JSON result\n  --jsonl                   Print one JSON value per result or event\n  --quiet                   Suppress successful output\n  -h, --help                Show command help\n\nSCOPES\n  workspace     Create and organize workspaces\n  screen        Create and organize screens\n  pane          Split, focus, and organize panes\n  tab           Create and organize terminal or browser tabs\n  terminal      Read, write, and attach to terminals\n  browser       Navigate browsers and drive app browser pages\n  notification  List and create notifications\n  agent         List and report agent state; install agent hooks\n  room          Organize workspaces into rooms\n  closed        List and reopen closed tabs, screens, workspaces\n  git           Read a repository's status and changes; capture checkpoints\n  acp           Agent sessions (acpmux); `cmux acp --help`\n  mcp           Serve cmux tools to MCP clients (off by default); `cmux mcp --help`\n  chief         Talk to your Chief, live with Home; `cmux chief --help`\n  coderouter    CodeRouter team accounts; `cr` and other verbs run the bundled CodeRouter CLI\n  window        List the app's windows\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history\n  bookmark      List and search browser bookmarks\n  app           ping, identify, capabilities, and app actions\n  action        List, describe, and run app actions\n  daemon        Start, inspect, and stop the local session owner\n  server        Run this machine as a cmux server; `cmux server --help`\n\nApp actions marked for the CLI also run by their CLI name (`cmux action list`\nshows them). An action waits until its work is done; --no-wait returns when\nthe app accepts it.\n\nRun `cmux <scope> --help` for scope-specific paths, `cmux help start` for\nstart options and `cmux help shorthands` for tmux-style shorthands.\n",
+    cmux_root_help: "cmux - terminal multiplexer and cmux app control\n\nCOMMON TASKS (in a cmux terminal, `current` is its own pane and workspace)\n  cmux pane current neighbor right              The pane on your right (pane - if none)\n  cmux tab list --pane <pane>                   Its tabs; CONTENT ID is each terminal\n  cmux terminal <terminal> screen read          Read a terminal's screen\n  cmux pane current split --right               A new terminal on your right\n  cmux terminal <terminal> send --text <command> --wait none   Run a command in it (types it, presses Enter)\n  cmux terminal <terminal> screen wait --pattern <regex>   Wait for its output\n  cmux workspace current rename <name>          Rename this workspace (not a folder)\n  The person's focus stays where it is: pass --focus only when they ask to go there.\n  An agent chat with the cmux tools (cmux_exec) uses them instead of this CLI.\n\nUSAGE\n  cmux                          Open the TUI (attach to or start the session)\n  cmux attach [START OPTIONS]\n  cmux [GLOBAL OPTIONS] <scope> <action>\n\nGLOBAL OPTIONS\n  --socket <path>           Connect to an exact local session socket\n  --session <name>          Route through a named local session\n  --machine <id>            Route through a machine (before the scope); after an app\n                            action's words, that action's own argument\n  --all-sessions            Run a list on every local session (records gain `session`)\n  <session>:<id>            An id on another local session (`build:ws_…`) routes there\n  --app-socket <path>       Connect to an exact app control socket\n  --idempotency-key <key>   Retry a failed change with the key it printed\n  --json                    Print one JSON result\n  --jsonl                   Print one JSON value per result or event\n  --quiet                   Suppress successful output\n  -h, --help                Show command help\n\nSCOPES\n  machine       Discover machines and inspect catalog metadata\n  workspace     Create and organize workspaces\n  screen        Create and organize screens\n  pane          Split, focus, and organize panes\n  tab           Create and organize terminal or browser tabs\n  terminal      Read, write, and attach to terminals\n  browser       Navigate browsers and drive app browser pages\n  open          Open files, folders and URLs in cmux\n  notification  List and create notifications\n  notify        Post or clear a notification (the macOS `cmux notify` flags)\n  attention     Mark a tab as needing the person, or clear the mark\n  agent         List and report agent state; install agent hooks\n  agents        Agent chats as JSON: start (harness, model), read, send, interrupt; dialogs\n  room          Organize workspaces into rooms\n  closed        List and reopen closed tabs, screens, workspaces\n  git           Read a repository's status and changes; capture checkpoints\n  status        Show loading indicators for scripts and agents\n  setup         Set up cmux from an agent (trust, harnesses, machines); `cmux setup list`\n  acp           Agent sessions (acpmux); `cmux acp --help`\n  harness       Bring your own harness: list, add, doctor, reload (`cmux acp harness`)\n  chats         Every chat on this device, from every harness: list, open\n  mcp           Serve cmux tools to MCP clients (off by default); `cmux mcp --help`\n  chief         Talk to your Chief, live with Home; `cmux chief --help`\n  avatar        Set or read a chat participant's picture\n  coderouter    CodeRouter team accounts; `cr` and other verbs run the bundled CodeRouter CLI\n  billing       Start, read and manage a paid plan; `cmux billing --help`\n  window        List the app's windows\n  settings      Read and change cmux.json settings\n  keybinding    List and resolve keyboard shortcuts\n  accounts      List the app's AI provider accounts\n  errors        Read and clear the app's error journal\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed\n  bookmark      List and search browser bookmarks\n  app           ping, identify, capabilities, and app actions\n  action        List, describe, and run app actions\n  docs          Search the command catalog without connecting to a session\n  script        Run JavaScript against cmux in a sandboxed script session\n  run           Run a TypeScript cmux script, or one task on a throwaway Cloud VM\n  daemon        Start, inspect, and stop the local session owner\n  server        Run this machine as a cmux server; `cmux server --help`\n  remote        Authenticated remote operations: connect, ssh, forward, enroll\n  host          This machine's supervisor and remote hosting; `cmux host --help`\n  device        This person's devices: list, invite, add, remove, audit\n  link          This machine's overlay link to paired machines\n  github        GitHub credentials and gh for agents\n\nApp actions marked for the CLI also run by their CLI name (`cmux action list`\nshows them). An action waits until its work is done; --no-wait returns when\nthe app accepts it.\n\nRun `cmux <scope> --help` for scope-specific paths, `cmux help start` for\nstart options and `cmux help shorthands` for tmux-style shorthands.\n",
     scope_not_in_cmux: "\"{scope}\" is not part of cmux; run `cmux --help` for its scopes",
     mutation_key_note: "idempotency key: {key}\nThe change may still apply. To retry it safely, run the same command with --idempotency-key {key}.",
     session_stop_help: "  cmux session <name>|current stop",
@@ -99,8 +138,8 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     ensure_help: "USAGE\n  cmux daemon ensure [--session <name>] [--socket <path>] [--terminal-reap-grace-seconds <n>]\n\nStart a detached local session owner when none is running, wait until it\naccepts clients, and report it. Ensuring a running session succeeds.\n--terminal-reap-grace-seconds starts the owner with that reap grace; a\nrunning owner keeps its own.\n",
     status_help: "USAGE\n  cmux daemon status [--session <name>] [--socket <path>]\n",
     stats_help: "USAGE\n  cmux daemon stats [--session <name>] [--socket <path>]\n\nReport where the daemon spends its time: registry lock waits and holders,\njournal writer batch sizes and commit latency, and connection admission.\nUse --json for the exact `server-stats` object.\n",
-    stats_unsupported: "this server does not support server-stats; upgrade cmux-tui",
-    stop_help: "USAGE\n  cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n--end-terminals ends every terminal and removes its tabs first (test teardown).\n",
+    stats_unsupported: "this server does not support server-stats: it is an older build than this CLI. `cmux daemon status` still works; do not stop the server for stats, that ends its terminals.",
+    stop_help: "USAGE\n  cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]\n    [--restore-wait-seconds <n>]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n--end-terminals ends every terminal and removes its tabs first (test teardown).\nA server that is still restoring its session is stopped when the restore ends;\nthe stop waits up to --restore-wait-seconds (default 120, at most 3600) and\nshows its progress on stderr.\n",
     reload_config_help: "USAGE\n  cmux daemon reload-config [--session <name>] [--socket <path>]\n",
     running: "local server is running",
     started: "local server started",
@@ -108,10 +147,20 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     not_running: "local server is not running; nothing needed to be stopped",
     owner_spawn_failed: "cannot start the detached session owner; check the session state and retry",
     owner_not_ready: "the detached session owner did not become ready; inspect the client log under the session state directory and retry",
+    owner_restore_timeout: "the session owner is running but did not finish restoring its terminals within 2 minutes; inspect the client log under the session state directory and retry",
+    owner_restoring: "cmux: the session owner is restoring its terminals; waiting for it (up to 2 minutes)",
+    replaced: "the unresponsive session owner was stopped and a new local server started",
+    replace_refused: "cannot replace the unresponsive session owner; inspect the client log under the session state directory and retry",
+    registry_compacted: "the session registry was compacted",
+    registry_compact_owner_running: "the session is running; stop it (cmux-tui server stop) and retry the compaction",
+    registry_compact_no_registry: "the session has no saved registry to compact",
+    registry_compact_failed: "cannot compact the session registry; it was left unchanged",
+    registry_compact_needs_session: "server compact-registry needs --session <name> (the stopped session to compact)",
     reloaded: "local server configuration reloaded",
     connect_failed: "cannot connect to the local server; check that the named session is running and retry",
     starting: "the local server is still starting; retry the lifecycle command",
     identity_failed: "cannot verify the local server identity; retry with the cmux build that started the session",
+    identity_timeout: "the local server did not answer within 10 s; it is running but busy, so retry or check `cmux daemon status` (this is not a build mismatch)",
     communication_failed: "communication with the local server failed; verify that it is running and retry",
     invalid_response: "the local server returned an invalid lifecycle response; retry with the cmux build that started the session",
     reload_rejected: "the local server rejected the configuration reload; inspect its diagnostics and retry",
@@ -119,11 +168,12 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     stop_rejected: "the local server rejected the stop request; retry with --force only when active clients can disconnect",
     wrong_owner: "the selected socket is not owned by a cmux local server",
     different_session: "the selected socket belongs to a different session",
+    different_state: "the session's running owner serves another state directory (it was deleted or replaced); stop that owner with `cmux daemon stop` and retry",
     invalid_identity: "the local server returned an incomplete lifecycle identity",
     install_key_invalid: "--install-key-stdin needs one install key line on standard input",
     unsupported_protocol: "the selected session uses an incompatible cmux-tui protocol; restart it with this cmux build",
-    force_unsupported: "this local server cannot accept a safely fenced forced stop; use the cmux build that started it",
-    end_terminals_unsupported: "this local server cannot end its terminals on stop; use a cmux build that advertises terminal-reap-v1",
+    force_unsupported: "this local server cannot accept a safely fenced forced stop: it is another build than this CLI. Restart it with this CLI:",
+    end_terminals_unsupported: "this local server cannot end its terminals on stop: it is another build than this CLI. Restart it with this CLI, then stop it again:",
     stopped_terminals_ended: "local server stopped; every terminal was ended",
     session_conflict: "the session name conflicts with --session",
     machine_not_supported: "--machine cannot target a local server; use the machine resource commands",
@@ -137,6 +187,11 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     suggestion: "Did you mean `{candidate}`?",
     unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
     stop_timeout: "timed out waiting for the local server to stop",
+    stop_restore_wait_invalid: "--restore-wait-seconds must be a whole number of seconds from 1 to 3600",
+    stop_waiting_restoring: "cmux: the local server is restoring its session; the stop waits for the restore to end ({waited} s of up to {limit} s)",
+    stop_waiting_starting: "cmux: the local server restored its session and is finishing its startup; the stop waits for it ({waited} s of up to {limit} s)",
+    stop_gave_up_restoring: "the local server did not stop: after {seconds} s it is still restoring its session (registry and terminal hosts) or too busy to answer. Its client log under the session state directory shows what the restore waits for. To wait longer, run: {command}",
+    stop_gave_up_starting: "the local server did not stop: it restored its session, but after {seconds} s it is still finishing its startup. To wait longer, run: {command}",
     all_sessions_agent_refused: "--all-sessions is refused for an agent caller ({marker} is set); drop --all-sessions to list this session",
 };
 
@@ -148,7 +203,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     root_server_usage: "  cmux daemon <start|ensure|status|stats|stop|reload-config> [オプション]",
     root_server_scope: "  daemon        一つの名前付きローカル永続セッション所有者を管理",
     root_acp_scope: "  acp           エージェントセッション (acpmux)。`cmux acp --help`",
-    cmux_root_help: "cmux - ターミナルマルチプレクサと cmux アプリの操作\n\n使い方\n  cmux                          TUI を開く (セッションに接続、なければ開始)\n  cmux attach [開始オプション]\n  cmux [グローバルオプション] <スコープ> <アクション>\n\nグローバルオプション\n  --socket <パス>           指定したローカルセッションソケットに接続\n  --session <名前>          名前付きローカルセッションを経由\n  --all-sessions            一覧をすべてのローカルセッションで実行 (各レコードに `session` を追加)\n  <セッション>:<ID>         別のローカルセッションの ID (`build:ws_…`) はそのセッションへ送る\n  --app-socket <パス>       指定したアプリ制御ソケットに接続\n  --idempotency-key <キー>  失敗した変更を、表示されたキーで再試行\n  --json                    JSON の結果を一つ出力\n  --jsonl                   結果またはイベントごとに JSON 値を一つ出力\n  --quiet                   成功時の出力を省略\n  -h, --help                コマンドのヘルプを表示\n\nスコープ\n  workspace     ワークスペースの作成と整理\n  screen        スクリーンの作成と整理\n  pane          ペインの分割、フォーカス、整理\n  tab           ターミナルタブやブラウザタブの作成と整理\n  terminal      ターミナルの読み取り、書き込み、接続\n  browser       ブラウザの移動とアプリのブラウザページの操作\n  notification  通知の一覧と作成\n  agent         エージェント状態の一覧と報告、エージェントフックの導入\n  room          ワークスペースをルームに整理\n  closed        閉じたタブ、スクリーン、ワークスペースの一覧と再オープン\n  git           リポジトリの状態と変更を読み、チェックポイントを保存\n  acp           エージェントセッション (acpmux)。`cmux acp --help`\n  mcp           MCP クライアントに cmux のツールを提供 (既定でオフ)。`cmux mcp --help`\n  chief         Chief と話す (Home とリアルタイムで同期)。`cmux chief --help`\n  coderouter    CodeRouter のチームアカウント。`cr` とその他の動詞は同梱の CodeRouter CLI を実行\n  window        アプリのウィンドウ一覧\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索\n  bookmark      ブラウザのブックマークの一覧と検索\n  app           ping、identify、capabilities とアプリのアクション\n  action        アプリのアクションの一覧、説明、実行\n  daemon        ローカルセッション所有者の開始、確認、停止\n  server        このマシンを cmux サーバーとして動かす。`cmux server --help`\n\nCLI 向けのアプリのアクションは CLI 名でも実行できます (`cmux action list` で表示)。\nアクションは処理の完了を待ちます。--no-wait を付けると、アプリが受け付けた時点で戻ります。\n\nスコープごとの使い方は `cmux <スコープ> --help`、開始オプションは `cmux help start`、\ntmux 風の短縮形は `cmux help shorthands` で表示します。\n",
+    cmux_root_help: "cmux - ターミナルマルチプレクサと cmux アプリの操作\n\nよく使う操作 (cmux のターミナル内では `current` はそのペインとワークスペース)\n  cmux pane current neighbor right              右隣のペイン (ない場合は pane -)\n  cmux tab list --pane <ペイン>                 そのタブ一覧。CONTENT ID が各ターミナル\n  cmux terminal <ターミナル> screen read        ターミナルの画面を読む\n  cmux pane current split --right               右に新しいターミナルを開く\n  cmux terminal <ターミナル> send --text <コマンド> --wait none   コマンドを実行 (入力して Enter を押す)\n  cmux terminal <ターミナル> screen wait --pattern <正規表現>   出力を待つ\n  cmux workspace current rename <名前>          このワークスペースの名前を変える (フォルダではない)\n  本人のフォーカスは動かさない。--focus は本人がそこへ移ると言ったときだけ付ける。\n  cmux のツール (cmux_exec) を持つエージェントのチャットは、この CLI の代わりにそれを使う。\n\n使い方\n  cmux                          TUI を開く (セッションに接続、なければ開始)\n  cmux attach [開始オプション]\n  cmux [グローバルオプション] <スコープ> <アクション>\n\nグローバルオプション\n  --socket <パス>           指定したローカルセッションソケットに接続\n  --session <名前>          名前付きローカルセッションを経由\n  --machine <ID>            マシンを経由 (スコープの前)。アプリのアクション名の後では、\n                            そのアクション自身の引数\n  --all-sessions            一覧をすべてのローカルセッションで実行 (各レコードに `session` を追加)\n  <セッション>:<ID>         別のローカルセッションの ID (`build:ws_…`) はそのセッションへ送る\n  --app-socket <パス>       指定したアプリ制御ソケットに接続\n  --idempotency-key <キー>  失敗した変更を、表示されたキーで再試行\n  --json                    JSON の結果を一つ出力\n  --jsonl                   結果またはイベントごとに JSON 値を一つ出力\n  --quiet                   成功時の出力を省略\n  -h, --help                コマンドのヘルプを表示\n\nスコープ\n  machine       マシンの検出とカタログ情報の確認\n  workspace     ワークスペースの作成と整理\n  screen        スクリーンの作成と整理\n  pane          ペインの分割、フォーカス、整理\n  tab           ターミナルタブやブラウザタブの作成と整理\n  terminal      ターミナルの読み取り、書き込み、接続\n  browser       ブラウザの移動とアプリのブラウザページの操作\n  open          ファイル、フォルダ、URL を cmux で開く\n  notification  通知の一覧と作成\n  notify        通知の送信と消去 (macOS 版 `cmux notify` と同じフラグ)\n  attention     タブに本人の対応が必要と印を付ける、またはその印を消す\n  agent         エージェント状態の一覧と報告、エージェントフックの導入\n  agents        エージェントのチャットを JSON で操作 (ハーネスとモデルを指定して開始、読み取り、送信、中断、ダイアログ)\n  room          ワークスペースをルームに整理\n  closed        閉じたタブ、スクリーン、ワークスペースの一覧と再オープン\n  git           リポジトリの状態と変更を読み、チェックポイントを保存\n  status        スクリプトやエージェントの処理中表示を出す\n  setup         エージェントから cmux をセットアップ (信頼、ハーネス、マシン)。`cmux setup list`\n  acp           エージェントセッション (acpmux)。`cmux acp --help`\n  harness       独自のハーネス: 一覧、追加、診断、再読み込み (`cmux acp harness`)\n  chats         このデバイスの全ハーネスのチャット: 一覧と再オープン\n  mcp           MCP クライアントに cmux のツールを提供 (既定でオフ)。`cmux mcp --help`\n  chief         Chief と話す (Home とリアルタイムで同期)。`cmux chief --help`\n  avatar        チャット参加者の画像の設定と取得\n  coderouter    CodeRouter のチームアカウント。`cr` とその他の動詞は同梱の CodeRouter CLI を実行\n  billing       有料プランの開始・確認・管理。`cmux billing --help`\n  window        アプリのウィンドウ一覧\n  settings      cmux.json の設定の読み取りと変更\n  keybinding    キーボードショートカットの一覧と解決\n  accounts      アプリの AI プロバイダアカウントの一覧\n  errors        アプリのエラージャーナルの読み取りと消去\n  events        アプリのイベントを JSON 行で表示\n  history       履歴の一覧、検索、編集 (アプリを閉じていても使える)\n  bookmark      ブラウザのブックマークの一覧と検索\n  app           ping、identify、capabilities とアプリのアクション\n  action        アプリのアクションの一覧、説明、実行\n  docs          セッションに接続せずにコマンドカタログを検索\n  script        サンドボックスのスクリプトセッションで JavaScript を実行\n  run           TypeScript の cmux スクリプト、または使い捨て Cloud VM でのタスクを実行\n  daemon        ローカルセッション所有者の開始、確認、停止\n  server        このマシンを cmux サーバーとして動かす。`cmux server --help`\n  remote        認証付きのリモート操作: connect、ssh、forward、enroll\n  host          このマシンのスーパーバイザとリモートホスティング。`cmux host --help`\n  device        この人のデバイス: 一覧、招待、追加、削除、監査\n  link          ペアリングしたマシンとのオーバーレイリンク\n  github        エージェント向けの GitHub 認証情報と gh\n\nCLI 向けのアプリのアクションは CLI 名でも実行できます (`cmux action list` で表示)。\nアクションは処理の完了を待ちます。--no-wait を付けると、アプリが受け付けた時点で戻ります。\n\nスコープごとの使い方は `cmux <スコープ> --help`、開始オプションは `cmux help start`、\ntmux 風の短縮形は `cmux help shorthands` で表示します。\n",
     scope_not_in_cmux: "\"{scope}\" は cmux のスコープではありません。`cmux --help` でスコープを確認してください",
     mutation_key_note: "冪等キー: {key}\n変更はまだ適用される可能性があります。安全に再試行するには、同じコマンドに --idempotency-key {key} を付けて実行してください。",
     session_stop_help: "  cmux session <名前>|current stop",
@@ -157,8 +212,8 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     ensure_help: "使用方法\n  cmux daemon ensure [--session <名前>] [--socket <パス>] [--terminal-reap-grace-seconds <秒>]\n\nローカルセッション所有者が実行されていない場合はデタッチ状態で起動し、\nクライアントを受け付けるまで待って結果を報告します。実行中の場合も成功します。\n--terminal-reap-grace-seconds は起動する所有者にその猶予を渡します。\n実行中の所有者は自身の設定を保ちます。\n",
     status_help: "使用方法\n  cmux daemon status [--session <名前>] [--socket <パス>]\n",
     stats_help: "使用方法\n  cmux daemon stats [--session <名前>] [--socket <パス>]\n\nデーモンの時間の使われ方を報告します: レジストリロックの待機と保持元、\nジャーナルライターのバッチサイズとコミット遅延、接続の受け入れ状況。\n正確な `server-stats` オブジェクトは --json で取得できます。\n",
-    stats_unsupported: "このサーバーは server-stats に対応していません。cmux-tui を更新してください",
-    stop_help: "使用方法\n  cmux daemon stop [--session <名前>] [--socket <パス>] [--force] [--end-terminals]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n--end-terminals は先にすべてのターミナルを終了し、そのタブを削除します (テストの後始末用)。\n",
+    stats_unsupported: "このサーバーは server-stats に対応していません。この CLI より古いビルドです。`cmux daemon status` は使えます。統計のためにサーバーを停止しないでください (ターミナルが終了します)。",
+    stop_help: "使用方法\n  cmux daemon stop [--session <名前>] [--socket <パス>] [--force] [--end-terminals]\n    [--restore-wait-seconds <秒数>]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n--end-terminals は先にすべてのターミナルを終了し、そのタブを削除します (テストの後始末用)。\nセッションを復元中のサーバーは、復元の完了後に停止します。停止は最大 --restore-wait-seconds 秒\n(既定 120、最大 3600) 待ち、その進行状況を標準エラー出力に表示します。\n",
     reload_config_help: "使用方法\n  cmux daemon reload-config [--session <名前>] [--socket <パス>]\n",
     running: "ローカルサーバーは実行中です",
     started: "ローカルサーバーを起動しました",
@@ -166,10 +221,20 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     not_running: "ローカルサーバーは実行されていません。停止は不要でした",
     owner_spawn_failed: "デタッチされたセッション所有者を起動できません。セッション状態を確認して再試行してください",
     owner_not_ready: "デタッチされたセッション所有者が準備完了になりませんでした。セッション状態ディレクトリのクライアントログを確認して再試行してください",
+    owner_restore_timeout: "セッション所有者は起動していますが、2 分以内にターミナルの復元を完了しませんでした。セッション状態ディレクトリのクライアントログを確認して再試行してください",
+    owner_restoring: "cmux: セッション所有者がターミナルを復元しています。完了を待っています (最大 2 分)",
+    replaced: "応答しないセッション所有者を停止し、新しいローカルサーバーを起動しました",
+    replace_refused: "応答しないセッション所有者を置き換えられません。セッション状態ディレクトリのクライアントログを確認して再試行してください",
+    registry_compacted: "セッションレジストリを圧縮しました",
+    registry_compact_owner_running: "セッションが実行中です。停止してから (cmux-tui server stop) 圧縮を再試行してください",
+    registry_compact_no_registry: "圧縮する保存済みレジストリがセッションにありません",
+    registry_compact_failed: "セッションレジストリを圧縮できません。レジストリは変更されていません",
+    registry_compact_needs_session: "server compact-registry には --session <名前> (圧縮する停止済みセッション) が必要です",
     reloaded: "ローカルサーバーの設定を再読み込みしました",
     connect_failed: "ローカルサーバーに接続できません。名前付きセッションが実行中であることを確認して再試行してください",
     starting: "ローカルサーバーは起動中です。ライフサイクルコマンドを再試行してください",
     identity_failed: "ローカルサーバーの識別情報を確認できません。セッションを起動した cmux ビルドで再試行してください",
+    identity_timeout: "ローカルサーバーが 10 秒以内に応答しませんでした。実行中ですが混雑しています。再試行するか `cmux daemon status` で確認してください (ビルドの不一致ではありません)",
     communication_failed: "ローカルサーバーとの通信に失敗しました。実行中であることを確認して再試行してください",
     invalid_response: "ローカルサーバーが無効なライフサイクル応答を返しました。セッションを起動した cmux ビルドで再試行してください",
     reload_rejected: "ローカルサーバーが設定の再読み込みを拒否しました。診断情報を確認して再試行してください",
@@ -177,11 +242,12 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     stop_rejected: "ローカルサーバーが停止要求を拒否しました。アクティブなクライアントを切断できる場合のみ --force で再試行してください",
     wrong_owner: "選択したソケットは cmux ローカルサーバーに所有されていません",
     different_session: "選択したソケットは別のセッションに属しています",
+    different_state: "このセッションの実行中のオーナーは別の状態ディレクトリを使用しています (削除または置き換えられました)。`cmux daemon stop` でそのオーナーを停止してから再試行してください",
     invalid_identity: "ローカルサーバーが完全なライフサイクル識別情報を返しませんでした",
     install_key_invalid: "--install-key-stdin には標準入力でインストールキーを1行渡す必要があります",
     unsupported_protocol: "選択したセッションは互換性のない cmux-tui プロトコルを使用しています。この cmux ビルドで再起動してください",
-    force_unsupported: "このローカルサーバーは安全にフェンスされた強制停止に対応していません。起動に使用した cmux ビルドで停止してください",
-    end_terminals_unsupported: "このローカルサーバーは停止時にターミナルを終了できません。terminal-reap-v1 に対応した cmux ビルドを使用してください",
+    force_unsupported: "このローカルサーバーは安全にフェンスされた強制停止に対応していません。この CLI とは別のビルドです。この CLI で再起動してください:",
+    end_terminals_unsupported: "このローカルサーバーは停止時にターミナルを終了できません。この CLI とは別のビルドです。この CLI で再起動してから、もう一度停止してください:",
     stopped_terminals_ended: "ローカルサーバーを停止し、すべてのターミナルを終了しました",
     session_conflict: "セッション名が --session と競合しています",
     machine_not_supported: "--machine でローカルサーバーを対象にすることはできません。machine リソースコマンドを使用してください",
@@ -195,5 +261,10 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     suggestion: "`{candidate}` のことですか？",
     unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
     stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",
+    stop_restore_wait_invalid: "--restore-wait-seconds には 1 から 3600 までの整数の秒数を指定してください",
+    stop_waiting_restoring: "cmux: ローカルサーバーがセッションを復元しています。停止は復元の完了を待っています ({waited} 秒 / 最大 {limit} 秒)",
+    stop_waiting_starting: "cmux: ローカルサーバーはセッションを復元し、起動を完了しています。停止はその完了を待っています ({waited} 秒 / 最大 {limit} 秒)",
+    stop_gave_up_restoring: "ローカルサーバーは停止していません: {seconds} 秒後もセッション (レジストリとターミナルホスト) を復元中か、応答できないほど混雑しています。復元が何を待っているかは、セッション状態ディレクトリのクライアントログで確認できます。さらに待つには次を実行してください: {command}",
+    stop_gave_up_starting: "ローカルサーバーは停止していません: セッションは復元しましたが、{seconds} 秒後も起動を完了していません。さらに待つには次を実行してください: {command}",
     all_sessions_agent_refused: "エージェントからの呼び出しでは --all-sessions を使えません ({marker} が設定されています)。このセッションを一覧するには --all-sessions を外してください",
 };

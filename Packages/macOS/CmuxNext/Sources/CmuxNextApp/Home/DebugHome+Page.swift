@@ -84,6 +84,19 @@ extension DebugHome {
                     "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
                 ])
             }),
+            // Every native Home tab (`home.tab`): its key, window, shown conversation and the
+            // newest texts its own transcript view holds.
+            "tabs": .array(((services.pages.provider(.homeTab) as? HomePageTab)?.tabs ?? []).map { tab -> JSONValue in
+                let transcript = tab.view.host.flatMap(HomePageTab.transcript(in:))
+                return .object([
+                    "key": .string(tab.key),
+                    "window": tab.view.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }
+                        .map { .string($0) } ?? .null,
+                    "visible": .bool(tab.view.window != nil && !tab.view.isHiddenOrHasHiddenAncestor),
+                    "shown": tab.view.shown.map { .string($0.rawValue) } ?? .null,
+                    "transcript_tail": .array((transcript?.debugMessageTexts() ?? []).map { .string($0) }),
+                ])
+            }),
             "chiefs": .array(home.directory.chiefs.map { chief -> JSONValue in
                 .object(["id": .string(chief.id), "name": .string(chief.name), "default": .bool(chief.isDefault),
                          "main_conversation": chief.mainConversation.map { .string($0) } ?? .null])

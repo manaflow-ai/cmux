@@ -1,4 +1,4 @@
-import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type Ref } from "react";
 
 export const PickerDialog = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   function PickerDialog(props, ref) {
@@ -19,7 +19,10 @@ export const PickerComboboxInput = forwardRef<HTMLInputElement, KeyboardInputPro
   return <input {...props} ref={ref} role="combobox" onKeyDown={keyboard} />;
 });
 
-export function PickerOptionList({ children, ...props }: HTMLAttributes<HTMLDivElement>) {
+export function PickerOptionList({
+  children,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich option rows need a listbox container.
     <div {...props} role="listbox">

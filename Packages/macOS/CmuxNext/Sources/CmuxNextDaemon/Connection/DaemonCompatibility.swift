@@ -30,7 +30,7 @@ public struct DaemonCompatibility: Sendable, Equatable {
     /// Why the handshake refused the daemon (capabilities, or a protocol or
     /// app description).
     public var missingRequired: [String]
-    /// Optional capabilities the app would use (`DaemonCapabilities.shared.optional`
+    /// Optional capabilities the app would use (`DaemonCapability.optional`
     /// order) that this daemon lacks.
     public var missingOptional: [String]
 
@@ -43,8 +43,8 @@ public struct DaemonCompatibility: Sendable, Equatable {
         sessionID = identity.sessionID
         sessionName = identity.session.isEmpty ? nil : identity.session
         protocolVersion = identity.protocolVersion
-        missingRequired = DaemonCapabilities.shared.required.filter { !identity.supports($0) }
-        missingOptional = DaemonCapabilities.shared.optional.filter { !notNeeded.contains($0) && !identity.supports($0) }
+        missingRequired = DaemonCapability.required.filter { !identity.supports($0) }
+        missingOptional = DaemonCapability.optional.filter { !notNeeded.contains($0) && !identity.supports($0) }
         level = !missingRequired.isEmpty ? .incompatible : missingOptional.isEmpty ? .current : .limited
     }
 

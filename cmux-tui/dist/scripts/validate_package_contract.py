@@ -162,13 +162,27 @@ def _pack_npm_packages(
             launcher = install_dir / "node_modules" / ".bin" / "cmux"
             if not launcher.is_file():
                 raise PackageContractError(f"npm install did not create launcher: {launcher}")
-            _run([str(launcher), "--version"], env=env)
+            version_result = _run([str(launcher), "--version"], env=env)
+            _require_release_version(version_result.stdout, version, "cmux --version")
         if install_relay_package is not None:
             _smoke_relay_launcher(
                 install_dir,
                 env,
                 temp_root,
             )
+
+
+def _require_release_version(output: str, version: str, label: str) -> None:
+    """The binary must name the release it ships in: `cmux X.Y.Z` or `cmux X.Y.Z (...)`.
+
+    Tester bug reports quote this line; the 0.13.4 binary printed `cmux 0.1.0`.
+    """
+    first = output.strip().splitlines()[0] if output.strip() else ""
+    if first != f"cmux {version}" and not first.startswith(f"cmux {version} ("):
+        raise PackageContractError(
+            f"{label} must report release {version}: found {first!r} "
+            "(stamp CMUX_TUI_DISTRIBUTION_VERSION into the build)"
+        )
 
 
 def _smoke_relay_launcher(
@@ -338,6 +352,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 NPM_SSH_MANIFEST,
                 NOTICE_FILE,
             }
+            # The Windows package also packs the per-terminal host (cx-1vlzr).
+            | ({"bin/cmux-tui-host.exe"} if "win32" in package_name else set())
         )
     expected_names = {f"package/{path}" for path in expected}
     try:
@@ -362,6 +378,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 or member.name.endswith("/bin/cmux-tui-hook")
                 or member.name.endswith("/bin/cmux-tui.exe")
                 or member.name.endswith("/bin/cmux-tui-hook.exe")
+                or member.name.endswith("/bin/cmux-tui-host.exe")
                 or member.name.endswith("/bin/chatmux-relay")
                 or member.name.endswith("/bin/chatmux-relay.exe")
                 or member.name.endswith("/bin/cmux-tui")

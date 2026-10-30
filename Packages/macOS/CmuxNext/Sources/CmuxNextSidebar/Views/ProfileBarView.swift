@@ -9,17 +9,24 @@ import CmuxNextDesign
 /// show better"): the strip is centered on the sidebar, each space shows its
 /// icon, emoji or initial in its color, the current space sits on a
 /// selection-fill chip that slides to the new space on a switch, and the "+"
-/// (on hover) sits at the bar's trailing edge so it never moves the strip.
+/// (on hover) sits right after the last space, in a slot the strip always
+/// leaves free, so it never moves the strip (Lawrence 2026-10-21).
 /// Too many spaces narrow the slots, then turn compact (small dots, the
 /// current one full). Layers, back to front: the hover chip (this view),
 /// the current-space chip (`indicator`), the marks (`marks`).
 final class ProfileBarView: NSView {
-    private let model: SidebarModel
+    let model: SidebarModel
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
 
     private(set) var hovered: Int?
-    private var pressed: Int?
+    private(set) var pressed: Int?
+    /// Where the press on a space started (bar coordinates): a move past the threshold drags its dot.
+    var pressPoint: NSPoint?
+    /// The space dot being dragged (`ProfileBarView+DotDrag`); nil otherwise.
+    var dotDrag: ProfileBarDotDrag?
     private var swipeTracker = ProfileSwipeTracker()
+    private var wheel = SpaceWheelPager()
+    private var paging = false
     static let plusIndex = -1
 
     /// The current space's chip; it slides on a switch.
@@ -29,6 +36,12 @@ final class ProfileBarView: NSView {
 
     /// Called once for a qualifying horizontal trackpad swipe over the bar.
     var onHorizontalSwipe: ((Int) -> Void)?
+    /// A horizontal trackpad gesture over the bar, 1:1 like over the list
+    /// (`SidebarScrollView.onHorizontalScroll`). When set, it replaces the
+    /// one-step swipe.
+    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)?
+    /// A mouse wheel notch over the bar, either axis: -1 or +1.
+    var onWheelPage: ((Int) -> Void)?
 
     init(model: SidebarModel) {
         self.model = model
@@ -37,6 +50,7 @@ final class ProfileBarView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.profiles)
+        setAccessibilityIdentifier("cmux.sidebar.spaces")
         indicator.onDraw = { [weak self] _ in self?.drawIndicator() }
         marks.onDraw = { [weak self] _ in self?.drawMarks() }
         indicator.isHidden = true
@@ -48,7 +62,7 @@ final class ProfileBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     /// Like every sidebar control, the first click on a window that is not
     /// key switches the space instead of only activating the window (cx-i3ra).
@@ -89,7 +103,10 @@ final class ProfileBarView: NSView {
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
 
-    /// One rect per space (in order), then the "+" rect.
+    /// One rect per space (in order), then the "+" rect. History is not in the
+    /// strip (Lawrence 2026-10-11: "history should not show up down here");
+    /// cmux://history opens from the palette and the Window menu (Show
+    /// History) and with Cmd-Y in a browser.
     func slotRects() -> [NSRect] {
         let strip = strip
         return (strip.slots + [strip.plus]).map { NSRect(x: $0.x, y: 0, width: $0.width, height: bounds.height) }
@@ -143,10 +160,6 @@ final class ProfileBarView: NSView {
         return ProfileBarLogic.chipRect(slot: rects[active], inset: Metrics.space1)
     }
 
-    /// The current space's chip fill: the row selection token (never the
-    /// system blue).
-    var indicatorFill: NSColor { performWithTheme { Palette.selectionFill } }
-
     // theme-scoped: indicator.draw runs inside the bar's theme scope
     private func drawIndicator() {
         performWithTheme {
@@ -159,6 +172,11 @@ final class ProfileBarView: NSView {
     /// Moves the chip to the current space; a switch slides it (Reduce
     /// Motion and speed "off" snap, `Motion.set`).
     private func placeIndicator(animated: Bool) {
+        // The dots are layers of their own while one is dragged: the current one carries the chip.
+        if dotDrag != nil {
+            indicator.isHidden = true
+            return
+        }
         // A switch not yet shown (`refresh` slides it): a relayout first
         // would snap the chip to the new space and leave nothing to slide.
         if !animated, shownActive != nil, model.activeProfileID != shownActive, !indicator.isHidden { return }
@@ -180,7 +198,7 @@ final class ProfileBarView: NSView {
         }
         let from = Motion.presentationValue(layer, "position")
         indicator.frame = rect
-        Motion.set(layer, "position", to: layer.position, spring: .selection, from: from)
+        Motion.sidebar.set(layer, "position", to: layer.position, spring: .selection, from: from)
     }
 
     // theme-scoped: marks.draw runs inside the bar's theme scope
@@ -209,7 +227,7 @@ final class ProfileBarView: NSView {
             shownActive = model.activeProfileID
             if switched, let layer = marks.layer, let old = layer.contents {
                 marks.display()
-                if let new = layer.contents { _ = Motion.set(layer, "contents", to: new, fade: .crossfade, from: old) }
+                if let new = layer.contents { _ = Motion.sidebar.set(layer, "contents", to: new, fade: .crossfade, from: old) }
             }
         }
         needsDisplay = true
@@ -220,14 +238,13 @@ final class ProfileBarView: NSView {
     }
 
     private func rebuildToolTips() {
-        removeAllToolTips()
         let rects = slotRects()
-        for (offset, profile) in model.profiles.enumerated() {
+        var regions: [(rect: NSRect, text: String)] = model.profiles.enumerated().map { offset, profile in
             // The emoji is shown here, not on the dot.
-            let tip = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
-            addToolTip(rects[offset], owner: tip as NSString, userData: nil)
+            (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
         }
-        if isPointerInside { addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil) }
+        if isPointerInside { regions.append((rects[model.profiles.count], Strings.newProfile)) }
+        setThemedToolTipRegions(regions)
     }
 
     // MARK: Mouse
@@ -274,27 +291,51 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        setPressed(index(at: convert(event.locationInWindow, from: nil)))
+        let point = convert(event.locationInWindow, from: nil)
+        pressPoint = point
+        setPressed(index(at: point))
     }
 
-    // No drag: a dot cannot be dragged to reorder, and nothing drops on
-    // the dots (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3, for now). The
-    // space menu's Move Left / Move Right reorder spaces.
+    /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
+    override func mouseDragged(with event: NSEvent) {
+        dragDot(to: convert(event.locationInWindow, from: nil))
+    }
+
     override func mouseUp(with event: NSEvent) {
         defer {
             pressed = nil
+            pressPoint = nil
             needsDisplay = true
         }
+        // A dragged dot drops (over the footer band it moves its space); the release is no click.
+        if dropDot() { return }
         guard let pressed, pressed == index(at: convert(event.locationInWindow, from: nil)) else { return }
         activate(pressed)
     }
 
+    /// The bar is the pager's dots: a trackpad pages over it like over the
+    /// list, and a mouse wheel pages on either axis (nothing here scrolls).
     override func scrollWheel(with event: NSEvent) {
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
+            if let onWheelPage, !event.hasPreciseScrollingDeltas {
+                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: true) {
+                case .pass, .hold: return
+                case .page(let step): return onWheelPage(step)
+                }
+            }
             super.scrollWheel(with: event)
             return
         }
-        if let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase) {
+        let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
+        if let onHorizontalScroll {
+            if phase == .ended || phase == .momentum {
+                if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
+                paging = false
+            } else if swipeTracker.isHorizontal {
+                onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
+                paging = true
+            }
+        } else if let step {
             onHorizontalSwipe?(step)
         }
         if !swipeTracker.isHorizontal { super.scrollWheel(with: event) }
@@ -317,7 +358,7 @@ final class ProfileBarView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let index = index(at: convert(event.locationInWindow, from: nil)), index != Self.plusIndex else { return nil }
+        guard let index = index(at: convert(event.locationInWindow, from: nil)), index >= 0 else { return nil }
         return contextMenuProvider?(.profile(model.profiles[index].id))
     }
 
@@ -329,12 +370,15 @@ final class ProfileBarView: NSView {
             let active = profile.id == model.activeProfileID
             let element = ProfileDotElement(label: active ? Strings.profileCurrent(profile.name) : profile.name,
                                             frame: rects[offset], parent: self) { [weak self] in self?.activate(offset) }
+            element.setAccessibilityIdentifier("cmux.sidebar.space.\(profile.id.rawValue)")
             element.setAccessibilitySelected(active)
             return element
         }
-        children.append(ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count], parent: self) { [weak self] in
+        let plus = ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count], parent: self) { [weak self] in
             self?.activate(Self.plusIndex)
-        })
+        }
+        plus.setAccessibilityIdentifier("cmux.sidebar.space.new")
+        children.append(plus)
         setAccessibilityChildren(children)
     }
 }

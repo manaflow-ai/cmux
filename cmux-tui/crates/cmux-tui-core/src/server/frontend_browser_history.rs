@@ -10,6 +10,12 @@ use crate::Actor;
 /// `get-frontend-browser-history`. Never part of the tree.
 pub const FRONTEND_BROWSER_HISTORY_CAPABILITY: &str = "frontend-browser-history-v1";
 
+/// `profile_id` on `update-frontend-browser-tab`: move the tab to another
+/// browser profile (its id or exact name) in place, keeping its surface, tab
+/// id and position. The hosting app re-creates the page in the new
+/// profile's store (cookies, storage, cache), which reloads it.
+pub const FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY: &str = "frontend-browser-tab-profile-v1";
+
 /// `new-frontend-browser-tab`: a browser tab whose page the frontend renders
 /// (WebKit or CEF); the daemon persists its location and never attaches a CDP
 /// target. With `idempotency_key` (`frontend-browser-tab-keys-v1`) a retry
@@ -64,6 +70,14 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         activate,
         after,
     } = params;
+    let profile_id = profile_id
+        .map(|profile| {
+            mux.workspace_registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .resolve_browser_profile_id(&profile)
+        })
+        .transpose()?;
     let record = crate::workspace_registry::FrontendBrowserRecord {
         engine,
         url,
@@ -81,7 +95,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
                 record,
                 size,
                 &key,
-                crate::mux::FrontendTabPlacement { activate, after },
+                crate::mux::FrontendTabPlacement { activate, after, index: None },
             )?;
             (outcome.surface, outcome.replayed)
         }
@@ -91,7 +105,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
                 pane,
                 record,
                 size,
-                crate::mux::FrontendTabPlacement { activate, after },
+                crate::mux::FrontendTabPlacement { activate, after, index: None },
             )?,
             false,
         ),
@@ -116,6 +130,8 @@ pub(super) struct UpdateTabParams {
     title: Option<String>,
     #[serde(default, deserialize_with = "super::present_nullable")]
     favicon_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "super::present_nullable")]
+    profile_id: Option<Option<String>>,
     #[serde(default)]
     owner: Option<String>,
 }
@@ -136,13 +152,14 @@ pub(super) struct GetParams {
 }
 
 pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyhow::Result<Value> {
-    let UpdateTabParams { surface, url, title, favicon_url, owner } = params;
-    let (record, changed) = mux.update_frontend_browser_tab_with_owner_as(
+    let UpdateTabParams { surface, url, title, favicon_url, profile_id, owner } = params;
+    let (record, changed) = mux.update_frontend_browser_tab_with_owner_and_profile_as(
         actor,
         surface,
         url,
         title,
         favicon_url,
+        profile_id,
         owner,
     )?;
     Ok(json!({
@@ -150,6 +167,7 @@ pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyho
         "url": record.url,
         "title": record.title,
         "favicon_url": record.favicon_url,
+        "profile_id": record.profile_id,
         "owner": record.owner,
         "changed": changed,
     }))

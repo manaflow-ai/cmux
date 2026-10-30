@@ -8,9 +8,12 @@ final class SidebarSectionHeaderView: NSView {
     var onPress: (() -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
-    private let name = NSTextField(labelWithString: "")
-    let chevron = NSImageView()
+    private let name = ChromeLabel(labelWithString: "")
+    let chevron = DecorativeImageView() // AXExpanded says what it draws
     private var collapsed = false
+    /// How far the section's item rows end past this header (`SidebarRegionMetrics.trailingTrim`): the chevron
+    /// centers on the items' trailing column, not on its own frame's.
+    var trailingTrim: CGFloat = 0 { didSet { if trailingTrim != oldValue { needsLayout = true } } }
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     var isHovered = false { didSet { if isHovered != oldValue { updateChevron(); needsDisplay = true } } }
     private var pointerHover: PointerHover?
@@ -36,8 +39,8 @@ final class SidebarSectionHeaderView: NSView {
     private var pressLocation: NSPoint?
     private var didDrag = false
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(title: String, collapsed: Bool) {
@@ -56,7 +59,7 @@ final class SidebarSectionHeaderView: NSView {
         let alpha: CGFloat = collapsed || isHovered ? 1 : 0
         guard chevron.alphaValue != alpha else { return }
         guard window != nil, Motion.canAnimate(in: self) else { chevron.alphaValue = alpha; return }
-        Motion.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
+        Motion.feedback.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
     }
 
     override func updateLayer() {
@@ -78,8 +81,13 @@ final class SidebarSectionHeaderView: NSView {
         name.font = SidebarStyle.headerFont
         let th = ceil(name.intrinsicContentSize.height)
         let chevronSide = Metrics.smallIconSize
-        chevron.frame = NSRect(x: b.width - inset - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
-        name.frame = NSRect(x: inset, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - inset), height: th)
+        // Its chevron centers on the trailing column its item rows' marks share (Leo 2026-10-28: "the alignment"): an
+        // item's fill is inset by `horizontalInset` in a frame `trailingTrim` wider than this header's.
+        let rowWidth = b.width - trailingTrim - SidebarStyle.horizontalInset
+        chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: b.midY, side: chevronSide)
+        // The label cell draws inside its frame: the text starts at the inset, with workspace titles.
+        let nameX = inset - SidebarStyle.labelCellPadding
+        name.frame = NSRect(x: nameX, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -46,7 +46,9 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         history = local.history
     }
 
-    isolated deinit {
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
+    nonisolated deinit {
         recorder?.cancel()
         fetching?.cancel()
     }
@@ -60,7 +62,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
 
     private var owner: Owner {
         guard let daemon = services?.machines.local, let connection = daemon.connection else { return .away }
-        guard daemon.supports(DaemonCapabilities.shared.paletteUsage) else { return .local }
+        guard daemon.supports(DaemonCapability.paletteUsage.rawValue) else { return .local }
         return .daemon(PaletteUsageStateClient(connection: connection), ObjectIdentifier(connection))
     }
 

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import ApplicationServices
 import CmuxNextSettings
@@ -174,7 +174,7 @@ enum DebugAXFrame {
         let (hosts, pages) = ChildPageGeometry.sample(controller)
         // The focus ring (overlay plane, possibly above the pages) must
         // stroke its pane's rounded content rect after every call too.
-        let rings = (controller.content?.layoutView.overlayRings ?? []).filter { $0.showsRing && $0.ringInWindow != $0.contentInWindow }
+        let rings = (controller.content?.layoutView.overlayRings ?? []).filter { $0.showsRing && !$0.ringInSync }
             .map { "ring \($0.pane) at \($0.ringInWindow), pane content at \($0.contentInWindow)" }
         return Sample(windowFrame: controller.window?.frame ?? .zero,
                       problems: ChildPageGeometry.mismatches(hosts: hosts, pages: pages) + rings, hosts: hosts.count)

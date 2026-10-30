@@ -8,33 +8,32 @@
 <style>
 :root {
   color-scheme: light dark;
-  --bg: #fbfbfa;
-  --fg: #1d1d1f;
-  --muted: #6e6e73;
-  --line: #e3e3e0;
-  --card: #ffffff;
-  --accent: #b5651d;
-  --ok: #2f7d4f;
-  --warn: #a8471a;
-  --sys: #8e8e93;
-  --vsys: #c9a227;
-  --view: #d98c3f;
-  --msg: #5f8f6b;
-  --shade: rgba(201, 162, 39, 0.12);
-  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1c1c1e;
-    --fg: #f2f2f7;
-    --muted: #a1a1a6;
-    --line: #3a3a3c;
-    --card: #2c2c2e;
-    --shade: rgba(201, 162, 39, 0.16);
-  }
+  /* The page theme (`--cmux-*`, WebTheme.swift); the fallbacks are system colors for the
+     plain-browser dev loop. The four context segments take the theme's status colors and a mix
+     of two, so they stay apart in every theme. */
+  --bg: var(--cmux-app-content, Canvas);
+  --fg: var(--cmux-text, CanvasText);
+  --muted: var(--cmux-text-secondary, GrayText);
+  --line: var(--cmux-separator, color-mix(in srgb, var(--fg) 12%, transparent));
+  --card: var(--cmux-elevated-background, Canvas);
+  --accent: var(--cmux-app-accent-text, var(--fg));
+  --ok: var(--cmux-app-success, var(--fg));
+  --warn: var(--cmux-app-danger, var(--fg));
+  --sys: var(--cmux-text-tertiary, GrayText);
+  --vsys: var(--cmux-app-warning, GrayText);
+  --view: color-mix(in oklab, var(--vsys), var(--warn));
+  --msg: color-mix(in oklab, var(--ok) 65%, var(--sys));
+  --shade: color-mix(in srgb, var(--vsys) 14%, transparent);
+  font: 13px/1.45 var(--font-ui, "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif);
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); }
+/* In the app the page paints the window's surface (clear over a see-through window, pageBase.css);
+   a plain browser paints --bg. */
+:root {
+  --inspector-page: var(--cmux-surface-background, var(--bg));
+}
+html { background: var(--inspector-page); }
+body { margin: 0; color: var(--fg); }
 .app { padding: 12px 16px 40px; max-width: 1200px; }
 h1 { font-size: 17px; margin: 0; }
 h3 { font-size: 13px; margin: 0 0 6px; display: inline; }
@@ -73,7 +72,7 @@ details > summary { cursor: pointer; }
 .line { display: grid; grid-template-columns: max-content 1fr max-content; gap: 8px; padding: 2px 4px; border-bottom: 1px dotted var(--line); position: relative; }
 .line.unchanged { background: var(--shade); }
 .line .size { color: var(--muted); }
-.line .cut { grid-column: 1 / -1; color: var(--accent); font-family: -apple-system, sans-serif; font-size: 11px; display: flex; gap: 10px; border-top: 2px solid var(--accent); padding-top: 1px; }
+.line .cut { grid-column: 1 / -1; color: var(--accent); font-family: var(--font-ui, "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif); font-size: 11px; display: flex; gap: 10px; border-top: 2px solid var(--accent); padding-top: 1px; }
 .gridcut { position: absolute; left: 0; right: 0; bottom: -1px; border-bottom: 1px dashed var(--muted); opacity: 0.5; }
 .name { font: 11px ui-monospace, Menlo, monospace; padding: 0 5px; }
 .name.lv0 { border-color: var(--msg); } .name.lv1, .name.lv2 { border-color: var(--view); } .name.lv3, .name.lv4, .name.lv5 { border-color: var(--vsys); }
@@ -103,7 +102,8 @@ table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--shade); }
-.latency { display: inline-block; height: 8px; background: var(--view); border-radius: 2px; vertical-align: middle; }
+/* One series, so the theme accent: --view is a warning/danger mix that read as an alarm color. */
+.latency { display: inline-block; height: 8px; background: var(--accent); border-radius: 2px; vertical-align: middle; }
 progress { width: 100%; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 

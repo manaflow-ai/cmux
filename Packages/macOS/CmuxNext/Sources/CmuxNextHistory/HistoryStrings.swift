@@ -7,11 +7,36 @@ nonisolated enum HistoryStrings {
     }
 
     static var title: String { t("page.title", "History") }
+    static var menuShowAll: String { t("titlebarHistory.showAll", "Show All History") }
+    static func menuHeader(_ kind: LocationTrailMenuSection.Kind) -> String? {
+        switch kind {
+        case .scope: nil
+        case .otherWorkspaces: t("titlebarHistory.otherWorkspaces", "Other Workspaces")
+        case .browser: t("titlebarHistory.browser", "Browser")
+        case .chatsAndPages: t("titlebarHistory.chatsAndPages", "Chats and Pages")
+        case .terminals: t("titlebarHistory.terminals", "Terminals")
+        }
+    }
     static var searchPlaceholder: String { t("page.search", "Search history") }
     static var empty: String { t("page.empty", "No history") }
     static var emptySearch: String { t("page.emptySearch", "No matches") }
     static var clear: String { t("page.clear", "Clear History…") }
     static var groupBy: String { t("page.groupBy", "Group By") }
+    static var cookieBackups: String { t("page.cookieBackups", "Cookie Backups…") }
+    static var cookieBackupsTitle: String { t("cookieBackups.title", "Cookie Backups") }
+    static var cookieBackupsExplanation: String {
+        t("cookieBackups.explanation", "When an agent clears cookies in a browser tab, cmux keeps an encrypted copy on this Mac so the agent can undo the clear. Only you can delete these copies.")
+    }
+    static var cookieBackupsEmpty: String { t("cookieBackups.empty", "No cookie backups") }
+    static var cookieBackupsUnreadable: String { t("cookieBackups.unreadable", "Backup this Mac can no longer open") }
+    static var cookieBackupsDelete: String { t("cookieBackups.delete", "Delete") }
+    static var cookieBackupsDeleteAll: String { t("cookieBackups.deleteAll", "Delete All…") }
+    static var cookieBackupsDone: String { t("cookieBackups.done", "Done") }
+    static var cookieBackupsConfirmTitle: String { t("cookieBackups.confirm.title", "Delete these cookie backups?") }
+    static var cookieBackupsConfirmMessage: String {
+        t("cookieBackups.confirm.message", "An agent can no longer undo these cookie clears. You cannot undo this.")
+    }
+    static var cookieBackupsConfirmDelete: String { t("cookieBackups.confirm.delete", "Delete Backups") }
 
     static func filter(_ filter: HistoryPageModel.Filter) -> String {
         switch filter {

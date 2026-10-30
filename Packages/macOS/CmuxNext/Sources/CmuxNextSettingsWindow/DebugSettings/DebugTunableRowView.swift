@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// One tunable: label (with a dot when changed), key, help, its control,
@@ -31,11 +32,12 @@ struct DebugTunableRowView: View {
                     .font(SettingsStyle.caption).foregroundStyle(SettingsStyle.tertiary)
             }
             Button { model.reset(descriptor) } label: {
-                Image(systemName: "arrow.uturn.backward").font(SettingsStyle.caption)
+                Icon(.actionUndo, size: 12)
             }
             .buttonStyle(.plain)
             .foregroundStyle(SettingsStyle.secondary)
-            .help(SettingsWindowStrings.reset)
+            .themedHelp(SettingsWindowStrings.reset)
+            .accessibilityLabel(SettingsWindowStrings.reset)
             .opacity(changed ? 1 : 0)
             .disabled(!changed)
             .padding(.top, Metrics.space1)

@@ -1,5 +1,6 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// `debug.pointer_hover` {point: [x, y] | null, window?}: moves a synthetic
@@ -32,7 +33,20 @@ enum DebugPointerHover {
             return .object(["error": .string("no window")])
         }
         let coords = params["point"]?.arrayValue?.compactMap(\.doubleValue)
-        let point = coords.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
+        let given = coords.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil } ?? railPoint(params, in: window, services: services)
+        guard given == nil, let badge = usageWarningPoint(params, in: window, services: services) else {
+            return move(to: given, in: window, root: root)
+        }
+        // Hovering a row moves its warning badge left of the row's hover controls: hover it, let the
+        // row lay out, then aim at where the badge is now, so the pointer rests on it (its tooltip).
+        let first = move(to: badge, in: window, root: root)
+        window.contentView?.layoutSubtreeIfNeeded()
+        guard let settled = usageWarningPoint(params, in: window, services: services), settled != badge else { return first }
+        return move(to: settled, in: window, root: root)
+    }
+
+    /// Moves the synthetic pointer to `point` (nil: out of every area) and delivers the events.
+    private static func move(to point: CGPoint?, in window: NSWindow, root: NSView) -> JSONValue {
         let key = window.windowNumber
         let before = inside[key] ?? [:]
         var now: [ObjectIdentifier: NSTrackingArea] = [:]
@@ -43,12 +57,18 @@ enum DebugPointerHover {
             attached.insert(ObjectIdentifier(area))
             if let point {
                 guard !view.isHiddenOrHasHiddenAncestor else { continue }
-                // A tracking area's rect is in the coordinates of the view that holds it.
+                // A tracking area's rect is in the coordinates of the view that holds it;
+                // an .inVisibleRect area (rect often .zero) follows the view's visible rect,
+                // as AppKit does (the sidebar list's hover, cx-qno.17).
                 let local = view.convert(point, from: nil)
-                if area.rect.contains(local) { now[ObjectIdentifier(area)] = area }
+                let rect = area.options.contains(.inVisibleRect) ? view.visibleRect : area.rect
+                if rect.contains(local) { now[ObjectIdentifier(area)] = area }
             }
         }
         inside[key] = now.isEmpty ? nil : now
+        // Hover that reads where the pointer is (chrome hovers, a shown tooltip's recheck) reads
+        // the synthetic pointer too, until the real mouse moves.
+        PointerHover.setDebugPointer(point, in: window)
         let location = point ?? .zero
         var exited: [String] = []
         var entered: [String] = []

@@ -15,9 +15,9 @@ final class HeaderView: UIView {
     private let overlay: CanvasView
     // Display P3: the same transfer curve as sRGB (the fitted blur is unchanged for
     // greys) without clipping the P3 blues under the header.
-    // cmux: LabColorSpace (no force unwrap; crash program).
+    // LabColorSpace (no force unwrap; crash program).
     private static let ci = CIContext(options: [.workingColorSpace: LabColorSpace.displayP3,
-                                                .outputColorSpace: LabColorSpace.displayP3])
+                                              .outputColorSpace: LabColorSpace.displayP3])
     // Fitted to the reference header (least squares over three frames):
     // out = base + gain * (w * blur(s1) + (1 - w) * blur(s2)), sigmas in 2x px.
     static let blurSigma1: Double = 5.3
@@ -70,12 +70,12 @@ final class HeaderView: UIView {
 
     func refresh() {
         guard let source, !useSystemBlur else { return }
-        let scale = Fixture.renderScale
+        let scale = labRenderScale
         let pad: CGFloat = 70
         // Outside the window there is nothing to blur, so pad with the
         // background colour (this gives the darker fringe at the edges).
         let rect = CGRect(x: -pad, y: -pad, width: bounds.width + 2 * pad, height: bounds.height + 2 * pad)
-        // cmux: a backdrop that could not be allocated keeps the previous one (BitmapFailure logged it).
+        // a backdrop that could not be allocated keeps the previous one (BitmapFailure logged it).
         guard let img = WideBitmap.make(size: rect.size, scale: scale, opaque: true, { c in
             c.setFillColor(Fixture.background.cgColor)
             c.fill(CGRect(origin: .zero, size: rect.size))
@@ -113,7 +113,7 @@ final class HeaderView: UIView {
         ctx.translateBy(x: dx / 2, y: 0)
         // Name pill.
         // Pill width follows the title (measured for "Instinct": 77.75 pt).
-        let bold = UIFont.systemFont(ofSize: 13, weight: .bold)
+        let bold = HomeFonts.system(ofSize: 13, weight: .bold)
         let title = HeaderView.currentTitle
         let tw = TextDraw.width(title, font: bold)
         let pw = tw + 77.75 - TextDraw.width("Instinct", font: bold)
@@ -134,14 +134,33 @@ final class HeaderView: UIView {
         // Avatar (the contact's picture; colours from screencapture -l, Display P3).
         UIColor(white: 1, alpha: 1).setFill()
         UIBezierPath(ovalIn: CGRect(x: 294, y: 8, width: 40, height: 40)).fill()
-        // Monogram "I": a thin flared stem (no installed font matched it).
+        // Monogram "I". macOS 27: a serif capital I, its outline measured row by row on the real header
+        // (deactivate-activate tp1200ms, same in tp0000ms): ink width per device pixel
+        // row (2x), centre x 314.16 pt; stem 2.03 pt from y 21.75 to 34.25 pt, bracketed serifs out
+        // to 3.57 pt at the top (y 17.4) and 3.65 pt at the bottom (y 38.33). No installed font matched.
+        // macOS 26 keeps the earlier thin flared stem (no macOS 26 Messages header reference;
+        // ComposeMetrics.macOS26, the OS split of the other fits).
         let stem = UIBezierPath()
-        let cx: CGFloat = 314, y0: CGFloat = 17.5, y1: CGFloat = 38, end: CGFloat = 1.4, mid: CGFloat = 0.8
-        stem.move(to: CGPoint(x: cx - end, y: y0))
-        stem.addLine(to: CGPoint(x: cx + end, y: y0))
-        stem.addQuadCurve(to: CGPoint(x: cx + end, y: y1), controlPoint: CGPoint(x: cx + 2 * mid - end, y: (y0 + y1) / 2))
-        stem.addLine(to: CGPoint(x: cx - end, y: y1))
-        stem.addQuadCurve(to: CGPoint(x: cx - end, y: y0), controlPoint: CGPoint(x: cx - 2 * mid + end, y: (y0 + y1) / 2))
+        if ComposeMetrics.macOS26 {
+            let cx: CGFloat = 314, y0: CGFloat = 17.5, y1: CGFloat = 38, end: CGFloat = 1.4, mid: CGFloat = 0.8
+            stem.move(to: CGPoint(x: cx - end, y: y0))
+            stem.addLine(to: CGPoint(x: cx + end, y: y0))
+            stem.addQuadCurve(to: CGPoint(x: cx + end, y: y1), controlPoint: CGPoint(x: cx + 2 * mid - end, y: (y0 + y1) / 2))
+            stem.addLine(to: CGPoint(x: cx - end, y: y1))
+            stem.addQuadCurve(to: CGPoint(x: cx - end, y: y0), controlPoint: CGPoint(x: cx - 2 * mid + end, y: (y0 + y1) / 2))
+        } else {
+            // (y in 2x device px, full ink width in device px.)
+            let rows: [(CGFloat, CGFloat)] = [(34.8, 7.14), (35.5, 7.0), (36.5, 6.07), (37.5, 5.35), (38.5, 4.83), (39.5, 4.48),
+                                              (40.5, 4.24), (41.5, 4.13), (42.5, 4.07), (43.5, 4.06), (68.5, 4.06), (69.5, 4.09),
+                                              (70.5, 4.19), (71.5, 4.32), (72.5, 4.63), (73.5, 5.07), (74.5, 5.69), (75.5, 6.51),
+                                              (76.67, 7.3)]
+            let cx: CGFloat = 314.16
+            for (i, r) in rows.enumerated() {
+                let pt = CGPoint(x: cx - r.1 / 4, y: r.0 / 2)
+                if i == 0 { stem.move(to: pt) } else { stem.addLine(to: pt) }
+            }
+            for r in rows.reversed() { stem.addLine(to: CGPoint(x: cx + r.1 / 4, y: r.0 / 2)) }
+        }
         stem.close()
         Fixture.p3(7, 10, 9).setFill()
         stem.fill()
@@ -160,16 +179,39 @@ final class HeaderView: UIView {
 
 /// Window chrome: traffic lights and the 1 pt light border.
 final class ChromeView: UIView {
-    var drawsTrafficLights = true { didSet { canvas.setNeedsDisplay() } }
+    var drawsTrafficLights = true { didSet { canvas.setNeedsDisplay(); sliceDrawn = nil; setNeedsLayout() } }
+    /// Its window view's inactive-window state (MessagesWindowView.setInactive sets it and redraws): grey lights.
+    var inactive = false
     /// The view's left edge is the window's left edge (true), or it meets a sidebar (false: the
     /// border has no left side and square left corners; only the window's edges get the line).
-    var leadingEdgeIsWindowEdge = true { didSet { if leadingEdgeIsWindowEdge != oldValue { canvas.setNeedsDisplay() } } }
+    var leadingEdgeIsWindowEdge = true {
+        didSet { if leadingEdgeIsWindowEdge != oldValue { canvas.setNeedsDisplay(); sliceDrawn = nil; setNeedsLayout() } }
+    }
     private let canvas = CanvasView()
+    /// While the window is resized live (`liveResizing`, set by the AppKit host) the border alone
+    /// (no traffic lights: the live AppKit window, whose titlebar has the real ones) is the same
+    /// drawing made once at `sliceSize` and shown as a nine-part image: the
+    /// corners 1:1, one device-pixel band from the straight middle of each side stretched along
+    /// it. A size change moves the layer's edges and draws nothing. The window-sized canvas was
+    /// drawn again at every width of a live resize: a 628 x 940 pt bitmap and the border's
+    /// stroke rasterized on the main thread in each resize step's commit (Time Profiler, rig,
+    /// main 2c240f5: 270 of 1869 ms of resize-step main-thread time in six drags; cx-3cb resize-drops).
+    private let slice = CALayer()
+    /// The host's live window resize (at rest the canvas draws the border, as the still scenes have it).
+    var liveResizing = false { didSet { if liveResizing != oldValue { setNeedsLayout() } } }
+    /// The scale and leading edge the slice image was drawn for (nil: draw it again).
+    private var sliceDrawn: (scale: CGFloat, leading: Bool)?
+    /// The slice image's side, points: UIKit's continuous corner of radius 15.5 reaches about
+    /// 23.7 pt along each side (UIKitRoundedRect), so the middle band is straight.
+    static let sliceSize: CGFloat = 96
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         addSubview(canvas)
-        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
+        slice.actions = ["bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "hidden": NSNull(), "contentsCenter": NSNull()]
+        slice.isHidden = true
+        layer.addSublayer(slice)
+        // weak capture, not unowned (crash program: no trap after the view is freed).
         canvas.drawer = { [weak self] ctx, b in
             guard let self else { return }
             if self.drawsTrafficLights {
@@ -180,14 +222,14 @@ final class ChromeView: UIView {
                 // Inactive window: grey lights (measured centre 100, rim lighter).
                 let grey: ((CGFloat, CGFloat, CGFloat), (CGFloat, CGFloat, CGFloat)) = ((92, 92, 92), (104, 103, 103))
                 for (i, c0) in colors.enumerated() {
-                    let c = Fixture.inactive ? grey : c0
+                    let c = self.inactive ? grey : c0
                     let r = CGRect(x: 18.75 + CGFloat(i) * 23, y: 18.75, width: 14, height: 14)
                     func col(_ v: (CGFloat, CGFloat, CGFloat)) -> CGColor {
                         UIColor(red: v.0 / 255, green: v.1 / 255, blue: v.2 / 255, alpha: 1).cgColor
                     }
                     ctx.saveGState()
                     UIBezierPath(ovalIn: r).addClip()
-                    // cmux: an optional gradient draws nothing when it fails (CrashSafeGraphics).
+                    // an optional gradient draws nothing when it fails (CrashSafeGraphics).
                     let g = CGGradient(colorsSpace: space, colors: [col(c.0), col(c.1)] as CFArray, locations: [0.15, 0.85])
                     ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: r.minY), end: CGPoint(x: 0, y: r.maxY), options: [])
                     ctx.restoreGState()
@@ -217,9 +259,45 @@ final class ChromeView: UIView {
         }
     }
     required init?(coder: NSCoder) { fatalError() }
+    /// A new window or display scale (WindowView.setRenderScale sets every layer's scale, then
+    /// moves the tree to the window again): the slice is drawn again at the new scale.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if sliceDrawn != nil, sliceDrawn?.scale != labRenderScale { sliceDrawn = nil; setNeedsLayout() }
+    }
+    /// A scale or palette change (WindowView) draws the border again.
+    override func setNeedsDisplay() {
+        super.setNeedsDisplay()
+        sliceDrawn = nil
+        setNeedsLayout()
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
-        canvas.frame = bounds
+        let n = ChromeView.sliceSize, scale = labRenderScale // its window view's (cx-3cb view-scale)
+        // Whole device pixels only: at a fractional width the right and bottom parts would land
+        // between pixels and be resampled (the canvas's backing store is whole pixels).
+        let whole = (bounds.width * scale).rounded() == bounds.width * scale && (bounds.height * scale).rounded() == bounds.height * scale
+        let sliced = liveResizing && !drawsTrafficLights && whole && bounds.width >= n && bounds.height >= n
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        // A hidden canvas is not drawn (UIView.setNeedsDisplay keeps the request until it shows).
+        canvas.isHidden = sliced
+        slice.isHidden = !sliced
+        guard sliced else { canvas.frame = bounds; return }
+        if sliceDrawn?.scale != scale || sliceDrawn?.leading != leadingEdgeIsWindowEdge {
+            let fmt = UIGraphicsImageRendererFormat()
+            fmt.scale = scale
+            fmt.opaque = false
+            fmt.preferredRange = .standard
+            let r = CGRect(x: 0, y: 0, width: n, height: n), draw = canvas.drawer
+            slice.contents = Fixture.withRenderScale(scale) { UIGraphicsImageRenderer(size: r.size, format: fmt).image { draw($0.cgContext, r) }.cgImage }
+            slice.contentsScale = scale
+            // One device pixel at the middle of each side.
+            let px = n * scale, mid = (px / 2).rounded(.down) / px
+            slice.contentsCenter = CGRect(x: mid, y: mid, width: 1 / px, height: 1 / px)
+            sliceDrawn = (scale, leadingEdgeIsWindowEdge)
+        }
+        slice.frame = bounds
     }
 }
 
@@ -248,10 +326,11 @@ class CanvasView: UIView {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
         drawer(ctx, bounds)
     }
-    /// A canvas draws at the render scale (UIKit would pick the screen's,
+    /// A canvas draws at its window view's render scale (UIKit would pick the screen's,
     /// which is the same live; test renders keep the reference's 2x).
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if layer.contentsScale != Fixture.renderScale { layer.contentsScale = Fixture.renderScale; setNeedsDisplay() }
+        let s = labRenderScale
+        if layer.contentsScale != s { layer.contentsScale = s; setNeedsDisplay() }
     }
 }

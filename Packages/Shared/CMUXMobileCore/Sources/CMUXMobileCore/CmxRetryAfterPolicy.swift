@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Shared interpretation of HTTP `Retry-After` for every automatic client
 /// retry owner. A server directive is a minimum wait, never a replacement for

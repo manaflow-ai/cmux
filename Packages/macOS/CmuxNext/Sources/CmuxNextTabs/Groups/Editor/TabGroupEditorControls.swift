@@ -56,7 +56,7 @@ final class TabGroupSwatchView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            fill.backgroundColor = color.swatch.cgColor
+            fill.backgroundColor = color.headerFill.cgColor
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
         }
         setAccessibilityValue(isChosen ? 1 : 0)
@@ -78,8 +78,8 @@ final class TabGroupSwatchView: NSView {
 /// A menu-like row in the group editor.
 final class TabGroupEditorRow: NSView {
     var onPress: (() -> Void)?
-    private let label = NSTextField(labelWithString: "")
-    private var isHovered = false { didSet { if oldValue != isHovered { updateColors() } } }
+    private let label = ChromeLabel(labelWithString: "")
+    private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(title: String) {
         super.init(frame: .zero)
@@ -122,9 +122,9 @@ final class TabGroupEditorRow: NSView {
         updateColors()
     }
 
-    private func updateColors() {
+    private func updateColors(animated: Bool = false) {
         performWithTheme {
-            layer?.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
+            if let layer { ChromeHover.paint(layer, isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil, animated: animated) }
             label.textColor = Palette.textPrimary
         }
     }

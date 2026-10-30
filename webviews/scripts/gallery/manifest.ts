@@ -28,11 +28,13 @@ import { LOCALES, PSEUDO_LOCALES, WIDTHS, widthPx, type WidthName } from "../../
 import { stageHeight, type GalleryEntry } from "../../src/gallery/format";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark } from "../../src/gallery/theme/ghostty";
 import { entryPaneSize, PANE_LAYOUTS, WINDOW_PRESETS } from "../../src/gallery/window";
-import { loadEntries } from "./entries";
+import { loadEntrySources } from "./entries";
 
 export const SAMPLE_THEMES = [
   "Apple System Colors",
   "Apple System Colors Light",
+  "Rose Pine",
+  "Rose Pine Moon",
   "Dracula",
   "Nord",
   "Solarized Dark Higher Contrast",
@@ -60,6 +62,7 @@ export type ManifestOptions = {
   layouts?: string;
   limit?: number;
   experiments?: boolean;
+  sourcePaths?: ReadonlyMap<string, string>;
 };
 
 const list = (value: string | undefined) =>
@@ -90,7 +93,7 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
           ? [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME]
           : options.themes && options.themes !== "default"
             ? list(options.themes)
-            : [DEFAULT_DARK_THEME];
+            : [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME];
   for (const name of themes)
     if (!byName.has(name)) throw new Error(`no shipped Ghostty theme named ${JSON.stringify(name)}`);
   const widths: (WidthName | number)[] =
@@ -116,7 +119,14 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
         for (const theme of themes)
           for (const shape of shapes) {
             const colorScheme = themeIsDark(byName.get(theme)!) ? "dark" : "light";
-            const base = { entry: entry.id, variant, locale, theme, colorScheme };
+            const base = {
+              entry: entry.id,
+              variant,
+              locale,
+              theme,
+              colorScheme,
+              ...(options.sourcePaths?.get(entry.id) ? { source: options.sourcePaths.get(entry.id)! } : {}),
+            };
             if ("window" in shape) {
               // The viewport is the surface's real pane size in that window (nothing native drawn).
               const size = entryPaneSize(shape.window, shape.layout as never, "comfortable", readChromeMetrics());
@@ -190,17 +200,22 @@ if (import.meta.main) {
     },
   });
   const build = values.experiments ? experimentCases : manifestCases;
-  const cases = build(await loadEntries(), {
-    entries: list(values.entries),
-    variants: list(values.variants),
-    locales: values.locales,
-    themes: values.themes,
-    widths: values.widths,
-    frame: values.frame === "component" ? "component" : "window",
-    windows: values.windows,
-    layouts: values.layouts,
-    limit: values.limit ? Number(values.limit) : undefined,
-  });
+  const loaded = await loadEntrySources();
+  const cases = build(
+    loaded.map(({ entry }) => entry),
+    {
+      entries: list(values.entries),
+      variants: list(values.variants),
+      locales: values.locales,
+      themes: values.themes,
+      widths: values.widths,
+      frame: values.frame === "component" ? "component" : "window",
+      windows: values.windows,
+      layouts: values.layouts,
+      limit: values.limit ? Number(values.limit) : undefined,
+      sourcePaths: new Map(loaded.map(({ entry, path }) => [entry.id, path])),
+    },
+  );
   const json = `${JSON.stringify(cases, null, 2)}\n`;
   if (values.out) fs.writeFileSync(values.out, json);
   else process.stdout.write(json);

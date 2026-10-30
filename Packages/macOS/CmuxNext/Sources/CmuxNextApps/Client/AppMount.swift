@@ -15,9 +15,12 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     /// Bundle files the scene's images come from, when this Mac has them.
     public let bundleDirectory: URL?
     weak var client: AppsClient?
+    /// Extra members of the mount's context (a hover card's `target`), passed to the export.
+    let extraContext: [String: AppJSON]
 
     init(id: String, appID: String, implementation: AppImplementation, isPreview: Bool, surface: String, bundleDirectory: URL?,
-         client: AppsClient) {
+         client: AppsClient, extraContext: [String: AppJSON] = [:]) {
+        self.extraContext = extraContext
         self.id = id
         self.appID = appID
         self.implementation = implementation
@@ -36,7 +39,9 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     public func makeView() -> AppSceneHostingView { AppSceneHostingView(model: model, bundleDirectory: bundleDirectory) }
 
     var context: AppJSON {
-        var context: [String: AppJSON] = ["contribution": .string("\(appID)#\(implementation.id)"), "surface": .string(surface)]
+        var context = extraContext
+        context["contribution"] = .string("\(appID)#\(implementation.id)")
+        context["surface"] = .string(surface)
         if isPreview { context["preview"] = true }
         return .object(context)
     }
@@ -47,10 +52,12 @@ public final class AppMount: AppSceneInteraction, Identifiable {
 extension AppsClient {
     /// Mounts `implementation` of `app`. A preview mounts an app that is
     /// not installed (`context.preview = true`: no grants, sample data).
-    public func mount(_ app: String, implementation: AppImplementation, surface: String, preview: Bool = false) -> AppMount {
+    /// `context` adds members to the mount's context (a hover card's `target`).
+    public func mount(_ app: String, implementation: AppImplementation, surface: String, preview: Bool = false,
+                      context: [String: AppJSON] = [:]) -> AppMount {
         let mount = AppMount(id: "mnt-\(keyPrefix)-\(nextMount)", appID: app,
                              implementation: implementation, isPreview: preview, surface: surface,
-                             bundleDirectory: bundleDirectory(for: app), client: self)
+                             bundleDirectory: bundleDirectory(for: app), client: self, extraContext: context)
         nextMount += 1
         mounts[mount.id] = mount
         send(mount)
@@ -72,8 +79,6 @@ extension AppsClient {
             await operation(transport)
         }
     }
-
-    var liveMounts: [AppMount] { Array(mounts.values) }
 
     /// Ends every mount on the supervisor and keeps it here (an
     /// administrator turned apps off on this Mac): the app hosts stop once

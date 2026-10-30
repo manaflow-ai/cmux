@@ -9,6 +9,7 @@
 //! get, draft and a start retry work across a restart.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 
 mod capsule;
@@ -276,6 +277,11 @@ impl Handoffs {
         self.records.lock().unwrap().get(id).cloned()
     }
 
+    /// Every session a record names as its target (`policy_source.rs`).
+    pub(super) fn target_ids(&self) -> std::collections::HashSet<String> {
+        self.records.lock().unwrap().values().map(|r| r.target.session_id.clone()).collect()
+    }
+
     fn by_key(&self, key: &str) -> Option<Record> {
         self.records.lock().unwrap().values().find(|r| r.handoff_key == key).cloned()
     }
@@ -298,8 +304,13 @@ impl Handoffs {
     fn put(&self, record: &Record) -> Result<(), RpcError> {
         if let Some(dir) = &self.dir {
             let write = || -> Result<()> {
-                use std::os::unix::fs::DirBuilderExt;
-                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::DirBuilderExt;
+                    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+                }
+                #[cfg(windows)]
+                crate::owner_only::create_dir_all(dir)?;
                 let bytes = serde_json::to_vec_pretty(record)?;
                 crate::config::write_atomic(
                     &dir.join(format!("{}.json", record.handoff_id)),
@@ -323,7 +334,7 @@ fn refuse(
 ) -> RpcError {
     let mut data = json!({"reason": reason});
     if let Some(h) = handoff {
-        data["handoff"] = h;
+        data.set("handoff", h);
     }
     RpcError::new(code, format!("{reason}: {message}")).with_data(data)
 }
@@ -354,7 +365,7 @@ impl Hub {
             json!({"sessionId": s.session_id, "harness": s.harness, "cwd": s.cwd, "coverage": coverage, "enforcement": enforcement})
         };
         let mut source = side(&r.source);
-        source["seq"] = json!(r.source_seq);
+        source.set("seq", json!(r.source_seq));
         json!({
             "handoffId": r.handoff_id,
             "handoffKey": r.handoff_key,

@@ -1,6 +1,10 @@
 {
   "comment": "License review data for rust_notices.py. Owned by the license review: change an entry only with a stated reason. Elections fail the run when the crate's manifest expression changes.",
   "extra_license_files": {
+    "crc-catalog": [
+      "LICENSES/Apache-2.0.txt",
+      "LICENSES/MIT.txt"
+    ],
     "r-efi": [
       "AUTHORS"
     ],
@@ -23,6 +27,7 @@
     ]
   },
   "extra_license_reasons": {
+    "crc-catalog": "The .crate keeps its MIT and Apache-2.0 texts in a REUSE-style LICENSES/ directory, not at the top level.",
     "r-efi": "AUTHORS holds the MIT text and the copyright holders; the README points there.",
     "regex-syntax": "The Unicode tables are derived from Unicode data under the Unicode license.",
     "ring": "Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors).",
@@ -52,6 +57,16 @@
     }
   },
   "license_texts": {
+    "block2 0.5.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-4fc083f1c6d6/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+        }
+      ]
+    },
     "block2 0.6.2": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\". Evidence: Cargo.toml authors is \"Mads Marquart <mads@marquart.dk>\"; objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
@@ -74,6 +89,36 @@
           "file": "texts/cloudflare-boringtun-051c9d47dc9c/LICENSE.md",
           "source": "https://raw.githubusercontent.com/cloudflare/boringtun/051c9d47dc9c5cb36e461b7d36dcd673820dc98b/LICENSE.md",
           "sha256": "6dbef24708bad8c727bd80cca58ba8aa1637cdcb2cc6e9a31ea49235717e9391"
+        }
+      ]
+    },
+    "cmux-cua 0.8.12": {
+      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
+      "files": [
+        {
+          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
+          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+        }
+      ]
+    },
+    "cmux-cua-core 0.8.12": {
+      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
+      "files": [
+        {
+          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
+          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+        }
+      ]
+    },
+    "cursor-overlay 0.8.12": {
+      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
+      "files": [
+        {
+          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
+          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
         }
       ]
     },
@@ -252,6 +297,26 @@
         }
       ]
     },
+    "objc-sys 0.3.5": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-4fc083f1c6d6/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+        }
+      ]
+    },
+    "objc2 0.5.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-4fc083f1c6d6/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+        }
+      ]
+    },
     "objc2 0.6.4": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\". Evidence: Cargo.toml authors is \"Mads Marquart <mads@marquart.dk>\"; objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
@@ -264,6 +329,26 @@
           "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
           "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
+        }
+      ]
+    },
+    "objc2-app-kit 0.2.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-e282618be4c3/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+        }
+      ]
+    },
+    "objc2-core-data 0.2.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-e282618be4c3/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
         }
       ]
     },
@@ -289,6 +374,16 @@
           "file": "texts/reviewer-supplied/Apache-2.0.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
           "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "objc2-core-image 0.2.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-e282618be4c3/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
         }
       ]
     },
@@ -332,6 +427,16 @@
         }
       ]
     },
+    "objc2-foundation 0.2.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-e282618be4c3/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+        }
+      ]
+    },
     "objc2-foundation 0.3.2": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart, Steven Sheldon and the objc2 contributors\". Evidence: Cargo.toml has no authors field (the objc2 framework crates share the objc2 authorship); objc2 started as Steven Sheldon's rust-objc, whose https://github.com/SSheldon/rust-objc/blob/master/LICENSE.txt says \"Copyright (c) Steven Sheldon\"; decided in https://github.com/manaflow-ai/cmux-browser/pull/609 release-compliance/SIGNOFF-2026-10.md (Q5). This text replaces the interim \"Copyright (c) Mads Marquart\" text (sha256 340585b8).",
       "files": [
@@ -344,6 +449,26 @@
           "file": "texts/reviewer-supplied/MIT-Marquart-Sheldon-objc2-contributors.txt",
           "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
           "sha256": "0fcbfc4177ad3baf43fa1e3574376ed80ed09fdfc9c5cfa0e4a2c8820112959f"
+        }
+      ]
+    },
+    "objc2-metal 0.2.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-e282618be4c3/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+        }
+      ]
+    },
+    "objc2-quartz-core 0.2.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.txt at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-e282618be4c3/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt",
+          "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
         }
       ]
     },
@@ -422,6 +547,26 @@
         }
       ]
     },
+    "pip-preview 0.8.12": {
+      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
+      "files": [
+        {
+          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
+          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+        }
+      ]
+    },
+    "platform-macos 0.8.12": {
+      "reason": "a path crate of manaflow-ai/cmux-cua's Rust workspace (libs/cmux-cua/rust, the commit scripts/build-cmux-cua.sh pins); it ships no license file and its manifest names none, the workspace declares MIT, and the repository's root LICENSE.md (MIT, Cua AI, Inc.) is the text that covers it",
+      "files": [
+        {
+          "file": "texts/manaflow-ai-cmux-cua-e8a8dbfd45a5/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/manaflow-ai/cmux-cua/e8a8dbfd45a5d050058e7340f97ffe6f157c3128/LICENSE.md",
+          "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+        }
+      ]
+    },
     "portmapper 0.19.1": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
       "files": [
@@ -489,6 +634,16 @@
           "file": "texts/quickjs-ng-quickjs-0fdea21ff109/quickjs-c-atomics-LICENSE.txt",
           "source": "https://raw.githubusercontent.com/quickjs-ng/quickjs/0fdea21ff1090084e91dad812b343d92e79ba9d9/quickjs-c-atomics.h#L1-L23",
           "sha256": "0a726795ea99fd5934f81f54e7e885031e844862755281df8afc3e6e5b571b9c"
+        }
+      ]
+    },
+    "siphasher 1.0.2": {
+      "reason": "declares MIT OR Apache-2.0 but ships only COPYING (a pointer with copyright lines); upstream jedisct1/rust-siphash db817204 has no license file, so the unmodified SPDX v3.29.0 Apache-2.0 text ships (reviewer-supplied).",
+      "files": [
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
         }
       ]
     },
@@ -622,6 +777,21 @@
         }
       ]
     },
+    "webrtc 0.17.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/webrtc-rs-webrtc-1da3fe8ee84d/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/webrtc-rs/webrtc/1da3fe8ee84db8d266322cbcfcb357c745959a8e/LICENSE-MIT",
+          "sha256": "56cc6c08157f4faf70d351b3a7ceac143399d5359a78c180e06dcd0390784f4d"
+        },
+        {
+          "file": "texts/webrtc-rs-webrtc-1da3fe8ee84d/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/webrtc-rs/webrtc/1da3fe8ee84db8d266322cbcfcb357c745959a8e/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        }
+      ]
+    },
     "wezterm-input-types 0.1.0": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release",
       "files": [
@@ -644,6 +814,21 @@
           "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-MIT",
           "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-MIT",
           "sha256": "5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219"
+        }
+      ]
+    },
+    "yasna 0.5.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/qnighy-yasna.rs-b7e65f9a4c31/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/qnighy/yasna.rs/b7e65f9a4c317494cce2d18ea02b3d6eaaea7985/LICENSE-MIT",
+          "sha256": "2a7df90e60fd5512b8bca35d3ce90e068f21c52d962855053fd1d9e2e7ca0f16"
+        },
+        {
+          "file": "texts/qnighy-yasna.rs-b7e65f9a4c31/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/qnighy/yasna.rs/b7e65f9a4c317494cce2d18ea02b3d6eaaea7985/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
         }
       ]
     }

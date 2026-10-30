@@ -10,13 +10,33 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 symbol: "rectangle.split.2x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
+            // A PNG of the pane as on screen, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
+            ActionDescriptor(
+                id: "pane.screenshot",
+                title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .pane, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.pane],
+                cliName: "pane screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
+            ),
+            // New Column Right keeps the `newColumn` id (cmux.json bindings, scripts); New Column
+            // Left opens before the pane's column (`column-left-v1`). Both search as "new column".
             ActionDescriptor(
                 id: "newColumn",
-                title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
-                keywords: ["scroll", "column", "pane"],
+                title: String(localized: "action.newColumn", defaultValue: "New Column Right", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "right", "add"],
                 defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
+            ),
+            ActionDescriptor(
+                id: "newColumnLeft",
+                title: String(localized: "action.newColumnLeft", defaultValue: "New Column Left", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "left", "add", "before"],
+                category: .pane, symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                targets: [.pane], cliName: "pane new-column-left", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "newRow",
@@ -49,11 +69,20 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.left.and.down.right.magnifyingglass", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "pane toggle-zoom"
             ),
+            // Show Tab Bar (cx-soza): the pane's own choice; the palette and menu read Hide Tab Bar while shown.
+            ActionDescriptor(
+                id: "pane.toggleTabBar",
+                title: String(localized: "action.pane.toggleTabBar", defaultValue: "Show Tab Bar", bundle: .module),
+                keywords: ["tab bar", "tabs", "strip", "horizontal", "hide", "show", "pane"],
+                category: .pane, symbol: "menubar.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
+                targets: [.pane], cliName: "pane toggle-tab-bar"
+            ),
             ActionDescriptor(
                 id: "equalizeSplits",
                 title: String(localized: "action.equalizeSplits", defaultValue: "Equalize Splits", bundle: .module),
+                // Ctrl-Cmd-= as Ghostty's `equalize_splits` (Lawrence 2026-10-19); the interface scale moved to Ctrl-Shift-Cmd.
                 keywords: ["balance", "resize"],
-                defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .pane,
+                defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .pane,
                 symbol: "equal.square", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane equalize-splits", mainMenu: .view
             ),
@@ -89,6 +118,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusLeft",
                 title: String(localized: "action.focusLeft", defaultValue: "Focus Pane Left", bundle: .module),
                 keywords: ["navigate"],
+                // Ghostty's goto_split:left, reserved (schemas/keybindings/ghostty-reserved-keys.json).
                 defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.left.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-left"
@@ -97,6 +127,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusRight",
                 title: String(localized: "action.focusRight", defaultValue: "Focus Pane Right", bundle: .module),
                 keywords: ["navigate"],
+                // Ghostty's goto_split:right, reserved (schemas/keybindings/ghostty-reserved-keys.json).
                 defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.right.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-right"
@@ -128,6 +159,15 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 keywords: ["navigate"], category: .pane, symbol: "arrow.forward.square",
                 surfaces: [.palette, .keyboard], targets: [.pane], cliName: "pane focus-next"
             ),
+            // Ctrl-Cmd-1..9 (cx-zjtn.2): the screen's panes in Focus Next
+            // Pane order; 9 is the last pane.
+            ActionDescriptor(
+                id: "focusPaneByNumber",
+                title: String(localized: "action.focusPaneByNumber", defaultValue: "Focus Pane 1…9", bundle: .module),
+                keywords: ["pane", "jump", "number", "index", "navigate"], defaultShortcut: Shortcut("1", modifiers: [.control, .command]),
+                shortcutFamily: .digits, category: .pane, symbol: "number.square", surfaces: [.keyboard],
+                arguments: [CatalogArgument.indexNumber], targets: [.pane], cliName: "pane focus-1-9"
+            ),
             ActionDescriptor(
                 id: "triggerFlash",
                 title: String(localized: "action.triggerFlash", defaultValue: "Flash Focused Pane", bundle: .module),
@@ -137,7 +177,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.swapWithSession",
-                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap With Session…", bundle: .module),
+                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap with Session…", bundle: .module),
                 keywords: ["swap", "exchange"], category: .pane, symbol: "arrow.left.arrow.right",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.panePane], targets: [.pane],
                 cliName: "pane swap-with-session"
@@ -314,13 +354,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "palette.openFilesPane",
                 title: String(localized: "action.palette.openFilesPane", defaultValue: "Open Files as Pane", bundle: .module),
                 keywords: ["explorer", "pane"], category: .pane, symbol: "doc.text", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-files-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-files-as"
             ),
             ActionDescriptor(
                 id: "palette.openFindPane",
                 title: String(localized: "action.palette.openFindPane", defaultValue: "Open Find as Pane", bundle: .module),
                 keywords: ["search", "pane"], category: .pane, symbol: "text.magnifyingglass", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-find-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-find-as"
             ),
             ActionDescriptor(
                 id: "palette.openVaultPane",
@@ -331,8 +371,9 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.openCloudPane",
                 title: String(localized: "action.palette.openCloudPane", defaultValue: "Open Cloud as Pane", bundle: .module),
-                keywords: ["machines", "pane"], category: .pane, symbol: "cloud", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-cloud-as"
+                keywords: ["machines", "pane", "vm", "snapshots", "cloud"], category: .pane, symbol: "cloud",
+                surfaces: [.palette, .menu], targets: [.pane], cliName: "pane open-cloud-as", mainMenu: .window,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux

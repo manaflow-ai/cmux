@@ -86,8 +86,10 @@ impl RemoteSession {
             | "detached"
             | "surface-exited"
             | "agent-changed"
+            | "agent-presence-changed"
             | "title-changed"
             | "bell"
+            | "program-status-changed"
             | "size-state"
             | "scroll-changed" => surface == Some(target),
             _ => true,
@@ -120,6 +122,10 @@ impl RemoteSession {
     }
 
     pub(super) fn handle_line(self: &Arc<Self>, value: Value) {
+        if value.get("protocol").is_some() {
+            self.handle_protocol2_line(value);
+            return;
+        }
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
         let event = value.get("event").and_then(Value::as_str);
         if event.is_some_and(|event| !self.accepts_event_in_surface_scope(event, &value)) {
@@ -403,7 +409,17 @@ impl RemoteSession {
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
                     agent: agent.agent.as_deref().map(Arc::from),
+                    agent_session_id: value
+                        .get("agent_session_id")
+                        .and_then(Value::as_str)
+                        .map(Arc::from),
                     updated_at_ms,
+                    // An older daemon sends no state start: count from the last report.
+                    since_ms: value
+                        .get("since_ms")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(updated_at_ms),
+                    last_prompt: value.get("last_prompt").and_then(Value::as_str).map(Arc::from),
                 };
                 {
                     let retired_surfaces = self.retired_surfaces.lock().unwrap();
@@ -417,7 +433,7 @@ impl RemoteSession {
             Some("layout-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
-                    self.emit(MuxEvent::LayoutChanged(screen));
+                    self.emit(MuxEvent::LayoutChanged(screen, None));
                 } else {
                     self.emit(MuxEvent::TreeChanged);
                 }
@@ -429,7 +445,8 @@ impl RemoteSession {
                     // already fail closed for a known-exited surface.
                     self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
-                    self.emit(MuxEvent::SurfaceExited(id));
+                    let end = value.get("end").filter(|end| !end.is_null()).cloned();
+                    self.emit(MuxEvent::SurfaceExited(id, end.map(Arc::new)));
                 }
             }
             Some("title-changed") => {
@@ -453,6 +470,22 @@ impl RemoteSession {
                     self.emit(MuxEvent::Bell(id));
                 }
             }
+            // OSC 7501: patch the tab's shown status in place, as titles are,
+            // so a program's progress never holds input behind a refresh.
+            Some("program-status-changed") => {
+                if let Some(id) = surface_id() {
+                    let status = crate::session::tree::parse_program_status(&value);
+                    let updated = self
+                        .tree
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .update_program_status(id, status);
+                    if !updated && self.invalidate_tree_once() {
+                        self.emit(MuxEvent::TreeChanged);
+                    }
+                    self.emit(MuxEvent::ProgramStatusChanged { surface: id, status });
+                }
+            }
             Some("notification") => {
                 let Some(notification) = value.get("notification").and_then(Value::as_u64) else {
                     return;
@@ -462,21 +495,39 @@ impl RemoteSession {
                     Some("error") => NotificationLevel::Error,
                     _ => NotificationLevel::Info,
                 };
+                let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
                 self.emit(MuxEvent::Notification(NotificationEvent {
+                    id: text("id"),
+                    message: text("message"),
+                    prompt: text("prompt"),
+                    session: text("session"),
                     notification,
                     title: value
                         .get("title")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
+                    subtitle: value.get("subtitle").and_then(Value::as_str).map(str::to_string),
                     body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    preview: value.get("preview").and_then(Value::as_str).map(str::to_string),
+                    question: value
+                        .get("question")
+                        .filter(|question| question.is_object())
+                        .cloned()
+                        .map(Arc::new),
                     level,
                     surface: surface_id(),
+                    workspace_id: value
+                        .get("workspace_id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| cmux_tui_core::resource::WorkspacePublicId::parse(id).ok()),
                     source: value
                         .get("source")
                         .and_then(Value::as_str)
                         .and_then(NotificationSource::parse)
                         .unwrap_or(NotificationSource::Daemon),
+                    desktop: value.get("desktop").and_then(Value::as_bool).unwrap_or(true),
+                    reply: value.get("reply").and_then(Value::as_bool).unwrap_or(false),
                 }));
             }
             Some("overflow") => {

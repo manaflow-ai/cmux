@@ -116,7 +116,8 @@ fn page_tab_is_an_ordinary_store_tab() {
     mux.shutdown();
 }
 
-/// Reopen Closed brings a page tab back with its page, from the close record.
+/// Reopen Closed brings a page tab back with its page, from the close record,
+/// and `closed.list` names that page.
 #[test]
 fn reopened_page_tab_keeps_its_page() {
     let mux = test_mux("page-tabs-reopen");
@@ -125,11 +126,179 @@ fn reopened_page_tab_keeps_its_page() {
     run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
     let closed = resource(&mux, "closed.list", json!({}), None);
     let group = closed.as_array().unwrap().first().cloned().expect("the close is recorded");
+    // Recently Closed names the page, not the page tab's `about:blank` address (cx-h7y9).
+    let listed = &group["screens"][0]["tabs"][0];
+    assert_eq!(listed["page"], "settings", "{group}");
+    assert_eq!(group["members"][0]["screens"][0]["tabs"][0]["page"], "settings", "{group}");
     resource(&mux, "closed.reopen", json!({"closed": group["id"]}), Some("page-re-1"));
     let back = pane_tabs(&mux, pane).into_iter().find(|surface| *surface != terminal).unwrap();
     let tab = raw_tab(&mux, back).unwrap();
     assert_eq!(tab["kind"], "conversation", "{tab}");
     assert_eq!(tab["conversation"], json!({"page":"settings"}));
+    mux.shutdown();
+}
+
+/// Recently Closed leaves out a tab that reopens as nothing (Leo 2026-10-11: it filled with
+/// "about:blank about:blank" rows). `closed.list` marks `empty` an untouched New Tab page (a chat
+/// tab with no session yet) and a browser on `about:blank`; a chat, a page, a browser on an
+/// address and a terminal are never empty, so a closed chat with no title yet still reopens.
+#[test]
+fn closed_list_marks_tabs_that_reopen_empty() {
+    let mux = test_mux("closed-empty");
+    let (_, pane) = terminal_pane(&mux);
+    let agent = |session: Value| {
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":"install:a","session":session,"harness":"claude"}})
+    };
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    let tabs = [
+        ("new tab page", agent(Value::Null)),
+        ("chat", agent(json!("ses-1"))),
+        ("blank browser", browser("about:blank")),
+        ("browser", browser("https://example.com/")),
+        ("page", json!({"cmd":"new-conversation-tab","pane":pane,"page":"settings"})),
+        ("terminal", json!({"cmd":"new-tab","pane":pane})),
+    ];
+    let ids = |closed: &Value| -> Vec<String> {
+        closed
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let mut marks = Vec::new();
+    for (name, request) in tabs {
+        let before = ids(&resource(&mux, "closed.list", json!({}), None));
+        let created = run(&mux, request).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+        let closed = resource(&mux, "closed.list", json!({}), None);
+        let item = closed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| !before.contains(&item["id"].as_str().unwrap().to_string()));
+        let item = item.unwrap_or_else(|| panic!("{name}: no closed item in {closed}"));
+        let top = item["screens"][0]["tabs"][0]["empty"].as_bool().unwrap_or(false);
+        let member =
+            item["members"][0]["screens"][0]["tabs"][0]["empty"].as_bool().unwrap_or(false);
+        marks.push(format!("{name}: {top} {member}"));
+    }
+    assert_eq!(
+        marks,
+        [
+            "new tab page: true true",
+            "chat: false false",
+            "blank browser: true true",
+            "browser: false false",
+            "page: false false",
+            "terminal: false false",
+        ]
+    );
+    mux.shutdown();
+}
+
+/// History's Recently Closed (`history.entries.list`, closed rows) leaves out
+/// a tab that reopens as nothing and never names a row "about:blank" (Leo
+/// 2026-10-11: it was full of "about:blank about:blank" rows). A closed chat
+/// is kept as a browser tab on `about:blank`, unmarked: it stays.
+#[test]
+fn history_closed_rows_leave_out_tabs_that_reopen_empty() {
+    let mux = test_mux("history-closed-empty");
+    let (_, pane) = terminal_pane(&mux);
+    let agent = |session: Value| {
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":"install:a","session":session,"harness":"claude"}})
+    };
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    for request in [
+        agent(Value::Null),
+        agent(json!("ses-1")),
+        browser("about:blank"),
+        browser("https://example.com/"),
+    ] {
+        let created = run(&mux, request).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+    }
+    let listed = resource(&mux, "history.entries.list", json!({"kinds":["closed"]}), None);
+    let rows: Vec<String> = listed["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            format!(
+                "{} · {}",
+                entry["title"].as_str().unwrap_or(""),
+                entry["detail"].as_str().unwrap_or("-")
+            )
+        })
+        .collect();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(rows.iter().all(|row| !row.contains("about:blank")), "{rows:?}");
+    assert!(rows[0].contains("example.com"), "{rows:?}");
+    mux.shutdown();
+}
+
+/// Recently Closed lists only what is worth reopening (Leo 2026-10-14): no Chromium New Tab
+/// page, and one row per page however often it was closed, at its newest close. Removing that
+/// row removes every close of the page, so an older one never takes its place.
+#[test]
+fn history_closed_rows_are_only_things_worth_reopening() {
+    let mux = test_mux("history-closed-signal");
+    let (_, pane) = terminal_pane(&mux);
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    for url in [
+        "chrome://newtab/",
+        "https://example.com/",
+        "chrome://newtab",
+        "https://example.com/",
+        "https://cmux.com/",
+    ] {
+        let created = run(&mux, browser(url)).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+    }
+    let closed = |mux: &Arc<Mux>| {
+        let listed = resource(mux, "history.entries.list", json!({"kinds":["closed"]}), None);
+        listed["entries"].as_array().unwrap().clone()
+    };
+    let shown = |entries: &[Value]| -> Vec<String> {
+        entries.iter().map(|entry| entry["detail"].as_str().unwrap_or("-").to_owned()).collect()
+    };
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://cmux.com/", "https://example.com/"], "{entries:?}");
+
+    let example = entries[1]["id"].clone();
+    resource(&mux, "history.entries.remove", json!({"ids":[example]}), Some("remove-example"));
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://cmux.com/"], "{entries:?}");
+    mux.shutdown();
+}
+
+/// Reopening a page closed several times takes every close of it out of Recently Closed: the
+/// page is open again, so no older close becomes its row and Cmd-Shift-T never opens it twice.
+#[test]
+fn history_closed_reopening_a_page_leaves_no_older_close_of_it() {
+    let mux = test_mux("history-closed-reopen-once");
+    let (_, pane) = terminal_pane(&mux);
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    for url in ["https://example.com/", "https://cmux.com/", "https://example.com/"] {
+        let created = run(&mux, browser(url)).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+    }
+    let closed = |mux: &Arc<Mux>| {
+        let listed = resource(mux, "history.entries.list", json!({"kinds":["closed"]}), None);
+        listed["entries"].as_array().unwrap().clone()
+    };
+    let shown = |entries: &[Value]| -> Vec<String> {
+        entries.iter().map(|entry| entry["detail"].as_str().unwrap_or("-").to_owned()).collect()
+    };
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://example.com/", "https://cmux.com/"], "{entries:?}");
+
+    let example = entries[0]["id"].as_str().unwrap().strip_prefix("closed:daemon:").unwrap();
+    resource(&mux, "closed.reopen", json!({"closed": example}), Some("reopen-example"));
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://cmux.com/"], "{entries:?}");
     mux.shutdown();
 }
 

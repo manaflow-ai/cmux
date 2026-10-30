@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The tab drop outline's look, shared by every surface that previews a
 /// drop (the layout overlay, the sidebar). Debug Settings tunables.
@@ -11,12 +12,21 @@ public nonisolated struct DropOutlineTunables {
         "drop.overlay.outline.color", .dropOverlay, "Outline: color", help: "Theme color of the outline (the accent; no blue).",
         default: .focusRing, code: "DropOutlineTunables.color")
 
-    public static var all: [TunableDescriptor] { [width.descriptor, color.descriptor] }
+    /// Classic cmux fills the drop rect with the accent at 0.25 under the
+    /// 2 pt accent border (pane-drop-targets DESIGN.md). Surfaces that ask
+    /// for a fill (the layout overlay) use this; the sidebar ring stays
+    /// border-only.
+    public static let fillOpacity = Tunable<CGFloat>.number(
+        "drop.overlay.outline.fillOpacity", .dropOverlay, "Outline: fill", help: "Opacity of the outline color inside the drop rect (0: border only).",
+        default: 0.25, range: 0...1, step: 0.05, unit: .fraction, code: "DropOutlineTunables.fillOpacity")
+
+    public static var all: [TunableDescriptor] { [width.descriptor, color.descriptor, fillOpacity.descriptor] }
 }
 
-/// A rounded border exactly inside a drop rect, no fill (tab-dnd, Lawrence
+/// A rounded border exactly inside a drop rect (tab-dnd, Lawrence
 /// 2026-10-04: "id rather just draw the border around where it will be
-/// dropped"). It moves between rects with a Core Animation spring
+/// dropped"), with an optional fill of the same color (`fillOpacity`; the
+/// layout overlay asks for classic's 0.25). It moves between rects with a Core Animation spring
 /// (`Motion.set`): the compositor draws every frame and the main thread
 /// runs no frame clock. Reduce Motion snaps. Add `layer` to a flipped,
 /// layer-backed view; rects are in that view's coordinates.
@@ -26,6 +36,8 @@ public final class DropOutlineRing {
     /// The rect the ring is at or heading to; nil while hidden.
     public private(set) var rect: CGRect?
     public private(set) var isRefused = false
+    /// Opacity of the ring color filling the rect (0: no fill).
+    public private(set) var fillOpacity: CGFloat = 0
 
     public init() {
         layer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "opacity": NSNull(),
@@ -37,10 +49,11 @@ public final class DropOutlineRing {
     /// Moves the ring to `rect` (growing in from `appearInset` of its size
     /// when hidden). `refused` draws it in the danger color.
     public func show(_ rect: CGRect, cornerRadius: CGFloat, refused: Bool = false, animated: Bool,
-                     spring: MotionSpring = .track, appearInset: CGFloat = 0.03) {
+                     spring: MotionSpring = .track, appearInset: CGFloat = 0.03, fillOpacity: CGFloat = 0) {
         Motion.withoutAnimation { layer.borderWidth = DropOutlineTunables.width.value }
-        if refused != isRefused || self.rect == nil {
+        if refused != isRefused || self.rect == nil || fillOpacity != self.fillOpacity {
             isRefused = refused
+            self.fillOpacity = fillOpacity
             applyTheme()
         }
         guard self.rect != rect else { return }
@@ -50,7 +63,7 @@ public final class DropOutlineRing {
         }
         place(rect, cornerRadius, animated: animated, spring)
         if appearing || layer.opacity < 1 {
-            if animated { Motion.set(layer, "opacity", to: NSNumber(value: 1), fade: .fadeIn) } else { setNow("opacity", NSNumber(value: 1)) }
+            if animated { Motion.panes.set(layer, "opacity", to: NSNumber(value: 1), fade: .fadeIn) } else { setNow("opacity", NSNumber(value: 1)) }
         }
         self.rect = rect
     }
@@ -58,13 +71,16 @@ public final class DropOutlineRing {
     public func hide(animated: Bool) {
         guard rect != nil else { return }
         rect = nil
-        if animated { Motion.set(layer, "opacity", to: NSNumber(value: 0), fade: .fadeOut) } else { setNow("opacity", NSNumber(value: 0)) }
+        if animated { Motion.panes.set(layer, "opacity", to: NSNumber(value: 0), fade: .fadeOut) } else { setNow("opacity", NSNumber(value: 0)) }
     }
 
     /// Re-reads the colors; call inside the host view's theme scope.
     public func applyTheme() {
         let color = isRefused ? Palette.danger : Palette.tunable(DropOutlineTunables.color.value)
-        Motion.withoutAnimation { layer.borderColor = color.cgColor }
+        Motion.withoutAnimation {
+            layer.borderColor = color.cgColor
+            layer.backgroundColor = fillOpacity > 0 ? color.withAlphaComponent(color.alphaComponent * fillOpacity).cgColor : nil
+        }
     }
 
     private func place(_ rect: CGRect, _ radius: CGFloat, animated: Bool, _ spring: MotionSpring) {
@@ -77,9 +93,9 @@ public final class DropOutlineRing {
             setNow("cornerRadius", corner)
             return
         }
-        Motion.set(layer, "bounds", to: bounds, spring: spring)
-        Motion.set(layer, "position", to: position, spring: spring)
-        Motion.set(layer, "cornerRadius", to: corner, spring: spring)
+        Motion.panes.set(layer, "bounds", to: bounds, spring: spring)
+        Motion.panes.set(layer, "position", to: position, spring: spring)
+        Motion.panes.set(layer, "cornerRadius", to: corner, spring: spring)
     }
 
     private func setNow(_ keyPath: String, _ value: Any) {

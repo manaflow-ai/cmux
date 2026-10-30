@@ -293,7 +293,7 @@ Kind mapping: permission prompts become `approve` (Claude Code `permission_sugge
 
 - Codex answers from the feed only when cmux owns the app-server (acpmux through codex-acp, or a launch wrapper). A plain `codex` in a terminal with its embedded server gives no outside answer path; its hooks stay telemetry. DECISION in the report.
 - cmux-tui installs Claude Code hooks async with a 5 s timeout today (observe only). The installer adds one synchronous `PermissionRequest` and `Elicitation` entry.
-- The OpenCode and pi hook templates in `cmux-tui/crates/cmux-tui/assets/agent-hooks/` gain the reply and race logic.
+- The OpenCode and pi hook templates in `cmux-tui/crates/cmux-tui-hooks/assets/agent-hooks/` gain the reply and race logic.
 - acpmux mirrors pending permissions into the feed and answers through `_acpmux/permission_respond`. This is the cleanest path: no hook process and no deadline.
 - The Swift compat `feed.push` (`CompatFeed.swift`) answers `timed_out` at once today; it routes to the feed owner once the Rust CLI verb exists.
 
@@ -447,7 +447,7 @@ Every op and action is on every surface or has a reasoned exemption (check-actio
 Prototypes (Debug Settings, DEV/NIGHTLY; module `CmuxNextFeed` with a mock source):
 - `feed.layout = list`: one chronological list, requests pinned on top with inline answer controls (choice chips, Allow/Deny, a reply field), notices below with read dots.
 - `feed.layout = inbox`: two panes: a grouped list (Needs you, Today, Earlier, by thread) on the left and the selected item's detail with full prompt, diff attachment and answer form on the right; Done, Snooze, Decline in the toolbar.
-- `feed.menubar = compact`: an NSStatusItem with the open request count; a popover with the open requests only, one-line rows with the primary answer buttons, "Open feed" at the bottom.
+- `feed.menubar = compact` (removed in #22449, never shown): an NSStatusItem with the open request count; a popover with the open requests only, one-line rows with the primary answer buttons, "Open feed" at the bottom.
 Screenshots and the recommendation are in section 15 when built.
 
 ## 13. Build steps
@@ -471,11 +471,11 @@ Screenshots and the recommendation are in section 15 when built.
 
 ## 14. Settings (cmux.json, Settings > Feed)
 
-`feed.desktop`, `feed.sound`, `feed.quietHours`, `feed.mutedPosters`, `feed.inViewIdleSeconds` (60), `feed.dismissal` (`keystroke`), `feed.badge` (`requestsAndUnread`), `feed.attention.*` (ring, from notifications.md), `feed.layout` (prototype switch), `feed.menubar` (`off`), `feed.requestDefaults.expiry` (24 h). `feed.mirrorNotifications.agents` (true: notices from agents, agent hooks and `cmux notify` go to the feed) and `feed.mirrorNotifications.terminal` (`off` default, `title`, `full`: terminal program notifications; off sends nothing, title sends the title only). Only notifications that would alert on this Mac (a banner) are mirrored; muted workspaces, quiet hours and banners turned off stay on the Mac. Text is scrubbed of known secret shapes; the poster label is the source (`agent`, `cli`, `terminal`), never the tab title. Owner-side (synced, `feed.prefs.set`): `push.enabled` (true), `push.delay.{urgent,high,normal,low}` (0, 20, 120, never), `push.skipWhenMacActive` (true).
+`feed.desktop`, `feed.sound`, `feed.quietHours`, `feed.mutedPosters`, `feed.inViewIdleSeconds` (60), `feed.dismissal` (`keystroke`), `feed.badge` (`requestsAndUnread`), `feed.attention.*` (ring, from notifications.md), `feed.layout` (prototype switch), `feed.requestDefaults.expiry` (24 h). `feed.mirrorNotifications.agents` (true: notices from agents, agent hooks and `cmux notify` go to the feed) and `feed.mirrorNotifications.terminal` (`off` default, `title`, `full`: terminal program notifications; off sends nothing, title sends the title only). Only notifications that would alert on this Mac (a banner) are mirrored; muted workspaces, quiet hours and banners turned off stay on the Mac. Text is scrubbed of known secret shapes; the poster label is the source (`agent`, `cli`, `terminal`), never the tab title. Owner-side (synced, `feed.prefs.set`): `push.enabled` (true), `push.delay.{urgent,high,normal,low}` (0, 20, 120, never), `push.skipWhenMacActive` (true).
 
 ## 15. Prototype screenshots and recommendation
 
-Module `CmuxNextFeed` (#16829, 53b07a31f3c): model mirror + intent log (`FeedModel`, `FeedIntent` with idempotency keys), `FeedSource` protocol, `MockFeedSource`, views `FeedHostView` (list, inbox) and `FeedMenubarHostView`, tunables `feed.layout` (`list` default, `inbox`) and `feed.menubar` (`off` default, `compact`), 25 tests (intent log, a late answer shows "Answered on iPhone", no queueing while disconnected, inbox groups, menu bar filter, choice validation, a 30-seed convergence test). Not yet linked into the app: `FeedTunables.all` joins `TunableCatalog` and the app wires a `FeedSource` to `FeedDO` in step F3.
+Module `CmuxNextFeed` (#16829, 53b07a31f3c): model mirror + intent log (`FeedModel`, `FeedIntent` with idempotency keys), `FeedSource` protocol, `MockFeedSource`, views `FeedHostView` (list, inbox), tunable `feed.layout` (`list` default, `inbox`; the menu bar prototype `FeedMenubarHostView` and its `feed.menubar` tunable were removed in #22449, since the app never showed them), 25 tests (intent log, a late answer shows "Answered on iPhone", no queueing while disconnected, inbox groups, menu bar filter, choice validation, a 30-seed convergence test). Not yet linked into the app: `FeedTunables.all` joins `TunableCatalog` and the app wires a `FeedSource` to `FeedDO` in step F3.
 
 Screenshots (light and dark, from a demo executable; in the hq checkout under `artifacts/feed-prototypes/`, not committed): list, inbox, compact menu bar, empty menu bar. They predate the second commit, which fixed a blank inbox row (two open requests of one session shared a row id) and a clipped menu bar height.
 

@@ -30,8 +30,8 @@ use sha2::{Digest, Sha256};
 use super::insert_resource_mutation;
 use super::session_journal::append_resource_journal_record;
 use super::{
-    TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry, canonical_json, read_terminal,
-    transaction_resource_revision, transaction_terminal_revision,
+    TerminalLifecycle, TerminalOnExit, WorkspaceMutation, WorkspaceRegistry, canonical_json,
+    read_terminal, transaction_resource_revision, transaction_terminal_revision,
 };
 use crate::terminal_end::TerminalEnd;
 
@@ -52,22 +52,24 @@ fn next_revision(revision: u64, what: &str) -> anyhow::Result<(u64, i64)> {
 
 impl WorkspaceRegistry {
     /// Step 1: reopen an exited terminal for a new launch. Only a host-loss
-    /// receipt of `old_incarnation` qualifies; returns the terminal revision,
-    /// or `None` when the terminal was closed, relaunched or ended otherwise.
+    /// receipt of `old_incarnation` qualifies, or any receipt of it for an
+    /// explicit user restart (`any_end`, `restart-tab`); returns the terminal
+    /// revision, or `None` when the terminal was closed, relaunched or ended
+    /// otherwise.
     pub(crate) fn begin_terminal_respawn(
         &mut self,
         terminal_id: &str,
         old_incarnation: &str,
+        any_end: bool,
     ) -> anyhow::Result<Option<u64>> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let Some(terminal) = read_terminal(&tx, terminal_id)? else { return Ok(None) };
+        let host_lost =
+            matches!(TerminalEnd::from_receipt(terminal.exit.as_ref()), TerminalEnd::HostLost(_));
         if terminal.lifecycle != TerminalLifecycle::Exited
             || terminal.incarnation.as_deref() != Some(old_incarnation)
-            || !matches!(
-                TerminalEnd::from_receipt(terminal.exit.as_ref()),
-                TerminalEnd::HostLost(_)
-            )
+            || !(host_lost || any_end)
         {
             return Ok(None);
         }
@@ -83,12 +85,18 @@ impl WorkspaceRegistry {
         let fingerprint =
             canonical_json(&json!({"op": "terminal-respawning", "terminal_id": terminal_id}))?;
         let result_json = canonical_json(&result)?;
+        // The new incarnation runs a shell: an `on_exit` shell terminal's
+        // policy is spent, and that shell's exit closes its tabs.
+        let on_exit = match terminal.on_exit {
+            TerminalOnExit::Shell => TerminalOnExit::Close,
+            policy => policy,
+        };
         tx.execute(
             "UPDATE terminal_hosts
              SET lifecycle = 'launching', incarnation = NULL, exit_json = NULL,
-                 updated_revision = ?1
+                 on_exit = ?3, updated_revision = ?1
              WHERE terminal_id = ?2",
-            params![sqlite_revision, terminal_id],
+            params![sqlite_revision, terminal_id, on_exit.column()],
         )?;
         record_terminal_event(
             &tx,

@@ -1,8 +1,8 @@
 extension SidebarLayout {
-    /// The row that paints the selection fill for `selected`: its workspace or
-    /// group row, or the collapsed group header that stands for a workspace
-    /// inside it; nil for a top item or a row this layout does not show. The
-    /// fill changes in place on that row, never travels
+    /// The row that stands for `selected`: its workspace or group row, or the
+    /// collapsed group header that holds a workspace inside it (which paints
+    /// no fill, cx-fo2t); nil for a top item or a row this layout does not
+    /// show. The fill changes in place on that row, never travels
     /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
     func selectedRowKey(for selected: SidebarItem?, in sections: [SidebarSection]) -> SidebarRowKey? {
         switch selected {
@@ -14,7 +14,10 @@ extension SidebarLayout {
                 if case let .group(group) = node, group.isCollapsed, group.workspaces.contains(where: { $0.id == id }) { group.id } else { nil }
             }.first
             return group.flatMap { row(for: .group($0)) == nil ? nil : .group($0) }
-        case .topItem?, nil:
+        case let .topItem(id)?:
+            // A document item the list draws as a row (a link in a machine list).
+            return row(for: .item(id.rawValue)) == nil ? nil : .item(id.rawValue)
+        case nil:
             return nil
         }
     }

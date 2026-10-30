@@ -93,6 +93,52 @@ async fn events_and_attach_page_backwards_through_transcript_records() {
 }
 
 #[tokio::test]
+async fn a_page_says_it_holds_to_the_log_end_only_when_it_reads_there() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "through").await;
+    for text in ["one", "two", "three"] {
+        c.request(method::SESSION_PROMPT, prompt(&id, text, None)).await.unwrap();
+    }
+    let last = hub.resolve("through").unwrap().meta().last_seq;
+    let seqs = |page: &Value| -> Vec<u64> {
+        page["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect()
+    };
+    let ask = |m: &'static str, extra: Value| {
+        let mut params = json!({"sessionId": id, "kinds": ["transcript"], "limit": 2});
+        params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        (m, params)
+    };
+    let mut a = connect(&hub).await;
+    let pages = [
+        // A page of older records holds only to its own last one (records after it were never read).
+        ask(method::MUX_EVENTS, json!({"beforeSeq": last})),
+        ask(method::MUX_ATTACH, json!({"beforeSeq": last})),
+        // So does a forward page with more to read.
+        ask(method::MUX_EVENTS, json!({"afterSeq": 0})),
+        ask(method::MUX_ATTACH, json!({"afterSeq": 0})),
+    ];
+    for (m, params) in pages {
+        let page = a.request(m, params.clone()).await.unwrap();
+        let held = seqs(&page);
+        assert!(!held.is_empty() && *held.last().unwrap() < last, "{m} {params}: {page}");
+        assert_eq!(page["pageThrough"], json!(held.last()), "{m} {params}");
+    }
+    // The newest page (more before it or not), and a forward page that reads to the end, hold to
+    // the log's last seq.
+    let newest = a.request(method::MUX_ATTACH, ask(method::MUX_ATTACH, json!({})).1).await.unwrap();
+    assert_eq!(newest["hasMore"], true);
+    assert_eq!(newest["pageThrough"], json!(last));
+    for (m, params) in [
+        ask(method::MUX_EVENTS, json!({"afterSeq": 0, "limit": 10_000})),
+        ask(method::MUX_ATTACH, json!({"afterSeq": 0, "limit": 10_000})),
+    ] {
+        let page = a.request(m, params.clone()).await.unwrap();
+        assert_ne!(page["hasMore"], true, "{m} {params}");
+        assert_eq!(page["pageThrough"], json!(last), "{m} {params}");
+    }
+}
+
+#[tokio::test]
 async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "live").await;
@@ -183,6 +229,94 @@ async fn a_subagent_ending_mid_message_keeps_the_codex_retry() {
     assert_eq!(sup[0].msg["newMessageId"], "m2");
 }
 
+/// Codex subagents arrive as their own sessions with their own turns
+/// (Lawrence 2026-10-12, native subagents for Claude Code and Codex): acpmux
+/// asks codex-acp for native subagent sessions in the form it reads, so each
+/// child's updates reach the transcript under that child, not only "Start
+/// subagent" tool calls.
+#[tokio::test]
+async fn codex_subagents_arrive_as_sessions_with_their_own_updates() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "codex-subagents").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "codex-subagents", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let mux = |msg: &Value| msg.pointer("/params/_meta/acpmux").cloned();
+    let spawned: Vec<String> = events
+        .iter()
+        .filter_map(|e| mux(&e.msg))
+        .filter_map(|m| m.get("subagents").and_then(|s| s.as_array()).cloned())
+        .flatten()
+        .filter(|s| s["state"] == "running")
+        .map(|s| s["id"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        spawned,
+        ["child-a", "child-b"],
+        "{:?}",
+        events.iter().map(|e| &e.kind).collect::<Vec<_>>()
+    );
+    for child in ["child-a", "child-b"] {
+        let own: Vec<_> = events
+            .iter()
+            .filter(|e| mux(&e.msg).and_then(|m| m.get("subagent").cloned()) == Some(json!(child)))
+            .map(|e| e.kind.as_str())
+            .collect();
+        assert!(
+            own.contains(&"tool_call") && own.contains(&"agent_message_chunk"),
+            "{child}: {own:?}"
+        );
+    }
+}
+
+/// A subagent that outlives its parent's turn and asks for permission after
+/// that turn ended reaches the person, and its answer reaches the subagent
+/// (cx-jo8yo): Codex children run on their own and may ask between turns.
+#[tokio::test]
+async fn a_codex_subagent_asking_after_the_turn_ended_reaches_the_person() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "late-ask").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "codex-late-subagent-ask", None)).await;
+    // The ask may reach acpmux before acpmux ends the turn: its notification
+    // then comes before the prompt's response, so keep what came before it.
+    let (done, before) = c.response(rid).await;
+    assert_eq!(done.unwrap()["stopReason"], "end_turn");
+    let pending = match before.into_iter().find(|(m, _)| m == method::MUX_PERMISSION_PENDING) {
+        Some((_, pending)) => pending,
+        None => c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await,
+    };
+    assert_eq!(pending["request"]["toolCall"]["title"], "touch late.txt");
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": id, "permissionId": pid, "optionId": "yes"}),
+    )
+    .await
+    .unwrap();
+    // The subagent's reply after the answer, from the session's log (a client gets no event
+    // notifications between turns).
+    let said = late_chunk(&hub, &id, |m| {
+        m.pointer("/params/_meta/acpmux/subagent") == Some(&json!("late-child"))
+    })
+    .await;
+    assert_eq!(said["params"]["update"]["content"]["text"], "late yes", "{said}");
+}
+
+/// The first agent_message_chunk in `id`'s log that `pick` accepts, waiting up to 5 s for it.
+pub(super) async fn late_chunk(hub: &Arc<Hub>, id: &str, pick: impl Fn(&Value) -> bool) -> Value {
+    for _ in 0..100 {
+        let found = hub
+            .events(id, 0, 10_000)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.kind == "agent_message_chunk" && pick(&e.msg));
+        if let Some(e) = found {
+            return e.msg;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("no matching agent_message_chunk in {id}");
+}
+
 #[tokio::test]
 async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -241,4 +375,410 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert!(last_result(&hub).msg.get("errorText").is_none());
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());
     assert_eq!(summary["lastTurn"]["status"], "completed");
+}
+
+/// The fake agent over an on-disk store whose event segments roll every `segment_bytes`.
+fn segmented_config(segment_bytes: u64) -> Config {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut agents = BTreeMap::new();
+    agents.insert(
+        "fake".to_owned(),
+        HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["python3".into(), fake.into()],
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Local;
+    cfg.store.segment_bytes = segment_bytes;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg
+}
+
+/// A daemon over [`segmented_config`] in a fresh directory.
+pub(super) async fn setup_segmented(
+    segment_bytes: u64,
+) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
+    let cfg = segmented_config(segment_bytes);
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    client.become_person().await;
+    (hub, client, dir)
+}
+
+fn seqs(page: &Value) -> Vec<u64> {
+    page["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect()
+}
+
+/// Opening a long chat reads only the end of its log: a tail page, and an older
+/// page, come from the newest segments, so their cost does not grow with the
+/// whole history (a remote session's log can be very long). Shown by an oldest
+/// segment that cannot be read at all: pages that never reach it still load.
+#[tokio::test]
+async fn tail_pages_read_only_the_newest_segments() {
+    // Segments roll at 64 KiB at the least (LocalStore), so each prompt carries 70 KB: one segment a turn.
+    let (hub, mut c, dir) = setup_segmented(64 * 1024).await;
+    let id = new_session(&mut c, "long").await;
+    let filler = "x".repeat(70_000);
+    for n in 0..12 {
+        let text = format!("turn {n} {filler}");
+        c.request(method::SESSION_PROMPT, prompt(&id, &text, None)).await.unwrap();
+    }
+    let session = hub.resolve("long").unwrap();
+    // The whole transcript (~1.7 MB of JSON) in one page: a page ends at
+    // maxBytes, 1 MiB by default and 4 MiB at most (1b665b2d58a).
+    let all = c
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 10_000, "maxBytes": 4 << 20}),
+        )
+        .await
+        .unwrap();
+    assert_ne!(all["hasMore"], true, "the whole transcript fits one page");
+    let transcript = seqs(&all);
+    let events = dir.join("sessions").join(&session.id).join("events");
+    let mut segments: Vec<_> = std::fs::read_dir(&events)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "ndjson"))
+        .collect();
+    segments.sort();
+    assert!(segments.len() > 8, "the log spans many segments: {}", segments.len());
+
+    // The oldest segment can no longer be read (a directory where the file was).
+    std::fs::remove_file(&segments[0]).unwrap();
+    std::fs::create_dir(&segments[0]).unwrap();
+
+    let mut a = connect(&hub).await;
+    let att = a
+        .request(method::MUX_ATTACH, json!({"sessionId": id, "kinds": ["transcript"], "limit": 4}))
+        .await
+        .expect("the tail page loads without reading the oldest segment");
+    assert_eq!(seqs(&att), transcript[transcript.len() - 4..]);
+    assert_eq!(att["hasMore"], true);
+    let older = a
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 4, "beforeSeq": seqs(&att)[0]}),
+        )
+        .await
+        .expect("an older page loads without reading the oldest segment");
+    assert_eq!(seqs(&older), transcript[transcript.len() - 8..transcript.len() - 4]);
+    assert_eq!(older["hasMore"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The JSON the daemon sends to open a chat stays within a budget however long the chat is: a remote
+/// session (cmux server, a peer over ssh) carries exactly this reply over the network. The pane asks
+/// for the newest records up to `maxBytes`; a 5000-turn chat whose tool outputs are large still opens
+/// on its last turn within 160 KiB, and the page says there is more.
+#[tokio::test]
+async fn opening_a_long_chat_stays_within_its_payload_budget() {
+    use acpmux::store::EventRecord;
+    let (hub, mut c, dir) = setup_segmented(8 * 1024 * 1024).await;
+    let id = new_session(&mut c, "long").await;
+    let mut seq = hub.resolve("long").unwrap().meta().last_seq;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let cfg = segmented_config(8 * 1024 * 1024);
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let output = "x".repeat(4000);
+    let mut append = |dir: &str, kind: &str, msg: Value| {
+        seq += 1;
+        store
+            .append(
+                &id,
+                &EventRecord {
+                    seq,
+                    at: seq,
+                    dir: dir.into(),
+                    kind: kind.into(),
+                    msg,
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+    };
+    let update = |body: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1", "update": body}});
+    for turn in 0..5000 {
+        append("mux", "user_message", json!({"text": format!("Question {turn}")}));
+        append("mux", "turn_started", json!({}));
+        let call = format!("call-{turn}");
+        append(
+            "in",
+            "tool_call",
+            update(json!({"sessionUpdate": "tool_call", "toolCallId": call,
+            "title": "cat build.log", "kind": "read", "status": "in_progress"})),
+        );
+        append(
+            "in",
+            "tool_call_update",
+            update(json!({"sessionUpdate": "tool_call_update",
+            "toolCallId": call, "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": output}}]})),
+        );
+        append(
+            "in",
+            "agent_message_chunk",
+            update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": format!("Answer {turn}")}})),
+        );
+        append("mux", "turn_result", json!({"status": "completed"}));
+    }
+    let last = seq;
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let mut a = connect(&hub).await;
+    let att = a
+        .request(
+            method::MUX_ATTACH,
+            json!({"sessionId": id, "limit": 400, "maxBytes": 128 * 1024, "eventStream": true,
+                "kinds": ["transcript", "available_commands_update", "usage_update",
+                    "config_option_update", "secret_request", "secret_decision"]}),
+        )
+        .await
+        .unwrap();
+    let wire = serde_json::to_string(&att).unwrap().len();
+    assert!(wire <= 160 * 1024, "opening sent {} KiB", wire / 1024);
+    let events = att["events"].as_array().unwrap();
+    assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
+    assert!(events.len() >= 6, "the page holds at least the last turn: {}", events.len());
+    assert_eq!(att["hasMore"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Measurement, not a check (cx-2lv1k): what opening and scrolling a long chat costs the daemon.
+/// 3000 turns of about 60 records each in the default 8 MiB segments; prints milliseconds.
+/// `scripts/ci/cargo-test-selected.sh -p acpmux --test hub_integration history_page_cost -- --ignored --nocapture`
+#[tokio::test]
+#[ignore]
+async fn history_page_cost() {
+    use acpmux::store::EventRecord;
+    use std::time::Instant;
+    let (hub, mut c, dir) = setup_segmented(8 * 1024 * 1024).await;
+    let id = new_session(&mut c, "long").await;
+    let session = hub.resolve("long").unwrap();
+    let cfg = segmented_config(8 * 1024 * 1024);
+    let mut seq = session.meta().last_seq;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let update = |seq: u64, kind: &str, body: Value| EventRecord {
+        seq,
+        at: seq,
+        dir: "in".into(),
+        kind: kind.into(),
+        msg: json!({"jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "agent-1", "update": body}}),
+        host_seq: None,
+    };
+    let mux = |seq: u64, kind: &str, msg: Value| EventRecord {
+        seq,
+        at: seq,
+        dir: "mux".into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    };
+    let output = "x".repeat(900);
+    let started = Instant::now();
+    for turn in 0..3000 {
+        let push = |rec: EventRecord| store.append(&id, &rec).unwrap();
+        seq += 1;
+        push(mux(seq, "user_message", json!({"text": format!("Question {turn}")})));
+        seq += 1;
+        push(mux(seq, "turn_started", json!({})));
+        for step in 0..5 {
+            let call = format!("call-{turn}-{step}");
+            seq += 1;
+            push(update(
+                seq,
+                "tool_call",
+                json!({"sessionUpdate": "tool_call", "toolCallId": call,
+                "title": "git status", "kind": "execute", "status": "in_progress",
+                "rawInput": {"command": "cd ~/wt/lanes/long && git status && git diff --stat"}}),
+            ));
+            seq += 1;
+            push(update(
+                seq,
+                "tool_call_update",
+                json!({"sessionUpdate": "tool_call_update",
+                "toolCallId": call, "status": "completed",
+                "content": [{"type": "content", "content": {"type": "text", "text": output}}]}),
+            ));
+        }
+        for _ in 0..48 {
+            seq += 1;
+            push(update(
+                seq,
+                "agent_message_chunk",
+                json!({"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "the checks on the merged head are green, "}}),
+            ));
+        }
+        seq += 1;
+        push(mux(seq, "turn_result", json!({"status": "completed"})));
+    }
+    store.flush().unwrap();
+    let bytes: u64 = std::fs::read_dir(dir.join("sessions").join(&id).join("events"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.metadata().unwrap().len())
+        .sum();
+    eprintln!(
+        "history_page_cost: {seq} records, {:.1} MiB, written in {} ms",
+        bytes as f64 / 1048576.0,
+        started.elapsed().as_millis()
+    );
+
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let mut a = connect(&hub).await;
+    let kinds = json!([
+        "transcript",
+        "available_commands_update",
+        "usage_update",
+        "config_option_update",
+        "secret_request",
+        "secret_decision"
+    ]);
+    let time = |label: &'static str, ms: u128| eprintln!("history_page_cost: {label}: {ms} ms");
+    for round in 0..3 {
+        let t = Instant::now();
+        let att = a
+            .request(method::MUX_ATTACH, json!({"sessionId": id, "kinds": kinds, "limit": 400}))
+            .await
+            .unwrap();
+        time(
+            if round == 0 { "open (attach, newest 400)" } else { "open again" },
+            t.elapsed().as_millis(),
+        );
+        assert_eq!(att["events"].as_array().unwrap().len(), 400);
+        a.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    }
+    let t = Instant::now();
+    let older = a
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 400, "beforeSeq": seq / 2}),
+        )
+        .await
+        .unwrap();
+    time("older page from mid-history", t.elapsed().as_millis());
+    assert_eq!(older["events"].as_array().unwrap().len(), 400);
+    let t = Instant::now();
+    let early = a
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 400, "beforeSeq": seq / 20}),
+        )
+        .await
+        .unwrap();
+    time("older page near the start", t.elapsed().as_millis());
+    assert_eq!(early["events"].as_array().unwrap().len(), 400);
+    let t = Instant::now();
+    let all = hub.events(&id, 0, usize::MAX).unwrap();
+    time("whole log, for reference", t.elapsed().as_millis());
+    assert_eq!(all.last().unwrap().seq, seq);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn orchestration_fields_reach_subagent_events_and_session_summary() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "orchestration-fields").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "orchestration-fields", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let rows: Vec<&Value> = events
+        .iter()
+        .filter_map(|e| e.msg.pointer("/params/_meta/acpmux/subagents"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .collect();
+    let started = rows.iter().find(|r| r["state"] == "running").unwrap();
+    assert_eq!(started["model"], "gpt-6");
+    assert_eq!(started["effort"], "high");
+    let ended = rows.iter().find(|r| r["state"] == "completed").unwrap();
+    assert_eq!(ended["lastMessage"], format!("{}…", "é".repeat(239)));
+    assert_eq!(ended["tokens"], 1234);
+    // Text updates do not walk or re-emit subagent rows on every token.
+    assert!(
+        events
+            .iter()
+            .filter(|e| e.kind == "agent_message_chunk")
+            .all(|e| e.msg.pointer("/params/_meta/acpmux/subagents").is_none())
+    );
+    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["effort"], "high");
+}
+
+#[tokio::test]
+async fn orchestration_session_changed_carries_effort() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "orchestration-watch").await;
+    c.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    c.send(method::SESSION_PROMPT, prompt(&id, "orchestration-fields", None)).await;
+    let changed =
+        c.wait_for(method::MUX_SESSION_CHANGED, |p| p["session"]["effort"] == "high").await;
+    assert_eq!(changed["sessionId"], id);
+}
+
+/// An attach page that starts inside a turn names the prompt that opened it (`turnOpener`), the
+/// record a read of the user messages before the page finds: the pane shows what the turn was
+/// asked with no read of its own after the attach. A page that starts a turn, or holds the log
+/// from its start, names none.
+#[tokio::test]
+async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "opener").await;
+    for text in ["one", "two", "three"] {
+        c.request(method::SESSION_PROMPT, prompt(&id, text, None)).await.unwrap();
+    }
+    let mut a = connect(&hub).await;
+    let attach = |limit: u64| json!({"sessionId": id, "kinds": ["transcript"], "limit": limit});
+    let whole = a.request(method::MUX_ATTACH, attach(10_000)).await.unwrap();
+    assert_eq!(whole["hasMore"], false);
+    assert_eq!(whole["turnOpener"], Value::Null, "{whole}");
+    let starts_turn =
+        |e: &Value| e["dir"] == "mux" && e["kind"] == "user_message" && e["msg"]["steer"] != true;
+    let transcript = whole["events"].as_array().unwrap().clone();
+    let last_prompt = transcript.iter().rposition(starts_turn).expect("a prompt in the log");
+    // Pages that start right after the newest prompt, inside its turn.
+    let inside = transcript.len() - last_prompt - 1;
+    assert!(inside >= 1, "the last turn has records after its prompt: {whole}");
+    for limit in 1..=inside as u64 {
+        let page = a.request(method::MUX_ATTACH, attach(limit)).await.unwrap();
+        let first = page["events"][0]["seq"].as_u64().unwrap();
+        let read = a
+            .request(
+                method::MUX_EVENTS,
+                json!({"sessionId": id, "beforeSeq": first, "limit": 16, "kinds": ["user_message"]}),
+            )
+            .await
+            .unwrap();
+        let expected =
+            read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
+        assert_eq!(page["turnOpener"], expected.unwrap(), "limit {limit}: {page}");
+    }
+    // The page that starts with the prompt itself needs none.
+    let at_prompt = a.request(method::MUX_ATTACH, attach(inside as u64 + 1)).await.unwrap();
+    assert!(starts_turn(&at_prompt["events"][0]), "{at_prompt}");
+    assert_eq!(at_prompt["turnOpener"], Value::Null);
 }

@@ -1576,21 +1576,21 @@
     },
     {
       "entry": {
-        "actionID": "workspace.newInGroup",
+        "actionID": "workspace.newLikeThis",
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "action:workspace.newInGroup",
+        "frecencyKey": "action:workspace.newLikeThis",
         "hasShortcut": false,
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["create", "group", "section"],
+        "keywords": ["create", "same", "group", "cwd", "folder", "directory"],
         "rankBias": 0,
         "sectionIndex": 1,
-        "title": "New Workspace in This Group",
+        "title": "New Workspace Like This",
         "typingSectionIndex": 16
       },
-      "id": "action:workspace.newInGroup"
+      "id": "action:workspace.newLikeThis"
     },
     {
       "entry": {
@@ -1630,24 +1630,6 @@
     },
     {
       "entry": {
-        "actionID": "workspace.newInSameDirectory",
-        "demoted": false,
-        "entersScope": false,
-        "frecencyKey": "action:workspace.newInSameDirectory",
-        "hasShortcut": false,
-        "hidesWhenTyping": false,
-        "isEnabled": true,
-        "isVisibleWhenQueryEmpty": true,
-        "keywords": ["create", "cwd", "folder", "path"],
-        "rankBias": 0,
-        "sectionIndex": 1,
-        "title": "New Workspace in Same Directory",
-        "typingSectionIndex": 16
-      },
-      "id": "action:workspace.newInSameDirectory"
-    },
-    {
-      "entry": {
         "actionID": "workspace.duplicate",
         "demoted": false,
         "entersScope": false,
@@ -1677,7 +1659,7 @@
         "keywords": ["copy", "clone", "layout", "terminal"],
         "rankBias": 0,
         "sectionIndex": 1,
-        "title": "Duplicate Workspace without Browser Tabs",
+        "title": "Duplicate Workspace Without Browser Tabs",
         "typingSectionIndex": 16
       },
       "id": "action:workspace.duplicateTerminalsOnly"
@@ -3654,10 +3636,10 @@
     },
     {
       "entry": {
-        "actionID": "newTab.sameKind",
+        "actionID": "newTab.default",
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "action:newTab.sameKind",
+        "frecencyKey": "action:newTab.default",
         "hasShortcut": true,
         "hidesWhenTyping": false,
         "isEnabled": true,
@@ -3670,7 +3652,7 @@
         "title": "New Tab",
         "typingSectionIndex": 16
       },
-      "id": "action:newTab.sameKind"
+      "id": "action:newTab.default"
     },
     {
       "entry": {
@@ -6679,7 +6661,7 @@
         ],
         "rankBias": 0,
         "sectionIndex": 6,
-        "title": "Open Site Settings of Blocked Download",
+        "title": "Open Site Settings for Blocked Downloads",
         "typingSectionIndex": 16
       },
       "id": "action:browser.download.openBlockedSiteSettings"
@@ -7944,7 +7926,7 @@
         "keywords": ["notifications", "read"],
         "rankBias": 0,
         "sectionIndex": 8,
-        "title": "Toggle Unread",
+        "title": "Mark Tab Read/Unread",
         "typingSectionIndex": 16
       },
       "id": "action:toggleUnread"
@@ -8034,7 +8016,7 @@
         "keywords": ["notifications", "clipboard"],
         "rankBias": 0,
         "sectionIndex": 8,
-        "title": "Copy Notification",
+        "title": "Copy Notification Text",
         "typingSectionIndex": 16
       },
       "id": "action:notificationCopy"
@@ -8241,6 +8223,24 @@
     },
     {
       "entry": {
+        "actionID": "palette.newAgentChatOn",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:palette.newAgentChatOn",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "new", "host", "machine", "peer", "cloud", "remote"],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "title": "New Agent Chat on…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:palette.newAgentChatOn"
+    },
+    {
+      "entry": {
         "actionID": "agentPane.toggleInspector",
         "demoted": false,
         "entersScope": false,
@@ -8249,13 +8249,33 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["agent", "acp", "acpmux", "inspector", "log", "debug"],
+        "keywords": ["agent", "chat", "session", "session info", "acp", "acpmux", "inspector", "log", "debug"],
         "rankBias": 0,
         "sectionIndex": 9,
-        "title": "Show ACP Inspector",
+        "title": "Toggle Session Info",
         "typingSectionIndex": 16
       },
       "id": "action:agentPane.toggleInspector"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.stopTurn",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.stopTurn",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "stop", "cancel", "interrupt", "turn", "working", "generation"],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "suggestedRank": 3,
+        "suggestedSectionIndex": 18,
+        "title": "Stop Agent Turn",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.stopTurn"
     },
     {
       "entry": {
@@ -11258,7 +11278,7 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["scrollbar", "column", "strip", "minimap"],
+        "keywords": ["scrollbar", "column", "strip", "visible range", "overview"],
         "rankBias": 0,
         "sectionIndex": 12,
         "title": "Toggle Column Scroll Bar",
@@ -13379,7 +13399,17 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
-        "keywords": ["scroll", "scrollbar", "minimap", "layout.stripScrollbar", "General", "Columns", "setting"],
+        "keywords": [
+          "scroll",
+          "scrollbar",
+          "column",
+          "visible range",
+          "overview",
+          "layout.stripScrollbar",
+          "General",
+          "Columns",
+          "setting"
+        ],
         "rankBias": 0,
         "sectionIndex": 15,
         "subtitle": "Columns",
@@ -16166,7 +16196,7 @@
     },
     {
       "entry": {
-        "accessory": "On",
+        "accessory": "Off",
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:status.inferCommandBusy",
@@ -16174,7 +16204,7 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
-        "keywords": ["status.inferCommandBusy", "Appearance", "Loading Indicator", "setting", "toggle", "disable"],
+        "keywords": ["status.inferCommandBusy", "Appearance", "Loading Indicator", "setting", "toggle", "enable"],
         "rankBias": 0,
         "sectionIndex": 15,
         "subtitle": "Loading Indicator",
@@ -18655,6 +18685,71 @@
         "typingSectionIndex": 16
       },
       "id": "cmux/coderouter#cycleVariant"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.setModel",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.setModel",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "model", "models", "harness", "provider", "llm", "switch", "change", "set"],
+        "rankBias": 0,
+        "sectionIndex": 109,
+        "title": "Set Agent Chat Model…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.setModel"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.setEffort",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.setEffort",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "effort", "reasoning", "thinking", "depth", "fast", "slow", "set", "change"],
+        "rankBias": 0,
+        "sectionIndex": 109,
+        "title": "Set Agent Chat Effort…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.setEffort"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.setMode",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.setMode",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": [
+          "agent",
+          "chat",
+          "mode",
+          "permission",
+          "access",
+          "plan",
+          "read-only",
+          "full access",
+          "set",
+          "change"
+        ],
+        "rankBias": 0,
+        "sectionIndex": 109,
+        "title": "Set Agent Chat Mode…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.setMode"
     },
     {
       "entry": {

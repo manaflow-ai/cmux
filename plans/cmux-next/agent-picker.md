@@ -14,7 +14,7 @@ The composer shows one chip: harness glyph, model short name, effort (`6.1-Sol �
 2. A search field, focused on open. Typing filters models across all harnesses; with a query, results group by harness, harness tab row hides. Matching is on model id, display name, provider and family, fuzzy, best first.
 3. The model list for the selected harness, grouped by provider then family when the harness has more than one (opencode, pi); otherwise flat. Each row: name, capability badges, and the check on the current model. "Recent" (last 5 picks across harnesses, numbered 1-5 for keys) and "Favorites" (starred rows, star on hover) sit above the groups.
 4. A reasoning row under the list: the effort steps the selected model offers (Low … Max), one segmented control, keyboard ←/→ when focused. Hidden when the model has no effort option.
-5. Toggles the harness offers as config options (fast mode, plan collaboration mode), one row each.
+5. Toggles the harness offers as config options (fast mode and custom harness options), one row each. Codex's collaboration mode remains on its command/mode paths.
 6. The account footer: the harness's account state and route (see below).
 
 Enter picks the highlighted model and closes; Tab moves between list, effort and toggles; Escape closes; the panel never takes app focus (it is the page's own popover).

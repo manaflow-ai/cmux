@@ -11,8 +11,12 @@ export type AppSource = "default" | "user" | "bundled" | "local";
 export type ScopeRisk = "standard" | "sensitive" | "restricted";
 
 export interface AppIconRef {
-  /** A manifest path served by `cmux.apps.asset.get`; absent means the generic glyph. */
+  /** The image as a `data:` URL (from `cmux.apps.asset.get`); absent means the generic glyph. */
   path?: string;
+  /** The manifest path of the image in the package, which `cmux.apps.asset.get` serves. */
+  asset?: string;
+  /** A symbol name: the host draws cmux's own icon for it at `glyph/<symbol>` (never an SF Symbol). */
+  symbol?: string;
 }
 
 /** One row of `cmux.apps.catalog.list`. */
@@ -55,6 +59,13 @@ export interface AppVersion {
   yanked?: boolean;
 }
 
+/** One thing an app puts in cmux (the manifest's `contributes`): its kind and its title. */
+export interface AppContribution {
+  /** `section`, `command`, `statusItem`; another kind shows as its name. */
+  kind: string;
+  title: string;
+}
+
 /** `cmux.apps.catalog.get`. */
 export interface AppDetail extends CatalogApp {
   scopes: ScopeRequest[];
@@ -62,6 +73,8 @@ export interface AppDetail extends CatalogApp {
   repository?: string;
   screenshots: string[];
   notices?: string[];
+  /** "What it adds" on the app's page; absent until the owner sends it. */
+  contributes?: AppContribution[];
 }
 
 /** One row of `cmux.apps.installed.list`. */
@@ -81,6 +94,20 @@ export interface InstalledApp {
   update?: { version: string };
   /** The host's last failure for this app, when it has one. */
   failure?: string;
+}
+
+/** One row returned by `cmux.apps.updates.list`. The supervisor owns the versions. */
+export interface AppUpdate {
+  app: string;
+  name?: string;
+  current_version?: string;
+  version: string;
+  failure?: string;
+}
+
+export interface UpdatesListResult {
+  updates: AppUpdate[];
+  revision: number;
 }
 
 export interface InstalledListResult {
@@ -105,6 +132,19 @@ export interface LogLine {
   at_ms: number;
 }
 
+/** `cmux.apps.logs`: the last lines of the app's log ring. */
+export interface WireLogs {
+  app: string;
+  lines: { level: LogLine["level"]; message: string; ts_ms: number }[];
+}
+
+/** `cmux.apps.asset.get`. */
+export interface WireAsset {
+  app: string;
+  path: string;
+  data_url: string;
+}
+
 /** `cmux.apps.watch` event. */
 export interface AppsChanged {
   revision: number;
@@ -119,6 +159,9 @@ export interface ConfirmedResult {
 /** The App Store's own app id: the store never lists itself (FIRST-PARTY-APPS). */
 export const APP_STORE_ID = "cmux/app-store";
 
+/** Home's app id: a place in cmux, not a listing (extensibility-DESIGN.md). */
+export const HOME_ID = "cmux/home";
+
 export const AppsOps = {
   catalogList: "cmux.apps.catalog.list",
   catalogGet: "cmux.apps.catalog.get",
@@ -129,9 +172,13 @@ export const AppsOps = {
   set: "cmux.apps.set",
   grantsGet: "cmux.apps.grants.get",
   grantSet: "cmux.apps.grant.set",
+  grantRevoke: "cmux.apps.grant.revoke",
+  hiddenSet: "cmux.apps.hidden.set",
   updatesList: "cmux.apps.updates.list",
   update: "cmux.apps.update",
   logs: "cmux.apps.logs",
   watch: "cmux.apps.watch",
-  open: "cmux.apps.open",
 } as const;
+
+/** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
+export const OPEN_ACTION = { op: "cmux.app.action.run", action: "app.open" } as const;

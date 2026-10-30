@@ -36,6 +36,13 @@ pub fn describe_sender(pid: u32, signal_at_ms: u64) -> Option<Value> {
     Some(json!({"name": sender.name, "ppid": sender.ppid, "parent_name": parent_name}))
 }
 
+/// When `pid` started, in milliseconds since the epoch; `None` once it is
+/// gone (or unreadable). A status owner is recorded with it, so a reused
+/// PID never stands in for the owner.
+pub fn started_ms(pid: u32) -> Option<u64> {
+    identity(pid).map(|process| process.started_ms)
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn identity(pid: u32) -> Option<ProcessIdentity> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;

@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextIcons
 import SwiftUI
 
@@ -57,22 +58,26 @@ struct FeedGitHubActions: View {
                 FeedIconLabel(error, icon: .statusWarning, textSize: 11).font(.system(size: 11)).foregroundStyle(colors.danger)
             }
             HStack(spacing: 7) {
-                TextField(FeedStrings.comment, text: $comment)
-                    .textFieldStyle(.roundedBorder).font(.system(size: 11))
+                ThemedField(text: $comment, placeholder: FeedStrings.comment, font: .systemFont(ofSize: 11),
+                            onSubmit: { if supported(.comment) { postComment() } })
                 if supported(.comment) {
-                    Button(FeedStrings.comment) {
-                    let text = comment.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { return }
-                    model.onGitHubAction?(item, .comment, text)
-                    comment = ""
-                    }
-                    .buttonStyle(FeedButtonStyle(role: .plain, compact: true))
-                    .disabled(model.githubActionPending || comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(FeedStrings.comment) { postComment() }
+                        .buttonStyle(FeedButtonStyle(role: .plain, compact: true))
+                        .disabled(model.githubActionPending || comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
         .padding(11)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(colors.elevated))
+    }
+
+    /// Posts the comment (the Comment button, or Return in its field): not while an action is
+    /// pending, and never an empty one.
+    private func postComment() {
+        let text = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !model.githubActionPending else { return }
+        model.onGitHubAction?(item, .comment, text)
+        comment = ""
     }
 
     private func supported(_ action: FeedGitHubAction) -> Bool {

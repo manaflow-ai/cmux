@@ -30,9 +30,14 @@ nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     /// The row has a keyboard shortcut (`PaletteItem.keycaps`): a core command,
     /// ranked first among equal matches.
     public var hasShortcut = false
+    /// The keycaps of the row's live shortcut (`PaletteItem.keycaps`, user overrides included):
+    /// the ranker ranks the row first for a query that names it ("cmd shift p", "⇧⌘P").
+    public var keycaps: [String] = []
     /// `PaletteItem.suggestedRank`, and the Suggested section's index in the page's table.
     public var suggestedRank: Int?
     public var suggestedSectionIndex: Int?
+    /// `PaletteItem.handles`.
+    public var handles: [String] = []
 
     public init(
         title: String,
@@ -59,59 +64,17 @@ nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     }
 }
 
-/// Prepared search candidates for one page: a flat fuzzy corpus plus the
-/// ranking inputs. A value type, so the main actor hands a snapshot to the
-/// searcher and never shares mutable state. A query that extends the
-/// previous one (typing another character) scans only the previous matches.
+/// The search candidates of one page, as the shared TypeScript ranker
+/// (`PaletteRankerBridge`) takes them. A value type, so the main actor hands
+/// a snapshot to the searcher and never shares mutable state.
 nonisolated public struct PaletteSearchIndex: Sendable {
     public let entries: [PaletteSearchEntry]
-    private let corpus: FuzzyCorpus
-    private var cache: (query: FuzzyQuery, matches: [Int])?
-
-    /// Field weights in percent.
-    static let titleWeight: Int32 = 100
-    static let keywordWeight: Int32 = 80
-    static let subtitleWeight: Int32 = 65
-    static let accessoryWeight: Int32 = 50
 
     public init(entries: [PaletteSearchEntry]) {
         self.entries = entries
-        var corpus = FuzzyCorpus()
-        for entry in entries {
-            var fields = [FuzzyField(FuzzyText(entry.title), weight: Self.titleWeight)]
-            if !entry.keywords.isEmpty {
-                fields.append(FuzzyField(FuzzyText(entry.keywords.joined(separator: " ")), weight: Self.keywordWeight))
-            }
-            if let subtitle = entry.subtitle, !subtitle.isEmpty {
-                fields.append(FuzzyField(FuzzyText(subtitle), weight: Self.subtitleWeight))
-            }
-            if let accessory = entry.accessory, !accessory.isEmpty {
-                fields.append(FuzzyField(FuzzyText(accessory), weight: Self.accessoryWeight))
-            }
-            corpus.append(fields)
-        }
-        self.corpus = corpus
     }
 
     public var count: Int { entries.count }
-
-    /// Indices and raw match scores (before frecency and bias) for `query`,
-    /// in entry order.
-    public mutating func matches(for query: FuzzyQuery) -> [(index: Int, score: Int)] {
-        let result: [(index: Int, score: Int)]
-        if let cache, query.refines(cache.query) {
-            result = corpus.matches(query, in: cache.matches)
-        } else {
-            result = corpus.matches(query, in: entries.indices)
-        }
-        cache = (query, result.map(\.index))
-        return result
-    }
-
-    /// Title positions to emphasize for `query`.
-    public func highlights(for index: Int, query: FuzzyQuery) -> [Int] {
-        corpus.matchedPositions(query, candidate: index)
-    }
 }
 
 extension PaletteSearchIndex {
@@ -132,6 +95,9 @@ extension PaletteSearchIndex {
 }
 
 extension PaletteSearchEntry {
+    /// The localized keycap of the space key (`Shortcut.keyGlyph`).
+    @MainActor private static let spaceKeycap = Shortcut(Shortcut.spaceKey, modifiers: []).keyGlyph
+
     @MainActor
     init(_ item: PaletteItem, visible: Bool, sectionIndex: Int) {
         self.init(
@@ -150,7 +116,10 @@ extension PaletteSearchEntry {
         entersScope = item.enters != nil
         actionID = item.actionID?.rawValue
         demoted = item.isDemoted
-        hasShortcut = !(item.keycaps ?? []).isEmpty
+        // The space key's keycap is localized ("Space"); the ranker reads a locale-free "␣".
+        keycaps = (item.keycaps ?? []).map { $0 == Self.spaceKeycap ? "␣" : $0 }
+        hasShortcut = !keycaps.isEmpty
         suggestedRank = item.suggestedRank
+        handles = item.handles
     }
 }

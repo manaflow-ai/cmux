@@ -10,8 +10,12 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     /// Heading of the row group inside the section.
     public let group: String
     public let title: String
-    /// One line under the title; nil when the title says it all.
+    /// The documentation text: the docs, the MDM manifest and the settings
+    /// search use it; the Settings page never shows it.
     public let help: String?
+    /// The one short line (at most 50 characters, no mechanics) the Settings
+    /// page shows under the title; nil when the title and control say it all.
+    public let summary: String?
     public let kind: SettingKind
     /// The value an absent key means. nil when the default is derived at
     /// run time (the density's padding, the theme's color); `defaultLabel`
@@ -20,7 +24,7 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     public let defaultLabel: String?
     /// Extra words the Settings search matches.
     public let keywords: [String]
-    /// String catalog keys of `group`, `title`, `help` and `defaultLabel`
+    /// String catalog keys of `group`, `title`, `help`, `summary` and `defaultLabel`
     /// (nil for text that is not localized), so clients outside the app
     /// localize from the same catalog (`SettingsSchemaExport`).
     public let textKeys: SettingTextKeys
@@ -36,20 +40,23 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
 
     /// A row whose texts come from the string catalog (`SettingsText.keyed`).
     public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
-                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: SettingText? = nil, keywords: [String] = []) {
-        self.init(path, section: section, group: group.text, title: title.text, help: help?.text, kind: kind,
-                  default: defaultValue, defaultLabel: defaultLabel?.text, keywords: keywords,
-                  textKeys: SettingTextKeys(group: group.key, title: title.key, help: help?.key, defaultLabel: defaultLabel?.key))
+                summary: SettingText? = nil, kind: SettingKind, default defaultValue: JSONValue?,
+                defaultLabel: SettingText? = nil, keywords: [String] = []) {
+        self.init(path, section: section, group: group.text, title: title.text, help: help?.text, summary: summary?.text,
+                  kind: kind, default: defaultValue, defaultLabel: defaultLabel?.text, keywords: keywords,
+                  textKeys: SettingTextKeys(group: group.key, title: title.key, help: help?.key, summary: summary?.key,
+                                            defaultLabel: defaultLabel?.key))
     }
 
     public init(_ path: [String], section: SettingsSection, group: String, title: String, help: String? = nil,
-                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: String? = nil, keywords: [String] = [],
-                textKeys: SettingTextKeys = SettingTextKeys()) {
+                summary: String? = nil, kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: String? = nil,
+                keywords: [String] = [], textKeys: SettingTextKeys = SettingTextKeys()) {
         self.path = path
         self.section = section
         self.group = group
         self.title = title
         self.help = help
+        self.summary = summary
         self.kind = kind
         self.defaultValue = defaultValue
         self.defaultLabel = defaultLabel
@@ -72,6 +79,13 @@ extension SettingDescriptor {
     public func consumed(by consumers: Set<SettingConsumer>) -> SettingDescriptor {
         var row = self
         row.consumers = consumers
+        return row
+    }
+
+    /// This row, kept off the palette for `reason` (a card on the Settings page draws it).
+    public func hiddenFromPalette(_ reason: String) -> SettingDescriptor {
+        var row = self
+        row.palette = .hidden(reason)
         return row
     }
 

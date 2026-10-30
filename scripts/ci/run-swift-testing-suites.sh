@@ -8,11 +8,29 @@ if [ "$#" -ne 1 ]; then
 fi
 
 package_path="$1"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
-  set -x
-  CMUX_UPDATE_MDM_SCHEMA=1 swift test --package-path "$package_path" --filter ManagedPreferencesManifestTests
-  CMUX_UPDATE_ACTION_SURFACES=1 swift test --package-path "$package_path" --filter SettingsSchemaExportTests
-  for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/managed-preferences.md schemas/settings/settings-schema.json; do
+  source "$script_dir/swift-test-debug-info.sh"
+  source "$script_dir/swiftpm-binary-module-guard.sh"
+  swiftpm_binary_module_guard "$package_path"
+  # SwiftPM copies raw catalogs but can retain old compiled tables on warm
+  # slots. Refresh them after building and before either exporter reads them.
+  swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --build-tests
+  bin_path="$(swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --show-bin-path)"
+  compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
+  (cd "$package_path" && CMUX_SWIFT_BIN_PATH="$bin_path" "$compile_catalogs")
+  CMUX_UPDATE_MDM_SCHEMA=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter ManagedPreferencesManifestTests
+  CMUX_UPDATE_ACTION_SURFACES=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter SettingsSchemaExportTests
+  # Every file the two exporters write, from scripts/cmux-next/settings-exports.txt: the one list,
+  # so an export added there reaches this artifact without a second edit here (review of #23915).
+  settings_exports=()
+  while IFS= read -r file; do settings_exports+=("$file"); done < <(
+    sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$script_dir/../cmux-next/settings-exports.txt")
+  (( ${#settings_exports[@]} )) || {
+    echo "scripts/cmux-next/settings-exports.txt lists no export" >&2
+    exit 1
+  }
+  for file in "${settings_exports[@]}"; do
     echo "BEGIN_ARTIFACT:$file"
     base64 < "$file" | tr -d "\n"
     echo
@@ -79,14 +97,41 @@ if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
   fi
   shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
 fi
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# CMUX_SWIFT_TEST_SUITES=A,Target.B runs only the named suites (a bare suite name
+# matches it in any test target), so a fleet step can run one suite of a package
+# (cmux-ci run --env CMUX_SWIFT_TEST_SUITES=SidebarScrollCostTests). Every name
+# must be a suite the package lists: a typo fails, never a green run of nothing.
+only_suites=()
+if [ -n "${CMUX_SWIFT_TEST_SUITES:-}" ]; then
+  if ! [[ "$CMUX_SWIFT_TEST_SUITES" =~ ^[A-Za-z_][A-Za-z0-9_.]*(,[A-Za-z_][A-Za-z0-9_.]*)*$ ]]; then
+    echo "CMUX_SWIFT_TEST_SUITES must be comma-separated suite names, Suite or Target.Suite (got '$CMUX_SWIFT_TEST_SUITES')" >&2
+    exit 2
+  fi
+  IFS=, read -r -a only_suites <<< "$CMUX_SWIFT_TEST_SUITES"
+fi
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$script_dir/swift-test-debug-info.sh" || exit 2
+# A reused .build drops its build outputs when a binary target's headers change.
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$script_dir/swiftpm-binary-module-guard.sh" || exit 2
 debug_info_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# Fleet ci-steps check the ref out with every submodule deinitialized: populate
+# the ones this package reaches through local dependencies (vendor/bonsplit),
+# never the rest (ghostty).
+if repo_root="$(git -C "$package_path" rev-parse --show-toplevel 2>/dev/null)"; then
+  empty_submodules=()
+  while IFS= read -r submodule; do
+    [ -n "$(ls -A "$repo_root/$submodule" 2>/dev/null)" ] || empty_submodules+=("$submodule")
+  done < <(python3 "$script_dir/swift_package_submodules.py" "$repo_root" "$package_path")
+  if [ "${#empty_submodules[@]}" -gt 0 ]; then
+    echo "Populating submodules this package reaches: ${empty_submodules[*]}" >&2
+    git -C "$repo_root" submodule update --init --depth 1 -- "${empty_submodules[@]}" >&2
+  fi
+fi
 # Fixed-cost profile: `phase NAME` ends the running phase and starts NAME, and
 # prints "ci-phase <name> <seconds>s" for the one it ended; `phase` with no
 # name ends the last one. phase_table prints them all (the step log is the
@@ -121,10 +166,20 @@ case "$(cd "$package_path" && pwd -P)" in
       (
         cd "$script_dir/../.." || exit 0
         export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
-        tree_path="$(bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || exit 0
-        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
-          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2 \
-            || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+        pin="${CMUX_PIN_CMUX_TUI:-scripts/cmux-next/pin-cmux-tui.sh}"
+        tree_path="$(bash "$pin" path 2>/dev/null)" || exit 0
+        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ] && ! bash "$pin" fetch >&2; then
+          # The head's own tree publishes late (or never, for an unmerged PR head).
+          # A head that changes no cmux-tui input tests the newest published tree,
+          # as PR CI does; one that does change it skips the live-daemon suites.
+          if key="$(bash "$pin" fallback-key)" && [ -n "$key" ] \
+              && CMUX_TUI_TREE_KEY="$key" bash "$pin" fetch >&2; then
+            tree_path="$(CMUX_TUI_TREE_KEY="$key" bash "$pin" path 2>/dev/null)" || exit 0
+            printf '%s' "$key" > "$evidence_dir/tui-tree-key"
+            echo "This head changes no cmux-tui input and its tree is not published; the live-daemon suites use the newest published tree $key." >&2
+          else
+            echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+          fi
         fi
         printf '%s' "$tree_path" > "$evidence_dir/tui-tree-path"
       ) &
@@ -145,6 +200,7 @@ else
   echo "ci-phase .build has no earlier build of this script (cold or first use)"
 fi
 phase build-and-list
+swiftpm_binary_module_guard "$package_path"
 swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
 phase filters
@@ -190,6 +246,9 @@ if [ -n "${tree_path_job:-}" ]; then
   wait "$tree_path_job" || true
   tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
   [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+  # Suites that ask pin-cmux-tui.sh for acpmux or the daemon get the same tree.
+  tree_key="$(cat "$evidence_dir/tui-tree-key" 2>/dev/null || true)"
+  [ -z "$tree_key" ] || export CMUX_TUI_TREE_KEY="$tree_key"
 fi
 if [ "$direct" -eq 1 ]; then
   # Everything else the suites need from the toolchain, resolved once: the
@@ -224,6 +283,29 @@ fi
 # list each suite's result and exit with the first failure's status (first in
 # suite order, whatever order the suites finish in).
 phase suites
+if [ "${#only_suites[@]}" -gt 0 ]; then
+  # A filter is ^Target\.Suite/ (require_swift_test_execution.py --list-filters);
+  # its plain name is Target.Suite.
+  : > "$evidence_dir/named-filters.txt"
+  for name in "${only_suites[@]}"; do
+    matched=0
+    while IFS= read -r filter; do
+      plain="${filter#^}"
+      plain="${plain%/}"
+      plain="${plain//\\/}"
+      if [ "$plain" = "$name" ] || [ "${plain#*.}" = "$name" ]; then
+        grep -qxF -- "$filter" "$evidence_dir/named-filters.txt" || echo "$filter" >> "$evidence_dir/named-filters.txt"
+        matched=1
+      fi
+    done < "$evidence_dir/filters.txt"
+    if [ "$matched" -eq 0 ]; then
+      echo "CMUX_SWIFT_TEST_SUITES names $name, which is not a suite of $package_path" >&2
+      exit 2
+    fi
+  done
+  mv "$evidence_dir/named-filters.txt" "$evidence_dir/filters.txt"
+  echo "CMUX_SWIFT_TEST_SUITES: $(wc -l < "$evidence_dir/filters.txt" | tr -d ' ') suite(s)"
+fi
 suites=()
 position=0
 while IFS= read -r suite; do

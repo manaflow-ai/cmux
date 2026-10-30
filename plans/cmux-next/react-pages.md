@@ -109,7 +109,7 @@ Data owners today:
 | page | Swift app | `BrowserProfiles/<profile>/History.sqlite` (`BrowserVisitLog`, `HistorySQLite`), 90 days, 100k visits |
 | location | Swift app (`LocationTrailService`, client view state) | daemon personal projection `history.trail` |
 | closed | daemon (`closed.list`, `closed.reopen`, `state-resources-v1`) | daemon; Swift in-memory fallback trackers for old daemons |
-| command | daemon journal `shell.command.finished` (`terminal-command-journal-v1`) | Swift folds in memory (`TerminalCommandFold`) |
+| command | daemon registry rows (`list-terminal-commands`, `terminal-command-history-v1`), deletable, with a retention | Swift mirrors the rows (`TerminalCommandMirror`) |
 | agent | daemon journal `agent.session.*`, `agent.turn.*` (`session-journal-v1`) | Swift folds in memory (`AgentSessionFold`) |
 | hidden | Swift writes projection `history.hidden` | daemon projection |
 
@@ -124,9 +124,10 @@ view state:
 | Kind | Writer after | Notes |
 | --- | --- | --- |
 | page | daemon module (per-profile SQLite under the daemon state dir); the app reports each finished main-frame navigation with `cmux.history.visit.record` (accepted only from the hosting app connection) | the omnibox seeds from `cmux.history.visit.summaries`; CLI/MCP/TUI get page history with no app |
-| location | Swift app (trail reducer and cursor are per-client view state); persistence unchanged (`history.trail` projection, only that client writes) | the module reads the projection; Remove of a location is a native UI op |
+| location | daemon module (cx-hnmbt.12): the only writer of `history.locations`; each app reports its steps with `history.trail.record` (origin user) and the daemon runs the step rules; the Back/Forward cursor stays per-client view state | rows `location:<n>` carry `window` + `location`; Remove and Clear work from every page; an app drops removed steps on `history-changed {location}` |
 | closed | daemon (exists) | drop the Swift fallback trackers (the bundled daemon serves `state-resources-v1`) |
-| command, agent | daemon journal (exists); the folds move into `cmux-history` | |
+| command | daemon terminal-command rows (`terminal-command-history-v1`, cx-hnmbt.12): ids `command:local/<row id>`, remove and clear delete rows | remote machines' rows stay a Swift-side merge |
+| agent | daemon journal (exists); the fold moves into `cmux-history` | |
 | hidden | daemon module (owns `history.hidden`) | one writer |
 
 Decided (Q1, 2026-10-04): page visits move from the app into the daemon module; history.md

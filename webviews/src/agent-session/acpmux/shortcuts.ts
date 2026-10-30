@@ -32,6 +32,13 @@ export function readShortcuts(value: unknown): ShortcutLabels {
 export const withShortcut = (label: string, shortcut: string | undefined) =>
   shortcut ? `${label} (${shortcut})` : label;
 
+/// A control's tooltip: the label as its `title`, the keycaps as the tooltip's shortcut hint
+/// (`data-tooltip-shortcut`, ui/titleTooltips.ts), drawn in the secondary ink as on native tooltips.
+export const tooltipProps = (label: string, shortcut: string | undefined) => ({
+  title: label,
+  "data-tooltip-shortcut": shortcut || undefined,
+});
+
 export const ShortcutsContext = createContext<ShortcutLabels>({});
 
 /// The live keycaps for `action`, or undefined while it has no shortcut.

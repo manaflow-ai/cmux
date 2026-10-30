@@ -65,7 +65,8 @@ import Testing
             .appendingPathComponent("plans/cmux-next/actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
         let start = try #require(text.range(of: "## Catalog counts\n\n"))
-        let end = try #require(text.range(of: "\n## Counts (", range: start.upperBound..<text.endIndex))
+        let endRange = text.range(of: "\n## Counts (", range: start.upperBound..<text.endIndex)
+        let end = try #require(endRange)
         var counts: [ActionCategory: Int] = [:]
         for line in text[start.upperBound..<end.lowerBound].split(separator: "\n") {
             let fields = line.split { $0 == "`" || $0 == ":" }
@@ -83,7 +84,10 @@ import Testing
         #expect(missing.isEmpty, "missing: \(missing)")
     }
 
-    @Test func countsByDomainMatchInventory() throws {
+    /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+    /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+    /// regenerate them (regenerate-action-exports.sh).
+    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func countsByDomainMatchInventory() throws {
         let expected = try Self.generatedCounts()
         var counts: [ActionCategory: Int] = [:]
         for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }
@@ -102,6 +106,37 @@ import Testing
             // An automation-only action (agent.openSessionWorkspace) has no
             // human surface; its surface plan names why the palette omits it.
             #expect(!descriptor.surfaces.isEmpty || descriptor.surfacePlan.palette.exemption != nil, "\(descriptor.id)")
+        }
+    }
+
+    /// Session Info and the ACP event Inspector are separate panels and palette actions.
+    @Test func sessionInfoToggleUsesTheHeaderNameAndKeywords() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleSessionInfo" })
+        #expect(action.title == "Toggle Session Info")
+        #expect(action.surfaces.contains(.palette))
+        #expect(action.keywords.contains("session info"))
+        #expect(action.keywords.contains("session"))
+        #expect(action.requires.contains(.agentPaneFocused))
+        let events = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleInspector" })
+        #expect(events.title == "Toggle Event Inspector")
+        #expect(events.surfaces.contains(.palette))
+        #expect(events.cliName == "agent toggle-acp-inspector")
+    }
+
+    /// Palette and menu titles use title case (HIG): every word is capitalized except
+    /// short articles, conjunctions and prepositions, and names spelled in lowercase.
+    @Test func titlesUseTitleCase() {
+        let minor: Set<String> = ["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at",
+                                  "by", "in", "of", "on", "to", "up", "via", "vs", "from", "into", "with", "onto", "over", "than"]
+        for descriptor in ActionCatalog.all {
+            let words = descriptor.title.split(whereSeparator: { $0 == " " || $0 == "/" }).map {
+                $0.trimmingCharacters(in: CharacterSet.letters.inverted)
+            }
+            for (index, word) in words.enumerated() {
+                guard let first = word.first, first.isLowercase else { continue }
+                if word.hasPrefix("cmux") || word.contains(".") { continue }
+                #expect(index > 0 && minor.contains(word), "\(descriptor.id): \"\(descriptor.title)\"")
+            }
         }
     }
 
@@ -142,5 +177,28 @@ import Testing
         for (legacy, canonical) in ActionCatalog.legacyAliases {
             #expect(ids.contains(canonical), "\(legacy) -> \(canonical)")
         }
+    }
+
+    @Test func minimapKeywordBelongsToEditorAndTranscriptSurfaces() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let stripScrollbar = try #require(byID["layout.toggleStripScrollbar"])
+        #expect(!stripScrollbar.keywords.contains("minimap"))
+        #expect(stripScrollbar.keywords.contains("column"))
+        #expect(stripScrollbar.keywords.contains("strip"))
+        #expect(stripScrollbar.keywords.contains("scrollbar"))
+        #expect(stripScrollbar.keywords.contains("visible range"))
+        #expect(stripScrollbar.keywords.contains("overview"))
+
+        let transcriptActions = ["agentPane.previousTurn", "agentPane.nextTurn"].compactMap { byID[$0] }
+        #expect(transcriptActions.count == 2)
+        #expect(transcriptActions.allSatisfy { $0.keywords.contains("minimap") })
+    }
+
+    @Test func completeConversationCopyIsReachableFromThePalette() throws {
+        let copy = try #require(ActionCatalog.all.first { $0.id == "agentChat.copyConversation" })
+        #expect(copy.surfaces.contains(.palette))
+        #expect(copy.requires.contains(.agentPaneFocused))
+        #expect(copy.keywords.contains("conversation"))
+        #expect(copy.keywords.contains("markdown"))
     }
 }

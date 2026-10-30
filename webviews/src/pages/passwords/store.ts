@@ -90,7 +90,7 @@ export class PasswordsStore {
     try {
       this.stops.push(
         await this.client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
-          if (event.profile === this.snapshot.profile) void this.reload();
+          if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
         }),
       );
       this.stops.push(
@@ -236,9 +236,9 @@ export class PasswordsStore {
     if (await this.write(PasswordOps.export, {}, false)) this.set({ notice: { kind: "exported" } });
   }
 
-  // Import. The page runs the app's two person-only import actions (`cmux.app.action.run`); the
-  // app opens its import window or its CSV source sheet and file picker, and refuses a run that
-  // no click or key in the page started. Imported sign-ins come back through
+  // Import. The page runs the app's person-only import actions (`cmux.app.action.run`); the
+  // app opens its import window, or its browser sheet, export steps and file picker, and refuses
+  // a run that no click or key in the page started. Imported sign-ins come back through
   // `cmux.passwords.changed`; the page never sees a password.
 
   /** Import from Browser…: the app's import window (Chrome, Arc, Edge, Firefox and others). */
@@ -246,9 +246,12 @@ export class PasswordsStore {
     await this.runAction({ action: "importFromBrowser" });
   }
 
-  /** Import CSV…: the app's guided CSV import into the profile the page shows. */
-  async importCSV(): Promise<void> {
-    await this.runAction({ action: "password.importCSV", args: { profile: this.snapshot.profile } });
+  /**
+   * Import from Another Browser…: the browser's export steps, then its exported files (passwords
+   * CSV, bookmarks HTML, Safari's zip) into the profile the page shows.
+   */
+  async importFromFiles(): Promise<void> {
+    await this.runAction({ action: "browser.importFromFiles", args: { profile: this.snapshot.profile } });
   }
 
   private async runAction(params: Record<string, unknown>): Promise<void> {

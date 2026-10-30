@@ -48,6 +48,10 @@ public nonisolated struct OmniboxPhaseA {
         let text = query.text
         let typed = Self.primary(for: text, resolver: query.resolver)
         var result = typed.map { [$0] } ?? []
+        if typed?.kind == .navigate, let alternative = Self.intranetSearch(for: text, resolver: query.resolver) {
+            result.append(alternative)
+        }
+        let leading = result.count
         guard !text.isEmpty, text.utf16.count <= OmniboxText.maxInputLength else { return result }
         var candidates: [(row: BrowserSuggestion, key: String, order: Int, inline: Bool)] = []
         for (order, source) in query.sources.enumerated() {
@@ -73,6 +77,10 @@ public nonisolated struct OmniboxPhaseA {
                 break
             }
         }
+        // Chromium internal page names, after every source in tie-break order.
+        for page in OmniboxInternalPages.rows(for: text, allowsChromiumSchemes: query.resolver.urlResolver.allowsChromiumSchemes) {
+            candidates.append((page, BrowserHistoryRanker.dedupeKey(for: page.url), query.sources.count, page.inlineCompletable))
+        }
         candidates.sort { lhs, rhs in
             if lhs.row.score != rhs.row.score { return lhs.row.score > rhs.row.score }
             if lhs.order != rhs.order { return lhs.order < rhs.order }
@@ -90,7 +98,7 @@ public nonisolated struct OmniboxPhaseA {
             if topAllowsInline == nil { topAllowsInline = candidate.inline }
             result.append(chosen)
         }
-        let top = typed == nil ? 0 : 1
+        let top = leading
         if query.inlineAutocomplete, topAllowsInline == true, result.indices.contains(top) {
             result[top].inlineCompletable = true
         }
@@ -110,6 +118,16 @@ public nonisolated struct OmniboxPhaseA {
         case nil:
             return nil
         }
+        row.inlineCompletable = false
+        return row
+    }
+
+    /// The search row under an intranet address (`go/gday`, `wiki`), so a
+    /// word that is not a host on this network is one pick away.
+    static func intranetSearch(for text: String, resolver: OmniboxResolver) -> BrowserSuggestion? {
+        guard let alternative = resolver.intranetSearchAlternative(for: text) else { return nil }
+        var row = BrowserSuggestion(kind: .search, title: alternative.query, detail: Strings.searchWith(engine: resolver.searchEngine.name),
+                                    url: alternative.url, score: 999)
         row.inlineCompletable = false
         return row
     }

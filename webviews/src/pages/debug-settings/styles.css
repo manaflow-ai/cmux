@@ -5,6 +5,7 @@
   min-width: 0;
   font-size: var(--text-body);
   color: var(--page-text);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .ds-empty {
@@ -80,6 +81,7 @@
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-dot {
@@ -90,17 +92,19 @@
   background: var(--page-text);
 }
 
-.ds-row-label .ds-dot {
+.ds-dot:not([data-visible="true"]) {
   visibility: hidden;
 }
 
-.ds-row-label .ds-dot[data-visible="true"] {
-  visibility: visible;
+/* An <output> is inline by default; the notice is its own line under the actions. */
+.ds-notice {
+  display: block;
 }
 
 .ds-sidebar-separator {
   height: 1px;
   margin: 4px 0;
+  border: 0;
   background: var(--page-separator);
 }
 
@@ -133,6 +137,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .ds-title-count,
@@ -141,6 +146,7 @@
 .ds-row-default {
   font-size: var(--text-caption);
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Actions on their own row, so a narrow pane never truncates them. */
@@ -166,7 +172,7 @@
 }
 
 .ds-destructive:not(:disabled) {
-  color: var(--app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+  color: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
 }
 
 .ds-scroll {
@@ -188,6 +194,7 @@
   font-size: var(--text-detail);
   font-weight: 600;
   color: var(--page-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .ds-card-body {
@@ -289,6 +296,7 @@
   min-width: 24px;
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-switch {
@@ -361,9 +369,120 @@
 .ds-spring-label {
   font-size: var(--text-caption);
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-footer {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* Recent hangs: the folder and its button on the title line, then one row per hang file. */
+.ds-hangs-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+}
+
+.ds-hangs-head .ds-card-title {
+  margin: 0;
+}
+
+.ds-hangs-head .ds-row-key {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-inline-start: 0;
+  overflow-wrap: anywhere;
+}
+
+.ds-card-body > .ds-none {
+  margin: 0;
+  padding: 8px 14px;
+}
+
+.ds-hang-duration {
+  color: var(--page-text-2);
+}
+
+.ds-hang[data-ongoing="true"] .ds-hang-duration {
+  color: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+}
+
+.ds-hang-frame {
+  padding-inline-start: 12px;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.ds-hang-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* A narrow pane (cx-bbe2): the label and help take the row's width, the control and its default
+   sit below them, and the reset stays at the row's end. */
+@media (max-width: 760px) {
+  .ds-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .ds-row-text {
+    flex: 1 1 calc(100% - 40px);
+  }
+
+  .ds-row-control {
+    order: 3;
+    flex: 1 1 100%;
+    align-items: flex-start;
+    padding-inline-start: 12px;
+  }
+
+  .ds-slider {
+    width: 120px;
+  }
+}
+
+/* A very narrow pane: the sections become a wrapping strip above the list. */
+@media (max-width: 560px) {
+  .ds-page {
+    flex-direction: column;
+  }
+
+  .ds-sidebar {
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: 35vh;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--page-separator);
+  }
+
+  .ds-search-box {
+    flex: 1 1 100%;
+  }
+
+  .ds-sidebar-row {
+    flex: 0 0 auto;
+  }
+
+  .ds-sidebar-separator {
+    display: none;
+  }
+
+  .ds-toolbar,
+  .ds-scroll {
+    padding-inline: 12px;
+  }
+
+  .ds-main {
+    min-height: 0;
+  }
 }

@@ -12,12 +12,17 @@ extension SettingsController {
     public func preview(_ descriptor: SettingDescriptor, _ value: JSONValue?) -> Bool {
         guard managedKeys[descriptor.id] == nil else { return false }
         if let value, !descriptor.accepts(value) { return false }
-        let root = Self.replacing(descriptor.path, with: value, in: snapshot.root)
+        var root = Self.replacing(descriptor.path, with: value, in: snapshot.root)
+        // The write's linked keys preview with it (Opacity leaves Material "Ghostty").
+        for edit in windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root) {
+            root = Self.replacing(edit.path, with: edit.value, in: root)
+        }
         let previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
                                                  validMetrics: SettingsApplier.validMetrics,
                                                  configDirectory: file.url.deletingLastPathComponent())
         applier.apply(previewed)
         previewingKey = descriptor.id
+        previewSnapshot = previewed
         return true
     }
 
@@ -25,6 +30,7 @@ extension SettingsController {
     public func endPreview() {
         guard previewingKey != nil else { return }
         previewingKey = nil
+        previewSnapshot = nil
         applier.apply(snapshot)
     }
 
@@ -40,6 +46,8 @@ extension SettingsController {
         }
         previewingKey = nil
         await reload()
+        // A preview that started while the write reloaded keeps showing.
+        if previewingKey == nil { previewSnapshot = nil }
     }
 
     /// `root` with `path` set to `value` (nil removes it), creating objects

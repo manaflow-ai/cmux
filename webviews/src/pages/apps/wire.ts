@@ -4,14 +4,18 @@
 import type { PageClient } from "../shared/pageClient";
 import {
   AppsOps,
+  type AppContribution,
   type AppDetail,
+  type AppIconRef,
   type AppSource,
   type AppTier,
   type AppVersion,
+  type AppUpdate,
   type CatalogApp,
   type CatalogListResult,
   type InstalledApp,
   type ScopeRequest,
+  type UpdatesListResult,
 } from "./types";
 
 export interface WireInstallState {
@@ -22,6 +26,7 @@ export interface WireInstallState {
   source: AppSource;
   version: string | null;
   update: { version: string } | null;
+  failure?: string | null;
 }
 
 export type WireIcon = { asset: string } | { symbol: string } | null;
@@ -46,6 +51,8 @@ export interface WireDetail extends WireListing {
   versions?: AppVersion[];
   repository?: string;
   screenshots?: string[];
+  /** The manifest's contributions; the owner's `catalog.get` does not send them yet. */
+  contributes?: AppContribution[];
 }
 
 export interface WireCatalogPage {
@@ -68,6 +75,20 @@ export interface WireInstalledList {
   apps: WireInstalledApp[];
 }
 
+/** `cmux.apps.updates.list`: only updates the supervisor currently knows about. */
+export interface WireUpdate {
+  app: string;
+  name?: string;
+  current_version?: string;
+  version: string;
+  failure?: string | null;
+}
+
+export interface WireUpdatesList {
+  revision: number;
+  updates: WireUpdate[];
+}
+
 /** The page asks for the owner's largest page and follows the cursor. */
 export const CATALOG_PAGE = 200;
 
@@ -84,13 +105,29 @@ export function fromListing(listing: WireListing): CatalogApp {
     keywords: listing.keywords,
     latest_version: listing.version,
     install_count: 0,
-    // An asset path needs cmux.apps.asset.get (not served yet); a symbol is never drawn on the web.
-    icon: undefined,
+    // The store loads an asset through cmux.apps.asset.get; a symbol is the host's own drawing
+    // of it (`glyph/<symbol>`), never Apple's symbol.
+    icon: wireIcon(listing.icon),
     installed: listing.install?.installed === true,
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
   };
+}
+
+function wireIcon(icon: WireIcon): AppIconRef | undefined {
+  if (!icon) return undefined;
+  if ("asset" in icon) return { asset: icon.asset };
+  return icon.symbol ? { symbol: icon.symbol } : undefined;
+}
+
+/** The owner's contributions, keeping only entries with a string kind and a non-blank title. */
+function contributionsFrom(value: unknown): AppContribution[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(
+    (item): item is AppContribution =>
+      typeof item?.kind === "string" && typeof item.title === "string" && item.title.trim() !== "",
+  );
 }
 
 export function fromDetail(detail: WireDetail): AppDetail {
@@ -100,6 +137,7 @@ export function fromDetail(detail: WireDetail): AppDetail {
     versions: detail.versions ?? [],
     repository: detail.repository,
     screenshots: detail.screenshots ?? [],
+    contributes: contributionsFrom(detail.contributes),
   };
 }
 
@@ -115,6 +153,17 @@ export function fromInstalled(row: WireInstalledApp): InstalledApp {
     tier: row.tier,
     hide_only: row.hide_only,
     update: row.state.update ?? undefined,
+    failure: row.state.failure ?? undefined,
+  };
+}
+
+export function fromUpdate(row: WireUpdate): AppUpdate {
+  return {
+    app: row.app,
+    name: row.name,
+    current_version: row.current_version,
+    version: row.version,
+    failure: row.failure ?? undefined,
   };
 }
 
@@ -138,4 +187,9 @@ export async function listInstalled(
 ): Promise<{ apps: InstalledApp[]; revision: number }> {
   const list = await client.call<WireInstalledList>(AppsOps.installedList, {});
   return { apps: list.apps.map(fromInstalled), revision: list.revision };
+}
+
+export async function listUpdates(client: Pick<PageClient, "call">): Promise<UpdatesListResult> {
+  const list = await client.call<WireUpdatesList>(AppsOps.updatesList, {});
+  return { updates: list.updates.map(fromUpdate), revision: list.revision };
 }

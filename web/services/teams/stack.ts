@@ -1,5 +1,7 @@
 import { Effect } from "effect";
+import { env } from "../../app/env";
 import { getStackServerApp } from "../../app/lib/stack";
+import { stackApiBaseURL } from "../auth/stackApiBaseURL";
 import { TeamGoneError, TeamServiceUnavailableError } from "./errors";
 
 /**
@@ -60,6 +62,19 @@ export type StackTokenStore =
   | { readonly accessToken: string; readonly refreshToken: string }
   | { readonly headers: { get(name: string): string | null } };
 
+/** A team as listed for a user: enough to render a team switcher row. */
+export type StackTeamSummary = {
+  readonly id: string;
+  readonly displayName: string;
+  readonly profileImageUrl: string | null;
+};
+
+/** The teams a user belongs to, read fresh from Stack, and their selected team. */
+export type StackUserTeams = {
+  readonly teams: readonly StackTeamSummary[];
+  readonly selectedTeamId: string | null;
+};
+
 export type TeamStackApp = {
   getTeam(teamId: string): Promise<StackTeam | null>;
   getUser(userId: string): Promise<StackUser | null>;
@@ -69,6 +84,13 @@ export type TeamStackApp = {
     options?: { recursive?: boolean },
   ): Promise<readonly { readonly userId: string; readonly permissionId: string }[]>;
   getAuthJson(options: { tokenStore: StackTokenStore }): Promise<{ accessToken: string | null }>;
+  /**
+   * One server read of a user's contact channels, without first reading the
+   * user. Null when Stack does not know the user.
+   */
+  listUserContactChannels(userId: string): Promise<readonly StackContactChannel[] | null>;
+  /** Every team the user is a member of, paged to the end. Null when Stack does not know the user. */
+  listUserTeams(userId: string): Promise<StackUserTeams | null>;
 };
 
 /** Adapt the SDK app; the adapter picks `getUser`'s by-id overload explicitly. */
@@ -80,7 +102,93 @@ export function defaultTeamStackApp(): TeamStackApp {
     createTeam: (options) => app.createTeam(options),
     listTeamMemberPermissions: (teamId, options) => app.listTeamMemberPermissions(teamId, options),
     getAuthJson: (options) => app.getAuthJson(options),
+    listUserContactChannels: (userId) => listStackUserContactChannels(userId),
+    listUserTeams: async (userId) => {
+      const user = await app.getUser(userId);
+      if (!user) return null;
+      return {
+        teams: await listAllUserTeamPages((options) => user.listTeams(options)),
+        selectedTeamId: user.selectedTeam?.id ?? null,
+      };
+    },
   };
+}
+
+const USER_TEAM_PAGE_SIZE = 100;
+const MAX_USER_TEAM_PAGES = 20;
+
+type StackTeamPage = readonly StackTeamSummary[] & { readonly nextCursor?: string | null };
+
+/**
+ * Walk a user's team pages. A repeated cursor or more than
+ * `MAX_USER_TEAM_PAGES` pages throws, so a broken pagination chain fails the
+ * request instead of returning a silently partial list.
+ */
+export async function listAllUserTeamPages(
+  listPage: (options: { cursor?: string; limit: number }) => Promise<StackTeamPage>,
+): Promise<StackTeamSummary[]> {
+  const teams: StackTeamSummary[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_USER_TEAM_PAGES; page++) {
+    const result = await listPage({ ...(cursor ? { cursor } : {}), limit: USER_TEAM_PAGE_SIZE });
+    for (const team of result) {
+      teams.push({ id: team.id, displayName: team.displayName, profileImageUrl: team.profileImageUrl ?? null });
+    }
+    const next = result.nextCursor?.trim();
+    if (!next) return teams;
+    if (seen.has(next)) throw new Error("Stack team pagination repeated a cursor");
+    seen.add(next);
+    cursor = next;
+  }
+  throw new Error("Stack team pagination exceeded its page limit");
+}
+
+/**
+ * `GET /contact-channels?user_id=` with the server key, the same request the
+ * SDK's `ServerUser.listContactChannels()` sends. The SDK only offers it on a
+ * user object, which costs a `GET /users/{id}` first; the invitation poll needs
+ * nothing else from that user. Stack lists the primary email as a channel.
+ */
+async function listStackUserContactChannels(userId: string): Promise<readonly StackContactChannel[] | null> {
+  const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
+  const secretServerKey = env.STACK_SECRET_SERVER_KEY;
+  if (!projectId || !secretServerKey) throw new Error("Stack Auth is not configured");
+  const base = stackApiBaseURL();
+  const url = new URL(`${/\/api\/v1$/u.test(base) ? base : `${base}/api/v1`}/contact-channels`);
+  url.searchParams.set("user_id", userId);
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "x-hexclave-access-type": "server",
+      "x-hexclave-project-id": projectId,
+      "x-hexclave-secret-server-key": secretServerKey,
+    },
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
+  });
+  const knownError = response.headers.get("x-hexclave-known-error") ?? response.headers.get("x-stack-known-error");
+  if (knownError === "USER_NOT_FOUND") {
+    await response.body?.cancel();
+    return null;
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    // No body in the error: Stack can echo account data. The status keeps a
+    // throttle recognizable to the auth error mapping.
+    throw Object.assign(new Error(`Stack contact-channel read failed: ${response.status}`), { status: response.status });
+  }
+  return parseContactChannels(await response.json());
+}
+
+function parseContactChannels(body: unknown): readonly StackContactChannel[] {
+  const items = (body as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) throw new Error("Stack contact-channel read returned an unexpected shape");
+  return items.flatMap((item: unknown) => {
+    const channel = item as { type?: unknown; value?: unknown; is_verified?: unknown } | null;
+    if (typeof channel?.type !== "string" || typeof channel.value !== "string") return [];
+    return [{ type: channel.type, value: channel.value, isVerified: channel.is_verified === true }];
+  });
 }
 
 const STACK_TIMEOUT = "10 seconds";

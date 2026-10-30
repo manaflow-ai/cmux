@@ -9,10 +9,6 @@ import WebKit
 extension WebKitTab {
     typealias LinkClick = WebKitLinkClick
 
-    static func linkClick(flags: NSEvent.ModifierFlags, button: Int, mapping: BrowserLinkClickMapping = .chrome) -> LinkClick {
-        WebKitLinkClick(flags: flags, button: button, mapping: mapping)
-    }
-
     /// The last right-click's hit when it is fresh, once.
     func takeContextHit(now: ContinuousClock.Instant = .now) -> BrowserContextMenuTarget? {
         defer { contextHit = nil }

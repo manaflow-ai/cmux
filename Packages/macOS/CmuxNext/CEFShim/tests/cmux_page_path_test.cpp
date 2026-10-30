@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "../src/cmux_page_path.h"
 
@@ -83,6 +84,51 @@ int main() {
   // A child frame being navigated: its parent decides.
   Allowed(false, "about:blank", "cmux-page://cmux.agent/", "cmux.agent", true);
   Allowed(false, "about:blank", "https://evil.test/", "cmux.agent", false);
+  // Artifact documents must never inherit the page host's file authority.
+  Allowed(false, "cmux-page://cmux.agent/__artifact", "cmux-page://cmux.agent/", "cmux.agent", false);
+  Allowed(false, "about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false);
+  Allowed(false, "about:srcdoc", "cmux-page://cmux.agent/", "cmux.agent", false);
+  {
+    const std::string page = "cmux-page://cmux.agent/";
+    const std::string artifact = cmux_shim::kArtifactFrameURL;
+    auto navigation = [&](bool main, const std::string& current, const std::string& parent,
+                          const std::string& target, bool refused) {
+      Expect(cmux_shim::ArtifactNavigationRefused(main, current, parent, target) == refused,
+             "artifact navigation " + current + " -> " + target + " parent " + parent);
+    };
+    navigation(false, "about:blank", page, artifact, false);
+    navigation(false, "", page, artifact, false);
+    navigation(true, "about:blank", "", artifact, true);
+    for (const auto& parent : {"https://evil.test/", "cmux-page://cmux.agent.evil/",
+                               "cmux-page://cmux.history/", "cmux-page://evil@cmux.agent/"}) {
+      navigation(false, "about:blank", parent, artifact, true);
+    }
+    for (const auto& target : {artifact, artifact + "?copy=1", page, std::string("about:srcdoc"),
+                               std::string("https://example.test/"), std::string("file:///tmp/a.html"),
+                               std::string("data:text/html,replace"), std::string("javascript:alert(1)")}) {
+      navigation(false, artifact, page, target, true);
+      navigation(false, "about:srcdoc", page, target, true);
+      navigation(false, "about:blank", artifact, target, true);
+    }
+    navigation(false, "about:blank", page, artifact + "?copy=1", true);
+    navigation(false, page, "", "https://example.test/", false);
+    navigation(false, "about:blank", page, "http://localhost:3000/", false);
+    for (const auto& url : {"https://example.test/a.png", "http://127.0.0.1:4000/api", "file:///tmp/a.png",
+                            "cmux-page://cmux.agent/index.html", "cmux-agent://pane/index.html"}) {
+      Expect(!cmux_shim::ArtifactResourceAllowed(url, true), "offline artifact refuses " + std::string(url));
+    }
+    Expect(cmux_shim::ArtifactResourceAllowed("data:image/png;base64,AA", true), "inline image allowed");
+    Expect(cmux_shim::ArtifactResourceAllowed("blob:null/test", true), "inline media allowed");
+    Expect(!cmux_shim::ArtifactResourceAllowed("data:text/html,nested", false), "inline document refused");
+    Expect(!cmux_shim::ArtifactResourceAllowed("blob:null/script", false), "blob script refused");
+    const std::string policy = cmux_shim::kArtifactCSP;
+    Expect(policy.find("sandbox allow-scripts;") == 0 && policy.find("allow-same-origin") == std::string::npos,
+           "artifact response enforces opaque origin");
+    Expect(policy.find("connect-src 'none'") != std::string::npos &&
+               policy.find("frame-src 'none'") != std::string::npos &&
+               policy.find("form-action 'none'") != std::string::npos,
+           "artifact response refuses connections, children and forms");
+  }
   {
     auto headers = cmux_shim::PageResponseHeaders("default-src 'self'");
     bool xfo = false, corp = false, nosniff = false, csp = false;
@@ -100,9 +146,11 @@ int main() {
   }
   char tmpl[] = "/tmp/cmux-page-path.XXXXXX";
   if (!mkdtemp(tmpl)) return 2;
-  // /tmp is a symlink to /private/tmp: the root is given through it on
-  // purpose, so the check must compare real paths on both sides.
-  const std::string base = tmpl;
+  // The root is given through a symlink on purpose (macOS's /tmp is one too),
+  // so the check must compare real paths on both sides.
+  const std::string made = tmpl;
+  const std::string base = made + ".link";
+  if (symlink(made.c_str(), base.c_str()) != 0) return 2;
   const std::string root = base + "/root";
   char real_base[PATH_MAX];
   if (!realpath(base.c_str(), real_base)) return 2;
@@ -212,7 +260,30 @@ int main() {
   Reserved("mycmux.agent", false);
   Reserved("cmux-agent", false);
 
-  std::string cleanup = "rm -rf '" + base + "'";
+  // Dynamic prefixes (PageDescriptor.dynamicPrefixes): the first non-empty
+  // component, percent-decoded, names one; the folder never serves it.
+  const std::vector<std::string> prefixes = {"__patch", "asset"};
+  Expect(cmux_shim::IsDynamicPagePath("/__patch/t/a.patch", prefixes), "dynamic /__patch/t/a.patch");
+  Expect(cmux_shim::IsDynamicPagePath("/asset", prefixes), "dynamic /asset");
+  Expect(cmux_shim::IsDynamicPagePath("//asset/x.png", prefixes), "dynamic //asset/x.png");
+  Expect(cmux_shim::IsDynamicPagePath("/%61sset/x.png", prefixes), "dynamic /%61sset/x.png");
+  Expect(!cmux_shim::IsDynamicPagePath("/", prefixes), "not dynamic /");
+  Expect(!cmux_shim::IsDynamicPagePath("/index.html", prefixes), "not dynamic /index.html");
+  Expect(!cmux_shim::IsDynamicPagePath("/assets/x.png", prefixes), "not dynamic /assets/x.png");
+  Expect(!cmux_shim::IsDynamicPagePath("/x/asset/y", prefixes), "not dynamic /x/asset/y");
+  Expect(!cmux_shim::IsDynamicPagePath("/asset%zz/x", prefixes), "not dynamic bad escape");
+  Expect(!cmux_shim::IsDynamicPagePath("/asset/x", {}), "not dynamic without prefixes");
+
+  // Local network prompts: granted only for a cmux page and only for the
+  // local network kinds.
+  Expect(cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.home-channels", 1u << 27), "grant loopback to Home");
+  Expect(cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.agent", (1u << 25) | (1u << 26)), "grant local network to agent");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("https://example.com", 1u << 27), "no grant to a web page");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://com.example.app", 1u << 27), "no grant to an app page");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", (1u << 27) | (1u << 8)), "no grant with geolocation");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", 0), "no grant for nothing");
+
+  std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";
   return g_failures == 0 && g_cases > 0 ? 0 : 1;

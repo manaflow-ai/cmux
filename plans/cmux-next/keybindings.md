@@ -6,6 +6,24 @@ Spec: cmux-next-spec `spec/keybindings-and-palette.md` (R59). Scope: one key dis
 a binding table with `when` clauses, then the customization slices. Default bindings do
 not change (K1). Paths are under `Packages/macOS/CmuxNext/Sources/` unless noted.
 
+## 0. Window creation differs from browser defaults
+
+cmux uses `Cmd-N` for a workspace because the workspace is the unit users
+switch between in a window. The window shortcuts are separate, so browser
+muscle memory does not accidentally split a workspace across windows:
+
+| Shortcut | cmux action | Result |
+| --- | --- | --- |
+| `Cmd-N` | New Workspace (`newTab`) | Adds a workspace in the current window. |
+| `Cmd-Shift-N` | New Window (`newWindow`) | Opens a new window with its first workspace. |
+| `Cmd-Opt-Shift-N` | New Incognito Window (`newIncognitoWindow`) | Opens an isolated incognito window; its browser data is discarded when the last incognito window closes. |
+
+These bindings are also available from the File/Window menus, the command
+palette and the action registry, and can be rebound through the normal
+shortcut settings. In a browser, `Cmd-Shift-N` traditionally means a private
+window; in cmux the explicit three-modifier shortcut keeps that action distinct
+from New Window.
+
 ## 1. Every key-down path today
 
 A key-down passes these owners in this order. Each row says who decides and where.
@@ -177,7 +195,13 @@ keys. The AST lands with the fix; the text grammar is the next slice.
   defaults in the default layer, so in their context they win and elsewhere the global key
   runs; the last-entry rule is unchanged. First use: Home's Cmd-Shift-[ / ]
   (`home.previousConversation`, `home.nextConversation`, `when: topPage == home`), which
-  stop at the ends of the list like Messages. In cmux.json a user entry with the same
+  stop at the ends of the list like Messages. Since 2026-10-21 (Lawrence: "ctrl 1-9 and cmd
+  shift [] and ctrl tab ... cycling through chiefs (only for home chief)") the tab keys
+  Ctrl-Tab / Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9 move through Home's chat list,
+  wrapping, with `when: topPage == home || surfaceKind == home-dock`
+  (`KeyBindingDefaults.homeChatSwitching`, after the Chrome tab keys); a Home chat opened
+  as a pane tab keeps the tab keys, and a rebind of the Home actions stays Home-scoped
+  (`homeChatScoped`). In cmux.json a user entry with the same
   `when` overrides them; `KeyBindingTable.conflicts()` reports entries of one layer on the
   same keys and the same `when` that run different actions (a scoped entry over a global
   one is a scope, not a conflict).
@@ -256,6 +280,14 @@ wherever its tier allows).
 - K-T6 (coordinator): keybindings.json is parsed by the Rust `cmux-config` (one config
   owner); that slice needs a cmux-tui landing window.
 - R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
+  Proof recorded 2026-10-12 (cx-9ce.18) on capture minis, real keys through cua-driver; since
+  Leo 2026-10-12 these keys select sidebar items, not pane tabs. Superseded for Ctrl-Tab (#20116) and
+  Cmd-Shift-] / [ (Lawrence 2026-10-15): they cycle the focused pane's tabs. cmux-next (DEV build of
+  8f408161, `scripts/cmux-next/chrome-tab-keys-e2e.py --real --tidy`): Ctrl-Tab, Ctrl-Shift-Tab,
+  Cmd-Shift-] and Cmd-Shift-[, pressed and as Leo's Karabiner sequences, pass from a terminal,
+  terminal copy mode, a web page, Settings and Home (40/40). Classic (main a5cb091d): the same four
+  keys pass from a terminal, copy mode, a browser page and the Markdown page (16/16); classic
+  has no Home.
 - R85 (Lawrence, 2026-10-04): Ctrl-1...9 = Select Tab N (the common editor default), Spaces on
   Ctrl-Opt-1...9, Cmd-1...9 Select Workspace N; all rebindable. #17182 had given Ctrl-digits to
   Spaces, so with one Space they did nothing. macOS Mission Control "Switch to Desktop N" uses
@@ -271,6 +303,9 @@ CmuxNextActions) so every client resolves the same way:
   wins over an entry the same key completes (VS Code rule, as at the first key);
 - else the key completes the entry that wins for the whole sequence; else nothing;
 - the Cmd-J leader arms as a first key whenever any entry sits under it;
+- a bare first key (no Command, Control or Option: `g g`, `] f`) arms only where the
+  context owns bare keys (`KeyContext.ownsBareKeys`: `diffViewerFocused` or
+  `markdownReadOnlyFocused`, and no `textInputFocus`; K1); elsewhere it is typing;
 - a fifth key never arms (`KeyBindingTable.maxSequenceLength` = 4).
 The which-key overlay shows for every armed prefix (`KeyBindingTable.nextKeys`): each
 next key once, what it runs now, "more keys…" for a key that only leads on, dimmed when
@@ -282,7 +317,9 @@ prefix it goes on to the view (unchanged).
 8.2 **Arguments.** `KeyBindingLoader.load` loads app and keybindings.json
 entries through `validated(_:)`: canonical id, each argument exists in the schema and fits
 its kind (text that fits is parsed), at most four keys, first key with Command or Control
-(only those reach the dispatcher). A bad entry is left out with a `KeyBindingIssue`
+(only those reach the dispatcher), or a bare first key under a `when` whose `&&` terms
+require a bare-key context and no text-field context (`BareKeys`, K1; the daemon's
+keybindings.json reader, cmux-config `keybindings::bare`, applies the same rule). A bad entry is left out with a `KeyBindingIssue`
 (layer, position, kind); the others load (K4). A missing required argument loads: running
 the binding asks for it, as the palette does.
 
@@ -337,15 +374,23 @@ Test: `GhosttyKeybindPrecedenceTests`.
 ### Modifier hold hints
 
 `shortcuts.showModifierHoldHints` defaults to `true` and is editable in Keyboard
-Shortcuts. Hold Command or Control by itself for 0.30 seconds to show the current
-workspace, space, focused pane tab, and titlebar shortcuts beside their targets.
-Hints use the resolved default and user binding table, so a rebind or unbind
-changes the hints too. Typing, releasing the modifier, disabling the setting,
-or leaving the key window hides them immediately. The hints use small rectangles
-and appear without a fade; they never handle clicks or consume terminal input.
+Shortcuts. Hold Command, Control or Option (alone or together, with or without
+Shift; Lawrence 2026-10-14) for 0.30 seconds to show the current workspace,
+space, focused pane tab, pane, and titlebar shortcuts whose modifiers contain
+the held set, beside their targets: Command shows the Command bindings, Control
+the Control ones (Ctrl-1...9 tabs by default), Option the Option variants
+(Ctrl-Opt-1...9 spaces by default). A hold that matches no binding shows
+nothing. Only Command/Control chords get a chip, because only those run as
+shortcuts (`KeyRouter.isChord`). Hints use the resolved default and user
+binding table, so a rebind or unbind changes the hints too. Typing, a click,
+releasing the modifiers, disabling the setting, or leaving the key window hides
+them immediately. The chips are Liquid Glass capsules in the theme's glass tint
+(the blur fallback before macOS 26, the opaque popup surface under Reduce
+Transparency) and appear without a fade; they never handle clicks or consume
+terminal input.
 
-DEBUG capture tooling can call `debug.shortcut_hints` with `modifier: "cmd"`
-or `"ctrl"`. This posts a synthetic flagsChanged event through the production
+DEBUG capture tooling can call `debug.shortcut_hints` with `modifier: "cmd"`,
+`"ctrl"`, `"opt"`, `"shift"` or a `+` set such as `"ctrl+opt"`. This posts a synthetic flagsChanged event through the production
 window monitor and waits for its own intentional-hold callback before returning
 `ready: true`. Capture the real window, then call with `modifier: "release"`.
 Label this evidence **modifier held via debug event injection**. The hook is

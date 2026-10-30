@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextOnboarding
 import Observation
 
@@ -22,7 +23,7 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
         let (stream, continuation) = AsyncStream<ComputerUsePermissions>.makeStream(bufferingPolicy: .bufferingNewest(1))
         // task-owner: follows the setup's grants until the step's stream ends (onTermination cancels).
         let task = Task { @MainActor in
-            for await value in Observations({ setup.stepPermissions }) {
+            for await value in ObservationStream({ setup.stepPermissions }) {
                 continuation.yield(value)
             }
             continuation.finish()
@@ -35,7 +36,17 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
         setup.open(pane)
     }
 
+    func restart() {
+        guard let restart = setup.prepareRestart() else { return }
+        // task-owner: one helper restart from the person's click in the step.
+        Task { await restart() }
+    }
+
     func enable() {
         setup.enable()
+    }
+
+    func recheck() {
+        setup.recheck()
     }
 }

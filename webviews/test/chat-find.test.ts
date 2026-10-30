@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // Find in Chat on the real agent pane (src/agent-session/acpmux, `?mock`: the in-page mock daemon
 // and its seeded worked turn), driven the way the app drives it: the `chat.find` page action that
 // Find (Cmd-F) sends to an agent pane, then the bar's own keys.
@@ -13,7 +14,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chat-find.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -50,12 +53,13 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
+    await warmDevServer(base, "/?mock");
     browser = await chromium.launch({ headless: true });
-  }, 60_000);
+  }, 240_000);
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** The bar's count, the highlights drawn and the current match's text. */
@@ -65,7 +69,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       const active = [...(highlights.get("acpmux-find-active") ?? [])];
       return {
         open: document.querySelector(".acpmux-find") !== null,
-        count: document.querySelector(".acpmux-find__count")?.textContent ?? "",
+        count: document.querySelector(".acpmux-find .find-pill__count")?.textContent ?? "",
         others: highlights.get("acpmux-find")?.size ?? 0,
         active: active.map((range) => range.toString()),
         // The current match is inside the transcript's viewport.
@@ -76,6 +80,30 @@ await requireBrowserLane("chat-find.test.ts", async () => {
         }),
       };
     });
+  }
+
+  /** Waits (up to 5 s) for the current match to sit in the transcript's viewport: a match in a
+   * closed fold opens it first, and its rows measure before the scroll lands. */
+  async function settleInView(page: Page) {
+    await page
+      .waitForFunction(
+        () => {
+          const active = [
+            ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ?? []),
+          ];
+          const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+          return (
+            active.length > 0 &&
+            active.every((range) => {
+              const box = range.getBoundingClientRect();
+              return box.top >= view.top && box.bottom <= view.bottom;
+            })
+          );
+        },
+        null,
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined);
   }
 
   async function openChat(page: Page) {
@@ -106,7 +134,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
         query,
       );
       expect(opened).toBe(true);
-      await page.waitForSelector(".acpmux-find__field");
+      await page.waitForSelector(".acpmux-find .find-pill__field");
       expect(await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)).toBe(query);
 
       const first = await state(page);
@@ -120,12 +148,13 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
       await page.keyboard.press("Shift+Enter");
       await page.keyboard.press("Shift+Enter");
+      await settleInView(page);
       const last = await state(page);
       expect(last.count).toBe(`${total} of ${total}`);
       expect(last.inView).toBe(true);
 
       // A query that is nowhere says so.
-      await page.fill(".acpmux-find__field", "zzqqxxnotintranscript");
+      await page.fill(".acpmux-find .find-pill__field", "zzqqxxnotintranscript");
       const none = await state(page);
       expect(none.count).toBe("No results");
       expect(none.active).toEqual([]);
@@ -140,12 +169,125 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       // The app's Find commands arrive as bridge commands: Find opens the bar again with the last
       // query, Find Next steps, Hide Find closes.
       await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("find"));
-      await page.waitForSelector(".acpmux-find__field");
-      await page.fill(".acpmux-find__field", query);
+      await page.waitForSelector(".acpmux-find .find-pill__field");
+      await page.fill(".acpmux-find .find-pill__field", query);
       await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("findNext"));
       expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
       await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("hideFind"));
       expect((await state(page)).open).toBe(false);
+      await page.close();
+    });
+
+    // Codex desktop app parity (cx-ncc.70): Find reads the work too. The seeded turn has ended, so
+    // its commands and edits sit in a closed "Worked for" fold; a match there opens what holds it
+    // and scrolls it into view.
+    test("finds command output and edit diffs inside a closed Worked for fold", async () => {
+      if (!installed) return;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await openChat(page);
+      // A loaded machine (#19761 CI): the fold the match opens and the rows above it measure long
+      // after the match is first drawn, and Find still lands it in view.
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 40 });
+      // Only in the test command's output: found, its group opened, highlighted and in view.
+      await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
+      await page.waitForSelector(".acpmux-find .find-pill__field");
+      const activeIs = (text: string) =>
+        page
+          .waitForFunction(
+            (needle) =>
+              [
+                ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ??
+                  []),
+              ]
+                .map(String)
+                .some((range) => range.toLowerCase() === needle.toLowerCase()),
+            text,
+            { timeout: 10_000 },
+          )
+          .catch(() => undefined);
+      await activeIs("1504.40ms");
+      await settleInView(page);
+      const output = await state(page);
+      expect(output.count).toBe("1 of 1");
+      expect(output.active).toEqual(["1504.40ms"]);
+      expect(output.inView).toBe(true);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+
+      // Only in the edit of upload.test.ts: found, and its edits group opens on the diff. (The diff
+      // draws in @pierre/diffs' shadow root, where the page's highlights do not reach.)
+      await page.fill(".acpmux-find .find-pill__field", "failNext");
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll<HTMLElement>(".acpmux-scroll button[aria-expanded]")].some(
+            (button) =>
+              (button.textContent ?? "").startsWith("Edited 3 files") &&
+              button.getAttribute("aria-expanded") === "true",
+          ),
+        null,
+        { timeout: 10_000 },
+      );
+      expect((await state(page)).count).toBe("1 of 1");
+
+      // The counter and the highlight agree: each step through a command's matches lands on a
+      // different drawn match (a group's summary line and a call's title are not counted).
+      await page.fill(".acpmux-find .find-pill__field", "bun test");
+      const total = Number(/of (\d+)/.exec((await state(page)).count)?.[1] ?? 0);
+      expect(total).toBeGreaterThan(1);
+      const seen = new Set<string>();
+      for (let step = 0; step < total; step += 1) {
+        await settleInView(page);
+        seen.add(
+          await page.evaluate(() => {
+            const range = [
+              ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ??
+                []),
+            ][0];
+            const box = range?.getBoundingClientRect();
+            const scroller = document.querySelector(".acpmux-scroll")!;
+            return box ? `${Math.round(box.top + scroller.scrollTop)}:${Math.round(box.left)}` : "none";
+          }),
+        );
+        await page.keyboard.press("Enter");
+      }
+      expect(seen.has("none")).toBe(false);
+      expect(seen.size).toBe(total);
+      await page.close();
+    });
+
+    // A starved page (#19761, op-next-cmdclick's runs on 10-13) measures the fold Find opened for
+    // seconds, and each late measure pushes the match down. Find holds it in view until it stops
+    // moving, not for a fixed 600 ms: here the match moves down for 2 s from when it is drawn, inside
+    // its command's capped output (a scroller of its own), so the hold must scroll that box too.
+    test("keeps a Find match in view while what is above it keeps measuring", async () => {
+      if (!installed) return;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await openChat(page);
+      await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
+      await page.waitForSelector(".acpmux-find .find-pill__field");
+      // As soon as the match is drawn, while Find is still bringing it into view.
+      await page.waitForFunction(
+        () =>
+          ((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active")?.size ??
+            0) > 0,
+        null,
+        { timeout: 10_000 },
+      );
+      await page.evaluate(async () => {
+        const range = [
+          ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ?? []),
+        ][0];
+        const block = range?.startContainer.parentElement;
+        if (!block) throw new Error("no current match");
+        // 40 steps of 20 px over 2 s: more than the output box and the viewport.
+        for (let step = 1; step <= 40; step += 1) {
+          block.style.marginTop = `${step * 20}px`;
+          // fixed-wait: the scenario is layout above the match that keeps moving for 2 s of wall time
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      });
+      await settleInView(page);
+      expect((await state(page)).inView).toBe(true);
       await page.close();
     });
   });

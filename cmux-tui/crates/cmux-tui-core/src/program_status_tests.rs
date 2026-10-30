@@ -211,8 +211,9 @@ fn a_new_change_during_publication_stays_pending_after_the_claimed_commit() {
     records.finish_change_publication(first, true);
     let second = records.claim_pending_change(true).unwrap();
     assert_ne!(second.0, first);
-    assert_eq!(second.1["event"], "report");
-    assert_eq!(second.1["record"]["state"], "done");
+    let change = second.1.as_ref().unwrap();
+    assert_eq!(change["event"], "report");
+    assert_eq!(change["record"]["state"], "done");
     records.finish_change_publication(second.0, true);
     assert!(records.claim_pending_change(true).is_none());
 }

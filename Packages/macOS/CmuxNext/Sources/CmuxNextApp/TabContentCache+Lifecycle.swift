@@ -62,6 +62,8 @@ extension TabContentCache {
     /// Applies a new warm set budget (memory pressure changed).
     func setWarmBudget(_ budget: WarmSetBudget) {
         guard budget != warmBudget else { return }
+        evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
+        defer { evictsAtOnce = false }
         warmBudget = budget
         apply(ledger.setCapacity(budget.terminalCapacity))
     }
@@ -76,18 +78,50 @@ extension TabContentCache {
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
         }
         for key in effects.evicted {
-            terminals.removeValue(forKey: key)?.close()
+            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
-        presenters = presenters.filter { $0.value.value != nil }
-        presentationChanges.notify()
+        for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
+        presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
+    }
+
+    /// Whether tab `key` holds memory here: a terminal surface or a live page (not a hibernated one).
+    func holdsMemory(_ key: String) -> Bool {
+        terminals[key] != nil || browsers[key].map { !($0.tab is HibernatedBrowserTab) } == true
+    }
+
+    /// The tabs of a hibernated workspace (plans/cmux-next/workspace-hibernation-DESIGN.md), after its
+    /// panes left: terminal surfaces go now, pages are discarded after their own checks, chat pages
+    /// go keeping their session.
+    func hibernateTabs(_ keys: [String]) {
+        for key in keys {
+            evictHiddenTerminal(key)
+            if browsers[key] != nil { hibernation?.hibernateForWorkspace(key) }
+            hibernation?.agentPages?.releaseForWorkspace(key)
+        }
+    }
+
+    /// Destroys hidden terminal `key`'s surface now (its workspace hibernated); its last frame stays
+    /// and it re-attaches from the terminal host's replay when shown. A presented one stays.
+    func evictHiddenTerminal(_ key: String) {
+        guard terminals[key] != nil else { return }
+        apply(ledger.evictHidden(key))
+    }
+
+    /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
+    private func evict(_ entry: TerminalEntry, key: String) {
+        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
+        entry.session.view.removeFromSuperview()
+        entry.close()
     }
 
     // MARK: Lifecycle effects
 
     /// Content for `key` now exists: answers an outstanding `mount`.
     func contentDidMount(_ key: String) {
-        guard let token = pendingMounts.removeValue(forKey: key) else { return }
+        // Created with no pane showing it (a tab opened in the background): live and hidden, so
+        // hibernation may release it and its first show restores it.
+        guard let token = pendingMounts.removeValue(forKey: key) else { return applyLifecycle(lifecycle.send(.adopted(key))) }
         applyLifecycle(lifecycle.send(.mounted(key, token)))
     }
 
@@ -117,10 +151,22 @@ extension TabContentCache {
         }
     }
 
+    /// Installs the page that replaces a tab's page (`swapPage`). The tab's
+    /// lifecycle does not change, so no reveal follows: a tab on screen
+    /// shows the new page at once (a remote view tab's Connect starts its
+    /// stream here; before, the replacement never learned it was visible).
+    func installReplacement(_ page: any BrowserTab, for key: String) {
+        _ = install(page, for: key)
+        if shownPages.contains(key) { page.setContentVisible(true) }
+    }
+
     private func reveal(_ key: String) {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
+            // A new session after an eviction shows its last frame until its content draws (one that
+            // parsed its content while hidden draws it now: no hold).
+            lastFrames.show(key, on: entry.session)
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)
@@ -131,23 +177,17 @@ extension TabContentCache {
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
         if let entry = terminals[key] {
+            // No picture on a switch: hover and drag render one on demand (`previewImage`), or `evict` keeps one.
             entry.session.isRenderingSuspended = true
             entry.io.setVisible(false)
-            // Rendered off the main thread; kept only while this hide is
-            // still the tab's latest transition.
-            Task { [weak self] in
-                guard let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
-                guard let self, self.terminals[key] === entry, self.lifecycle.accepts(key, token) else {
-                    self?.trace(key, "preview \(token) dropped (stale)")
-                    return
-                }
-                self.previews.insert(image, for: key)
-            }
         }
         if let entry = browsers[key] {
-            // Only a page that was on screen: a page created or restored
-            // hidden has nothing worth a thumbnail yet.
-            if shownPages.remove(key) != nil { capturePagePreview(entry, key: key, token: token) }
+            // Only a page that was on screen (one created or restored hidden has nothing worth a
+            // thumbnail), and only when it navigated or loaded since its last picture: the engine
+            // cannot picture a hidden page, so this is its last chance; a plain switch takes none.
+            if shownPages.remove(key) != nil, !pagePictureIsCurrent(entry, key: key) {
+                capturePagePreview(entry, key: key, token: token)
+            }
             entry.tab.setContentVisible(false)
         }
         hibernation?.tabDidHide(key)

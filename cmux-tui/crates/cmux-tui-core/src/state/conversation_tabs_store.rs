@@ -24,6 +24,11 @@
 //! like any tab instead of living only in one app session. The store keeps
 //! only the page id; the app draws the page. A connection that did not
 //! negotiate `page-tabs-v1` reads a page tab as `browser` without its record.
+//!
+//! `page-tab-route-v1` adds the page's `route` (a viewer's file or folder,
+//! a page's sub-view), so a closed page or viewer tab reopens on what it
+//! showed (plans/cmux-next/reopen-closed.md 3.0). The app sets it when it
+//! creates the tab; the store never interprets it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,6 +41,11 @@ pub(crate) const CONVERSATION_TABS_CAPABILITY: &str = "conversation-tabs-v1";
 pub(crate) const AGENT_SESSION_TABS_CAPABILITY: &str = "agent-session-tabs-v1";
 /// The page source of a conversation tab (one of the app's own pages).
 pub(crate) const PAGE_TABS_CAPABILITY: &str = "page-tabs-v1";
+/// The `route` of a page tab (what the page shows), kept with the tab and in
+/// its closed-history record.
+pub(crate) const PAGE_TAB_ROUTE_CAPABILITY: &str = "page-tab-route-v1";
+/// The longest page route, in bytes.
+pub(crate) const MAX_PAGE_ROUTE_BYTES: usize = 4096;
 /// The canonical `content_kind` (v2) and raw tab `kind` of a conversation tab.
 pub(crate) const CONVERSATION_KIND: &str = "conversation";
 /// The frontend record of a conversation tab: no page is loaded.
@@ -88,7 +98,22 @@ pub(crate) fn create_conversation_tabs_schema(transaction: &Transaction<'_>) -> 
                   json_object('conversation', conversation, 'owner', owner)
            FROM conversation_tabs WHERE origin IS NOT NULL AND mutation_id IS NOT NULL;",
     )?;
-    add_agent_session_host_name(transaction)
+    add_agent_session_host_name(transaction)?;
+    add_page_route(transaction)
+}
+
+/// `page_tabs.route`, added to databases created before it (`page-tab-route-v1`).
+fn add_page_route(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let present = transaction
+        .query_row("SELECT 1 FROM pragma_table_info('page_tabs') WHERE name = 'route'", [], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some();
+    if !present {
+        transaction.execute_batch("ALTER TABLE page_tabs ADD COLUMN route TEXT;")?;
+    }
+    Ok(())
 }
 
 /// `agent_session_tabs.host_name`, added to databases created before it.
@@ -112,7 +137,8 @@ fn add_agent_session_host_name(transaction: &Transaction<'_>) -> anyhow::Result<
 /// an acpmux agent session that runs on the install `host` (`host_name` is
 /// that machine's display name). A new chat has no session yet; the tab's
 /// session changes by compare-and-swap (`bind-conversation-tab-session`).
-/// A page tab (`page-tabs-v1`) shows one of the app's own pages by id.
+/// A page tab (`page-tabs-v1`) shows one of the app's own pages by id, on
+/// its `route` (`page-tab-route-v1`) when the app gave one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationTabRecord {
     Conversation {
@@ -127,6 +153,7 @@ pub enum ConversationTabRecord {
     },
     Page {
         page: String,
+        route: Option<String>,
     },
 }
 
@@ -134,6 +161,15 @@ pub enum ConversationTabRecord {
 fn token(value: &str, max: usize, extra: &[u8]) -> bool {
     (1..=max).contains(&value.len())
         && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || extra.contains(&byte))
+}
+
+/// An agent kind (`claude`, `codex`): 1 to 64 letters, digits or `_ . -`.
+pub(crate) fn validate_harness(harness: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        token(harness, 64, b"_.-"),
+        "bad request: harness must be 1 to 64 letters, digits or '_', '.', '-'"
+    );
+    Ok(())
 }
 
 pub(crate) fn validate_session(session: &str) -> anyhow::Result<()> {
@@ -160,23 +196,25 @@ impl ConversationTabRecord {
             Self::AgentSession { host, session, harness, host_name } => {
                 // `install:<id>`: the machine whose acpmux runs the session;
                 // `chief:<home id>`: the Chief home on that app's machine whose
-                // own acpmux runs it (a Chief subagent).
+                // own acpmux runs it (a Chief subagent); `registry:<id>`: the
+                // session daemon of that store (its `identify.session_id`),
+                // whose own machine's acpmux runs it (`agent-session-start-v1`).
                 let chief = host.strip_prefix("chief:").is_some_and(|id| {
                     id.len() == 8
                         && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
                 });
+                let id_host = |prefix: &str| {
+                    host.strip_prefix(prefix).is_some_and(|id| token(id, 120, b"_.-"))
+                };
                 anyhow::ensure!(
-                    chief || host.strip_prefix("install:").is_some_and(|id| token(id, 120, b"_.-")),
-                    "bad request: host must be install: and 1 to 120 letters, digits or '_', '.', '-', or chief: and 8 lowercase hex digits"
+                    chief || id_host("install:") || id_host("registry:"),
+                    "bad request: host must be install: or registry: and 1 to 120 letters, digits or '_', '.', '-', or chief: and 8 lowercase hex digits"
                 );
                 if let Some(session) = session {
                     validate_session(session)?;
                 }
                 if let Some(harness) = harness {
-                    anyhow::ensure!(
-                        token(harness, 64, b"_.-"),
-                        "bad request: harness must be 1 to 64 letters, digits or '_', '.', '-'"
-                    );
+                    validate_harness(harness)?;
                 }
                 if let Some(host_name) = host_name {
                     anyhow::ensure!(
@@ -186,11 +224,18 @@ impl ConversationTabRecord {
                     );
                 }
             }
-            Self::Page { page } => {
+            Self::Page { page, route } => {
                 anyhow::ensure!(
                     token(page, 64, b"-_.") && !page.bytes().any(|byte| byte.is_ascii_uppercase()),
                     "bad request: page must be 1 to 64 lowercase letters, digits or '-', '_', '.'"
                 );
+                if let Some(route) = route {
+                    anyhow::ensure!(
+                        (1..=MAX_PAGE_ROUTE_BYTES).contains(&route.len())
+                            && !route.chars().any(char::is_control),
+                        "bad request: route must be 1 to 4096 bytes without control characters"
+                    );
+                }
             }
         }
         Ok(())
@@ -204,7 +249,8 @@ impl ConversationTabRecord {
             Self::AgentSession { host, session, harness, host_name } => json!({"agent_session": {
                 "host": host, "session": session, "harness": harness, "host_name": host_name,
             }}),
-            Self::Page { page } => json!({"page": page}),
+            Self::Page { page, route: None } => json!({"page": page}),
+            Self::Page { page, route: Some(route) } => json!({"page": page, "route": route}),
         }
     }
 
@@ -218,7 +264,7 @@ impl ConversationTabRecord {
                 harness: text(&agent["harness"]),
                 host_name: text(&agent["host_name"]),
             },
-            (None, Some(page)) => Self::Page { page: text(page)? },
+            (None, Some(page)) => Self::Page { page: text(page)?, route: text(&value["route"]) },
             (None, None) => Self::Conversation {
                 conversation: text(&value["conversation"])?,
                 owner: text(&value["owner"])?,
@@ -260,10 +306,10 @@ pub(crate) fn write_conversation_tab(
                 params![browser_id, host, session, harness, host_name],
             )?;
         }
-        ConversationTabRecord::Page { page } => {
+        ConversationTabRecord::Page { page, route } => {
             transaction.execute(
-                "INSERT INTO page_tabs(browser_id, page) VALUES(?1, ?2)",
-                params![browser_id, page],
+                "INSERT INTO page_tabs(browser_id, page, route) VALUES(?1, ?2, ?3)",
+                params![browser_id, page, route],
             )?;
         }
     }
@@ -303,6 +349,8 @@ pub(crate) fn delete_closed_browser_rows(
             .execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
         transaction.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
         transaction.execute("DELETE FROM app_tabs WHERE browser_id = ?1", [browser_id])?;
+        transaction
+            .execute("DELETE FROM remote_terminal_tabs WHERE browser_id = ?1", [browser_id])?;
     }
     Ok(())
 }
@@ -319,21 +367,24 @@ impl crate::workspace_registry::WorkspaceRegistry {
         tx.execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM app_tabs WHERE browser_id = ?1", [browser_id])?;
+        tx.execute("DELETE FROM remote_terminal_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(tx.commit()?)
     }
 }
 
-/// The session of agent tab `browser_id`: `None` when it is no agent
-/// session tab, `Some(None)` before its session is bound.
-pub(crate) fn agent_session_of(
+/// The session and harness of agent tab `browser_id`: `None` when it is no
+/// agent session tab; the session is `None` before it is bound.
+type AgentSessionColumns = (Option<String>, Option<String>);
+
+fn agent_session_of(
     connection: &Connection,
     browser_id: &str,
-) -> anyhow::Result<Option<Option<String>>> {
+) -> anyhow::Result<Option<AgentSessionColumns>> {
     Ok(connection
         .query_row(
-            "SELECT session FROM agent_session_tabs WHERE browser_id = ?1",
+            "SELECT session, harness FROM agent_session_tabs WHERE browser_id = ?1",
             [browser_id],
-            |row| row.get::<_, Option<String>>(0),
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .optional()?)
 }
@@ -351,34 +402,46 @@ impl std::fmt::Display for AgentSessionUnchanged {
 impl std::error::Error for AgentSessionUnchanged {}
 
 /// Set the session of agent tab `browser_id` to `session` when its current
-/// session is `expected` (None: unbound), in the caller's transaction. A
-/// tab that already has `session` fails with [`AgentSessionUnchanged`], so
-/// the caller commits nothing; another current session is
+/// session is `expected` (None: unbound), in the caller's transaction, and
+/// its harness to `harness` when one is given (the agent that session runs,
+/// as its machine's acpmux reports it; without one the recorded harness
+/// stays). A tab that already has `session` and that harness (or no harness
+/// given) fails with [`AgentSessionUnchanged`], so the caller commits
+/// nothing; a tab that already has `session` with another harness takes the
+/// harness alone, whatever `expected` says. Another current session is
 /// `conversation_tab.session_conflict`.
 pub(crate) fn swap_agent_session(
     transaction: &Transaction<'_>,
     browser_id: &str,
     session: &str,
     expected: Option<&str>,
+    harness: Option<&str>,
 ) -> anyhow::Result<()> {
     validate_session(session)?;
     if let Some(expected) = expected {
         validate_session(expected)?;
     }
-    let current = agent_session_of(transaction, browser_id)?
-        .ok_or_else(|| anyhow::anyhow!("bad request: the tab has no agent session source"))?;
-    if current.as_deref() == Some(session) {
-        return Err(AgentSessionUnchanged.into());
+    if let Some(harness) = harness {
+        validate_harness(harness)?;
     }
-    if current.as_deref() != expected {
+    let (current, current_harness) = agent_session_of(transaction, browser_id)?
+        .ok_or_else(|| anyhow::anyhow!("bad request: the tab has no agent session source"))?;
+    let harness_changes =
+        harness.is_some_and(|harness| current_harness.as_deref() != Some(harness));
+    if current.as_deref() == Some(session) {
+        if !harness_changes {
+            return Err(AgentSessionUnchanged.into());
+        }
+    } else if current.as_deref() != expected {
         anyhow::bail!(
             "conversation_tab.session_conflict: current session is {}",
             current.as_deref().unwrap_or("null")
         );
     }
     transaction.execute(
-        "UPDATE agent_session_tabs SET session = ?1 WHERE browser_id = ?2",
-        params![session, browser_id],
+        "UPDATE agent_session_tabs SET session = ?1, harness = COALESCE(?2, harness)
+         WHERE browser_id = ?3",
+        params![session, harness, browser_id],
     )?;
     Ok(())
 }
@@ -453,9 +516,12 @@ pub(crate) fn read_conversation_tabs(
         let (id, record) = row?;
         rows.insert(id, record);
     }
-    let mut statement = connection.prepare("SELECT browser_id, page FROM page_tabs")?;
+    let mut statement = connection.prepare("SELECT browser_id, page, route FROM page_tabs")?;
     for row in statement.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, ConversationTabRecord::Page { page: row.get(1)? }))
+        Ok((
+            row.get::<_, String>(0)?,
+            ConversationTabRecord::Page { page: row.get(1)?, route: row.get(2)? },
+        ))
     })? {
         let (id, record) = row?;
         rows.insert(id, record);
@@ -509,11 +575,11 @@ pub(crate) fn tab_conversation_wire(
         Some(record) => Some(record),
         None => connection
             .query_row(
-                "SELECT p.page FROM resource_tabs AS t
+                "SELECT p.page, p.route FROM resource_tabs AS t
                  JOIN page_tabs AS p ON p.browser_id = t.content_id
                  WHERE t.public_id = ?1",
                 [tab_id],
-                |row| Ok(ConversationTabRecord::Page { page: row.get(0)? }),
+                |row| Ok(ConversationTabRecord::Page { page: row.get(0)?, route: row.get(1)? }),
             )
             .optional()?,
     };

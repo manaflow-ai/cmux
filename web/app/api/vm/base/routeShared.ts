@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
@@ -21,9 +22,11 @@ import {
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  runAfterResponse,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
+  vmCreateCreditsCheckoutExtra,
   reverifyVmRequestForTeam,
   type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
@@ -34,6 +37,8 @@ import {
   openBaseVm,
   resetBaseVm,
 } from "../../../../services/vms/workflows";
+import { enforceVmAllocationRateLimit } from "../../../../services/vms/allocationRateLimit";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest } from "../../../../services/vms/routeInput";
 
 type BaseOperation = "open" | "reset";
 
@@ -62,6 +67,12 @@ export async function runBaseRoute(input: {
   const account = await resolveVmProvisioningAccountScope(user, input.request, { requestedBillingTeamId });
   if (!account.ok) return account.response;
   const entitlements = account.entitlements;
+  const limited = await enforceVmAllocationRateLimit({
+    request: input.request,
+    route: `vm.base.${input.operation}`,
+    billingTeamId: entitlements.billingTeamId,
+  });
+  if (limited) return limited;
 
   // Same provider inference as POST /api/vm: an explicit manifest image
   // names its own provider even when the deployment default disagrees.
@@ -72,6 +83,7 @@ export async function runBaseRoute(input: {
     imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
       kind: parsed.body.kind,
       memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+      callerUserId: user.id,
     });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
@@ -107,6 +119,7 @@ export async function runBaseRoute(input: {
     throw err;
   }
 
+  const providerMetadata = gcpProviderMetadataFromRequest(input.request, provider);
   const programInput = {
     userId: user.id,
     billingCustomerType: entitlements.billingCustomerType,
@@ -114,6 +127,7 @@ export async function runBaseRoute(input: {
     billingPlanId: entitlements.planId,
     maxActiveVms: entitlements.maxActiveVms,
     provider,
+    providerMetadata,
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
     imageSize: imageSelection.size,
@@ -124,11 +138,16 @@ export async function runBaseRoute(input: {
       stackUserId: user.id,
     }),
     timing: input.timing,
+    // The guest vm-kind write runs after the answer, kept alive by the platform.
+    deferAfterResponse: (work: Effect.Effect<void>) => runAfterResponse(() => Effect.runPromise(work)),
   };
+  // Allocated at the call: the workflow owns the credential and wipes it when
+  // it ends, including work that continues after the route answers.
+  const providerCredential = gcpCredentialFromRequest(input.request, provider);
   const run = await runVmRoute(
     input.operation === "reset"
-      ? resetBaseVm({ ...programInput, reason: parsed.body.reason })
-      : openBaseVm(programInput),
+      ? resetBaseVm({ ...programInput, providerCredential, reason: parsed.body.reason })
+      : openBaseVm({ ...programInput, providerCredential }),
     {
       request: input.request,
       onError: baseWorkflowErrorResponders(input.operation, entitlements.planId),
@@ -182,6 +201,7 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId,
         retryAction: operation === "reset"
           ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."
@@ -194,9 +214,9 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
         status: 402,
         message: "This team has no Cloud VM create credits left.",
         action: operation === "reset"
-          ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
-          : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
-        extra: { amount: error.amount },
+          ? `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, planId).upgradeUrl} before resetting Base. The current Base is unchanged.`
+          : `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, planId).upgradeUrl}, then retry.`,
+        extra: vmCreateCreditsCheckoutExtra(error.amount, planId),
         details: { amount: error.amount },
         phase: "billing",
       }),

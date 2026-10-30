@@ -32,9 +32,10 @@
 // adapter is the sole source; image bakes keep their promoted CLI until healing.
 
 import { GUEST_CMUX_ADAPTER_PATH, guestCliDistributionCommand } from "./guestCliDistribution";
-import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
+import { GUEST_CODEROUTER_SHELL, GUEST_CODEROUTER_USE_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
+import { GUEST_SANDBOX_SHELL } from "./guestSandboxCli";
 import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
 export const GUEST_CMUX_SHIM_PATH = GUEST_CMUX_ADAPTER_PATH;
@@ -144,8 +145,13 @@ load_agent_config() {
   if [ -f /etc/cmux/agent-config.sh ]; then
     . /etc/cmux/agent-config.sh
   fi
-  # The machine env (\`cmux env set\`) reaches agents started through this shim
-  # even when the calling shell predates the ~/.profile hook.
+  # The declared env and secrets of the machine's .cmux/machine.toml (cmux cloud
+  # apply-machine-config), then the machine env (\`cmux env set\`), which wins; both
+  # reach agents started through this shim even when the calling shell predates
+  # the ~/.profile hooks.
+  if [ -f "\$HOME/.config/cmux/machine.env" ] && [ ! -L "\$HOME/.config/cmux/machine.env" ]; then
+    . "\$HOME/.config/cmux/machine.env"
+  fi
   if [ -f "\$HOME/.config/cmux/env" ]; then
     . "\$HOME/.config/cmux/env"
   fi
@@ -841,6 +847,7 @@ guest_agent_command() {
 }
 
 ${GUEST_CODEROUTER_SHELL}
+${GUEST_CODEROUTER_USE_SHELL}
 guest_coderouter_command() {
   cmux_coderouter_sub="\${1:-help}"
   [ "\$#" -gt 0 ] && shift
@@ -851,6 +858,7 @@ guest_coderouter_command() {
     usage|machines) guest_coderouter_usage "\$@" ;;
     models) guest_coderouter_models "\$@" ;;
     agent|run) guest_coderouter_agent "\$@" ;;
+    use) guest_coderouter_use "\$@" ;;
     help|--help|-h) guest_usage ;;
     claude|login|logout)
       die_message 2 accountHostOnly "\$cmux_coderouter_sub"
@@ -1558,6 +1566,8 @@ default_pane() {
 }
 
 ${GUEST_CMUX_TOPOLOGY_SHELL}
+
+${GUEST_SANDBOX_SHELL}
 # ---------------------------------------------------------------------------
 # Layouts as data. \`layout export\` turns a daemon workspace into the same
 # declarative document the Mac accepts (\`cmux new-workspace --layout\`, cmux.json
@@ -2503,6 +2513,10 @@ case "\${1:-}" in
   coderouter|cr)
     shift
     guest_coderouter_command "\$@"
+    ;;
+  sandbox)
+    shift
+    sandbox_command "\$@"
     ;;
   agent)
     shift

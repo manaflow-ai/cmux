@@ -62,8 +62,14 @@ extension ControlScreenInfo {
 
 extension ControlPaneInfo {
     public var json: JSONValue {
-        ["id": .string(id), "handle": .string(handle), "name": .optional(name), "selected_tab": .optional(selectedTabID),
-         "tabs": .array(tabs.map(\.json) + pageTabs.map(\.json)), "tab_groups": .array(tabGroups.map(\.json))]
+        var json: [String: JSONValue] = [
+            "id": .string(id), "handle": .string(handle), "name": .optional(name), "selected_tab": .optional(selectedTabID),
+            "tabs": .array(tabs.map(\.json) + pageTabs.map(\.json)), "tab_groups": .array(tabGroups.map(\.json)),
+            "column": column.map { JSONValue($0) } ?? .null, "dock": .optional(dock),
+        ]
+        // Only a pane that mirrors a tab says so: older readers see the same object as before.
+        if !mirroredTabIDs.isEmpty { json["mirrored_tabs"] = .array(mirroredTabIDs.map(JSONValue.string)) }
+        return .object(json)
     }
 }
 
@@ -83,7 +89,7 @@ extension ControlTabInfo {
             "rows": rows.map { JSONValue($0) } ?? .null, "cwd": .optional(cwd), "url": .optional(url),
             "git_branch": .optional(gitBranch), "pinned": .bool(isPinned), "dead": .bool(isDead), "unread": .bool(hasUnread),
             "tab_group": .optional(tabGroupID), "agent_state": .optional(agentState),
-            "agent_session": .optional(agentSessionID),
+            "agent": .optional(agent), "agent_session": .optional(agentSessionID),
         ]
     }
 }

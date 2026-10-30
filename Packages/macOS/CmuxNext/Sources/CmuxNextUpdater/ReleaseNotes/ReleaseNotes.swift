@@ -25,6 +25,11 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     /// The short user-facing changelog (at most 8 lines, New / Fixed /
     /// Changed) the update cards show; older notes have none (cx-lntk).
     public var summary: [SummaryLine]?
+    /// The commit the build was cut from (release-notes.py `head`); older notes may lack it.
+    public var head: String?
+    /// When the notes were made with the build, an ISO 8601 instant ("2026-10-26T19:38:52Z");
+    /// older notes have only ``date``.
+    public var builtAt: String?
 
     /// One changelog line: its group (`new`, `fixed`, `changed`) and text.
     public struct SummaryLine: Codable, Equatable, Sendable {
@@ -38,7 +43,10 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     }
 
     public init(version: Int, build: String, shortVersion: String, date: String, highlights: [Highlight], changes: [String],
-                items: [ChangeItem]? = nil, whatsNew: WhatsNewDocument? = nil, summary: [SummaryLine]? = nil) {
+                items: [ChangeItem]? = nil, whatsNew: WhatsNewDocument? = nil, summary: [SummaryLine]? = nil,
+                head: String? = nil, builtAt: String? = nil) {
+        self.head = head
+        self.builtAt = builtAt
         self.whatsNew = whatsNew
         self.summary = summary
         self.version = version
@@ -51,7 +59,7 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary
+        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary, head, builtAt
     }
 
     /// A digest the app cannot read is dropped; the notes stay readable.
@@ -66,6 +74,8 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         items = try c.decodeIfPresent([ChangeItem].self, forKey: .items)
         whatsNew = (try? c.decodeIfPresent(WhatsNewDocument.self, forKey: .whatsNew)) ?? nil
         summary = (try? c.decodeIfPresent([SummaryLine].self, forKey: .summary)) ?? nil
+        head = (try? c.decodeIfPresent(String.self, forKey: .head)) ?? nil
+        builtAt = (try? c.decodeIfPresent(String.self, forKey: .builtAt)) ?? nil
     }
 
     public struct Highlight: Codable, Equatable, Sendable {
@@ -75,13 +85,16 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         public var media: [Media]
         /// "Try it": an action id from the allow-list.
         public var action: Action?
+        /// `new`, `improved`, `fixed` or `security` (the highlight file's `category:`); nil reads as new.
+        public var category: String?
 
-        public init(id: String, title: String, body: String, media: [Media], action: Action?) {
+        public init(id: String, title: String, body: String, media: [Media], action: Action?, category: String? = nil) {
             self.id = id
             self.title = title
             self.body = body
             self.media = media
             self.action = action
+            self.category = category
         }
     }
 

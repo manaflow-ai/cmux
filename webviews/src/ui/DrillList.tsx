@@ -70,7 +70,19 @@ function focusOnMount(element: HTMLInputElement | null): void {
 }
 
 function scrollIntoViewRef(element: HTMLElement | null): void {
-  if (element && typeof element.scrollIntoView === "function") element.scrollIntoView({ block: "nearest" });
+  if (!element) return;
+
+  // `scrollIntoView` is allowed to scroll every ancestor by default. That is surprising for a
+  // callback ref: replacing a virtualized level with a short level (for example, breadcrumb
+  // navigation) can move the document scrollbar even though the highlighted row is visible.
+  // Keep the focus-following behavior inside the list that owns the row.
+  const scroller = element.closest<HTMLElement>('[role="listbox"]');
+  if (!scroller) return;
+
+  const row = element.getBoundingClientRect();
+  const viewport = scroller.getBoundingClientRect();
+  if (row.top < viewport.top) scroller.scrollTop -= viewport.top - row.top;
+  else if (row.bottom > viewport.bottom) scroller.scrollTop += row.bottom - viewport.bottom;
 }
 
 export function DrillList<T>(props: DrillListProps<T>) {

@@ -62,15 +62,21 @@ enum UIScreen {
 /// updates it in `viewDidChangeBackingProperties`; everything that rasterizes
 /// reads it.
 enum DisplayScale {
-    /// The window view takes it as `Fixture.renderScale` through
+    /// The window view takes it as its renderScale through
     /// `setRenderScale(_:)` (rows, morph, compose and header bitmaps
-    /// rasterize at it).
-    static var current: CGFloat = 2
+    /// rasterize at it). Inside `Fixture.withRenderScale` (a view's own work:
+    /// cells, drawing, bitmap jobs) this is the scope's scale, so renderers made
+    /// there (UIGraphicsImageRendererFormat) and views made there draw at it.
+    static var current: CGFloat {
+        get { RenderScaleScope.current ?? stored } // cmux: no task local on main outside a task
+        set { stored = newValue }
+    }
+    private static var stored: CGFloat = 2
     /// The color space bitmaps are drawn in: the window's display space live
     /// (Core Animation then uploads them without a per-commit color
     /// conversion on the main thread, which cost 5-9 ms per fling frame),
     /// sRGB in captures and the harness (as Catalyst's renderer).
-    static var colorSpace: CGColorSpace = LabColorSpace.sRGB // cmux: no force unwrap
+    static var colorSpace: CGColorSpace = LabColorSpace.sRGB // no force unwrap
 }
 
 // MARK: Drawing context (UIGraphics)
@@ -116,7 +122,7 @@ final class UIGraphicsImageRenderer {
 
     func image(actions: (UIGraphicsImageRendererContext) -> Void) -> UIImage {
         let s = format.scale
-        let pw = max(1, CrashGuard.int((size.width * s).rounded(.up))), ph = max(1, CrashGuard.int((size.height * s).rounded(.up))) // cmux: no trap on NaN
+        let pw = max(1, CrashGuard.int((size.width * s).rounded(.up))), ph = max(1, CrashGuard.int((size.height * s).rounded(.up))) // no trap on NaN
         let info = CGBitmapInfo.byteOrder32Little.rawValue | (format.opaque ? CGImageAlphaInfo.noneSkipFirst.rawValue : CGImageAlphaInfo.premultipliedFirst.rawValue)
         guard let ctx = CGContext(data: nil, width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DisplayScale.colorSpace, bitmapInfo: info) else { return UIImage() }
@@ -209,7 +215,7 @@ final class UIImage {
     func preparingForDisplay() -> UIImage? {
         guard let cg = cgImage else { return self }
         guard let ctx = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: LabColorSpace.sRGB, // cmux: no force unwrap
+                                  space: LabColorSpace.sRGB, // no force unwrap
                                   bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue) else { return self }
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         return UIImage(cgImage: ctx.makeImage(), scale: scale)

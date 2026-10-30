@@ -111,10 +111,13 @@ pub fn add(
     {
         bail!("the registry profile does not load: {errors:?}");
     }
+    #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
     }
+    #[cfg(windows)]
+    crate::owner_only::create_dir_all(&dir)?;
     crate::config::write_atomic(&path, text.as_bytes())?;
     Ok((harness, path))
 }

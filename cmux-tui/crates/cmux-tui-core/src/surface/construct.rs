@@ -39,7 +39,7 @@ impl Surface {
             id,
             opts,
             mux,
-            (None, &[]),
+            HostLaunch::default(),
             None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
@@ -56,7 +56,7 @@ impl Surface {
             id,
             opts,
             mux,
-            (None, &[]),
+            HostLaunch::default(),
             Some(TabResourceIdentity::terminal(None)?),
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -76,7 +76,7 @@ impl Surface {
             id,
             opts,
             mux,
-            (None, &[]),
+            HostLaunch::default(),
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -110,6 +110,18 @@ impl Surface {
         }
         if let Some(mux) = mux.upgrade() {
             set_env(&mut opts.extra_env, "CMUX_TUI_SESSION_ID", mux.session_public_id().as_str());
+            // The child's identity for the actor stamp (identity.md section
+            // 2). Only the session host mints it; with none the variable is
+            // set empty, so a value the daemon inherited never reaches a child.
+            let credential = terminal_public_id
+                .as_ref()
+                .and_then(|terminal| mux.mint_terminal_credential(terminal))
+                .unwrap_or_default();
+            set_env(
+                &mut opts.extra_env,
+                crate::launch_credential::LAUNCH_CREDENTIAL_ENV,
+                &credential,
+            );
         }
         let kitty_reservation = mux
             .upgrade()
@@ -122,7 +134,7 @@ impl Surface {
     }
 
     /// Build the surface of a host from [`Surface::prelaunch_hosted`].
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn spawn_prelaunched(
         host: PrelaunchedHost,
         mux: Weak<Mux>,
@@ -141,6 +153,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: false,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: true,
@@ -152,70 +165,115 @@ impl Surface {
         )
     }
 
-    /// `launch` is the reserved terminal id, and the VT replay its host
-    /// applies before the child's first byte (a hosted launch with an id
-    /// only; empty: none).
+    /// `launch` is the reserved terminal id, the VT replay its host applies
+    /// before the child's first byte, the workspace its first record names
+    /// and the spare host process to use (a hosted launch with an id only).
     pub(crate) fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        (terminal_id, seed): (Option<crate::terminal_host::TerminalId>, &[u8]),
+        launch: HostLaunch<'_>,
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
         let (opts, terminal_public_id, kitty_reservation) =
             Self::spawn_prelude(id, opts, &mux, resource_identity.as_ref(), KittyQuota::AtLaunch)?;
+        crate::debug_spans::mark("surface.prelude");
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
+        #[cfg(windows)]
+        let mut host_start_failed = false;
+        #[cfg(not(windows))]
+        let host_start_failed = false;
+        // The holder runs the shell; this daemon parses it (holder_runtime).
         #[cfg(unix)]
+        if lifetime == PtyLifetime::SessionOwned
+            && crate::holder_runtime::enabled()
+            && let Some(host_root) = opts.terminal_host_root.clone()
+        {
+            return Self::spawn_on_holder(HolderSpawn {
+                id,
+                opts,
+                mux,
+                host_root,
+                terminal_id: launch.terminal_id,
+                seed: launch.seed.to_vec(),
+                terminal_public_id,
+                resource_identity,
+                kitty_reservation,
+                initial_kitty_limits,
+                cell_pixels,
+            });
+        }
+        #[cfg(any(unix, windows))]
         if lifetime == PtyLifetime::SessionOwned
             && let Some(root) = opts.terminal_host_root.clone()
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let attachment = match terminal_id {
+            let HostLaunch { terminal_id, seed, workspace_key, standby } = launch;
+            let launched = match terminal_id {
                 Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
                     &opts,
                     &root,
                     (default_colors, cell_pixels, initial_kitty_limits),
                     terminal_id,
-                    None,
-                    seed,
-                )?,
+                    standby,
+                    (seed, workspace_key),
+                ),
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
                     &root,
                     default_colors,
                     cell_pixels,
                     initial_kitty_limits,
-                )?,
+                ),
             };
-            let defer_launch_activation = terminal_public_id.is_some();
-            return Self::spawn_hosted(
-                id,
-                opts,
-                mux,
-                HostedSurfaceLaunch {
-                    attachment,
-                    kitty_reservation,
-                    terminate_on_error: true,
-                    defer_launch_activation,
-                    lifetime,
-                    terminal_public_id,
-                    resource_identity,
-                },
-            );
+            crate::debug_spans::mark("surface.host_launched");
+            match launched {
+                Ok(attachment) => {
+                    let defer_launch_activation = terminal_public_id.is_some();
+                    return Self::spawn_hosted(
+                        id,
+                        opts,
+                        mux,
+                        HostedSurfaceLaunch {
+                            adopted: false,
+                            attachment,
+                            kitty_reservation,
+                            terminate_on_error: true,
+                            defer_launch_activation,
+                            lifetime,
+                            terminal_public_id,
+                            resource_identity,
+                        },
+                    );
+                }
+                // Windows: no host process started; the daemon runs the
+                // terminal itself and every tree says so (cx-ko2e).
+                #[cfg(windows)]
+                Err(error)
+                    if error
+                        .downcast_ref::<crate::terminal_host_runtime::HostProcessStartFailed>()
+                        .is_some() =>
+                {
+                    eprintln!("cmux-tui: {error:#}; running the terminal in the daemon");
+                    host_start_failed = true;
+                }
+                Err(error) => return Err(error),
+            }
         }
-        let _ = (terminal_id, seed);
+        #[cfg(not(any(unix, windows)))]
+        let _ = launch;
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
+        let pty = cmux_pty::open(initial_geometry.pty_size())?;
 
         let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
             Some(argv) => {
@@ -236,8 +294,15 @@ impl Surface {
         // (launchd, ssh, cron strip COLORTERM). Set before extra_env so a
         // caller can still override it.
         cmd.env("COLORTERM", "truecolor");
+        // A daemon-local PTY never starts through login(1): its close ends
+        // only the direct child, which would be login, not the shell.
         for (k, v) in &launch.env {
-            cmd.env(k, v);
+            if !crate::login_shell::is_marker(k) {
+                cmd.env(k, v);
+            }
+        }
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+            cmd.env_remove(*key);
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {
@@ -264,6 +329,8 @@ impl Surface {
             command: argv,
             cwd,
             supports_clear_history_key_fallback,
+            #[cfg(unix)]
+            holder: None,
         };
         let spawn = LocalSpawn {
             id,
@@ -276,11 +343,16 @@ impl Surface {
             lifetime,
             cell_pixels,
             initial_geometry,
+            host_identity: None,
         };
-        Self::spawn_local(spawn, launch)
+        let surface = Self::spawn_local(spawn, launch)?;
+        if host_start_failed {
+            surface.mark_terminal_host_fallback(TerminalHostFallback::HostStartFailed);
+        }
+        Ok(surface)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn install_deferred_cell_pixel_handler(
         surface: &Arc<Surface>,
         responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
@@ -325,7 +397,7 @@ impl Surface {
             }));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn reconcile_deferred_cell_pixel_ack(
         &self,
         responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
@@ -399,7 +471,7 @@ impl Surface {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn apply_hosted_clear_history_replay(
         surface: &Arc<Surface>,
         pty: &PtySurface,

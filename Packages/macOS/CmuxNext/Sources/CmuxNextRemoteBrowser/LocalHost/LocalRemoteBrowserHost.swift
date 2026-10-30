@@ -2,7 +2,6 @@ public import CmuxNextRemoteView
 public import Foundation
 import Security
 
-#if DEBUG
 /// A remote browser host this app starts on loopback for one remote tab
 /// (remote-tab-r2.md, local host): `cmux-remote-browser-host --serve --listen
 /// 127.0.0.1:0 --lifeline`. The host binds a free port and writes one
@@ -48,8 +47,11 @@ public final class LocalRemoteBrowserHost {
     public private(set) var isStopped = false
 
     /// The argument list of `--serve` for `pageURL` (the first page).
+    /// `--use-mock-keychain` reaches Chromium through argv, so a host binary built without
+    /// that switch in rb_shim.mm never waits on the login Keychain and http(s) pages load.
     public static func arguments(pageURL: URL?) -> [String] {
-        ["--serve", "--listen", "127.0.0.1:0", "--lifeline"] + (pageURL.map { ["--url", $0.absoluteString] } ?? [])
+        ["--serve", "--listen", "127.0.0.1:0", "--lifeline", "--use-mock-keychain"]
+            + (pageURL.map { ["--url", $0.absoluteString] } ?? [])
     }
 
     /// How long a host may take to listen (a cold CEF start on a loaded Mac
@@ -191,5 +193,3 @@ public final class LocalRemoteBrowserHost {
 private final class StartDeadline {
     var fired = false
 }
-
-#endif

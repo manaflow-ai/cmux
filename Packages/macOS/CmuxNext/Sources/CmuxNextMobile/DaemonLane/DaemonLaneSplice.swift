@@ -33,9 +33,6 @@ public actor DaemonLaneSplice {
         self.policy = policy
     }
 
-    /// Commands refused so far (diagnostics, tests).
-    public var refusedCount: Int { refusals }
-
     /// Runs until either side closes; returns why it ended. Both lanes are
     /// closed on return.
     public func run() async -> EndReason {
@@ -60,6 +57,8 @@ public actor DaemonLaneSplice {
                     switch policy.evaluate(line) {
                     case .forward:
                         try await daemon.write(line + Self.newline)
+                    case .rewrite(let checked):
+                        try await daemon.write(checked + Self.newline)
                     case .refuse(let response):
                         refusals += 1
                         try await writeToPhone(response + Self.newline)

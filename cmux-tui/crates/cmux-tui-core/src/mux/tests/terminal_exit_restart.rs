@@ -25,6 +25,8 @@ fn restart_marks_reserved_terminal_without_host_record_exited_without_respawn() 
                     public_id: WorkspacePublicId::random().unwrap(),
                     key: "workspace-one".into(),
                     name: "One".into(),
+                    name_source: Default::default(),
+                    name_revision: 0,
                     group_key: "recover-terminal".into(),
                 }],
                 &serde_json::json!({"workspace":1,"key":"workspace-one"}),
@@ -148,6 +150,8 @@ fn restart_sidecar_restores_exact_wait_exit_and_emits_one_public_event() {
         public_id: restore_workspace_id(42),
         key: "workspace-exit".into(),
         name: "Exit".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: session.into(),
     };
     let screen = restore_screen_id(42);
@@ -347,6 +351,8 @@ fn restart_degrades_keep_policy_terminal_to_the_normal_detach() {
         public_id: restore_workspace_id(43),
         key: "workspace-keep-exit".into(),
         name: "Keep".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: session.into(),
     };
     let screen = restore_screen_id(43);
@@ -508,6 +514,8 @@ fn restart_keeps_exited_terminal_as_detached_receipt_until_explicit_close() {
                     public_id: WorkspacePublicId::random().unwrap(),
                     key: "workspace-one".into(),
                     name: "One".into(),
+                    name_source: Default::default(),
+                    name_revision: 0,
                     group_key: "recover-exited".into(),
                 }],
                 &serde_json::json!({"workspace":1,"key":"workspace-one"}),
@@ -688,15 +696,8 @@ fn output_read_serves_live_records_and_exit_snapshot_after_close_detach() {
         mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
     let colored: &[u8] = b"output read \x1b[31mred marker\x1b[0m\r\nsecond line\r\n";
     surface.apply_stream_output_for_test(colored).unwrap();
-    {
-        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-            terminal_id: Arc::new(terminal.clone()),
-            generation: INCARNATION.into(),
-            occurred_at_ms: 1,
-            bytes: colored.to_vec(),
-        };
-        mux.workspace_registry.lock().unwrap().append_journal_ingress_events(&[&event]).unwrap();
-    }
+    // Output goes to the output store, never the journal.
+    mux.output_store.append(&terminal, &Arc::from(INCARNATION), colored);
     let total = u64::try_from(colored.len()).unwrap();
 
     // Live: the record window renders plain text with a resumable cursor.

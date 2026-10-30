@@ -1,0 +1,83 @@
+.minimap-tick-gallery-stage {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 220px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.minimap-tick-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.minimap-tick-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.minimap-tick-gallery-strip {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  width: 34px;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 14%, transparent));
+  border-radius: 8px;
+  background: var(--cmux-elevated-background, Canvas);
+}
+
+.minimap-tick-gallery-strip li {
+  display: grid;
+}
+
+.minimap-tick-gallery-strip button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.minimap-tick-gallery-strip button span {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, currentColor 35%, transparent);
+  transform: scaleX(calc(4 / 7));
+  transform-origin: center;
+}
+
+.minimap-tick-gallery-strip button[aria-current="step"] {
+  background: var(--cmux-selection, color-mix(in srgb, CanvasText 11%, transparent));
+}
+
+.minimap-tick-gallery-strip button[aria-current="step"] span {
+  background: var(--cmux-accent, Highlight);
+  transform: none;
+}
+
+.minimap-tick-gallery-strip button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, Highlight);
+  outline-offset: 1px;
+}
+
+.minimap-tick-gallery-receipt {
+  min-width: 8ch;
+  min-height: 18px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}

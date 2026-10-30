@@ -49,9 +49,16 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 keywords: ["history", "pages", "visited", "cmux://history", "timeline"], category: .window,
                 symbol: "clock.fill", surfaces: [.palette, .keyboard, .menu], cliName: "history show", mainMenu: .window
             ),
+            // Every coding agent chat on this device, with select and Bring into Active Sessions
+            // (cx-zlnl's page; Lawrence 2026-10-11: from the palette and the Window menu, not the sidebar bar).
+            ActionDescriptor(
+                id: "agentHistory.show", title: t("action.history.showAgentHistory", "Show Agent History"),
+                keywords: ["history", "agents", "chats", "sessions", "conversations", "claude", "codex"], category: .window,
+                symbol: "text.bubble", surfaces: [.palette, .menu], mainMenu: .window
+            ),
             // Cmd-Y shows history in a page (New Cloud Machine has no default shortcut).
             ActionDescriptor(
-                id: "browserShowHistory", title: t("action.history.showFromPage", "Show History"),
+                id: "browserShowHistory", title: t("action.history.showFromPage", "Show Browser History"),
                 keywords: ["history", "browser"], defaultShortcut: Shortcut("y", modifiers: [.command]),
                 category: .browser, symbol: "clock.fill", surfaces: [.keyboard], requires: [.browserFocused],
                 cliName: "browser show-history"
@@ -88,7 +95,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             // resume the agent session, run the command again). The History page's rows and
             // `cmux history open` run it; the entry's facts come from its owner, never the caller.
             ActionDescriptor(
-                id: "history.open", title: t("action.history.open", "Open History Entry"),
+                id: "history.open", title: t("action.history.open", "Open History Entry…"),
                 keywords: ["history", "open", "reopen", "resume", "run again", "go to"], category: .window,
                 symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard],
                 arguments: [
@@ -112,7 +119,8 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
         ]
     }
 
-    private static var historyRange: ActionArgument {
+    /// The time range of Clear History and Clear Browsing Data.
+    static var historyRange: ActionArgument {
         ActionArgument(name: "range", title: t("argument.history.range", "Time Range"), kind: .enumeration([
             ActionEnumCase(value: "hour", title: t("argument.history.range.hour", "Last Hour")),
             ActionEnumCase(value: "today", title: t("argument.history.range.today", "Today")),

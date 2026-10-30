@@ -13,15 +13,22 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     public let accounts: [String]
     public let roots: [String]
     public let sourcePath: String?
+    /// The agent mark id acpmux resolved for the chat's harness (design/agent-icons), nil
+    /// when it has none or the daemon predates it.
+    public let brand: String?
     /// What the live acpmux session continuing this chat needs from the
     /// person (`needsInput`, `failed`, `unread`), nil when nothing.
     public var attention: String?
     /// That session's latest reply, one line; nil without a live session.
     public var preview: String?
+    /// The chat whose agent started this one (acpmux `parent`): it folds under that chat and is
+    /// never listed on its own (Leo 2026-10-13).
+    public var parent: String?
 
     public init(id: String, sessionID: String, harness: String, title: String? = nil, cwd: String? = nil,
                 createdAt: Date? = nil, updatedAt: Date, messageCount: Int? = nil, accounts: [String] = [],
-                roots: [String] = [], sourcePath: String? = nil, attention: String? = nil, preview: String? = nil) {
+                roots: [String] = [], sourcePath: String? = nil, brand: String? = nil, attention: String? = nil,
+                preview: String? = nil, parent: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.harness = harness
@@ -33,8 +40,10 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.accounts = accounts
         self.roots = roots
         self.sourcePath = sourcePath
+        self.brand = brand
         self.attention = attention
         self.preview = preview
+        self.parent = parent
     }
 
     /// Decodes the daemon's `chat_value` object. Unknown optional fields are ignored.
@@ -51,8 +60,9 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   updatedAt: Date(timeIntervalSince1970: updated / 1000),
                   messageCount: (json["messageCount"] as? NSNumber).map { $0.intValue },
                   accounts: json["accounts"] as? [String] ?? [], roots: json["roots"] as? [String] ?? [],
-                  sourcePath: json["sourcePath"] as? String,
-                  attention: json["attention"] as? String, preview: json["preview"] as? String)
+                  sourcePath: json["sourcePath"] as? String, brand: json["brand"] as? String,
+                  attention: json["attention"] as? String, preview: json["preview"] as? String,
+                  parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
     private static func milliseconds(_ value: Any?) -> Double? {

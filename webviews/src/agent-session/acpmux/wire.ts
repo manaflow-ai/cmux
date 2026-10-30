@@ -67,7 +67,21 @@ export function redactEndpoint(endpoint: string): string {
     url.searchParams.delete("token");
     return url.toString();
   } catch {
-    return "(invalid endpoint)";
+    return "(invalid endpoint)"; // l10n-allow: wire log text, never rendered
+  }
+}
+
+const SECRET_SUBMIT = "_acpmux/secret_submit";
+
+/// A secret card's answer with its `value` replaced (cx-ncc.42): the log can be exported.
+function withoutSecret(text: string): string {
+  try {
+    const message = JSON.parse(text);
+    if (message?.params && typeof message.params === "object" && "value" in message.params)
+      message.params.value = "(secret)";
+    return JSON.stringify(message);
+  } catch {
+    return "(secret answer)"; // l10n-allow: wire log text, never rendered
   }
 }
 
@@ -90,13 +104,14 @@ export class AcpWireLog {
     this.clock = clock;
   }
 
-  /** A request or notification the pane sent. */
+  /** A request or notification the pane sent. A secret card's answer is logged without its value. */
   sent(text: string, method: string, id?: number): void {
     if (id !== undefined) {
       this.counters.requests += 1;
       this.pending.set(id, { method, startedAt: this.clock() });
     }
-    this.push({ dir: "out", kind: id === undefined ? "notification" : "request", method, id, ...this.body(text) });
+    const logged = method === SECRET_SUBMIT ? withoutSecret(text) : text;
+    this.push({ dir: "out", kind: id === undefined ? "notification" : "request", method, id, ...this.body(logged) });
   }
 
   /** A message acpmux sent. */

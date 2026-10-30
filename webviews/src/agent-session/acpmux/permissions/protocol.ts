@@ -1,53 +1,26 @@
 import { type StringKey, translate } from "../i18n";
 import { servesOperation } from "../operations";
+import type { AcpmuxRequestName } from "../protocol/generated/methods";
+import type * as Wire from "../protocol/generated/types";
 
 export const PERMISSION_GROUP_OPS = {
   groups: "_acpmux/permission_groups",
   respond: "_acpmux/permission_group_respond",
   revoke: "_acpmux/permission_chat_revoke",
-} as const;
+} as const satisfies Record<string, AcpmuxRequestName>;
 
-export type PermissionDecision = "allow_once" | "allow_chat" | "deny";
-export type PermissionGroupState = "collecting" | "pending" | "resolved" | "cancelled";
-export type PermissionItemState = "pending" | "resolved" | "cancelled";
+// The wire shapes come from acpmux's protocol registry (protocol/generated); the parsers below
+// check a reply against them at runtime.
+export type PermissionDecision = Wire.PermissionDecision;
+export type PermissionGroupState = Wire.PermissionGroupState;
+export type PermissionItemState = Wire.PermissionItemState;
+export type PermissionGroupItem = Wire.PermissionGroupItem;
+export type PermissionGroup = Wire.PermissionGroup;
+export type PermissionCoverage = Wire.PermissionCoverage;
+export type PermissionGroupList = Wire.PermissionGroupList;
+export type PermissionGroupReceipt = Wire.PermissionGroupReceipt;
+export type PermissionChatRevokeReceipt = Wire.PermissionChatRevokeReceipt & { active: false };
 
-export type PermissionGroupItem = {
-  permissionId: string;
-  request: Record<string, unknown>;
-  state: PermissionItemState;
-};
-
-export type PermissionGroup = {
-  groupId: string;
-  sessionId: string;
-  turnId: string | null;
-  revision: number;
-  state: PermissionGroupState;
-  items: PermissionGroupItem[];
-  decisions: PermissionDecision[];
-  decision: PermissionDecision | null;
-};
-
-export type PermissionCoverage = {
-  label: "acp_requests_only";
-  isolation: "unverified";
-  detail: string;
-};
-
-export type PermissionGroupList = {
-  groups: PermissionGroup[];
-  chatAllowance: { active: boolean; expires: "session_stop_or_daemon_restart" };
-  coverage: PermissionCoverage;
-  batching: {
-    windowMs: number;
-    maxItems: number;
-    maxPendingGroups: number;
-    maxReceipts: number;
-  };
-};
-
-export type PermissionGroupReceipt = { group: PermissionGroup; replayed: boolean };
-export type PermissionChatRevokeReceipt = { active: false };
 export type PermissionClientState = {
   supported: boolean;
   ready: boolean;
@@ -57,6 +30,9 @@ export type PermissionClientState = {
   busy: boolean;
   error?: string;
   uncertain?: boolean;
+  /// acpmux refuses this reader's group allows, with its reason (`allowRefused` of the read): only
+  /// a deny can be given here, so the panel draws no Allow or Always.
+  allowRefused?: string;
 };
 
 export function supportsPermissionGroups(initialized: unknown): boolean {
@@ -141,7 +117,12 @@ export function permissionGroups(value: unknown): PermissionGroupList {
   )
     throw new Error(translate("error.invalid.permissionCoverage"));
   const batching = record(raw.batching, "error.invalid.permissionBatching");
+  let allowRefused: string | undefined;
+  if (typeof raw.allowRefused === "string") allowRefused = raw.allowRefused;
+  else if (raw.allowRefused !== undefined && raw.allowRefused !== null)
+    throw new Error(translate("error.invalid.permissionGroups"));
   return {
+    ...(allowRefused === undefined ? {} : { allowRefused }),
     groups: raw.groups.map(group),
     chatAllowance: { active: allowance.active, expires: allowance.expires },
     coverage: { label: coverage.label, isolation: coverage.isolation, detail: coverage.detail },

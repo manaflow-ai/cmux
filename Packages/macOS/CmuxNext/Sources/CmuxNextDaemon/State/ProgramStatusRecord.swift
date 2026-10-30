@@ -32,9 +32,13 @@ public struct ProgramStatusRecord: Sendable, Hashable {
     /// nil from a host that does not send it. Orders an explicit record
     /// against an agent roster report of the same terminal.
     public var updatedAtMs: UInt64?
+    /// When the record entered its current state and kind (Unix ms, `since_ms`): a progress or
+    /// message update keeps it. Nil from a daemon that does not send it.
+    public var sinceMs: UInt64?
 
     public init(id: String = "", state: State, progress: Int? = nil, kind: Kind? = nil, app: String? = nil,
-                title: String? = nil, msg: String? = nil, updatedSeq: UInt64 = 0, updatedAtMs: UInt64? = nil) {
+                title: String? = nil, msg: String? = nil, updatedSeq: UInt64 = 0, updatedAtMs: UInt64? = nil,
+                sinceMs: UInt64? = nil) {
         self.id = id
         self.state = state
         self.progress = progress
@@ -44,6 +48,7 @@ public struct ProgramStatusRecord: Sendable, Hashable {
         self.msg = msg
         self.updatedSeq = updatedSeq
         self.updatedAtMs = updatedAtMs
+        self.sinceMs = sinceMs
     }
 
     /// One record of the wire array; nil for a record without an id or a
@@ -56,7 +61,8 @@ public struct ProgramStatusRecord: Sendable, Hashable {
         self.init(id: id, state: state, progress: progress, kind: object["kind"]?.stringValue.flatMap(Kind.init(rawValue:)),
                   app: object["app"]?.stringValue, title: object["title"]?.stringValue, msg: object["msg"]?.stringValue,
                   updatedSeq: object["updated_seq"]?.stringValue.flatMap(UInt64.init) ?? 0,
-                  updatedAtMs: object["updated_at_ms"]?.stringValue.flatMap(UInt64.init))
+                  updatedAtMs: object["updated_at_ms"]?.stringValue.flatMap(UInt64.init),
+                  sinceMs: object["since_ms"]?.stringValue.flatMap(UInt64.init))
     }
 
     /// `extra.program_status` of a terminal; absent and `[]` are the same.

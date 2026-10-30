@@ -4,7 +4,7 @@
 //! the owner of windows, palette state and dialogs. This module only composes
 //! their existing snapshots and actions into one JSON-first surface for agents.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
@@ -12,15 +12,27 @@ use serde_json::{Map, Value, json};
 
 use super::app::{self, ActionName};
 use super::app_focus;
-use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
-use super::mcp;
+use super::command::{CommandPlan, RequestPlan, Resolve, ResponseView, WireOperation};
+use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
+use cmux_json::JsonSet as _;
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n";
+mod events;
+mod wait;
+
+pub(super) use events::{
+    DEFAULT_LIMIT as DEFAULT_EVENTS_LIMIT, DEFAULT_TIMEOUT_SECONDS as DEFAULT_EVENTS_SECONDS,
+    KINDS as EVENT_KINDS, MAX_LIMIT as MAX_EVENTS_LIMIT, MAX_TIMEOUT_SECONDS as MAX_EVENTS_SECONDS,
+};
+pub(super) use wait::{
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
+};
+
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -28,11 +40,17 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if command_args.first().map(String::as_str) != Some("agents") {
         return None;
     }
+    // A local, read-only report: its human table stays the default.
+    if command_args.get(1).map(String::as_str) == Some("doctor") {
+        return Some(super::agents_doctor::run(&global, &command_args[2..]));
+    }
+    // `agents events` prints one line per event for a person.
+    let lines = global.output == OutputMode::Human
+        && command_args.get(1).map(String::as_str) == Some("events");
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
-    let help_requested =
-        command_args[1..].iter().any(|arg| matches!(arg.as_str(), "--help" | "-h"));
+    let help_requested = asks_help(&command_args[1..]);
     if global.all_sessions && !command_args[1..].is_empty() && !help_requested {
         return Some(print_usage(
             &global,
@@ -42,10 +60,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let Err(error) = normalize_qualified_targets(&mut global, &mut command_args[1..]) {
         return Some(print_usage(&global, &error.0));
     }
-    Some(run(global, &command_args[1..]))
+    Some(run(global, &command_args[1..], lines))
 }
 
-fn normalize_qualified_targets(
+/// Routes a `<session>:<id>` target to its session (`global.session`) and
+/// leaves the bare id in `args`.
+pub(super) fn normalize_qualified_targets(
     global: &mut GlobalArgs,
     args: &mut [String],
 ) -> Result<(), UsageError> {
@@ -53,6 +73,9 @@ fn normalize_qualified_targets(
         (Some("workspace" | "tab"), Some("select")) | (Some("terminal"), Some("focus")) => Some(2),
         (Some("terminal"), Some("split")) => {
             args.iter().position(|value| value == "--surface").map(|index| index + 1)
+        }
+        (Some("wait"), _) => {
+            args.iter().position(|value| value == "--target").map(|index| index + 1)
         }
         _ => None,
     };
@@ -87,35 +110,86 @@ fn normalize_qualified_target(
     Ok(())
 }
 
-fn run(global: GlobalArgs, args: &[String]) -> i32 {
-    if args.is_empty() || args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
+fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
+    if args.is_empty() || asks_help(args) {
         println!("{HELP}");
         return 0;
     }
-    match command(args) {
-        Ok(AgentCommand::Snapshot) => run_snapshot(&global),
-        Ok(AgentCommand::Resource { action, args }) => run_resource(&global, &action, &args),
-        Ok(AgentCommand::App { action, args }) => run_app(&global, &action, &args),
-        Err(error) => wire::print_local_error(
-            &json!({
-                "code": "usage.invalid",
-                "message": format!("cmux: {error}"),
-                "details": {},
-                "retryable": false,
-            }),
+    let command = match command(args) {
+        Ok(AgentCommand::Snapshot) => return run_snapshot(&global),
+        Ok(command) => command,
+        Err(error) => return print_usage(&global, &error.0),
+    };
+    let backend = mcp::cli_backend(global.clone());
+    // A long wait shows the progress notes app waits show (app/wait.rs).
+    let notes = match &command {
+        AgentCommand::Wait(request) => Some(app::wait::notes(
+            &request.describe(),
+            crate::localization::catalog().app_control.agents_waiting_progress,
+            request.timeout,
             global.output,
-            2,
-        ),
+        )),
+        _ => None,
+    };
+    let outcome = execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents");
+    drop(notes);
+    match outcome {
+        // A wait that timed out prints its receipt and exits 1, as
+        // `screen wait` does (docs/cli-contract.md).
+        Ok(value) if matches!(command, AgentCommand::Wait(_)) && value["matched"] == false => {
+            wire::print_local_success(&value, global.output).max(1)
+        }
+        // The cursor goes to stderr, so stdout is only the events.
+        Ok(value) if lines => {
+            print!("{}", events::human_lines(&value));
+            eprintln!("next_after={}", value["next_after"].as_str().unwrap_or_default());
+            0
+        }
+        Ok(value) => {
+            let code = wire::print_local_success(&value, global.output);
+            // A chat message stored but not handed to its chat: the receipt
+            // is printed, and the exit status says it failed.
+            if code == 0 && chat::delivery_failed(&value) { 1 } else { code }
+        }
+        Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
+        Err(AgentFailure::Owner(failure)) => {
+            wire::print_local_error(&mcp::agent_failure_value(failure), global.output, 3)
+        }
     }
 }
 
-enum AgentCommand {
-    Snapshot,
-    Resource { action: String, args: Vec<String> },
-    App { action: String, args: Vec<String> },
+/// `--help` or `-h` before any `--` (chat text after `--` may hold either).
+fn asks_help(args: &[String]) -> bool {
+    args.iter().take_while(|arg| *arg != "--").any(|arg| matches!(arg.as_str(), "--help" | "-h"))
 }
 
-fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
+pub(super) enum AgentCommand {
+    Snapshot,
+    Resource {
+        action: String,
+        args: Vec<String>,
+    },
+    App {
+        action: String,
+        args: Vec<String>,
+    },
+    Wait(wait::WaitRequest),
+    Events(events::EventsRequest),
+    /// Prompt another agent chat or read its transcript (chat.rs).
+    Chat(chat::ChatCommand),
+}
+
+/// Why an agent action answered without a receipt.
+pub(super) enum AgentFailure {
+    /// The arguments name no request; nothing reached an owner.
+    Usage(String),
+    /// An owner refused the call or did not answer.
+    Owner(CallFailure),
+}
+
+/// Parses `cmux agents` words (after `agents`) into a command. The MCP
+/// `agents_<verb>` tools build the same words, so both run this grammar.
+pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match words.as_slice() {
         [family] if *family == "snapshot" => Ok(AgentCommand::Snapshot),
@@ -168,12 +242,15 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
             action: "dialog.list".into(),
             args: words[2..].iter().map(|value| (*value).into()).collect(),
         }),
+        ["chat", rest @ ..] => chat::parse(rest).map(AgentCommand::Chat),
         ["dialog", "answer", request_id, rest @ ..] => Ok(AgentCommand::App {
             action: "dialog.answer".into(),
             args: std::iter::once((*request_id).into())
                 .chain(rest.iter().map(|value| (*value).into()))
                 .collect(),
         }),
+        ["wait", rest @ ..] => wait::parse(rest).map(AgentCommand::Wait),
+        ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
@@ -220,43 +297,128 @@ fn run_snapshot(global: &GlobalArgs) -> i32 {
     wire::print_local_success(&value, global.output)
 }
 
-fn run_resource(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
+/// Runs one agent action for `cmux agents` and the `agents_<verb>` MCP
+/// tools alike: the owner's request, the app focus a select implies, then a
+/// receipt with a fresh composed snapshot and the idempotency key a change
+/// carried. `session` routes daemon requests; the CLI routes with its global
+/// options and passes `None`. `origin` names the caller in app runs
+/// (`agents` for the CLI, `mcp` for tools).
+pub(super) fn execute<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    command: &AgentCommand,
+    idempotency_key: Option<&str>,
+    origin: &str,
+) -> Result<Value, AgentFailure> {
+    let (action, (result, key)) = match command {
+        AgentCommand::Snapshot => {
+            return Err(AgentFailure::Usage("snapshot is a read, not an action".into()));
+        }
+        AgentCommand::Resource { action, args } => {
+            (action, run_resource(backend, session, action, args, idempotency_key)?)
+        }
+        AgentCommand::App { action, args } => {
+            (action, run_app(backend, action, args, idempotency_key, origin)?)
+        }
+        // A chat verb answers its own receipt or page: a topology snapshot
+        // says nothing about what a chat was sent or answered.
+        AgentCommand::Chat(command) => {
+            return backend.chat(command, idempotency_key, origin).map_err(AgentFailure::Owner);
+        }
+        AgentCommand::Wait(request) => return wait::run(backend, session, request),
+        AgentCommand::Events(request) => return events::run(backend, session, request),
+    };
+    Ok(receipt(backend, session, action, result, key))
+}
+
+/// The key a change carries: the caller's, else a new one, so the receipt
+/// and a failure can both name it.
+fn change_key(given: Option<&str>) -> Result<String, AgentFailure> {
+    match given {
+        Some(key) => Ok(key.to_owned()),
+        None => wire::random_idempotency_key().map_err(|error| AgentFailure::Usage(error.0)),
+    }
+}
+
+fn run_resource<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    action: &str,
+    args: &[String],
+    idempotency_key: Option<&str>,
+) -> Result<(Value, Option<String>), AgentFailure> {
     let mut plan = match super::command::parse(args, Surface::CmuxTui) {
         Ok(CommandPlan::Protocol(plan)) => *plan,
         Ok(_) => {
-            return print_usage(global, "agents resource command did not produce a daemon request");
+            return Err(AgentFailure::Usage(
+                "agents resource command did not produce a daemon request".into(),
+            ));
         }
-        Err(error) => return print_usage(global, &error.0),
+        Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
-    if plan.operation.class() == OperationClass::Mutation {
-        plan.idempotency_key = global.idempotency_key.clone();
+    // `cmux agents` sends plain unary requests with no caller placement: its
+    // `current` is still the focused object, and it has no `caller`.
+    let caller = json!("caller");
+    if plan.params.as_object().is_some_and(|params| {
+        super::command::plan::CALLER_SCOPES.iter().any(|scope| params.get(*scope) == Some(&caller))
+    }) {
+        return Err(AgentFailure::Usage(
+            "cmux agents takes ids, current or names; `caller` is for the cmux resource commands"
+                .into(),
+        ));
     }
-    let result = match mcp::agent_resource(global, plan) {
-        Ok(result) => result,
-        Err(error) => return wire::print_local_error(&error, global.output, 3),
-    };
-    let result = match follow_app_focus(global, action, result) {
-        Ok(result) => result,
-        Err(code) => return code,
-    };
-    let value = receipt(global, action, result);
-    wire::print_local_success(&value, global.output)
+    plan.resolve.retain(|step| *step != Resolve::Caller);
+    if plan.operation.class() == OperationClass::Mutation {
+        plan.idempotency_key = Some(change_key(idempotency_key)?);
+    }
+    let key = plan.idempotency_key.clone();
+    let result = backend.resource(session, plan, &[]).map_err(AgentFailure::Owner)?;
+    Ok((follow_app_focus(backend, action, result)?, key))
 }
 
-fn follow_app_focus(global: &GlobalArgs, action: &str, result: Value) -> Result<Value, i32> {
+/// A select or focus also shows its object in the app's window, as
+/// `cmux workspace <id> focus` does (app_focus.rs). With no app, or an app
+/// that does not know the object, the daemon's answer stands.
+fn follow_app_focus<B: Backend>(
+    backend: &B,
+    action: &str,
+    result: Value,
+) -> Result<Value, AgentFailure> {
     let operation = match action {
         "workspace.select" => ResourceOperation::WorkspaceFocus,
         "tab.select" | "terminal.focus" => ResourceOperation::TabFocus,
         _ => return Ok(result),
     };
-    app_focus::after_daemon(global, operation, result)
-        .map_err(|error| wire::print_local_error(&error, global.output, 3))
+    let app_focus::Follow::Focus(focus) = app_focus::follow_for(operation) else {
+        return Ok(result);
+    };
+    let Some(id) = app_focus::reply_id(&result) else { return Ok(result) };
+    let params = app_focus::focus_params(&focus, &id);
+    match backend.app("action.run", params, app::WAITING_RUN_TIMEOUT, None, true) {
+        Ok(_) => Ok(result),
+        Err(failure) if app_focus::is_not_found(&failure.error) || no_app(&failure) => Ok(result),
+        Err(failure) => Err(AgentFailure::Owner(failure)),
+    }
 }
 
-fn run_app(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
+/// No app answers on its control socket, so no window follows.
+fn no_app(failure: &CallFailure) -> bool {
+    failure.kind == FailureKind::NotRun
+        && matches!(failure.error["code"].as_str(), Some("app.not_found" | "app.unreachable"))
+}
+
+fn run_app<B: Backend>(
+    backend: &B,
+    action: &str,
+    args: &[String],
+    idempotency_key: Option<&str>,
+    origin: &str,
+) -> Result<(Value, Option<String>), AgentFailure> {
     let (method, params, timeout) = match action {
         "palette.open" => {
-            let mut params = app::action_run_params("palette.open", ActionName::Any, "agents");
+            // The app takes cli, mcp, script or remote; `agents` is only the receipt's label.
+            let app_origin = if origin == "mcp" { "mcp" } else { "cli" };
+            let mut params = app::action_run_params("palette.open", ActionName::Any, app_origin);
             params.insert("focus".into(), json!(true));
             ("action.run", Value::Object(params), app::WAITING_RUN_TIMEOUT)
         }
@@ -264,19 +426,16 @@ fn run_app(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
             let pending_only = !args.iter().any(|arg| arg == "--all");
             ("feed.list", json!({"pending_only": pending_only}), app::READ_TIMEOUT)
         }
-        "dialog.answer" => match dialog_answer(args) {
-            Ok(value) => value,
-            Err(error) => return print_usage(global, &error.0),
-        },
-        _ => return print_usage(global, "unknown app action"),
+        "dialog.answer" => dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?,
+        _ => return Err(AgentFailure::Usage("unknown app action".into())),
     };
-    let result =
-        match mcp::agent_app(global, method, params, timeout, global.idempotency_key.as_deref()) {
-            Ok(result) => result,
-            Err(error) => return wire::print_local_error(&error, global.output, 3),
-        };
-    let value = receipt(global, action, result);
-    wire::print_local_success(&value, global.output)
+    // Feed replies change the app but take no key; only `action.run` does.
+    let mutation = method != "feed.list";
+    let key = if method == "action.run" { Some(change_key(idempotency_key)?) } else { None };
+    let result = backend
+        .app(method, params, timeout, key.as_deref(), mutation)
+        .map_err(AgentFailure::Owner)?;
+    Ok((result, key))
 }
 
 fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), UsageError> {
@@ -333,12 +492,30 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
     Ok((method, Value::Object(params), app::WAITING_RUN_TIMEOUT))
 }
 
-fn receipt(global: &GlobalArgs, action: &str, result: Value) -> Value {
-    let state = compose_snapshot(
-        mcp::agent_resource(global, snapshot_plan()),
-        mcp::agent_app(global, "snapshot.get", json!({}), app::READ_TIMEOUT, None),
-    );
-    json!({"schema_version": 1, "action": action, "result": result, "state": state})
+fn receipt<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    action: &str,
+    result: Value,
+    idempotency_key: Option<String>,
+) -> Value {
+    let state = fresh_state(backend, session);
+    let mut receipt =
+        json!({"schema_version": 1, "action": action, "result": result, "state": state});
+    if let Some(key) = idempotency_key {
+        receipt.set("idempotency_key", Value::String(key));
+    }
+    receipt
+}
+
+/// A fresh composed snapshot, the `state` of every receipt.
+fn fresh_state<B: Backend>(backend: &B, session: Option<&str>) -> Value {
+    compose_snapshot(
+        backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
+        backend
+            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
+            .map_err(mcp::agent_failure_value),
+    )
 }
 
 fn print_usage(global: &GlobalArgs, message: &str) -> i32 {
@@ -369,6 +546,14 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         .cloned()
         .unwrap_or_else(|| json!([]));
     merge_app_tabs(&mut tabs, topology, workspace_ids.as_ref());
+    let mut browsers = daemon_value
+        .as_ref()
+        .and_then(|value| value.get("browsers"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    if let Some(topology) = topology {
+        mark_agent_chat_tabs(&mut tabs, &mut browsers, &app_chat_sessions(topology));
+    }
     let focus = topology
         .and_then(|value| value.get("focus"))
         .filter(|value| focus_in_scope(value, workspace_ids.as_ref()))
@@ -383,7 +568,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         "panes": daemon_value.as_ref().and_then(|value| value.get("panes")).cloned().unwrap_or_else(|| json!([])),
         "tabs": tabs,
         "terminals": daemon_value.as_ref().and_then(|value| value.get("terminals")).cloned().unwrap_or_else(|| json!([])),
-        "browsers": daemon_value.as_ref().and_then(|value| value.get("browsers")).cloned().unwrap_or_else(|| json!([])),
+        "browsers": browsers,
         "focus": focus,
         "selection": selection(topology, daemon_value.as_ref(), workspace_ids.as_ref()),
         "sources": {
@@ -391,6 +576,14 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
             "app": {"available": app_value.is_some(), "error": app_error.unwrap_or(Value::Null)},
         },
     });
+    // Where the caller is (the app resolves its agent session or terminal):
+    // `caller` marks its own workspace, pane and tab, `beside` the column
+    // right of it, where the app opens the caller's new tabs.
+    for key in ["caller", "beside"] {
+        if let Some(value) = app_value.as_ref().and_then(|value| value.get(key)) {
+            snapshot[key] = value.clone();
+        }
+    }
     if let Some(shown) = topology
         .filter(|value| {
             value.get("focus").is_some_and(|focus| focus_in_scope(focus, workspace_ids.as_ref()))
@@ -399,7 +592,10 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         .and_then(|value| value.get("workspace"))
         .and_then(Value::as_str)
     {
-        app_focus::overlay_focused(&mut snapshot["workspaces"], shown);
+        app_focus::overlay_focused(
+            &mut snapshot["workspaces"],
+            &app_focus::AppWorkspaces::showing(shown),
+        );
     }
     snapshot
 }
@@ -455,12 +651,12 @@ fn scoped_windows(topology: Option<&Value>, workspace_ids: Option<&HashSet<Strin
                     return None;
                 }
                 let mut window = window.clone();
-                window["workspaces"] = Value::Array(selected);
+                window.set("workspaces", Value::Array(selected));
                 if let Some(workspace) = window.get("workspace").cloned() {
                     let workspace_id =
                         workspace.as_str().or_else(|| workspace.get("id").and_then(Value::as_str));
                     if workspace_id.is_none_or(|id| !workspace_ids.contains(id)) {
-                        window["workspace"] = window["workspaces"][0].clone();
+                        window.set("workspace", window["workspaces"][0].clone());
                     }
                 }
                 Some(window)
@@ -544,6 +740,62 @@ fn collect_app_tabs(topology: &Value, workspace_ids: Option<&HashSet<String>>) -
     Value::Array(tabs)
 }
 
+/// The app's agent chat tabs by tab id: each `kind: conversation` tab with its acpmux
+/// `agent_session` anywhere in the app topology.
+fn app_chat_sessions(topology: &Value) -> HashMap<String, String> {
+    fn visit(value: &Value, out: &mut HashMap<String, String>) {
+        match value {
+            Value::Object(object) => {
+                if object.get("kind").and_then(Value::as_str) == Some("conversation")
+                    && let (Some(id), Some(session)) = (
+                        object.get("id").and_then(Value::as_str),
+                        object.get("agent_session").and_then(Value::as_str),
+                    )
+                {
+                    out.insert(id.to_owned(), session.to_owned());
+                }
+                object.values().for_each(|child| visit(child, out));
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, out)),
+            _ => {}
+        }
+    }
+    let mut out = HashMap::new();
+    visit(topology, &mut out);
+    out
+}
+
+/// The daemon reads an agent chat tab to this CLI as a `browser` at about:blank (the
+/// connection does not negotiate `agent-session-tabs-v1`), so an agent that opened a chat
+/// saw no chat and started another. Each tab the app shows as a chat becomes
+/// `content_kind: conversation` with its `agent_session`, and its stand-in browser leaves
+/// `browsers`.
+fn mark_agent_chat_tabs(tabs: &mut Value, browsers: &mut Value, chats: &HashMap<String, String>) {
+    if chats.is_empty() {
+        return;
+    }
+    let mut stand_ins = HashSet::new();
+    for tab in tabs.as_array_mut().into_iter().flatten() {
+        let Some(session) = tab.get("id").and_then(Value::as_str).and_then(|id| chats.get(id))
+        else {
+            continue;
+        };
+        let session = Value::String(session.clone());
+        if let Some(browser) = tab.get("content_id").and_then(Value::as_str) {
+            stand_ins.insert(browser.to_owned());
+        }
+        tab.set("content_kind", Value::String("conversation".into()));
+        tab.set("agent_session", session);
+    }
+    if let Some(browsers) = browsers.as_array_mut() {
+        browsers.retain(|browser| {
+            let field = |key: &str| browser.get(key).and_then(Value::as_str);
+            !field("id").is_some_and(|id| stand_ins.contains(id))
+                && !field("tab_id").is_some_and(|id| chats.contains_key(id))
+        });
+    }
+}
+
 fn is_app_page_tab(tab: &Value) -> bool {
     ["kind", "content_kind", "type"].iter().any(|field| {
         matches!(
@@ -590,13 +842,13 @@ pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) ->
     }
     let returned = items.len();
     let next = offset.saturating_add(returned);
-    snapshot["items"] = Value::Array(items);
-    snapshot["offset"] = json!(offset);
-    snapshot["limit"] = json!(limit);
-    snapshot["total"] = json!(total);
-    snapshot["returned"] = json!(returned);
-    snapshot["next_offset"] = if next < total { json!(next) } else { Value::Null };
-    snapshot["truncated"] = json!(offset > 0 || next < total);
+    snapshot.set("items", Value::Array(items));
+    snapshot.set("offset", json!(offset));
+    snapshot.set("limit", json!(limit));
+    snapshot.set("total", json!(total));
+    snapshot.set("returned", json!(returned));
+    snapshot.set("next_offset", if next < total { json!(next) } else { Value::Null });
+    snapshot.set("truncated", json!(offset > 0 || next < total));
     snapshot
 }
 
@@ -646,290 +898,7 @@ pub(super) fn snapshot_tool() -> Value {
     })
 }
 
+pub(super) mod chat;
+mod chat_control;
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn snapshot_keeps_stable_ids_and_selection() {
-        let value = compose_snapshot(
-            Ok(json!({"workspaces":[{"id":"ws_a"}],"tabs":[{"id":"tab_a"}]})),
-            Ok(
-                json!({"topology":{"windows":[{"id":"win_a"}],"focus":{"workspace":"ws_a","pane":"pane_a","tab":"tab_a"}}}),
-            ),
-        );
-        assert_eq!(value["windows"][0]["id"], "win_a");
-        assert_eq!(value["workspaces"][0]["id"], "ws_a");
-        assert_eq!(value["selection"]["tab"], "tab_a");
-        assert_eq!(value["sources"]["daemon"]["available"], true);
-    }
-
-    #[test]
-    fn snapshot_merges_nested_app_page_tabs_without_duplicates() {
-        let value = compose_snapshot(
-            Ok(json!({
-                "workspaces": [{"id":"ws_a"}],
-                "tabs":[{"id":"tab_a"}]
-            })),
-            Ok(json!({
-                "topology": {
-                    "windows": [{
-                        "workspaces": [{
-                            "id":"ws_a",
-                            "tabs": [
-                                {"id":"page_settings","kind":"page"},
-                                {"id":"tab_a","kind":"terminal"},
-                                {"id":"tab_browser","kind":"browser"}
-                            ]
-                        }, {
-                            "id":"ws_other",
-                            "tabs": [{"id":"page_other","kind":"page"}]
-                        }]
-                    }]
-                }
-            })),
-        );
-        let tabs = value["tabs"].as_array().unwrap();
-        assert_eq!(tabs.iter().filter(|tab| tab["id"] == "tab_a").count(), 1);
-        assert_eq!(tabs.iter().filter(|tab| tab["id"] == "page_settings").count(), 1);
-        assert!(!tabs.iter().any(|tab| tab["id"] == "tab_browser"));
-        assert!(!tabs.iter().any(|tab| tab["id"] == "page_other"));
-    }
-
-    #[test]
-    fn snapshot_retains_owner_failures_for_partial_readiness() {
-        let value = compose_snapshot(
-            Err(json!({"code":"transport.unavailable"})),
-            Ok(json!({"topology":{"windows":[]}})),
-        );
-        assert_eq!(value["sources"]["daemon"]["available"], false);
-        assert_eq!(value["sources"]["app"]["available"], true);
-        assert_eq!(value["sources"]["daemon"]["error"]["code"], "transport.unavailable");
-    }
-
-    #[test]
-    fn agents_snapshot_page_preserves_complete_objects_and_continues() {
-        let value = compose_snapshot(
-            Ok(json!({"workspaces": [{"id": "ws_a"}, {"id": "ws_b"}]})),
-            Ok(json!({"topology": {"windows": [{"workspaces": ["ws_a", "ws_b"]}]}})),
-        );
-        let first = snapshot_page(value.clone(), 0, 1);
-        assert_eq!(first["items"][0]["kind"], "window");
-        assert_eq!(first["items"][0]["value"]["workspaces"], json!(["ws_a", "ws_b"]));
-        assert_eq!(first["next_offset"], 1);
-        let last = snapshot_page(value, 1, 10);
-        assert_eq!(last["items"].as_array().unwrap().len(), 2);
-        assert_eq!(last["items"][0]["value"]["id"], "ws_a");
-        assert_eq!(last["items"][1]["value"]["id"], "ws_b");
-        assert_eq!(last["next_offset"], Value::Null);
-    }
-
-    #[test]
-    fn snapshot_uses_app_workspace_focus_when_both_owners_disagree() {
-        let value = compose_snapshot(
-            Ok(json!({
-                "workspaces": [
-                    {"id": "ws_a", "focused": true},
-                    {"id": "ws_b", "focused": false}
-                ]
-            })),
-            Ok(json!({"topology": {"focus": {"workspace": "ws_b"}}})),
-        );
-        assert_eq!(value["workspaces"][0]["focused"], false);
-        assert_eq!(value["workspaces"][1]["focused"], true);
-    }
-
-    #[test]
-    fn snapshot_falls_back_to_daemon_focus_when_app_has_no_active_resource() {
-        let value = compose_snapshot(
-            Ok(json!({"focus":{"workspace":"ws_daemon","tab":"tab_daemon"}})),
-            Ok(json!({"topology":{"focus":{"workspace":null,"pane":null,"tab":null}}})),
-        );
-        assert_eq!(value["focus"]["workspace"], "ws_daemon");
-        assert_eq!(value["selection"]["tab"], "tab_daemon");
-    }
-
-    #[test]
-    fn snapshot_falls_back_when_app_focus_is_outside_selected_session() {
-        let value = compose_snapshot(
-            Ok(json!({
-                "workspaces": [{"id":"ws_selected"}],
-                "focus": {"workspace":"ws_selected","tab":"tab_selected"}
-            })),
-            Ok(json!({"topology":{"focus":{"workspace":"ws_remote","tab":"tab_remote"}}})),
-        );
-        assert_eq!(value["focus"]["workspace"], "ws_selected");
-        assert_eq!(value["selection"]["tab"], "tab_selected");
-    }
-
-    #[test]
-    fn snapshot_falls_back_when_app_focus_has_no_selected_workspace() {
-        let value = compose_snapshot(
-            Ok(json!({
-                "workspaces": [{"id":"ws_selected"}],
-                "focus": {"workspace":"ws_selected","pane":"pane_selected"}
-            })),
-            Ok(json!({
-                "topology": {"focus": {"workspace":null,"pane":"pane_remote"}}
-            })),
-        );
-        assert_eq!(value["focus"]["workspace"], "ws_selected");
-        assert_eq!(value["focus"]["pane"], "pane_selected");
-    }
-
-    #[test]
-    fn snapshot_excludes_orphan_app_page_tabs_when_daemon_has_workspaces() {
-        let value = compose_snapshot(
-            Ok(json!({"workspaces": [{"id":"ws_selected"}]})),
-            Ok(json!({
-                "topology": {
-                    "tabs": [{"id":"page_orphan","kind":"page"}],
-                    "windows": [{"workspaces": [{
-                        "id":"ws_selected",
-                        "tabs": [{"id":"page_selected","kind":"page"}]
-                    }]}]
-                }
-            })),
-        );
-        let tabs = value["tabs"].as_array().unwrap();
-        assert!(tabs.iter().any(|tab| tab["id"] == "page_selected"));
-        assert!(!tabs.iter().any(|tab| tab["id"] == "page_orphan"));
-    }
-
-    #[test]
-    fn snapshot_retains_orphan_app_page_tabs_when_daemon_is_unavailable() {
-        let value = compose_snapshot(
-            Err(json!({"code":"transport.unavailable"})),
-            Ok(json!({
-                "topology": {"tabs": [{"id":"page_orphan","kind":"page"}]}
-            })),
-        );
-        assert!(value["tabs"].as_array().unwrap().iter().any(|tab| tab["id"] == "page_orphan"));
-    }
-
-    #[test]
-    fn aliases_scope_current_targets_before_resource_actions() {
-        let AgentCommand::Resource { args, .. } =
-            command(&["terminal".into(), "split".into(), "right".into()]).unwrap()
-        else {
-            panic!("expected resource command")
-        };
-        assert_eq!(
-            args,
-            vec![
-                "workspace",
-                "current",
-                "screen",
-                "current",
-                "pane",
-                "current",
-                "split",
-                "--right"
-            ]
-        );
-
-        let AgentCommand::Resource { args, .. } =
-            command(&["tab".into(), "select".into(), "current".into()]).unwrap()
-        else {
-            panic!("expected resource command")
-        };
-        assert_eq!(
-            args,
-            vec![
-                "workspace",
-                "current",
-                "screen",
-                "current",
-                "pane",
-                "current",
-                "tab",
-                "current",
-                "focus"
-            ]
-        );
-    }
-
-    #[test]
-    fn aliases_route_qualified_targets_to_their_session() {
-        let mut global = GlobalArgs::default();
-        let mut args = vec!["tab".into(), "select".into(), "build-box:tab_1a2b".into()];
-        normalize_qualified_targets(&mut global, &mut args).unwrap();
-        assert_eq!(global.session.as_deref(), Some("build-box"));
-        assert_eq!(args[2], "tab_1a2b");
-
-        let mut args = vec![
-            "terminal".into(),
-            "split".into(),
-            "right".into(),
-            "--surface".into(),
-            "build-box:pane_1a2b".into(),
-        ];
-        normalize_qualified_targets(&mut global, &mut args).unwrap();
-        assert_eq!(args[4], "pane_1a2b");
-    }
-
-    #[test]
-    fn aliases_map_to_existing_typed_operations() {
-        let AgentCommand::Resource { action, args } = command(&[
-            "terminal".into(),
-            "split".into(),
-            "right".into(),
-            "--surface".into(),
-            "pane_a".into(),
-        ])
-        .unwrap() else {
-            panic!("expected resource command")
-        };
-        assert_eq!(action, "terminal.split");
-        assert_eq!(args, vec!["pane", "pane_a", "split", "--right"]);
-    }
-
-    #[test]
-    fn dialog_answers_preserve_multiple_selections_and_reject_mixed_modes() {
-        let AgentCommand::App { action, args } = command(&[
-            "dialog".into(),
-            "answer".into(),
-            "request_a".into(),
-            "--selection".into(),
-            "one".into(),
-            "--selection".into(),
-            "two".into(),
-        ])
-        .unwrap() else {
-            panic!("expected app command")
-        };
-        assert_eq!(action, "dialog.answer");
-        assert_eq!(args, vec!["request_a", "--selection", "one", "--selection", "two"]);
-        assert!(
-            command(&[
-                "dialog".into(),
-                "answer".into(),
-                "request_a".into(),
-                "--mode".into(),
-                "permission".into(),
-                "--selection".into(),
-                "one".into(),
-            ])
-            .is_ok()
-        );
-        assert!(
-            dialog_answer(&[
-                "request_a".into(),
-                "--mode".into(),
-                "permission".into(),
-                "--selection".into(),
-                "one".into(),
-            ])
-            .is_err()
-        );
-        let (_, params, _) = dialog_answer(&[
-            "request_a".into(),
-            "--selection".into(),
-            "one".into(),
-            "--selection".into(),
-            "two".into(),
-        ])
-        .unwrap();
-        assert_eq!(params["selections"], json!(["one", "two"]));
-    }
-}
+mod tests;

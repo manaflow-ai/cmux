@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,17 +18,32 @@ INPUTS = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
 # until the v1 write stops (B2); v1 is deleted with the submodule (B3).
 KEY_VERSIONS = ("v1", "v2")
 V1_ONLY_INPUTS = frozenset({("gitlink", "ghostty")})
+# In a partial clone a missing object is fetched from the promisor remote, one
+# fetch per lookup; a revision the checkout lacks pegged a Mac for 19 minutes
+# (2026-10-20). Every object read stays local and bounded.
+GIT_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+GIT_TIMEOUT_SECONDS = 60
 
 
 def git(*args: str) -> str:
     # stderr stays quiet: an absent optional input is an expected miss, and any
     # other failure is raised as CalledProcessError and reported by main().
-    return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.DEVNULL).strip()
+    return subprocess.check_output(
+        ["git", "-C", str(ROOT), *args],
+        text=True,
+        stderr=subprocess.DEVNULL,
+        env=GIT_ENV,
+        timeout=GIT_TIMEOUT_SECONDS,
+    ).strip()
 
 
 def tree_key(revision: str, version: str = "v2") -> str:
     if version not in KEY_VERSIONS:
         raise RuntimeError(f"unknown cmux-tui tree key version {version!r}")
+    try:
+        git("cat-file", "-e", f"{revision}^{{commit}}")
+    except subprocess.CalledProcessError:
+        raise RuntimeError(f"{revision} is not a commit in this checkout; fetch it first") from None
     entries: dict[tuple[str, ...], tuple[str, str, str]] = {}
     for raw in INPUTS.read_text(encoding="utf-8").splitlines():
         raw = raw.strip()
@@ -76,6 +92,8 @@ def tree_key(revision: str, version: str = "v2") -> str:
         return subprocess.check_output(
             ["git", "-C", str(ROOT), "mktree", "--missing"],
             input=("\n".join(lines) + "\n").encode(),
+            env=GIT_ENV,
+            timeout=GIT_TIMEOUT_SECONDS,
         ).decode().strip()
 
     return make_tree(())
@@ -95,7 +113,7 @@ def main() -> int:
     revision = args[0] if args else "HEAD"
     try:
         print(tree_key(revision, version))
-    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"error: could not compute cmux-tui tree key: {error}; see {REPAIR}", file=sys.stderr)
         return 1
     return 0

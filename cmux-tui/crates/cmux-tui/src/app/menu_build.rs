@@ -156,6 +156,9 @@ impl App {
         if self.surface_only.is_none() {
             items.push(self.sidebar_presentation_menu_item());
         }
+        if let Some(docks) = self.dock_menu_item() {
+            items.push(docks);
+        }
         items.push(self.menu_item(MenuAction::ShowShortcuts));
         items
     }
@@ -322,6 +325,9 @@ impl App {
                             MenuAction::RenameWorkspace(id),
                             MenuAction::CloseWorkspace(id),
                         ]));
+                        if let Some(pin) = self.workspace_pin_menu_action(id) {
+                            groups.push(self.menu_group([pin]));
+                        }
                         groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
                     }
                 }
@@ -367,6 +373,9 @@ impl App {
                             MenuAction::RenameWorkspace(id),
                             MenuAction::CloseWorkspace(id),
                         ]));
+                        if let Some(pin) = self.workspace_pin_menu_action(id) {
+                            groups.push(self.menu_group([pin]));
+                        }
                         groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
                     }
                 }

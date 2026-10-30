@@ -22,8 +22,10 @@ command -v bun >/dev/null 2>&1 || { echo "error: bun is required" >&2; exit 1; }
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
+# esbuild writes the CSS the page imports (the shared desktop layer, then styles.css) to app.css.
 bun x esbuild src/agent-activity/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify --outfile="$WORK/app.js"
-cat src/agent-activity/styles.css > "$WORK/styles.css"
+[ -s "$WORK/app.css" ] || { echo "error: the Activity bundle has no CSS" >&2; exit 1; }
+cp "$WORK/app.css" "$WORK/styles.css"
 CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<meta http-equiv="Content-Security-Policy" content="%s" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>Agent Activity</title>\n<style>\n' "$CSP"

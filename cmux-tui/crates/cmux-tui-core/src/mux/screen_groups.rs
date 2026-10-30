@@ -399,12 +399,14 @@ impl Mux {
                         state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
                         "workspace limit reached"
                     );
-                    let name = Mux::default_workspace_name(state);
+                    let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,
                         public_id: WorkspacePublicId::random()?,
                         key: Mux::new_workspace_key()?,
                         name,
+                        name_source: crate::resource_name::NameSource::Auto,
+                        name_revision: 0,
                         screens: Vec::new(),
                         active_screen: 0,
                     });
@@ -450,6 +452,19 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
     ) -> anyhow::Result<(String, ResourcePatchCommit)> {
+        self.create_screen_group_with_id(request, members, name, color, new_screen_group_id())
+    }
+
+    /// [`Self::create_screen_group_request`] with the group's id given: a
+    /// reopened ungroup forms its group again under its own id.
+    pub(crate) fn create_screen_group_with_id(
+        self: &Arc<Self>,
+        request: StripRequest,
+        members: &[ScreenId],
+        name: Option<String>,
+        color: Option<String>,
+        id: String,
+    ) -> anyhow::Result<(String, ResourcePatchCommit)> {
         anyhow::ensure!(
             !members.is_empty(),
             "bad request: a screen group needs at least one screen"
@@ -458,7 +473,6 @@ impl Mux {
         let color = color.unwrap_or_else(|| "grey".to_string());
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
-        let id = new_screen_group_id();
         let (_, commit) = self.commit_screen_request(request, |_, state, edit| {
             edit.result = ScreenResult::Group(id.clone());
             let screens = &mut edit.screens;
@@ -486,6 +500,7 @@ impl Mux {
                     color,
                     collapsed: false,
                     saved_id: None,
+                    icon: None,
                 },
             );
             Ok(())
@@ -497,7 +512,9 @@ impl Mux {
         Ok((id, commit))
     }
 
-    /// Rename, recolor, or collapse a group. A linked saved record follows.
+    /// Rename, recolor, collapse, or set or clear the icon of a group
+    /// (`icon`: `None` keeps it, `Some(None)` clears it). A linked saved
+    /// record follows.
     pub fn update_screen_group_as(
         &self,
         actor: &Actor,
@@ -505,19 +522,15 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
+        icon: Option<Option<String>>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
-        if let Some(name) = &name {
-            validate_tab_group_name(name)?;
-        }
-        if let Some(color) = &color {
-            validate_tab_group_color(color)?;
-        }
         self.update_screen_group_request(
             StripRequest::local_screens(actor, "screen.group.update"),
             group,
             name,
             color,
             collapsed,
+            icon,
         )?;
         Ok(self.screen_group_outcome(group))
     }
@@ -529,12 +542,18 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
+        icon: Option<Option<String>>,
     ) -> anyhow::Result<StateCommit> {
         if let Some(name) = &name {
             validate_tab_group_name(name)?;
         }
         if let Some(color) = &color {
             validate_tab_group_color(color)?;
+        }
+        // The shared icon string; an asset must be stored (checked again in
+        // the writing transaction, so no sweep runs in between).
+        if let Some(Some(icon)) = &icon {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
         }
         let (saved, commit) = self.commit_screen_rows(request, |_, edit| {
             edit.result = ScreenResult::Group(group.to_string());
@@ -551,6 +570,9 @@ impl Mux {
             }
             if let Some(collapsed) = collapsed {
                 record.collapsed = collapsed;
+            }
+            if let Some(icon) = icon {
+                record.icon = icon;
             }
             Ok(record.saved_id.clone())
         })?;
@@ -725,12 +747,14 @@ impl Mux {
                         state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
                         "workspace limit reached"
                     );
-                    let name = Mux::default_workspace_name(state);
+                    let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,
                         public_id: WorkspacePublicId::random()?,
                         key: Mux::new_workspace_key()?,
                         name,
+                        name_source: crate::resource_name::NameSource::Auto,
+                        name_revision: 0,
                         screens: Vec::new(),
                         active_screen: 0,
                     });
@@ -773,15 +797,29 @@ impl Mux {
         let members = self.screen_group_outcome(group).members;
         let (_, commit) = self.commit_screen_rows(request, |state, edit| {
             let screens = &mut edit.screens;
-            anyhow::ensure!(screens.groups.remove(group).is_some(), "unknown screen group {group}");
+            let record = screens
+                .groups
+                .remove(group)
+                .with_context(|| format!("unknown screen group {group}"))?;
             screens.members.retain(|_, member| member != group);
-            edit.result = ScreenResult::Release {
-                group: group.to_string(),
-                screens: members
-                    .iter()
-                    .filter_map(|screen| screen_public_id(state, *screen).ok())
-                    .collect(),
-            };
+            let screen_ids = members
+                .iter()
+                .filter_map(|screen| screen_public_id(state, *screen).ok())
+                .collect::<Vec<_>>();
+            let workspace = state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.key == record.workspace_key)
+                .map(|workspace| workspace.public_id.to_string());
+            edit.ungrouped = Some(serde_json::json!({
+                "id": record.id,
+                "workspace_id": workspace,
+                "name": record.name,
+                "color": record.color,
+                "collapsed": record.collapsed,
+                "screen_ids": screen_ids,
+            }));
+            edit.result = ScreenResult::Release { group: group.to_string(), screens: screen_ids };
             Ok(())
         })?;
         if !commit.replayed {
@@ -839,7 +877,7 @@ impl Mux {
             crate::workspace_registry::validate_presentation_color(color)?;
         }
         if let Some(icon) = &spec.icon {
-            crate::workspace_registry::validate_presentation_icon(icon)?;
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
         }
         let (surface, screen) =
             self.new_screen_created_as(actor, workspace, spec.name.clone(), spawn, size)?;

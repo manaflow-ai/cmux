@@ -30,8 +30,21 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
 
     public var items: [SidebarItem] { topItems + rows }
 
+    /// The walked list: every item, or only workspaces and collapsed groups. Top items the
+    /// list draws as rows (a document block's Home and App Store, links) are not workspaces.
     public func items(_ scope: SidebarNavigationSettings.Scope) -> [SidebarItem] {
-        scope == .allItems ? items : rows
+        scope == .allItems ? items : rows.filter { if case .topItem = $0 { false } else { true } }
+    }
+
+    /// Whether selecting `item` shows the list from its very top: a top item
+    /// (Home, the App Store) or a row with only top items before it (the first
+    /// workspace, under a document block's Home), so the pinned items above it
+    /// stay in view (a Cmd-1 to Home, a wrap from the last workspace).
+    public func revealsTop(for item: SidebarItem?) -> Bool {
+        guard let stop = stop(for: item) else { return false }
+        if topItems.contains(stop) { return true }
+        guard let index = rows.firstIndex(of: stop) else { return false }
+        return rows[..<index].allSatisfy { if case .topItem = $0 { true } else { false } }
     }
 
     /// The stop in this order that `item` is at (a workspace in a collapsed group: the group).
@@ -51,6 +64,17 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
         if settings.cmd9 == .last, number >= 9 { return last }
         if number <= list.count { return list[number - 1] }
         return settings.cmd9 == .last ? last : nil
+    }
+
+    /// The digit whose Cmd-`digit` selects `item` (the inverse of ``pick(_:_:)``, so a shortcut hint
+    /// shows the digit that really selects its row: Home and the App Store count first with
+    /// `allItems`). Its place when 1...8 (or 9 with `ninth`); 9 for the last item past the eighth
+    /// with `last`; nil for an item no digit selects.
+    public func number(for item: SidebarItem, _ settings: SidebarNavigationSettings) -> Int? {
+        let list = items(settings.numbering)
+        guard let index = list.firstIndex(of: item) else { return nil }
+        if index < 8 || (index == 8 && settings.cmd9 == .ninth) { return index + 1 }
+        return settings.cmd9 == .last && index == list.count - 1 ? 9 : nil
     }
 
     /// The item `offset` steps from `selected` (Cmd-Ctrl-] is +1). From an

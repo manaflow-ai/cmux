@@ -17,6 +17,8 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
         public_id: WorkspacePublicId::parse(format!("ws_{id:032x}")).unwrap(),
         key: key.into(),
         name: name.into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "default".into(),
     }
 }
@@ -126,6 +128,8 @@ fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publicati
             public_id: public_id.clone(),
             key: key.to_string(),
             name: "Reserved workspace".to_string(),
+            name_source: Default::default(),
+            name_revision: 0,
             group_key: "interrupted-public-id".to_string(),
         };
         registry
@@ -1124,7 +1128,14 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     let c = events.batches[0].changes.as_array().unwrap();
     assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
     assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
-    assert!(c[0].get("event").is_none() && c.len() == 2);
+    assert!(c[0].get("event").is_none());
+    // Then the new workspace's sidebar document item and the document
+    // revision (sidebar-doc-v1).
+    assert!(
+        c[2..].iter().all(|change| change["kind"] == "state_upsert"
+            && matches!(change["resource"].as_str(), Some("sidebar_item" | "sidebar_doc"))),
+        "{c:?}"
+    );
     assert_eq!(
         registry
             .connection
@@ -3214,6 +3225,7 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
     let target = workspaces[499].clone();
     let mut renamed = target.clone();
     renamed.name = "Renamed".into();
+    renamed.name_revision += 1;
     let changes_before = registry.connection.get().total_changes();
     let started = std::time::Instant::now();
     registry
@@ -3315,6 +3327,8 @@ fn durable_commit_recovers_and_changes_generation() {
                     public_id: WorkspacePublicId::parse(format!("ws_{:032x}", 1)).unwrap(),
                     key: "one".into(),
                     name: "One".into(),
+                    name_source: Default::default(),
+                    name_revision: 0,
                     group_key: "default".into(),
                 }],
                 &result,
@@ -3343,6 +3357,8 @@ fn retry_precedes_revision_check_and_payload_mismatch_is_rejected() {
         public_id: WorkspacePublicId::parse(format!("ws_{:032x}", 1)).unwrap(),
         key: "one".into(),
         name: "One".into(),
+        name_source: Default::default(),
+        name_revision: 0,
         group_key: "default".into(),
     }];
     let first = registry
@@ -5573,11 +5589,25 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, replay);
 
     assert!(
-        registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                output.len() as u64,
+                &blob
+            )
+            .unwrap()
     );
     // The exit latch is first-writer-wins; a replayed store is a no-op.
     assert!(
-        !registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        !registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                output.len() as u64,
+                &blob
+            )
+            .unwrap()
     );
 
     let snapshot = registry
@@ -5597,6 +5627,7 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
             .put_terminal_exit_snapshot(
                 other.as_str(),
                 "30000000000040008000000000000002",
+                0,
                 &other_blob
             )
             .unwrap()
@@ -6163,5 +6194,8 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
 }
 
 mod exit_snapshot_generations;
+mod integrity_check_scope;
+mod ledger_retention;
 mod terminal_journal_append;
 mod terminal_keep_tests;
+mod terminal_resume_tests;

@@ -15,6 +15,9 @@ struct WorkspaceBlueprintBuilder: Sendable {
     let browsers: Bool
     /// Engine for a page whose engine was not recorded.
     let defaultEngine: BrowserEngine
+    /// The environment a terminal with a replay file starts with, plus that
+    /// file; its own `env` replaces the daemon's default one.
+    var replayEnvironment: [String: String] = [:]
 
     /// Fills workspace `key`, whose first pane holds one new terminal (in
     /// the first tab's directory), with `blueprint`.
@@ -55,10 +58,10 @@ struct WorkspaceBlueprintBuilder: Sendable {
             var closeInitial = false
             for (index, tab) in tabs.enumerated() {
                 switch tab {
-                case .terminal(let cwd):
+                case .terminal(let cwd, let replay):
                     // The pane's first terminal is the one it was made with.
                     if index == 0 { continue }
-                    try await connection.newTab(in: pane, options: SpawnOptions(cwd: cwd, workspace: key))
+                    try await connection.newTab(in: pane, options: options(cwd: cwd, replay: replay))
                 case .browser(let url, let engine, let profile):
                     guard browsers else { continue }
                     // The copy opens in the page's own browser profile.
@@ -74,9 +77,22 @@ struct WorkspaceBlueprintBuilder: Sendable {
 
     /// New terminal options for a pane whose tabs are `node`'s first leaf.
     private func options(for node: WorkspaceBlueprint.Node) -> SpawnOptions {
-        if case .terminal(let cwd)? = node.tabs.first { return SpawnOptions(cwd: cwd, workspace: key) }
+        if case .terminal(let cwd, let replay)? = node.tabs.first { return options(cwd: cwd, replay: replay) }
         return SpawnOptions(workspace: key)
     }
+
+    private func options(cwd: String?, replay: String?) -> SpawnOptions {
+        var options = SpawnOptions(cwd: cwd, workspace: key)
+        if let replay { options.env = Self.replaying(replay, in: replayEnvironment) }
+        return options
+    }
+
+    /// `environment` with the replay file a new shell prints once.
+    static func replaying(_ file: String, in environment: [String: String]) -> [String: String] {
+        environment.merging([Self.replayKey: file]) { _, file in file }
+    }
+
+    static let replayKey = "CMUX_RESTORE_SCROLLBACK_FILE"
 
     private func pane(holding surface: SurfaceID) async throws -> PaneID {
         let tree = try await connection.listWorkspaces()
@@ -100,7 +116,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
     }
 
     private func applyRatios(_ node: WorkspaceBlueprint.Node, _ layout: LayoutNode) async throws {
-        guard case .split(_, let ratio, let a, let b) = node, case .split(let id, _, let current, let builtA, let builtB) = layout else { return }
+        guard case .split(_, let ratio, let a, let b) = node, case .split(let id, _, _, let current, let builtA, let builtB) = layout else { return }
         if let id, abs(current - ratio) > 0.001 { try await connection.setSplitRatio(id, ratio: ratio) }
         try await applyRatios(a, builtA)
         try await applyRatios(b, builtB)

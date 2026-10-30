@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -32,14 +33,14 @@ final class SessionRegistrar {
     func start() {
         observation?.cancel()
         Task { [weak self] in
-            let name = await MacName.computerName()
+            let name = await MacName().displayName()
             self?.computerName = name
             self?.recorded.removeAll()
             self?.sync()
         }
         let machines = machines
         observation = Task { [weak self] in
-            for await _ in Observations({ () -> [String] in
+            for await _ in ObservationStream({ () -> [String] in
                 [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
                  String(machines.local.store.isProvisional)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }

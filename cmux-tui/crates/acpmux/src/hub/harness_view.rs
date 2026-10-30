@@ -3,18 +3,43 @@
 use super::*;
 
 use crate::config::folder_profiles::{self, FolderProfile};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness: its profile, family, defaults, launcher and
     /// probe problems, and a profile file's display, capability, auth and
     /// sessions data; plus the profile sources' diagnostics.
     pub async fn harnesses_view(&self) -> Value {
+        // Before the config lock: the table reads it with `try_read`.
+        let web_modes = self.web_modes();
         let cfg = self.config.read().await;
         let mut agents = serde_json::Map::new();
         for (name, p) in &cfg.harnesses {
             let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
             if let Some(o) = v.as_object_mut() {
-                o.insert("family".into(), json!(crate::config::derive_family(name, p)));
+                let family = crate::config::derive_family(name, p);
+                // The one icon every client draws (`config/harness_icon.rs`).
+                let meta = cfg.profile_meta.get(name);
+                let icon = crate::config::harness_icon::resolve(
+                    name,
+                    meta.and_then(|m| m.display_name.as_deref()),
+                    p,
+                    &family,
+                    meta.map(|m| &m.loaded_icon),
+                );
+                o.insert("iconSpec".into(), json!(icon));
+                o.insert("family".into(), json!(family));
+                // What a remote device (a phone) may start with it: the modes
+                // a session it starts runs in, the start mode first, or why
+                // not (`web_modes::remote_start`, the remote guard's rules).
+                let remote = match crate::web_modes::remote_start(&web_modes, name, p) {
+                    Ok(modes) => json!({"startable": true, "modes": modes}),
+                    Err(reason) => json!({"startable": false, "reason": reason}),
+                };
+                o.insert("remote".into(), remote);
+                if super::models_view::picker_hidden(&cfg, name) {
+                    o.insert("pickerHidden".into(), json!(true));
+                }
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
                 }
@@ -24,6 +49,10 @@ impl Hub {
                 let d = cfg.defaults_for(name);
                 if !d.is_empty() {
                     o.insert("defaults".into(), json!(d));
+                }
+                // What a new chat here starts on (start_defaults.rs), for the composer's chip.
+                if let Some(start) = self.start_view(&cfg, name, p) {
+                    o.insert("start".into(), start);
                 }
                 // A profile file's display, capability, auth and sessions data.
                 if let Some(Value::Object(meta)) =
@@ -36,7 +65,14 @@ impl Hub {
             }
             agents.insert(name.clone(), v);
         }
-        json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics, "catalog": self.catalog_harnesses(&cfg)})
+        let mut view = json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics, "catalog": self.catalog_harnesses(&cfg)});
+        // The agent and model the person's app picked last for a new chat
+        // (`_acpmux/new_chat_picks_set`): a remote device's New Agent Chat
+        // starts there, as the app's does.
+        if let Some(picks) = self.person.new_chat_picks() {
+            view.set("lastPicks", picks);
+        }
+        view
     }
 }
 
@@ -54,6 +90,10 @@ impl Hub {
             }
             other => other,
         };
+        // Until startup has read the login shell, PATH is the app's bare one and
+        // the catalog lacks every harness installed under the person's home. Not
+        // the rest of startup: launcher checks can take seconds each.
+        let _ = self.catalog_ready.subscribe().wait_for(|ready| *ready).await;
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();
@@ -66,7 +106,7 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
-        view["folderProfiles"] = Value::Array(rows);
+        view.set("folderProfiles", Value::Array(rows));
         Ok(view)
     }
 }
@@ -84,15 +124,15 @@ fn folder_profile_row(fp: &FolderProfile) -> Value {
     });
     if let Some(meta) = &fp.meta {
         if let Some(name) = &meta.display_name {
-            row["displayName"] = json!(name);
+            row.set("displayName", json!(name));
         }
         if let Some(icon) = &meta.icon {
-            row["icon"] = json!(icon);
+            row.set("icon", json!(icon));
         }
     }
     if let Some(profile) = &fp.profile {
-        row["kind"] = json!(profile.kind);
-        row["family"] = json!(crate::config::derive_family(&fp.id, profile));
+        row.set("kind", json!(profile.kind));
+        row.set("family", json!(crate::config::derive_family(&fp.id, profile)));
     }
     row
 }

@@ -30,10 +30,10 @@ journal (cmux-tui/spec/session-journal.md).
 | Kind | Fact | Owner (writes) | Store | Retention | Restore action |
 | --- | --- | --- | --- | --- | --- |
 | `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the daemon history module `cmux-history` (R62, decided 2026-10-04; react-pages.md 2.2); the app reports each visit with `cmux.history.visit.record` | per browser profile, SQLite in the daemon state dir (until H3 lands: app-local `BrowserProfiles/<profile>/History.sqlite`) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
-| `location` | where the user was: window, space, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus | home session personal projection `history.trail` (≤ 1 MiB CAS document) | 200 entries | Go Back / Go Forward, Go To |
-| `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory | Reopen |
+| `location` | where the user was: window, space, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus, reported with `history.trail.record` | the daemon (only writer) in the home session personal projection `history.locations` (cx-hnmbt.12; adopts the older `history.trail`) | 200 entries | Go Back / Go Forward, Go To |
+| `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory; Remove and Clear delete the closed group for good (`closed.delete` through `history.entries.remove` / `history.clear`, cx-gzh.30) | Reopen |
 | `layout` | a structural layout change on a screen (split, column resize, swap, zoom, tab move) | the daemon (`layout-undo-v1`, 32 entries per screen, memory) | daemon | daemon lifetime | Undo Layout Change |
-| `command` | a finished shell command: command line, cwd, exit status, start, duration, terminal | the daemon (it parses OSC 133 prompt marks for every terminal, with or without the app) | the session journal, kind `terminal.command.finished` (capability `terminal-command-journal-v1`) | the journal's retention (never silently deleted) | Run Again (new tab, same machine and cwd), Copy |
+| `command` | a finished shell command: command line, cwd, exit status, start, duration, terminal | the daemon (it parses OSC 133 prompt marks for every terminal, with or without the app) | the daemon's workspace registry, table `terminal_commands` (capability `terminal-command-history-v1`), never the append-only journal | `history.commandRetentionDays` (default 30, user decision 2026-10-01); Remove and Clear delete rows in the daemon | Run Again (new tab, same machine and cwd), Copy |
 | `agent` | an agent session: provider (Claude Code, Codex, …), session id, cwd, terminal, workspace, started, last activity, ended | the daemon (hook ingress, `agent.session.*` / `agent.turn.*` journal kinds, `session-journal-v1`) | the session journal | the journal's retention | Resume (`claude --resume <id>`, `codex resume <id>`) in a new tab on the same machine and cwd |
 
 Why these owners:
@@ -71,19 +71,22 @@ Why these owners:
   incognito); the app hides entries whose workspace belongs to an incognito
   window while it is open.
 - No typed text: the trail stores ids and titles, never terminal input or
-  form data. A command line is the one exception and is opt-out
-  (`history.terminalCommands`, default on): the daemon records it as
-  `sensitive` (Unix-socket clients only, never WebSocket or relays), capped
-  at 1 KiB, and never records commands typed at a password prompt (no OSC
-  133 `C` mark is emitted there).
+  form data. A command line is the one exception and is opt-in
+  (`history.terminalCommands`, default off): the daemon keeps it for
+  trusted local clients only (Unix socket, never WebSocket or relays),
+  capped at 1 KiB, never records commands typed at a password prompt (no
+  OSC 133 `C` mark is emitted there), and deletes it after
+  `history.commandRetentionDays` (default 30).
 - Clear history (palette, page, CLI) works per kind and time range: last
   hour, today, 7 days, 4 weeks, all. Pages clear per browser profile (the
-  profile of the focused tab, or all profiles). The daemon journal is
+  profile of the focused tab, or all profiles). Commands are deleted in the
+  daemon (`delete-terminal-commands`, SQLite secure delete), and turning
+  recording off offers Delete Existing History. The daemon journal is
   append-only by contract ("size pressure cannot silently delete history"),
-  so clearing commands or agent sessions writes a per-session tombstone time
-  into the personal projection `history.hidden`; the app hides older
-  entries. Real deletion is `session delete` or the journal's export-and-forget
-  policy, which stays a daemon operation.
+  so clearing agent sessions writes a per-session tombstone time into the
+  personal projection `history.hidden`; the app hides older entries. Real
+  deletion of journal records is `session delete` or the journal's
+  export-and-forget policy, which stays a daemon operation.
 
 ## 4. Two navigation axes
 
@@ -178,8 +181,23 @@ Rules:
    first focus is recorded. Incognito entries are never written.
 
 Mouse: the side buttons (button 4 and 5) and the two-finger swipe follow the
-same split, page history over a page and location history elsewhere
-(follow-up; needs `debug.mouse` coverage first).
+same split, page history over a page and location history elsewhere. The side
+buttons are built (`MouseSideButtons`): over a browser tab they walk its
+history (`browserBack`'s command), anywhere else they run `focusHistoryBack` /
+`focusHistoryForward`; a remote desktop in control mode keeps them for its
+host. Debug Settings `navigation.mouseSideButtons` (on) turns them off.
+
+The swipe is built over Chromium pages (`CEFSwipeNavigation`): a two-finger
+horizontal swipe goes Back or Forward in the page's history when the page
+cannot scroll that way. The page answers a probe for the scroller under the
+fingers, and for whether a script took the wheels (a carousel), so a gesture the
+page would scroll stays the page's. AppKit tracks the swipe
+(`trackSwipeEvent`); an accent pill with an arrow slides in from that edge, and
+with no page that way it rubber-bands and nothing happens. It needs macOS's
+"Swipe between pages"; Debug Settings `browser.swipeNavigation` (on) turns it
+off. Not built: the swipe over agent chats and internal pages (no horizontal
+scroll answer from them yet; the side buttons cover their Back), and over
+WebKit pages.
 
 ### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)
 
@@ -241,6 +259,31 @@ Rules:
    `history.goTo {index}` (new action, same execution path as Back, origin user).
 5. With `surface` scope and a browser page focused, the actions run the page's back/forward; the
    page's own entry menu (4.1) is the list.
+
+### 4.2c What the right-click list shows (Leo 2026-10-18)
+
+"being able to right click the forward and back buttons for history would be good ... clicking
+between chats/workspaces as history is part of the situation ... there may be situations where
+we want splits of history between browsers and agent sessions."
+
+The R69 list (4.2a rule 4) showed only what Back walks, and a right-click with nothing in scope
+did nothing. With the default workspace steps (`navigation.history.scope` `workspaces`) Back already walks
+the whole window (`LocationTrailService.scope` is `.window`), so by default the list now always
+opens and ends with Show All History; the Other Workspaces section adds rows only when steps are
+finer and the scope is `workspace`. Back's walk is unchanged; only the list grows. Debug Settings `history.menuLayout`
+(DEV and NIGHTLY; Release uses the default):
+
+| Value | List |
+| --- | --- |
+| `scopeThenWindow` (default) | what Back walks, then an Other Workspaces section with this window's other places |
+| `scope` | the R69 list as it was (nothing in scope: no menu) |
+| `byKind` | this window's places split under Browser, Chats and Pages, Terminals |
+
+Rules: nearest first; the added sections hold each place (tab on its machine) once, at its nearest
+entry, at most 12 rows (`LocationTrail.menuSectionLimit`); every row runs `history.goTo {index}`;
+the two new layouts end with Show All History (`history.show`) and always open. With the `surface`
+scope the page's own entry menu (4.1) is the list. Agent chats are `content: other` locations, so
+they share Chats and Pages with cmux pages until the trail records a chat kind.
 
 ### 4.3 Existing actions mapped
 
@@ -317,7 +360,7 @@ Commands (this terminal), Resume Agent Session (this terminal).
 | Capability | Change | Status |
 | --- | --- | --- |
 | `session-journal-v1` | agent sessions: already journaled; the app reads `session.journal.subscribe {start:"beginning", follow:false, kinds:["agent.session.*"]}` on a short-lived connection, then re-reads from its cursor after each `agent-changed` event (event driven, no polling) | exists |
-| `terminal-command-journal-v1` | the terminal host reports OSC 133 `B`/`C`/`D` marks (prompt end, command start, command end with exit code) to the daemon; the daemon appends `terminal.command.finished {command (sensitive, ≤ 1 KiB, the screen text between the B and C marks), cwd, exit_code, started_at_ms, duration_ms}` with the terminal subject; `history.terminalCommands:false` in `set-client-info` stops recording for that client's sessions | proposed |
+| `terminal-command-history-v1` | the daemon parses OSC 133 marks in the output it mirrors and stores `{id, terminal_id, command (≤ 1 KiB, Ghostty's input cells), cwd, exit_code, started_at_ms, duration_ms}` rows in the workspace registry; `set-terminal-command-history {enabled, retention_days}`, `list-terminal-commands {after_id, limit}`, `delete-terminal-commands {ids | started_since_ms | all}`; lists never return an expired row; the worker deletes expired rows at daemon start, on every store and retention change, and at the oldest row's expiry time (one deadline, no polling); commands still queued when recording is turned off are dropped, and a working directory over 4 KiB is not kept | implemented |
 | `layout-undo-v1` | Undo Layout Change calls `undo-layout {pane}` and confirms when the daemon answers `confirmation_required` | exists |
 | `closed-history-v1` | a daemon list of closed tabs and workspaces (so the TUI, the phone and a relaunched app can reopen them), and a close grace for workspaces like tabs have | proposed |
 
@@ -370,15 +413,29 @@ records its first visit); agent sessions from the session journal with
 Resume; closed tabs, screens and workspaces; `cmux://history`; palette
 pages (Search History, Location History, Recently Closed, Command History,
 Resume Agent Session); `cmux history list|search` and the action verbs;
-Clear History hides of journal entries persisted in `history.hidden`, per
-kind; Back/Forward button entry menus (right-click, long press) for WebKit,
+Clear History hides of agent journal entries persisted in
+`history.hidden`, per kind; Back/Forward button entry menus (right-click, long press) for WebKit,
 and for Chromium from fork API 14.
 
-Terminal command history (user decision 2026-09-30: off by default):
-cmux-tui `terminal-command-journal-v1` (`set-terminal-command-history`,
-`shell.command.finished` from producer `cmux_shell`) and the app setting
-`history.terminalCommands`. The capability is in the app's
-`optional` list; builds bundle the same-tree daemon, which serves it.
+Terminal command history (user decisions 2026-09-30: off by default;
+2026-10-01: 30 days and real delete): cmux-tui
+`terminal-command-history-v1` (deletable registry rows with a retention;
+the earlier `terminal-command-journal-v1` journal records are no longer
+written, and `cmux_shell` stays a reserved journal producer id) and the app
+settings `history.terminalCommands` and `history.commandRetentionDays`.
+Remove and Clear delete in the daemon; turning recording off offers Delete
+Existing History. The capability is in the app's `optional` list; builds
+bundle the same-tree daemon, which serves it. Closed-tab records for Reopen
+Closed Tab are separate state (the workspace store's closed history), not
+touched by command deletion.
 
-Not built: mouse side buttons and swipe for either axis; a daemon list of
+Open gaps (2026-10-09, orphan audit lane A): command lines that dev builds
+journaled under `terminal-command-journal-v1` (kind `shell.command.finished`)
+stay in those journals; only `session delete` or the journal's
+export-and-forget policy removes them. The `cmux-history` crate's
+`TerminalCommandFold` still folds that journal kind; the daemon history module
+(H3) must read the `terminal_commands` rows (`list-terminal-commands`) instead
+when it wires commands into the merged read model.
+
+Not built: the swipe outside Chromium pages; a daemon list of
 closed workspaces (`closed-history-v1`; the app lists what it saw close).

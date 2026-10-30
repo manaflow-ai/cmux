@@ -23,9 +23,9 @@ final class PageInfoToggle: NSView {
         wantsLayer = true
         layer?.addSublayer(track)
         layer?.addSublayer(knob)
-        knob.shadowOpacity = 0.18
-        knob.shadowRadius = 1
-        knob.shadowOffset = CGSize(width: 0, height: -0.5)
+        knob.shadowOpacity = Float(PopupStyle.elevation1.alpha)
+        knob.shadowRadius = PopupStyle.elevation1.layerRadius
+        knob.shadowOffset = PopupStyle.elevation1.layerOffset()
         setAccessibilityElement(true)
         setAccessibilityRole(.checkBox)
         setAccessibilitySubrole(.switch)
@@ -47,8 +47,8 @@ final class PageInfoToggle: NSView {
     private func refresh(animated: Bool) {
         // The knob slides with the selection token (instant under Reduce
         // Motion or when animations are off).
-        guard animated else { return Motion.transaction(nil) { applyState() } }
-        Motion.transaction(spring: .selection) { applyState() }
+        guard animated else { return Motion.overlays.transaction(nil) { applyState() } }
+        Motion.overlays.transaction(spring: .selection) { applyState() }
     }
 
     private func applyState() {

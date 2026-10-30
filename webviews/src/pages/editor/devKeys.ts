@@ -54,28 +54,13 @@ export const DEV_PAGE_COMMANDS: Record<Chord, PageCommand> = {
 };
 
 /**
- * App chords bound globally (no context) that Monaco also binds: the app takes them, so Monaco's
- * action needs another key or an `editorAction` binding (README.md "Keys").
+ * App chords bound globally (no context) that Monaco also binds and the app keeps in the editor
+ * (README.md "Keys"). The ones whose app action yields to the editor (Cmd-D, Shift-Cmd-L, Cmd-L,
+ * Opt-Cmd-arrows...) reach Monaco, as in the app.
  */
 export const DEV_APP_CHORDS: ReadonlySet<Chord> = new Set([
-  "cmd+d", // splitRight; Monaco: add selection to next find match
-  "cmd+i", // feed.show; Monaco: trigger suggest (Ctrl-Space stays)
-  "cmd+l", // focusLocation; Monaco: expand line selection
-  "cmd+enter", // toggleChecklistItemComplete; Monaco: insert line below
-  "shift+cmd+enter", // toggleSplitZoom; Monaco: insert line above
-  "shift+cmd+g", // groupSelectedWorkspaces; Monaco: previous match (Opt-Cmd-G `findPrevious` stays)
-  "shift+cmd+l", // openBrowser; Monaco: select all occurrences (Cmd-F2 stays)
   "shift+cmd+o", // reopenPreviousSession; Monaco: go to symbol
   "shift+cmd+,", // reloadConfiguration; Monaco: replace with previous value
-  "alt+cmd+[", // space.previous; Monaco: fold (Cmd-K Cmd-[ stays)
-  "alt+cmd+]", // space.next; Monaco: unfold (Cmd-K Cmd-] stays)
-  "alt+cmd+up", // focusUp; Monaco: add cursor above
-  "alt+cmd+down", // focusDown; Monaco: add cursor below
-  "alt+cmd+f", // globalSearch; Monaco: replace (the find widget's toggle stays)
-  "alt+shift+cmd+up", // moveSurfaceToPaneUp; Monaco: column select
-  "alt+shift+cmd+down",
-  "alt+shift+cmd+left",
-  "alt+shift+cmd+right",
 ]);
 
 /** What the dispatcher does with a keydown: a page command, swallow (`command` null), or nothing. */

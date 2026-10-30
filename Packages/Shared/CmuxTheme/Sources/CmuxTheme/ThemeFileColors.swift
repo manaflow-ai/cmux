@@ -19,13 +19,20 @@ public struct ThemeFileColors: Hashable, Sendable {
     public let selectionForeground: ThemeRGB?
     public let cursorColor: ThemeRGB?
     public let cursorText: ThemeRGB?
+    /// The theme's own accent: a `# cmux-accent = #rrggbb` line, which Ghostty reads as a comment.
+    public let accent: ThemeRGB?
+
+    /// The comment key cmux writes a saved theme's accent under.
+    public static let accentKey = "cmux-accent"
 
     /// The colors of a theme file's text; nil when it names no background and foreground.
     public init?(name: String, themeFile text: String) {
         var values: [String: ThemeRGB] = [:]
         var palette = [ThemeRGB?](repeating: nil, count: 16)
+        var accent: ThemeRGB?
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "\u{FEFF}", with: "")
+            if let color = Self.accent(line) { accent = color }
             guard !line.isEmpty, !line.hasPrefix("#"), let equals = line.firstIndex(of: "=") else { continue }
             let key = line[..<equals].trimmingCharacters(in: .whitespaces)
             let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
@@ -47,10 +54,22 @@ public struct ThemeFileColors: Hashable, Sendable {
         selectionForeground = values["selection-foreground"]
         cursorColor = values["cursor-color"]
         cursorText = values["cursor-text"]
+        self.accent = accent
+    }
+
+    /// The color of a `# cmux-accent = #rrggbb` line; nil for any other line.
+    public static func accent(_ line: String) -> ThemeRGB? {
+        guard line.hasPrefix("#") else { return nil }
+        let body = line.dropFirst().trimmingCharacters(in: .whitespaces)
+        guard let equals = body.firstIndex(of: "="),
+              body[..<equals].trimmingCharacters(in: .whitespaces) == accentKey else { return nil }
+        return sixDigit(body[body.index(after: equals)...].trimmingCharacters(in: .whitespaces))
     }
 
     /// The app theme of these colors.
-    public var appTheme: AppTheme { AppTheme.derive(background: background, foreground: foreground, palette: palette) }
+    public var appTheme: AppTheme {
+        AppTheme.derive(background: background, foreground: foreground, palette: palette, accentColor: accent)
+    }
 
     /// `#rrggbb` or `rrggbb` only, as the web parser accepts.
     private static func sixDigit(_ text: String) -> ThemeRGB? {

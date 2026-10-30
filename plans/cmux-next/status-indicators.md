@@ -55,9 +55,24 @@ opacity, dot size, pulse low opacity, native steps. Style precedence: Debug over
 hint (`--style`) when its source is honored (`appearance.statusIndicator.honorStatusStyle`: true by default,
 false, or a list of sources such as `["explicit", "run"]`), then the setting.
 
+Static look (cx-sya4n, Leo 2026-10-13: blinking and pulsing lights give a teammate headaches):
+`StatusIndicatorSettings.animation` (`animated`, the default, or `static`; its Settings row is a later
+#20511 slice). With `static`, and always under Reduce Motion (`StatusIndicatorConfig.isStatic`), nothing
+animates and every indicator draws the Static set's glyphs (`StaticStatusGlyph`, `StatusIconSet.still`)
+whatever the Debug icon set; loading keeps its style's still glyph and known progress its ring. The Debug
+toggle `status.static.shapes` draws `StatusIndicatorPlan.stillPlan` instead: a solid accent dot for work, a
+hand, ? bubble, key or ! for the waiting kinds, an x in a ring for an error, a check for done and an empty
+ring for paused. A tab's needs-input, done and failed badge draws the same still marks in place of its
+colored dot, the pane attention ring is the steady ring, and the agent pane's page gets `statusIndicators:
+"static"` (`data-status-indicators`). Every indicator's tooltip and VoiceOver label is the state's short name
+in every look (`StatusIndicatorState.shortLabel`: Working, Loading, Paused, Waiting, Needs permission,
+Question, Sign-in needed, Error, Done); no surface shows it as visible text.
+
 Behavior settings (`status.*`, Settings > Appearance > Loading Indicator and Settings > Notifications):
-`status.inferCommandBusy` (true) and `status.inferCommandBusyAfter` (3 s): a plain shell command shows as busy
-once it has run that long (the client arms one one-shot timer per running command, never a poll);
+`status.inferCommandBusy` (false since cx-ag5.6.5, Lawrence 2026-10-13: htop looked loading) and
+`status.inferCommandBusyAfter` (3 s): when on, a plain shell command shows as busy once it has run that long;
+a command the daemon marks `in_use` (it took the alternate screen, mouse or focus reporting, or bracketed
+paste: htop, vim, less, a REPL) never does (the client arms one one-shot timer per running command, never a poll);
 `status.runNotifyMinimumSeconds` (10) and `status.runNotifyWhenVisible` (false): a finished `cmux status run`
 notifies when it took at least that long and its terminal is not visible. Visible means all of: its tab is the
 selected tab of its pane, the pane is on screen, the window is key or not occluded, cmux is the active app
@@ -90,7 +105,19 @@ collapsed group rolls up its workspaces.
 
 The client never infers death or clears a stale entry itself; it renders the owner's facts.
 
-## 5. API (daemon + Rust CLI; accepted by the #16174 owner 2026-10-02, not landed)
+## 5. API (daemon + Rust CLI; landed on feat-cmux-next 2026-10-10, PR 16819 re-applied, bead cx-6so.54)
+
+Landed: the `workspace_status.set` fields below (stored in the additive `workspace_status_meta` table), daemon
+auto-clear (TTL, owner terminal exit, owner process exit with start-time identity, re-armed at daemon start),
+`terminal-activity-v1` `extra.busy`, and `cmux status set|clear|list|run` plus the loading flags of
+`workspace status set` in the Rust CLI (cli/status.rs, cli/command/state/status_flags.rs). A process owner is
+accepted only from a local actor (the user's CLI or the verified app; never an app or a remote peer) and only
+where the daemon can watch a process exit (not Windows). Behavior proof: cmux-tui `tests/cli/status.rs`.
+`cmux terminal <t> wait --until idle|prompt` is built (cx-6so.14, `extra.prompt`), and `cmux status wait KEY
+[--until settled|cleared|state=S]` (cx-6so.14; `settled`, the default, is the exit-code contract below). Not landed:
+`--notify`, the `braille` style hint, and
+agent-session owners (accepted and stored, not yet cleared on session end). OSC 7501 program status
+(`extra.program_status`) is a separate source and is not stored as status rows.
 
 Ops extend the v2 status ops instead of adding a parallel table:
 
@@ -117,7 +144,7 @@ cmux status set [KEY] --label T [--target ws_|tab_|term_|current] [--state busy|
 cmux status clear [KEY] [--target ...] [--all]
 cmux status list [--target ...] [--json]            # raw entries and terminal facts, merged order
 cmux status run [--label T] [--target ...] [--notify auto|always|never] [--badge-ttl 8s] -- CMD ...
-cmux status wait KEY [--target ...] [--timeout D]   # 0 success/cleared, 1 error, 124 timeout
+cmux status wait KEY [--target ...] [--until settled|cleared|state=S] [--timeout D]   # settled: 0 success/cleared, 1 error; 124 timeout
 cmux terminal <term_…> wait --until idle|exit|prompt|output RE [--timeout D]   # next to the existing terminal wait verbs
 ```
 
@@ -153,7 +180,8 @@ Live switching: Debug Settings > Status Indicators > Style override. Recommendat
   (sidebar rows, sections, pane headers, Home): one component, one setting.
 - A status may request its own style and wins by default; the user can turn that off, per source
   (`honorStatusStyle`).
-- Automatic busy for plain shell commands: on after 3 s, customizable (on/off, threshold).
+- Automatic busy for plain shell commands: on after 3 s, customizable (on/off, threshold). Superseded 2026-10-13 (Lawrence: "i run htop and it is loading, which is very bad"): off by default; a
+  running command is a quiet daemon fact (`extra.activity` `running`/`in_use`), never loading by itself (cx-ag5.6.5).
 - `status run` notifies when the run took 10 s or more and the terminal is not visible; both customizable.
 - "Make literally everything customizable."
 
@@ -161,13 +189,18 @@ Open: `none` hides loading but keeps waiting/error/done marks (current); alterna
 
 ## 9. Implementation state
 
-- Rust (PR into feat-cmux-next-acpmux, branch feat-cmux-next-status-rust): `workspace_status.set` loading fields
+- Rust (landed on feat-cmux-next, bead cx-6so.54; PR 16819 closed): `workspace_status.set` loading fields
   and owners, daemon auto-clear (TTL, owner terminal exit, owner process exit with start-time identity),
-  `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. Not built yet: `cmux status wait` and
-  `cmux terminal <term> wait --until idle|prompt` (need a new connection-owned wait op; `exit` and `output` exist
-  as `terminal <term> process wait` and `terminal <term> screen wait --pattern`).
-- Swift: renders agent states today; reading `workspace_status` loading fields and `extra.busy` / `extra.progress`
-  waits for the cmux-tui pin cut that carries the Rust PR.
+  `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. `cmux terminal <term> wait --until
+  idle|prompt` (cx-6so.14): no new op; the CLI holds `session.events` and rereads the terminal record, whose
+  new `extra.prompt` fact (OSC 133 A until the next C) answers `prompt`, and `idle` is no `running` command,
+  no OSC 7501 `working` record and no OSC 9;4 progress (exit 124 on `--timeout`; `exit` and `output` stay
+  `terminal <term> process wait` and `screen wait --pattern`). `cmux status wait KEY` (cx-6so.14): no new op either; it holds `session.events`
+  and rereads `workspace_status.list` (every set, clear and auto-clear commits a `workspace_status` change).
+- Swift: renders agent states, and plain shell commands only when `status.inferCommandBusy` is on (off by
+  default since cx-ag5.6.5; `extra.busy`, source `command`, after `status.inferCommandBusyAfter`; never for an
+  `extra.activity` `in_use` command; not on an agent's terminal, which shows the agent's own state; cx-urd.65).
+  Reading `workspace_status` loading fields and `extra.progress` is not built yet.
 
 ## 10. Agent working vs loading (WORKING-AND-LOADING-INDICATORS, 2026-10-07)
 
@@ -177,6 +210,12 @@ Supersedes "one indicator for every tab loading state" (section 8) for agent wor
   `working`). Drawn as three dots in the neutral accent (theme foreground) that dim one after another
   (`Glyph.dots`, `Animation.wave`: one `CAReplicatorLayer`, render-server animation); with progress, a still
   accent ring. No loading style changes it (also `none`). Reduce Motion: three still dots.
+- Update 2026-10-14 (Lawrence: "left sidebar needs to be a spinner instead of flash"; "all spinners need to
+  be synced"; cx-qtgj2): with a status icon set chosen (default `symbols`), agent work is the rotating arc in
+  the muted loading color in sidebar rows, group headers, tabs and hover cards, not a pulsing mark; the
+  `current` (dots), `bars` and `signs` sets keep their wave. Every indicator loop starts at one shared epoch
+  (`StatusIndicatorLayer.phaseEpoch`), so all spinners turn in the same phase, also one that shows later.
+  Tab indicators pause while the strip's window is occluded or minimized, as sidebar rows do.
 - Page and command loading keep the loading style (thin ring by default). Needs input (`waiting`) is a still
   attention dot everywhere.
 - Sources: acpmux turn state through the app's single `_acpmux/watch` feed (`AgentTurnStateStore`, local

@@ -25,4 +25,15 @@ package enum CloudLinkEvent: Equatable, Sendable {
             return .other
         }
     }
+
+    /// A later `connection-snapshot` of a running link: whether its
+    /// `connection.state` is `connected` (false while it redials, after it
+    /// gave up or closed); nil for any other line.
+    package static func linkConnected(_ line: String) -> Bool? {
+        guard let data = line.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              object["event"] as? String == "connection-snapshot",
+              let state = (object["connection"] as? [String: Any])?["state"] as? String else { return nil }
+        return state == "connected"
+    }
 }

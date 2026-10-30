@@ -74,28 +74,43 @@ cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 # ships the browser as unavailable.
 echo "Building app..."
 rm -rf build/
-./scripts/cmux-next/pin-cmux-tui.sh fetch --pin
+# The cmux-tui client of this commit's own tree, as release.yml installs it
+# (cx-urd.9.1): resolve-exact waits for the tree's publication and prints the
+# publishing commit whose attested manifest carries it. Never another commit's daemon.
+CMUX_TUI_RESOLVED="$(./scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+CMUX_TUI_COMMIT="$(sed -n 's/^commit=//p' <<<"$CMUX_TUI_RESOLVED")"
+CMUX_TUI_KEY="$(sed -n 's/^key=//p' <<<"$CMUX_TUI_RESOLVED")"
+[[ "$CMUX_TUI_COMMIT" =~ ^[0-9a-f]{40}$ && "$CMUX_TUI_KEY" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "error: pin-cmux-tui.sh resolve-exact printed no commit/key" >&2; exit 1; }
+# THIRD_PARTY_LICENSES.md for this commit's cmux-tui (tree mode, lock closures:
+# no cargo on a maintainer's Mac); the committed copy is restored afterwards,
+# which also drops any uncommitted local edit to that file.
+NOTICES_ROOT="$PWD"
+trap 'git -C "$NOTICES_ROOT" checkout -- THIRD_PARTY_LICENSES.md' EXIT
+./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree
 # cmux-next's web bundles are build output (cx-vn5): a release builds them from this
 # commit's sources, never from a stamp.
 if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
   scripts/cmux-next/build-web-bundles.sh --force
 fi
-xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+# The Bundle cmux-tui phase bundles none (deferred); this tree's client is installed below.
+CMUX_NEXT_TUI_MODE=deferred xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
   echo "WARNING: no Chromium engine embedded; this release ships the browser as unavailable" >&2
 fi
 # Chromium's license notices must ship with the engine (passes when no CEF is embedded).
 ./scripts/cmux-next/check-cef-credits.sh "$APP_PATH"
+# An app built for the fleet benches keeps the debug.* commands; it never ships.
+./scripts/cmux-next/check-no-bench-hooks.sh "$APP_PATH"
 
-# The universal cmux-tui client of the pinned commit, as release.yml installs it.
-CMUX_TUI_COMMIT="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
+# The universal cmux-tui client of this commit's tree, as release.yml installs it.
 ./scripts/install-cmux-tui-client.sh "$APP_PATH" \
   --manifest-url "https://files.cmux.com/cmux-tui/${CMUX_TUI_COMMIT}/manifest.json" \
   --expected-commit "$CMUX_TUI_COMMIT" \
   --require-capability wireguard-hub
-./scripts/cmux-next/write-cmux-tui-version.sh "$APP_PATH" "$CMUX_TUI_COMMIT"
-# The pinned daemon must serve every capability the app relies on.
+./scripts/cmux-next/write-cmux-tui-version.sh "$APP_PATH" "$CMUX_TUI_COMMIT" "$CMUX_TUI_KEY"
+# The bundled daemon must serve every capability the app relies on.
 ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$APP_PATH/Contents/Resources/bin/cmux-tui"
 
 # The cmux-next target does not build the Ghostty CLI helper (theme picker);
@@ -109,7 +124,10 @@ fi
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
-SPARKLE_PUBLIC_KEY_DERIVED=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+SPARKLE_PUBLIC_KEY_DERIVED=$(
+  printf '%s' "$SPARKLE_PRIVATE_KEY" |
+    env -u SPARKLE_PRIVATE_KEY swift scripts/derive_sparkle_public_key.swift --stdin
+)
 APP_PLIST="$APP_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" 2>/dev/null || true
@@ -156,13 +174,19 @@ if [[ -f scripts/cmux-next/legacy-appcast-item.xml ]]; then
   export SPARKLE_LEGACY_APPCAST_ITEM_FILE=scripts/cmux-next/legacy-appcast-item.xml
 fi
 ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$TAG" appcast.xml
+# Stable installs from CI releases are thin and read appcast-<arch>.xml. This
+# script builds only the universal DMG, so both per-arch feeds carry the
+# universal item: thin installs update to it, and the next CI release moves
+# them back onto their architecture.
+cp appcast.xml appcast-arm64.xml
+cp appcast.xml appcast-x86_64.xml
 
 # --- Create GitHub release (if needed) and upload ---
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists"
   EXISTING_ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name' || true)"
   HAS_CONFLICTING_ASSET="false"
-  for asset in cmux-macos.dmg appcast.xml; do
+  for asset in cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
     if printf '%s\n' "$EXISTING_ASSETS" | grep -Fxq "$asset"; then
       HAS_CONFLICTING_ASSET="true"
       break
@@ -177,14 +201,14 @@ if gh release view "$TAG" >/dev/null 2>&1; then
 
   if [[ "$ALLOW_OVERWRITE" == "true" ]]; then
     echo "Uploading with overwrite enabled for existing release $TAG..."
-    gh release upload "$TAG" cmux-macos.dmg appcast.xml --clobber
+    gh release upload "$TAG" cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml --clobber
   else
     echo "Uploading to existing release $TAG..."
-    gh release upload "$TAG" cmux-macos.dmg appcast.xml
+    gh release upload "$TAG" cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml
   fi
 else
   echo "Creating release $TAG and uploading..."
-  gh release create "$TAG" cmux-macos.dmg appcast.xml --title "$TAG" --notes "See CHANGELOG.md for details"
+  gh release create "$TAG" cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml --title "$TAG" --notes "See CHANGELOG.md for details"
 fi
 
 # --- Verify ---
@@ -205,17 +229,18 @@ cask "cmux" do
   url "https://github.com/manaflow-ai/cmux/releases/download/v#{version}/cmux-macos.dmg"
   name "cmux"
   desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
-  homepage "https://github.com/manaflow-ai/cmux"
+  homepage "https://cmux.com/"
 
   livecheck do
     url :url
     strategy :github_latest
   end
 
-  depends_on macos: :tahoe
+  depends_on macos: :sonoma
 
   app "cmux.app"
   binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
+  generate_completions_from_executable "#{HOMEBREW_PREFIX}/bin/cmux", "completion"
 
   zap trash: [
     "~/Library/Application Support/cmux",

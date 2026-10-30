@@ -15,6 +15,11 @@ use cmux_tui_core::{
 };
 use serde_json::Value;
 
+mod tab_view;
+use tab_view::parse_notification;
+pub(crate) use tab_view::parse_program_status;
+pub use tab_view::{TabNotificationView, TabView};
+
 #[derive(Clone, Default)]
 pub struct TreeView {
     workspaces: Vec<WorkspaceView>,
@@ -158,28 +163,6 @@ pub struct PaneView {
     pub tabs: Vec<TabView>,
     pub active_tab: usize,
     pub focused_at: u64,
-}
-
-#[derive(Clone)]
-pub struct TabView {
-    pub surface: SurfaceId,
-    pub public_id: Option<TabPublicId>,
-    pub content_id: Option<ContentPublicId>,
-    pub terminal_id: Option<TerminalPublicId>,
-    pub short_id: String,
-    pub name: Option<String>,
-    pub title: String,
-    pub kind: SurfaceKind,
-    pub browser_source: Option<BrowserSource>,
-    pub browser_frames_stalled: bool,
-    pub supports_clear_history_key_fallback: bool,
-    pub notification: Option<TabNotificationView>,
-}
-
-#[derive(Clone, Copy)]
-pub struct TabNotificationView {
-    pub unread: bool,
-    pub level: &'static str,
 }
 
 impl TreeView {
@@ -560,6 +543,26 @@ impl TreeView {
     pub(crate) fn invalidate_location_index(&mut self) {
         self.location_index = OnceLock::new();
     }
+
+    /// Put the workspaces in the order of `rank` (lower first; a workspace
+    /// with no rank keeps its relative place after the ranked ones). The
+    /// active workspace stays the same workspace.
+    pub(crate) fn order_workspaces_by(&mut self, rank: impl Fn(&WorkspaceView) -> Option<usize>) {
+        let active = self.workspaces.get(self.active_workspace).map(|workspace| workspace.id);
+        let mut keyed = std::mem::take(&mut self.workspaces)
+            .into_iter()
+            .enumerate()
+            .map(|(index, workspace)| ((rank(&workspace).unwrap_or(usize::MAX), index), workspace))
+            .collect::<Vec<_>>();
+        keyed.sort_by_key(|(key, _)| *key);
+        let ordered = keyed.into_iter().map(|(_, workspace)| workspace).collect::<Vec<_>>();
+        if let Some(active) = active
+            && let Some(index) = ordered.iter().position(|workspace| workspace.id == active)
+        {
+            self.active_workspace = index;
+        }
+        *self.workspaces_mut() = ordered;
+    }
 }
 
 impl WorkspaceView {
@@ -668,6 +671,10 @@ pub fn tree_from_state_with_notifications(
                         unread: notification.unread,
                         level: notification.level.as_str(),
                     }),
+                    program_status: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.shown_program_status()),
                 })
                 .collect(),
         })
@@ -801,7 +808,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or_default()
                                 .to_string(),
                             kind: match tab.get("kind").and_then(|v| v.as_str()) {
-                                Some("browser") => SurfaceKind::Browser,
+                                Some("browser" | "remote-terminal") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,
                             },
                             browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
@@ -819,6 +826,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
+                            program_status: parse_program_status(tab),
                         })?;
                         if raw_active_tab == Some(raw_index) {
                             active_tab = Some(compact_index);
@@ -830,18 +838,6 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
             })
             .unwrap_or_default(),
         active_tab: active_tab.unwrap_or(if active_tab_is_declared { usize::MAX } else { 0 }),
-    })
-}
-
-fn parse_notification(value: &Value) -> Option<TabNotificationView> {
-    let level = match value.get("level").and_then(|v| v.as_str()).unwrap_or("info") {
-        "warning" => "warning",
-        "error" => "error",
-        _ => "info",
-    };
-    Some(TabNotificationView {
-        unread: value.get("unread").and_then(|v| v.as_bool()).unwrap_or(false),
-        level,
     })
 }
 

@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use super::run::run_git;
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, git_failed, parse};
 use crate::resource::ResourceError;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.files.search";
 /// The candidate listing stops here; a cut listing marks the reply truncated.
@@ -47,7 +48,7 @@ pub(super) fn search(
         .and_then(Value::as_u64)
         .map_or(DEFAULT_LIMIT, |limit| usize::try_from(limit).unwrap_or(MAX_LIMIT))
         .clamp(1, MAX_LIMIT);
-    let search_root = folder(repository, directory)?;
+    let search_root = folder(repository, directory, OPERATION)?;
     let mut reply = json!({
         "root": repository.root.to_string_lossy(),
         "search_root": search_root,
@@ -58,7 +59,7 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    let (candidates, mut cut) = candidates(repository, directory)?;
+    let (candidates, mut cut) = candidates(repository, directory, OPERATION)?;
     let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
     let mut ranked = Vec::new();
     for path in &candidates {
@@ -90,9 +91,9 @@ pub(super) fn search(
             json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)})
         })
         .collect();
-    reply["results"] = Value::Array(results);
-    reply["truncated"] = json!(cut || total > limit);
-    reply["total_matches"] = json!(u32::try_from(total).unwrap_or(u32::MAX));
+    reply.set("results", Value::Array(results));
+    reply.set("truncated", json!(cut || total > limit));
+    reply.set("total_matches", json!(u32::try_from(total).unwrap_or(u32::MAX)));
     Ok(reply)
 }
 
@@ -105,14 +106,18 @@ struct Ranked<'a> {
 
 /// The searched folder in the repository's own spelling: the top level joined
 /// with git's prefix for `directory`, so a symlinked path reads as git sees it.
-fn folder(repository: &Repository, directory: &Path) -> Result<String, ResourceError> {
+pub(super) fn folder(
+    repository: &Repository,
+    directory: &Path,
+    operation: &'static str,
+) -> Result<String, ResourceError> {
     let output = run_git(
         directory,
         &repository.overrides,
         &["rev-parse", "--show-prefix"],
         MAX_SMALL_OUTPUT_BYTES,
     )
-    .map_err(|failure| git_failed(OPERATION, &failure))?;
+    .map_err(|failure| git_failed(operation, &failure))?;
     let prefix = String::from_utf8_lossy(&output.stdout).trim_end_matches(['\n', '/']).to_string();
     let folder =
         if prefix.is_empty() { repository.root.clone() } else { repository.root.join(prefix) };
@@ -121,16 +126,17 @@ fn folder(repository: &Repository, directory: &Path) -> Result<String, ResourceE
 
 /// The files under `directory`, relative to it and sorted, and whether the
 /// listing was cut.
-fn candidates(
+pub(super) fn candidates(
     repository: &Repository,
     directory: &Path,
+    operation: &'static str,
 ) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
     let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
     let run = |arguments: &[&str]| {
         run_git(directory, &repository.overrides, arguments, MAX_LISTING_BYTES)
-            .map_err(|failure| git_failed(OPERATION, &failure))
+            .map_err(|failure| git_failed(operation, &failure))
     };
     let listed = run(&listing)?;
     let mut bytes = listed.stdout;

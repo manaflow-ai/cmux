@@ -3,6 +3,11 @@
 //! rebinding Host, and a missing or wrong token are refused before the
 //! dashboard or the WebSocket protocol starts.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::server::{AGENT_PANE_ORIGIN, bind_ws, serve_ws};
@@ -125,24 +130,6 @@ async fn a_page_request_with_large_localhost_cookies_is_served() {
     assert_eq!(status(port, request).await, 200);
 }
 
-#[test]
-fn dev_origins_are_loopback_http_with_a_port_only() {
-    use acpmux::server::dev_origin;
-    assert_eq!(dev_origin("http://127.0.0.1:4176/").unwrap(), "http://127.0.0.1:4176");
-    assert_eq!(dev_origin("http://LOCALHOST:5173").unwrap(), "http://localhost:5173");
-    for bad in [
-        "https://127.0.0.1:4176",
-        "http://evil.example:4176",
-        "http://127.0.0.1",
-        "http://localhost:80",
-        "null",
-        "cmux-agent://pane",
-        "http://user@localhost:5173",
-    ] {
-        assert!(dev_origin(bad).is_err(), "{bad}");
-    }
-}
-
 #[tokio::test]
 async fn a_dev_origin_is_accepted_only_when_the_daemon_was_given_it() {
     let mut config = Config::default();
@@ -194,4 +181,53 @@ async fn a_wide_bind_keeps_the_host_rule() {
     ] {
         assert_eq!(status(port, upgrade(&query, &host, None)).await, 101, "{host}");
     }
+}
+
+#[tokio::test]
+async fn a_frame_past_sixteen_mib_is_read() {
+    // A prompt with a few screenshots is one frame past tungstenite's 16 MiB default. The listener
+    // reads it and answers, instead of resetting the socket mid-send (2026-10-20, "The agent
+    // connection was interrupted").
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let port = listener().await;
+    let url = format!("ws://127.0.0.1:{port}/?token={TOKEN}");
+    let (mut ws, _) =
+        tokio_tungstenite::connect_async_with_config(url, Some(acpmux::server::ws_config()), false)
+            .await
+            .expect("upgrade");
+    let init = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": 1, "clientInfo": {"name": "test"}, "pad": "x".repeat(24 << 20)}});
+    ws.send(Message::Text(init.to_string().into())).await.unwrap();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), ws.next())
+            .await
+            .expect("an answer in time")
+            .expect("the connection stays open")
+            .expect("no reset");
+        if let Message::Text(t) = frame {
+            let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+            if v.get("id") == Some(&serde_json::json!(1)) {
+                break;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_partial_websocket_upgrade_is_closed_within_the_handshake_deadline() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let query = format!("?token={TOKEN}");
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let partial = format!(
+        "GET /{query} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+    );
+    stream.write_all(partial.as_bytes()).await.unwrap();
+    let mut buf = [0u8; 256];
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(7), stream.read(&mut buf))
+        .await
+        .expect("the stalled handshake is bounded")
+        .expect("the server closes the stalled handshake");
+    assert_eq!(closed, 0, "a partial upgrade must not receive a protocol response");
 }

@@ -3,6 +3,11 @@
 //! dashboard token. The dashboard token alone, which every Web client
 //! holds, never makes a peer, and no RPC returns the peer token.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::server::peer_auth::{HEADER, PeerAuth, token_path};
@@ -144,6 +149,7 @@ async fn no_rpc_returns_the_peer_token_to_a_web_connection() {
         ("_acpmux/defaults", json!({})),
         ("_acpmux/presets", json!({})),
         ("_acpmux/schema", json!({})),
+        ("_acpmux/protocol", json!({})),
         ("_acpmux/import", json!({"path": "run/peer.token"})),
     ];
     let replies = session(port, "", &[(a, &b)], None, &reads).await.unwrap();

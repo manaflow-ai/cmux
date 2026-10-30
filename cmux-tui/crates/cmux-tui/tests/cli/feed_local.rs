@@ -208,6 +208,24 @@ fn is_unread(item: &Value) -> bool {
     item["read_at_ms"].is_null()
 }
 
+/// Waits (bounded) until `terminal` runs again after a restart: it is
+/// `adopting` until the restarted owner has adopted its host.
+fn wait_until_running(daemon: &Daemon, terminal: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved =
+            daemon.ok(json!({"id": "resolve", "cmd": "resolve-terminal", "terminal_id": terminal}));
+        if resolved["lifecycle"] == "running" {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal {terminal} did not run again after the restart: {resolved}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 /// Selecting a tab no longer clears its unread marker or its local item;
 /// `ack-tab-notifications` clears both.
 #[test]
@@ -228,6 +246,20 @@ fn cmux_next_feed_selecting_a_tab_keeps_unread_and_the_ack_clears_it() {
     assert!(!unread(&daemon.tree(), first));
     assert!(!is_unread(&item_titled(&daemon, "build done")));
     assert!(!unread(&daemon.tree(), second));
+}
+
+/// `server stop` returns when the owner is gone, so an `ensure` right after
+/// it starts the next owner every time (it used to find the session still
+/// owned now and then: "detached session owner did not become ready").
+#[test]
+fn cmux_next_feed_an_ensure_right_after_a_stop_starts_the_next_owner() {
+    let daemon = Daemon::start("restarts");
+    let surface = new_workspace(&daemon);
+    daemon.notify("on a tab", Some(surface));
+    for _ in 0..30 {
+        daemon.restart();
+        assert_eq!(daemon.items().len(), 1);
+    }
 }
 
 /// A tab ack that leaves an item unread (moved to the cloud owner) keeps
@@ -254,12 +286,93 @@ fn cmux_next_feed_a_ring_kept_by_a_partial_ack_survives_a_restart() {
     assert_eq!(read["error_code"], "owner.unreachable", "{read}");
 
     daemon.restart();
+    // A restarted owner answers before it adopts its surviving terminal
+    // hosts (81577dcd4b3); the tab shows its terminal once it is adopted.
+    wait_until_running(&daemon, &terminal);
     let tree = daemon.tree();
     let (_, restored) = tabs(&tree)
         .into_iter()
         .find(|(_, tab)| tab["terminal_id"] == terminal.as_str())
         .unwrap_or_else(|| panic!("terminal {terminal} came back without a tab: {tree}"));
     assert_eq!(restored["notification"]["unread"], true, "the ring was lost: {restored}");
+}
+
+/// The terminal host of `terminal` (its durable record's pid).
+fn host_pid(daemon: &Daemon, terminal: &str) -> libc::pid_t {
+    use cmux_tui_core::terminal_host_runtime::{load_terminal_host_records, terminal_host_root};
+    let root = terminal_host_root(&daemon.dir.join("state"), &daemon.session);
+    let records = load_terminal_host_records(&root).unwrap();
+    let record = records
+        .iter()
+        .map(|(_, record)| record)
+        .find(|record| record.terminal_id == terminal)
+        .unwrap_or_else(|| panic!("no host record for {terminal}: {records:?}"));
+    libc::pid_t::try_from(record.host_pid).unwrap()
+}
+
+/// A terminal host stopped with SIGSTOP: it holds its adoption handshake
+/// unanswered until it is resumed, at the latest when this is dropped.
+struct StoppedHost(libc::pid_t);
+
+impl StoppedHost {
+    fn stop(pid: libc::pid_t) -> Self {
+        // SAFETY: the durable record names this test's live terminal host.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGSTOP) }, 0);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let state = Command::new("ps").args(["-o", "state=", "-p", &pid.to_string()]).output();
+            if state.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim().starts_with('T')) {
+                return Self(pid);
+            }
+            assert!(Instant::now() < deadline, "host {pid} did not stop after SIGSTOP");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+impl Drop for StoppedHost {
+    fn drop(&mut self) {
+        // SAFETY: resumes the host stopped above.
+        unsafe { libc::kill(self.0, libc::SIGCONT) };
+    }
+}
+
+/// A restarted owner answers before it adopts its terminal hosts
+/// (81577dcd4b3). While a terminal adopts, its tab keeps the unread ring and
+/// counts in its workspace's unread count: unread state never blinks out
+/// after a restart.
+#[test]
+fn cmux_next_feed_a_ring_shows_while_its_terminal_adopts_after_a_restart() {
+    let daemon = Daemon::start("adopting");
+    let surface = new_workspace(&daemon);
+    let (_, before) = tab(&daemon.tree(), surface);
+    let terminal = before["terminal_id"].as_str().unwrap().to_string();
+    let content = before["content_resource_id"].clone();
+    daemon.notify("agent waiting", Some(surface));
+    assert!(unread(&daemon.tree(), surface));
+
+    let stopped = daemon.server("stop").output().unwrap();
+    assert!(stopped.status.success(), "stop failed: {}", String::from_utf8_lossy(&stopped.stderr));
+    let host = StoppedHost::stop(host_pid(&daemon, &terminal));
+    daemon.ensure();
+    let tree = daemon.tree();
+    let workspace = &tree["workspaces"][0];
+    let (_, adopting) = tabs(&tree)
+        .into_iter()
+        .find(|(_, tab)| tab["content_resource_id"] == content)
+        .unwrap_or_else(|| panic!("terminal {terminal} came back without a tab: {tree}"));
+    assert_eq!(adopting["terminal_state"], "adopting", "{adopting}");
+    assert_eq!(adopting["notification"]["unread"], true, "no ring while adopting: {adopting}");
+    assert_eq!(workspace["unread_count"], 1, "{workspace}");
+
+    drop(host);
+    wait_until_running(&daemon, &terminal);
+    let tree = daemon.tree();
+    let (_, adopted) = tabs(&tree)
+        .into_iter()
+        .find(|(_, tab)| tab["terminal_id"] == terminal.as_str())
+        .unwrap_or_else(|| panic!("terminal {terminal} was not adopted: {tree}"));
+    assert_eq!(adopted["notification"]["unread"], true, "the ring was lost: {adopted}");
 }
 
 /// Closing a terminal, or a browser tab (a tab without a terminal), reads
@@ -377,5 +490,78 @@ fn cmux_next_feed_an_ack_sent_on_the_notification_event_clears_the_ring() {
         }
         assert!(!unread(&daemon.tree(), surface), "round {round}: the ring stayed");
         assert!(!is_unread(&item_titled(&daemon, &title)), "round {round}: the item stayed unread");
+    }
+}
+
+/// `cmux notify --desktop false` (classic's flag, hq#1870 P1 12): the
+/// notification still posts, and its event tells the app to show no banner.
+#[test]
+fn cmux_next_notify_desktop_false_reaches_the_app_event() {
+    let daemon = Daemon::start("desktop");
+    let capabilities =
+        daemon.ok(json!({"id": "identify", "cmd": "identify"}))["capabilities"].clone();
+    assert!(
+        capabilities.as_array().unwrap().iter().any(|c| c == "notification-desktop-v1"),
+        "identify must advertise notification-desktop-v1: {capabilities}"
+    );
+    let mut events = daemon.plain();
+    writeln!(events.0.get_mut(), "{}", json!({"id": "sub", "cmd": "subscribe"})).unwrap();
+    assert_eq!(events.line()["ok"], true);
+    for (title, desktop) in [("quiet", "false"), ("loud", "true")] {
+        let output = Command::new(bin())
+            .arg("--socket")
+            .arg(&daemon.socket)
+            .args(["notify", "--workspace", "current", "--title", title, "--desktop", desktop])
+            .env("CMUX_TUI_STATE_DIR", daemon.dir.join("state"))
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let event = loop {
+            let event = events.line();
+            if event["event"] == "notification" && event["title"] == title {
+                break event;
+            }
+        };
+        assert_eq!(event["desktop"], desktop == "true", "{event}");
+    }
+}
+
+/// `cmux notify --reply` (classic's flag, hq#1870 P1 12): the notification's
+/// event asks the app for a banner with a text reply, which the app types
+/// into the notifying terminal. Without the flag the event offers none.
+#[test]
+fn cmux_next_notify_reply_reaches_the_app_event() {
+    let daemon = Daemon::start("reply");
+    let capabilities =
+        daemon.ok(json!({"id": "identify", "cmd": "identify"}))["capabilities"].clone();
+    assert!(
+        capabilities.as_array().unwrap().iter().any(|c| c == "notification-reply-v1"),
+        "identify must advertise notification-reply-v1: {capabilities}"
+    );
+    let mut events = daemon.plain();
+    writeln!(events.0.get_mut(), "{}", json!({"id": "sub", "cmd": "subscribe"})).unwrap();
+    assert_eq!(events.line()["ok"], true);
+    for (title, reply) in [("asks", true), ("tells", false)] {
+        let mut args = vec!["notify", "--workspace", "current", "--title", title];
+        if reply {
+            args.push("--reply");
+        }
+        let output = Command::new(bin())
+            .arg("--socket")
+            .arg(&daemon.socket)
+            .args(&args)
+            .env("CMUX_TUI_STATE_DIR", daemon.dir.join("state"))
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let event = loop {
+            let event = events.line();
+            if event["event"] == "notification" && event["title"] == title {
+                break event;
+            }
+        };
+        assert_eq!(event["reply"], reply, "{event}");
     }
 }

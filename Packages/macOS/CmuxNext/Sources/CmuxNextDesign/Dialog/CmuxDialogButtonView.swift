@@ -4,14 +4,20 @@ public import AppKit
 /// default button prominent, a destructive one in the danger color. It
 /// draws a focus ring in `Palette.focusRing` while it has keyboard focus.
 @MainActor
-public final class CmuxDialogButtonView: NSButton {
+public final class CmuxDialogButtonView: ClickableButton {
     public private(set) var button: CmuxDialogButton
+    /// The key that presses this button, drawn after its title (u2647); nil draws none.
+    public let keyHint: CmuxDialogKeyHint?
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
 
-    public init(_ button: CmuxDialogButton, target: AnyObject?, action: Selector) {
+    /// A button drawing `hint` after its title. The hint only labels the key: the host
+    /// answers it (``CmuxDialogView`` through ``CmuxDialogKeys``), so pass the hint that
+    /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec.
+    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, target: AnyObject?, action: Selector) {
         self.button = button
+        keyHint = hint
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
@@ -22,12 +28,30 @@ public final class CmuxDialogButtonView: NSButton {
         self.action = action
         identifier = NSUserInterfaceItemIdentifier("cmux.dialog.button.\(button.id)")
         setAccessibilityLabel(button.title)
+        // VoiceOver reads the key after the title; the label stays the title (automation finds it).
+        setAccessibilityHelp(hint?.spokenName)
         heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
         refresh()
     }
 
+    /// A button outside a ``CmuxDialogView`` (a sheet or panel of its own) that answers its
+    /// own key and shows it: Return for a `.default` button, Escape for a `.cancel` one, else
+    /// Command plus the button's `key`; a `.normal` button with no `key` shows none.
+    public convenience init(standalone button: CmuxDialogButton, target: AnyObject?, action: Selector) {
+        let hint: CmuxDialogKeyHint? = switch button.role {
+        case .default: .return
+        case .cancel: .escape
+        case .destructive, .normal: button.key.map(CmuxDialogKeyHint.command)
+        }
+        self.init(button, hint: hint, target: target, action: action)
+        keyEquivalent = hint?.keyEquivalent ?? ""
+        keyEquivalentModifierMask = hint?.modifierMask ?? []
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    public override var isEnabled: Bool { didSet { refresh() } }
 
     /// Shows a new title in place (Copy Link turning into "Copied").
     public func retitle(_ title: String) {
@@ -91,13 +115,14 @@ public final class CmuxDialogButtonView: NSButton {
             var fill = prominent ? Palette.selectionFill : Palette.hoverFill
             if isHighlighted || isHovering { fill = prominent ? Palette.pressedFill : Palette.selectionFill }
             layer?.backgroundColor = fill.cgColor
+            alphaValue = isEnabled ? 1 : 0.45
             layer?.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
             layer?.borderWidth = hasFocus ? 2 : 0
             layer?.borderColor = Palette.focusRing.cgColor
-            attributedTitle = NSAttributedString(string: button.title, attributes: [
-                .foregroundColor: button.role == .destructive ? Palette.danger : Palette.textPrimary,
-                .font: prominent ? Typography.bodyEmphasized : Typography.body,
-            ])
+            let color = button.role == .destructive ? Palette.danger : Palette.textPrimary
+            let font = prominent ? Typography.bodyEmphasized : Typography.body
+            attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: color)
+                ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: color, .font: font])
         }
         invalidateIntrinsicContentSize()
     }

@@ -92,6 +92,12 @@ mod standby_host;
 #[path = "split_client_keys.rs"]
 mod split_client_keys;
 
+#[path = "creating_input.rs"]
+mod creating_input;
+
+#[path = "remote_terminal_tabs.rs"]
+mod remote_terminal_tabs;
+
 pub(crate) fn wait_for_no_host_records(root: &Path) {
     if let Some((records, exits)) = host_records_left_after_close(root) {
         panic!(

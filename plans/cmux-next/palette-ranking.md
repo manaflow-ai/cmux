@@ -75,9 +75,19 @@ The eval has learning cases (cases.json `replay`: a sequence of runs, then a que
 ### 5.3 Ownership
 
 - The scorer is a product rule and lives once, in `webviews/src/palette/ranker.ts`, which the app (JavaScriptCore), the web palette and `palette.query` (app, CLI, agents, scripts) all call. The candidate rows are assembled by the Swift app from the catalog data file, the daemon mirror (workspaces, tabs), the settings schema and apps, so the ranker sits with that assembly. Moving it into the daemon would mean sending every candidate row to the daemon per keystroke; not worth it while the candidates are app-side.
-- Duplicate to remove: `CmuxNextActions/FuzzyMatcher` still scores the Help menu search in Swift (`ActionRegistry+Menus.swift`) and the unused `FuzzyCorpus` in `PaletteSearchIndex.swift`. They move to the shared ranker (follow-up).
+- The Swift fuzzy matcher (`CmuxNextActions/Fuzzy*`, the uncalled `ActionRegistry.search` and the unused `FuzzyCorpus` in `PaletteSearchIndex`) is deleted (manaflow-ai/cmuxterm-hq#1850 candidate 5). The shared ranker scores every palette page; only the Cmd-K Actions menu filters its few commands in Swift, by word subsequence (`PaletteActionsMenuState.visibleCommands`).
 - Usage history and learned picks are durable per-user state, owned by the daemon (`palette-usage-v1`: `palette_usage.get`, `.record {key, query}`, `.import {source, entries}`; cmux-tui-core state/palette_usage*.rs). One writer, stamped with the daemon's clock, bounded (500 rows, 512 starts x 8 picks, faded entries forgotten), local to the Mac: events carry only the revision, MCP and the CLI do not offer the ops, and `palette_usage:*` are restricted app scopes. The app keeps a read mirror (`DaemonPaletteUsageStore`) and sends runs; the ranking rules stay in ranker.ts. On first connect the app imports every former per-build UserDefaults history on this Mac once per source (the daemon remembers the sources). Each tagged build runs its own daemon session, so a new dogfood tag starts from that import; the release app has one history for every client. An older daemon without the capability keeps the former local history (no picks).
 - Pins, hidden rows and aliases are user settings (cmux.json, the config actor), FREEZE settings paths, landed with a token in a later step.
+
+### 5.4 Tiers and families (the palette audit, 2026-10-20)
+
+Leo 2026-10-20: keep the useful commands, push the rest down, consolidate; nothing disappears from search. The catalog data is `ActionDescriptor+PaletteRank.swift`; `PaletteRankCatalogTests` checks it and [palette-audit.md](palette-audit.md) classifies every palette action.
+
+- Tier: daily rows (about 40: New Tab, Split Right, Find, Settings…) lead their section on the empty query and get +120 inside a match class while typing; niche rows (ID copies, diagnostics, quit variants, preferences Settings shows better) close their section and get −120. A tier never crosses a match class, so a better match of a niche row still wins, and usage still lifts it.
+- Family: related rows fold into one row on the empty query. A family with a parent (Set Space Color… for the nine colors, Toggle Developer Tools for the 41 Developer Tools commands) lets the parent stand for it; a family without one draws its own row (Workspace: Move…, Tab: Move…, Animations…) that opens a page of the members. Members stay search results (−120), and the family row matches the members' titles.
+- Duplicate: the same command on another target (`ActionDescriptor.paletteDuplicates`); it carries the canonical action's name on every surface, and the canonical row stands for it. Actions that only read alike get distinct names instead.
+- Focus: a row the focused pane cannot run stays listed, last in its section, dimmed with the reason as its subtitle; while typing it also ranks after every runnable row.
+- Aliases: built-in words (`ActionDescriptor.paletteAliases`: font, theme, background, machine) work like a cmux.json alias and add to the user's own.
 
 ## 6. Landings
 

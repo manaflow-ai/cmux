@@ -62,6 +62,7 @@ import {
   PurchaseMagicLinkProviderRejectedError,
   type PurchaseMagicLinkDeliveryStore,
 } from "./emailVerificationDelivery";
+import { planItem } from "./subscriptionItems";
 
 export { canonicalizeEmailForMatching } from "./emailMatching";
 
@@ -196,6 +197,8 @@ export type BillingPurchaseDependencies = {
   stripeClient?: () => StripeBillingClient;
   ownershipRepository?: BillingOwnershipRepository;
   magicLinkDelivery?: PurchaseMagicLinkDeliveryStore;
+  /** Queue Team membership reconciliation after an external quantity update. */
+  markTeamSeatsDirty?: false | ((stackTeamId: string) => Promise<void>);
   testflight?: {
     isAscConfigured?: () => boolean;
     enrollTester?: (
@@ -1955,6 +1958,7 @@ export async function applySubscriptionUpdate(
     if ("skipped" in lockedResult) return { skipped: true };
     const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
     await syncTeamPlanMetadata(team, isActive, subscriptionSeats(subscription));
+    await markTeamSeatsDirtyIfConfigured(dependencies.markTeamSeatsDirty, teamScope.stackTeamId);
     return lockedResult;
   }
 
@@ -2039,6 +2043,13 @@ export async function applySubscriptionUpdate(
     },
   });
   return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
+}
+
+async function markTeamSeatsDirtyIfConfigured(
+  markDirty: BillingPurchaseDependencies["markTeamSeatsDirty"],
+  stackTeamId: string,
+): Promise<void> {
+  if (typeof markDirty === "function") await markDirty(stackTeamId);
 }
 
 function isAccountDeletionInProgress(user: StackBillingUser): boolean {
@@ -3346,16 +3357,16 @@ function checkoutCustomerName(
 }
 
 function subscriptionPriceId(subscription: Stripe.Subscription): string | null {
-  return subscription.items?.data?.[0]?.price?.id ?? null;
+  return planItem(subscription)?.price?.id ?? null;
 }
 
 function subscriptionSeats(subscription: Stripe.Subscription): number | null {
-  const quantity = subscription.items?.data?.[0]?.quantity;
+  const quantity = planItem(subscription)?.quantity;
   return typeof quantity === "number" && Number.isFinite(quantity) ? quantity : null;
 }
 
 function subscriptionCurrentPeriodEnd(subscription: Stripe.Subscription): Date | null {
-  const timestamp = subscription.items?.data?.[0]?.current_period_end;
+  const timestamp = planItem(subscription)?.current_period_end;
   return typeof timestamp === "number" ? new Date(timestamp * 1000) : null;
 }
 

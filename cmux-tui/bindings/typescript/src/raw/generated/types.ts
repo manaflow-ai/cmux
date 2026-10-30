@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4439f0cc6d7d083091ce91f267dc8423b97ca0405e90960be83ec73bf19b1cc1. */
+/* cmux-tui mux protocol 12, IR 98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -17,8 +17,18 @@ export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
 };
 
+export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
+
 export type AgentRecord = {
+  /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
+  "agent"?: (string) | null;
+  /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
+  "agent_session_id"?: (string) | null;
+  /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
+  "last_prompt"?: (string) | null;
   "session": (string) | null;
+  /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
+  "since_ms"?: bigint;
   "source": AgentSource;
   "state": AgentState;
   "surface": Id;
@@ -69,6 +79,8 @@ export type Bookmark = {
   "browser_profile_id": string;
   "created_ms": bigint;
   "favicon_key"?: string;
+  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}. */
+  "icon"?: string;
   /** `bm_` and 32 lowercase hex digits. */
   "id": string;
   /** Dense 0-based position among the node's siblings. */
@@ -121,11 +133,14 @@ export type BrowserHostProviderResult = {
 
 export type BrowserProviderAuthentication = "none" | "bearer";
 
+export type BrowserProviderHosting = "daemon" | "native";
+
 export type BrowserProviderSnapshot = {
   "authentication"?: BrowserProviderAuthentication;
   "available": boolean;
   "clients"?: bigint;
   "endpoint"?: string;
+  "hosting"?: BrowserProviderHosting;
   "provider_id"?: string;
   "revision": bigint;
   "targets": Array<BrowserProviderTarget>;
@@ -191,13 +206,22 @@ export type CloseTerminalResult = {
   "terminal_revision": bigint;
 };
 
+export type CloudConversationPresenceParticipant = {
+  "participant": string;
+  "viewing": boolean;
+};
+
 export type ColorHex = string;
+
+export type ColumnMoveDirection = "left" | "right";
 
 export type ColumnPin = {
   "edge": string;
   "mode": string;
   "role"?: (string) | null;
 };
+
+export type ColumnSide = "left" | "right";
 
 export type ConversationChange = {
   /** kind conversation. */
@@ -222,6 +246,8 @@ export type ConversationImportMessage = {
 };
 
 export type ConversationMessage = {
+  "answers"?: Array<string>;
+  "answers_pending"?: Array<string>;
   "author": string;
   "client_msg_id": string;
   "conversation": string;
@@ -233,6 +259,8 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread"?: ConversationThreadState;
+  "thread_root"?: string;
 };
 
 export type ConversationPart = {
@@ -248,7 +276,7 @@ export type ConversationPart = {
   "status"?: string;
   /** type text. */
   "text"?: string;
-  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
+  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
   "type": string;
   [key: string]: unknown;
 };
@@ -297,8 +325,11 @@ export type ConversationSummary = {
   "id": string;
   "last_message"?: ConversationMessage;
   "last_seq": bigint;
+  "marked_unread"?: boolean;
   "owner": string;
   "participants": Array<ConversationParticipant>;
+  "pin_position"?: bigint;
+  "pinned"?: boolean;
   "read_cursors": Record<string, bigint>;
   "rev": bigint;
   "title": string;
@@ -314,6 +345,17 @@ export type ConversationTabRecord = {
   "owner"?: string;
   /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
   "page"?: string;
+  /** What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page. */
+  "route"?: string;
+};
+
+export type ConversationTabSplit = {
+  /** The side of pane the new pane takes: right, down, left or up. */
+  "direction": string;
+  /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
+  "pane_id"?: (string) | null;
+  /** Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed. */
+  "split_id"?: (string) | null;
 };
 
 export type ConversationTextRun = {
@@ -321,6 +363,33 @@ export type ConversationTextRun = {
   "link"?: string;
   "mention"?: string;
   "start": number;
+};
+
+export type ConversationThreadResolution = {
+  "at": string;
+  "by": string;
+  "seq": bigint;
+};
+
+export type ConversationThreadState = {
+  "owner"?: string;
+  "resolved"?: ConversationThreadResolution;
+  "title"?: string;
+};
+
+export type ConversationThreadStatus = "open" | "resolved";
+
+export type ConversationThreadSummary = {
+  "authors": Array<string>;
+  "last_reply_at": (string) | null;
+  "last_reply_seq": (bigint) | null;
+  "owner"?: string;
+  "reply_count": bigint;
+  "resolved_at"?: string;
+  "resolved_by"?: string;
+  "root": string;
+  "status"?: ConversationThreadStatus;
+  "title"?: string;
 };
 
 export type CopyResult = {
@@ -422,6 +491,11 @@ export type GetCellPixelsResult = {
   "width_px": number;
 };
 
+export type GetHostSizePolicyResult = {
+  "mac_participants": Array<string>;
+  "policy": HostSizePolicy;
+};
+
 export type GetSizeStateResult = {
   "self_participant": (string) | null;
   "state": SizeState;
@@ -459,6 +533,39 @@ export type HistorySearchRange = {
   "start": number;
 };
 
+export type HomeChiefState = "working" | "waiting" | "idle";
+
+export type HomeInboxKind = "chief" | "direct" | "channel" | "group";
+
+export type HomeInboxRow = {
+  "activity_at": string;
+  "chief"?: string;
+  "chief_state"?: HomeChiefState;
+  "id": string;
+  "kind": HomeInboxKind;
+  "last_author"?: string;
+  "marked_unread": boolean;
+  "muted": boolean;
+  "name": string;
+  "owner": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
+  "preview"?: string;
+  "unread": bigint;
+};
+
+export type HostSizeMode = "smallest" | "mac" | "latest" | "priority";
+
+export type HostSizePolicy = {
+  "mode": HostSizeMode;
+  "order": Array<string>;
+};
+
+export type HostSizePolicyRequest = {
+  "mode": HostSizeMode;
+  "order"?: (Array<string>) | null;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -468,21 +575,32 @@ export type IdMapping = {
 };
 
 export type IdentifyResult = {
+  "api_revision"?: (number) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
+  "build_id"?: (string) | null;
+  "build_time"?: (bigint) | null;
   "capabilities"?: Array<string>;
+  "cli_path"?: (string) | null;
+  "crate_version"?: (string) | null;
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "install"?: (string) | null;
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
+  "machine_capabilities"?: Array<string>;
+  "machine_id"?: string;
   "machine_name"?: string;
+  "machine_platform"?: MachinePlatform;
+  "min_api_revision"?: (number) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
   "session": string;
   "session_id"?: string;
   "terminal_revision": bigint;
+  "update_command"?: (string) | null;
   "version": string;
   "workspace_revision": bigint;
 };
@@ -518,6 +636,8 @@ export type Layout = ({ "type": "leaf" } & {
   "ratio": number;
   /** Stable for the lifetime of this split node. */
   "split"?: Id;
+  /** The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it. */
+  "split_id"?: string;
   "type": "split";
 }) | ({ "type": "stack" } & {
   "expanded": Id;
@@ -566,6 +686,11 @@ export type MachineListeningTcpResult = {
   "stdout": string;
 };
 
+export type MachinePlatform = {
+  "arch": string;
+  "os": string;
+};
+
 export type MachineUsage = {
   "api_equivalent_usd": number;
   "as_of": (string) | null;
@@ -605,9 +730,13 @@ export type MoveTerminalResult = {
   "workspace_key": string;
 };
 
+export type NameSource = "user" | "auto";
+
 export type NewRowResult = {
   "pane": Id;
+  "pane_id"?: string;
   "surface": Id;
+  "tab_id"?: string;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "transaction"?: string;
@@ -672,6 +801,8 @@ export type ProcessInfoResult = {
   "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
+
+export type ProgramStatusState = "working" | "blocked" | "error" | "done";
 
 export type ProviderWorkspaceMutationResult = {
   "key": string;
@@ -854,7 +985,7 @@ export type SavedTabGroupMember = {
 };
 
 export type SavedTabGroupRecord = {
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   "members": Array<SavedTabGroupMember>;
@@ -874,6 +1005,10 @@ export type Screen = {
   "panes": Array<Pane>;
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
+};
+
+export type SendExpectAgent = {
+  "session"?: (string) | null;
 };
 
 export type ServerStatsConnections = {
@@ -982,6 +1117,10 @@ export type SetCellPixelsResult = {
   "resizes": Array<CellPixelResize>;
 };
 
+export type SetHostSizePolicyResult = {
+  "policy": HostSizePolicy;
+};
+
 export type SetSizeCountsResult = {
   "changed"?: boolean;
   "outcome": ViewAttachmentOutcome;
@@ -1000,6 +1139,12 @@ export type SetTerminalIdlePolicyResult = {
 export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
+  "terminal_resource_id"?: (string) | null;
+};
+
+export type ShownProgramStatus = {
+  "progress": (number) | null;
+  "state": ProgramStatusState;
 };
 
 export type ShutdownDaemonResult = {
@@ -1112,10 +1257,13 @@ export type Tab = {
   "kind": "pty" | "browser" | "conversation";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  "program_status"?: (ShownProgramStatus) | null;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
+  "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
@@ -1141,7 +1289,7 @@ export type TabGroupOutcome = {
 
 export type TabGroupRecord = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   /** May be empty: the group shows only its color. */
@@ -1153,7 +1301,7 @@ export type TabGroupRecord = {
 
 export type TabGroupRun = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
   "id": string;
@@ -1205,8 +1353,31 @@ export type TerminalColors = {
   "selection_fg": (ColorHex) | null;
 };
 
+export type TerminalCommandDeleteResult = {
+  "deleted": bigint;
+};
+
 export type TerminalCommandHistoryResult = {
   "enabled": boolean;
+  "retention_days": number;
+};
+
+export type TerminalCommandList = {
+  "commands": Array<TerminalCommandRecord>;
+  "deletions": string;
+  "registry_id": string;
+  "retention_days": number;
+  "truncated": boolean;
+};
+
+export type TerminalCommandRecord = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "duration_ms": string;
+  "exit_code": (number) | null;
+  "id": string;
+  "started_at_ms": string;
+  "terminal_id": string;
 };
 
 export type TerminalEventsResult = {
@@ -1289,8 +1460,26 @@ export type TerminalPlacement = {
   "surface": (Id) | null;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+};
+
+export type TerminalPortsListener = {
+  /** The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1. */
+  "bound": string;
+  /** The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ... */
+  "host": string;
+  "port": number;
+  /** The printed URL, or http://HOST:PORT/ when the text had no scheme. */
+  "url": string;
+};
+
+export type TerminalPortsResult = {
+  /** Ports the text names that refused the connect. */
+  "closed": Array<number>;
+  "listeners": Array<TerminalPortsListener>;
+  "surface": Id;
 };
 
 export type TerminalReadRangeResult = {
@@ -1347,6 +1536,11 @@ export type TerminalResourcesResult = {
   "terminals": Array<TerminalResources>;
 };
 
+export type TerminalResumeCommandResult = {
+  "command": (string) | null;
+  "terminal_id": string;
+};
+
 export type Tree = {
   "generation"?: string;
   "pane_revision"?: bigint;
@@ -1381,12 +1575,16 @@ export type Workspace = {
   "id": Id;
   "key"?: string;
   "name": string;
+  "name_revision"?: string;
+  "name_source"?: NameSource;
   "screens": Array<Screen>;
   "short_id"?: string;
 };
 
 export type WorkspaceMutationResult = {
   "changed"?: boolean;
+  /** close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed. */
+  "closed_ids"?: Array<string>;
   "generation": string;
   "index": bigint;
   "key": string;

@@ -26,6 +26,7 @@ fn only_the_person_reads_the_hosts_unrouted_log() {
             on_behalf_of: None,
             origin: origin.into(),
             label: String::new(),
+            terminal: None,
             implicit_session: false,
             engine: "headless".into(),
         };
@@ -94,6 +95,7 @@ fn held_input_is_released_when_the_last_session_leaves() {
             on_behalf_of: None,
             origin: "cli".into(),
             label: String::new(),
+            terminal: None,
             implicit_session: false,
             engine: "headless".into(),
         };
@@ -152,6 +154,7 @@ pub(crate) fn headless_session(
         on_behalf_of: None,
         origin: "cli".into(),
         label: String::new(),
+        terminal: None,
         implicit_session: false,
         engine: "headless".into(),
     };
@@ -474,6 +477,7 @@ fn a_sessions_end_dismisses_its_open_dialog() {
             on_behalf_of: None,
             origin: "cli".into(),
             label: String::new(),
+            terminal: None,
             implicit_session: false,
             engine: "headless".into(),
         };

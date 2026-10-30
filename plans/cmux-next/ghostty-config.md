@@ -32,8 +32,8 @@ is kept; fixes bug 2); `terminal.fontSize` -> `ghostty.font-size` (no rounding; 
 `appearance.backgroundOpacity` -> `ghostty.background-opacity`; `appearance.backgroundBlur`
 (`frosted|glass|glass-clear|none`) -> `ghostty.background-blur` (`true|macos-glass-regular|macos-glass-clear|false`);
 `appearance.surfaces.splitDivider.color` -> `ghostty.split-divider-color`. R93 decisions:
-`unfocused-split-opacity` and `unfocused-split-fill` own the inactive-pane dim (the 0.14 Debug
-tunable becomes the cmux default in layer 2, overridable by the user); `split-divider-color` owns the
+`unfocused-split-opacity` and `unfocused-split-fill` own the inactive-pane dim (the theme token
+`ThemeTokens.inactivePaneDim`, 0.10 since 2026-10-21, with its Debug tunable, becomes the cmux default in layer 2, overridable by the user); `split-divider-color` owns the
 divider color; `appearance.surfaces.splitDivider.opacity` stays cmux-only (Ghostty colors have no alpha).
 
 ## The session host gets the same resolved config

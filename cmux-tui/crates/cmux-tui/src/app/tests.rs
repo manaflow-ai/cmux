@@ -4,11 +4,13 @@
 //! through `use super::*`.
 
 mod deferred_input;
+mod docked_workspaces;
 mod graphics_pointer;
 mod host_input;
 mod machine_sidebar;
 mod menus_browser;
 mod mux_recovery;
+mod program_status_tabs;
 mod projection_actions;
 mod provider_switch;
 mod provider_workspaces;
@@ -191,6 +193,7 @@ fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId
         browser_frames_stalled: false,
         supports_clear_history_key_fallback: false,
         notification: None,
+        program_status: None,
     };
     let mut tabs = vec![tab(created_surface)];
     if active_surface != created_surface {
@@ -285,6 +288,8 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
                 name: "managed".into(),
                 subtitle: "cloud".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(42),
@@ -292,6 +297,8 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
                 name: "quiet-forest".into(),
                 subtitle: String::new(),
                 status: MachineStatus::Stopped,
+                platform: None,
+                capabilities: Vec::new(),
             },
         ],
         active: Some(MachineKey(41)),
@@ -358,6 +365,8 @@ fn provider_machine_ui_with_policy(
             name: "managed".into(),
             subtitle: "cloud".into(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         }],
         active: Some(machine),
         capabilities: MachineCapabilities { create: true, connect: true },
@@ -617,6 +626,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         pane_focus_history: PaneFocusHistory::default(),
         reported_focus: None,
         client_focus_id: None,
+        docks: Default::default(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -640,6 +650,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         machine_footer_scroll: 0,
         workspace_rail_scroll: 0,
         workspace_footer_scroll: 0,
+        workspace_drop_geometry: None,
         tabs_rail_selection: 0,
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
@@ -774,6 +785,7 @@ fn notify_tree(surface: u64, unread: bool) -> TreeView {
                         supports_clear_history_key_fallback: false,
                         notification: unread
                             .then_some(TabNotificationView { unread: true, level: "warning" }),
+                        program_status: None,
                     }],
                 }],
             }],

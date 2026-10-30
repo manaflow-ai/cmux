@@ -1,4 +1,6 @@
 import CmuxNextDictation
+public import CmuxNextDesign
+public import CmuxNextSettings
 public import Foundation
 
 /// A request the page posts to `window.webkit.messageHandlers.agentSession`:
@@ -10,9 +12,22 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
+    /// A bounded element report from the debug app-owned webview picker.
+    case uiPointerReport(String)
+    /// `acpmux.restart {}`: the refusal card's Restart acpmux, after a handshake refused a daemon
+    /// another binary runs on this app's socket (``AgentPaneHostError/daemonRefused(holder:socketPath:reason:executable:owner:)``
+    /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
+    /// starts this app's own. Only with a real gesture; answers `{stopped}`.
+    case restartAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// `chat.missing` with `{session, reason}`: the page says this tab's chat isn't available
+    /// (`notListedAtOpen`, `leftListWhileShown`); the host logs it, so the views can be counted.
+    case missingChat(session: String, reason: String)
+    /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
+    /// keeps it with the tab, so a relaunch opens the chat with it.
+    case unsentDraft(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -21,14 +36,24 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
-    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true)
+    case openTab(AgentPaneOpenTab)
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
+    /// Opens a redeemed durable Run attempt's terminal on its enrolled worker (`run.attach`).
+    case runAttach(AgentPaneRunAttach)
+    /// `run.attach` whose params break its contract or whose endpoint expired; nothing opens.
+    case invalidRunAttach
     /// Shell mode (`!` first in the composer or the new tab field): run
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.
     case shellRun(command: String, cwd: String?)
+    /// `harness.update {id}`: the chat card's Update (cx-1mbnu): this Mac's acpmux runs that agent
+    /// CLI's own update now and answers `{ok, version?, error?}`. Only with a real gesture.
+    case harnessUpdate(id: String)
+    /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
+    /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
+    case harnessRestart
     /// `shell.read {id, after}`: the run's output from byte `after`.
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
@@ -39,42 +64,92 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case shellComplete(line: String, cwd: String?)
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
-    case rememberNewTab(agent: String)
+    case rememberNewTab(AgentPaneRememberedPick)
+    /// The new tab page's style switch (`newTab.setTemplate`) or edit mode (`newTab.editWidgets`):
+    /// ``AgentPaneNewTabEdit``.
+    case editNewTab(AgentPaneNewTabEdit)
+    /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
+    case nowPlaying(AgentPaneNowPlaying.Command)
+    /// `readAloud.speak` / `readAloud.stop`: the speaker under a message (``AgentPaneReadAloud``).
+    case readAloud(AgentPaneReadAloud.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
+    /// The page's New Tab context at once (`newTab.context`), before the
+    /// handshake that waits for acpmux: a cold New Tab page draws its frame
+    /// (layout, field, empty list) at first render (cx-0rpl.10).
+    case newTabContext
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
+    /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
+    /// context carries it (``AgentPaneNewTab/warm``), so its first frame lists them.
+    case newTabWarm(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page's "default: X" toggle: what Cmd-T opens
-    /// (`tabs.newTabKind`; the App checks the value).
-    case setDefaultKind(String)
-    /// The new tab page's template dots (`newTab.setTemplate`): the
-    /// template to save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
-    /// The new tab page asked the app to run a user facing action.
-    case runAction(String)
+    /// The new tab page asked the app to run a user facing action. `session`, when the page names
+    /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
+    /// tab still shows it.
+    case runAction(String, session: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
     /// workspace's agent folder, after a real gesture (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     case chooseFolder
+    /// A folder the user picked for a chat (`workspace.useFolder {cwd, confirm}`, cx-nn3e): the
+    /// host answers whether it is used at once, asked about first (the home folder) or refused
+    /// (`/`, above the home folder). `confirm` is the user's answer to the question, on its click.
+    case useFolder(String, confirm: Bool)
     /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
     case chooseChatFolder
+    /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
+    /// after a real gesture, for a chat on this Mac.
+    case chooseAttachments
+    /// `chat.attach.dropped {kind, names}`: where on this Mac the files of the person's last native
+    /// drop or paste are, for a chat on this Mac (``AgentPaneDroppedPaths``). The names are the
+    /// person's files: never logged.
+    case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
-    /// The empty-chat action opens the existing onboarding project/history import flow.
-    case importAndSync
+    /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
+    case projectIcon(String)
+    /// `agent.avatar {sessionId}`: the person's own avatar for agent session `sessionId`, as a small
+    /// data URL, for its cards and sender chip; none answers nothing.
+    case agentAvatar(String)
+    /// `agent.avatar.set {sessionId}`: the menu's Set Avatar…: the native open panel, then the upload.
+    case setAgentAvatar(String)
+    /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
+    case removeAgentAvatar(String)
+    /// `chief.face {chief}`: the name and avatar Chief `chief` (a participant id, `agent_mux` or
+    /// `agent_…`) shows in the sidebar and Home, for a message it sent this chat (acpmux
+    /// `fromChief`, manaflow-ai/cmux#27914): `name`, and `src` (a small data URL) or `text`.
+    case chiefFace(String)
+    /// `harness.symbol {name}`: a custom harness's SF Symbol icon as a template PNG `data:` URL
+    /// (``HarnessSymbolImages``); a name this Mac cannot draw answers nothing.
+    case harnessSymbol(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
     /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
     case openChatInTerminal(String)
+    /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
+    case watchChat(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
+    /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
+    case environment(AgentPaneEnvironmentRequest)
+    /// `sandbox.run {task, agent?, key}`: a new chat's Sandboxed send (hq#3367): one task on a
+    /// throwaway Cloud VM, answered with its receipt (``AgentPaneModel/onSandboxRun``). `key` names
+    /// the page's send, so its retry after an unclear failure finds the same Run.
+    case sandboxRun(task: String, agent: String?, key: String)
+    /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
+    /// (``AgentPaneSandboxRuns/state(wait:)``).
+    case sandboxState(wait: Bool)
+    /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
+    case cloudMachine(AgentPaneCloudMachineRequest)
+    /// A user-confirmed provider credential transfer for one Cloud chat.
+    case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -83,21 +158,75 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
-    /// The chat tab's state the header's menu labels read: `{pinned}`.
-    case tabState
-    /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
-    case archive(Bool)
+    /// Moves the current chat to one of the eligible Cloud machines advertised by `pane.tabState`.
+    /// The host validates the id against its live target list before dispatching the existing
+    /// `cloudMove` action, so the page cannot target an arbitrary machine. `session` is the chat
+    /// whose title menu offered the move: the host moves the tab only while it still shows it.
+    case moveToMachine(String, session: String)
+    /// The header's Changes or an edited-files card naming a chat turn (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
+    /// turn (``AgentPaneDiffTurn``).
+    case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
+    /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
+    /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
+    /// address only; a click that closes the open preview may name none.
+    case preview(url: String?, toggle: Bool)
+    /// The header's right-click menu saved the quick actions (`pane.setQuickActions
+    /// {quickActions}`): the App writes them into `agent-pane/layout.json`.
+    case setQuickActions([AgentPaneQuickAction])
+    /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
+    /// asks for the chat folder's pull request again.
+    case tabState(refresh: Bool)
+    /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
+    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
+    case tabRowTools(width: Double)
+    /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
+    case tabRowToolsSet([PaneTabRowTool])
+    /// `/btw <question>` asks acpmux for one bounded inline side answer.
+    case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
+    /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
+    /// a split, a new workspace or a new window (`placement`; none is a tab).
+    case chatTab(String, AgentForkDestination)
+    /// `chat.offer.open {sessionId, sender?}`: the person opened a session the chat shows (a
+    /// sub-session its agent started, the session that started it, with `sender` the chat that sent
+    /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
+    case offerOpen(String, sender: Bool)
+    /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
+    /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
+    case asksOpen(String)
+    /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
+    /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
+    case asksAnswer(AgentPaneAskAnswer)
+    /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
+    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
+    case subagentPane(String, focus: Bool)
+    /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
+    /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
+    case processTerminal(toolCall: String)
+    /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
+    case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
+    /// `pane.commandAvailability`: the page commands the native palette may run in this chat now
+    /// (``AgentPageCommand``); the palette greys out the others.
+    case commandAvailability([String])
     /// `pane.painted`: the document drew its first frame after the handshake
-    /// (once per document).
-    case painted
+    /// (once per document). `fromKeptTail` is the page's own account of what it
+    /// drew there: a chat it took from a kept tail (tailCache.ts), which is
+    /// already on screen in that frame, or a chat read cold, which the pane's
+    /// loading state fades in. An older page says nothing, which means cold.
+    case painted(fromKeptTail: Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
-    /// or `dictation.openSettings` with `{permission}`.
+    /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
+    /// machine the chat runs on (``AgentPaneDictationUpload``).
+    case dictationRecordingUpload(path: String)
+    /// `dictation.recording.cancel {path}`: the chip's ×; the upload of `path` running now stops.
+    case dictationRecordingCancel(path: String)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)
@@ -114,11 +243,23 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The quick panel's page (Start Agent's Return): its chat started;
     /// hand the session to the sidebar in the background and hide the panel.
     case quickStartInBackground(AgentPaneQuickStart)
+    /// The floating chat's page (cx-b9qi): `quick.setOnTop {onTop}` floats the
+    /// panel over other windows or not; `quick.setCollapsed {collapsed}` folds it
+    /// to its compact bar or opens it again.
+    case quickSetOnTop(Bool)
+    case quickSetCollapsed(Bool)
+    /// `quick.floatingState`: the page, once loaded, reads the floating chat's state.
+    case quickFloatingState
+    /// `quick.context`: Include focused tab asks what the user is looking at in cmux.
+    case quickContext
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)
-    /// `git.diff` or `git.status` whose params the bridge refused (no
-    /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
+    /// `git.commit` or `git.push` with `{session_id, …, idempotency_key}`: the
+    /// changes view's Commit and Push, which the App runs on the session host.
+    case gitWrite(AgentPaneGitWrite)
+    /// A git read or write whose params the bridge refused (no absolute
+    /// `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
     /// Reads the selected local session's GitHub `origin` for Markdown reference links.
     case githubRepository(cwd: String)
@@ -126,6 +267,22 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case turnUndo(AgentPaneTurnUndo)
     /// `turn.undo` whose params break its contract; nothing is read or written.
     case invalidTurnUndo
+    /// `git.stage` / `git.unstage` / `git.stageHunk` / `git.unstageHunk`: the Changes view's Stage
+    /// and Unstage, of files or one hunk (AgentPaneGitStage.swift);
+    /// nil when its params break the contract, and nothing runs.
+    case gitStage(AgentPaneGitStage?)
+    /// `git.pullRequest`: the Changes view's Create PR (AgentPaneGitPullRequest.swift); nil when its
+    /// params break the contract, and nothing runs.
+    case gitPullRequest(AgentPaneGitPullRequest?)
+    /// `project.instructions`: the chat menu's Edit CLAUDE.md (AgentPaneProjectInstructions.swift);
+    /// nil when its params break the contract.
+    case projectInstructions(AgentPaneProjectInstructions?)
+    /// `project.addFiles`: the chat menu's Add Files to Project (AgentPaneProjectFiles.swift), with the
+    /// same `{cwd, name}`; nil when its params break the contract.
+    case projectAddFiles(AgentPaneProjectInstructions?)
+    /// `composer.capture` with `{mode}`: the composer's Attach Screenshot… or Attach Window…
+    /// (AgentPaneCapture.swift).
+    case composerCapture(mode: String?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen
@@ -142,13 +299,24 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportGestureRelease
     /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).
     case reply(AgentPaneReplyRequest)
-    /// The ACP inspector's export (JSON Lines, at most
-    /// ``maximumLogBytes`` UTF-8 bytes) to save where the user picks, under
-    /// `suggestedName` (a plain file name ending in `.jsonl`).
-    case saveLog(text: String, suggestedName: String)
-    /// `pane.showContextUsage` with `{show}`: the composer's Hide or Show Context Usage, which the
-    /// host writes to cmux.json (`agentPane.showContextUsage`).
-    case showContextUsage(Bool)
+    /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
+    /// text to save where the user picks (``AgentPaneSave``).
+    case saveFile(AgentPaneSave)
+    /// `pane.showContextUsage`, `pane.showDictation` or `pane.setScrollToBottomOnSend` with
+    /// `{show}`: a composer setting which the host writes to cmux.json at `path`.
+    case composerSetting(path: [String], show: Bool)
+    /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
+    /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
+    /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline` or `strip`).
+    case displaySetting(path: [String], value: JSONValue?)
+    /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
+    /// with what the person typed in its field.
+    case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
+    /// `chat.computerUsePreview {action}`: a click on the live preview card (``AgentPaneComputerUsePreview``).
+    case computerUsePreview(AgentPaneComputerUsePreview.Action)
+    /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
+    case upload([AgentPaneUpload])
+    case uploadStage(AgentPaneUploadStageRequest)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -162,6 +330,19 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         }
     }
 
+    /// A tool card answer carrying what the person typed (a secret): never logged, even redacted.
+    public var carriesEntered: Bool {
+        if case .toolCard(_, _, .some) = self { return true }
+        return false
+    }
+
+    /// An upload: the person's files, never logged.
+    public var carriesFiles: Bool {
+        if case .upload = self { return true }
+        if case .uploadStage = self { return true }
+        return false
+    }
+
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
@@ -173,27 +354,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
+    /// Longest `sandbox.run` task: the Run API's own cap (web/services/runs/model.ts).
+    public static let maximumSandboxTask = 16_000
     /// The page keeps about 2M characters of wire log; JSON escaping and
     /// multi-byte text can grow that, but not past this.
     public static let maximumLogBytes = 16 * 1024 * 1024
-
-    /// The save panel's name when the page sends none or an unusable one.
-    public static let defaultLogName = "acp.jsonl"
-
-    /// `name` as a plain `.jsonl` file name: path separators and control
-    /// characters removed, at most 120 characters, ``defaultLogName`` when
-    /// nothing usable is left.
-    static func logFileName(_ name: String?) -> String {
-        var scalars = String.UnicodeScalarView()
-        scalars.append(contentsOf: (name ?? "").unicodeScalars.filter { scalar in
-            scalar != "/" && scalar != ":" && scalar != "\\" && !CharacterSet.controlCharacters.contains(scalar)
-        })
-        let cleaned = String(scalars).trimmingCharacters(in: .whitespaces)
-        var base = cleaned.hasSuffix(".jsonl") ? String(cleaned.dropLast(6)) : cleaned
-        base = String(base.prefix(114))
-        while base.hasPrefix(".") { base.removeFirst() }
-        return base.isEmpty ? defaultLogName : base + ".jsonl"
-    }
 
     public static let handlerName = "agentSession"
 

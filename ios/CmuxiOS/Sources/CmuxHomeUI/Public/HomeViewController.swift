@@ -18,6 +18,12 @@ public final class HomeViewController: UIViewController {
     private lazy var observation = StoreObservation { [weak self] in self?.render() }
     private let composeItem = UIBarButtonItem()
     private let inviteItem = UIBarButtonItem()
+    private let settingsItem = UIBarButtonItem()
+
+    /// Opens Settings > Chat Server; the button shows only while this is set.
+    public var onOpenSettings: (() -> Void)? {
+        didSet { if isViewLoaded { configureTrailingItems() } }
+    }
 
     public init(store: HomeStore, options: HomeUIOptions) {
         self.store = store
@@ -126,8 +132,17 @@ public final class HomeViewController: UIViewController {
             self?.compose.start(.invite)
         }
         inviteItem.accessibilityHint = HomeText.inviteHint
-        navigationItem.rightBarButtonItem = inviteItem
+        settingsItem.image = UIImage(systemName: "gearshape")
+        settingsItem.accessibilityLabel = HomeText.chatServerSettings
+        settingsItem.primaryAction = UIAction(title: HomeText.chatServerSettings, image: UIImage(systemName: "gearshape")) { [weak self] _ in
+            self?.onOpenSettings?()
+        }
+        configureTrailingItems()
         navigationController?.navigationBar.tintColor = HomePalette.accent
+    }
+
+    private func configureTrailingItems() {
+        navigationItem.rightBarButtonItems = onOpenSettings == nil ? [inviteItem] : [inviteItem, settingsItem]
     }
 
     private func configureSearch() {

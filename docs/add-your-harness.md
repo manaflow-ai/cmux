@@ -22,6 +22,7 @@ All of these run the same daemon operations, so a profile added in one place sho
 | CLI (app actions) | `cmux agent add-harness --arg command=acme-agent` or `--arg registry=goose` | `cmux agent check-harness --arg id=acme` | `cmux agent remove-harness --arg id=acme`, `cmux agent restore-harness` |
 | MCP (`cmux mcp serve`) | `app_agent_add_harness` | `app_agent_check_harness` | `app_agent_remove_harness`, `app_agent_restore_harness` |
 | acpmux CLI (no app needed) | `cmux harness add`, `cmux harness add ID --registry` | `cmux harness doctor ID` | delete the file |
+| Icon | Settings > Agents: **Icon…** on your profile; `cmux harness icon ID VALUE`; `_acpmux/harness/icon` | `cmux harness icon ID` | `cmux harness icon ID --clear` |
 
 Secrets never pass through Settings or the app actions: a custom command names env keys, the
 profile reads each from the Keychain item of the same name (`keychain:KEY`), and
@@ -35,6 +36,7 @@ removed there.
 cmux harness add acme --command acme-agent      # ACP harness: writes ~/.config/cmux/harnesses/acme.toml
 cmux harness add acme --command acme --protocol terminal   # a CLI/TUI without ACP
 cmux harness add --example codex                # start from a shipped example
+cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com --model m1
 $EDITOR ~/.config/cmux/harnesses/acme.toml
 cmux harness doctor acme                        # repeat until every step passes
 cmux harness list                               # every harness, its source and its problems
@@ -46,7 +48,8 @@ starts the harness in a fresh temporary folder and runs the ACP handshake: `init
 `session/new` and one prompt ("Reply with the single word OK."). Each step prints PASS, WARN or
 FAIL with a `fix:` line. `--no-prompt` stops before the prompt (no model call); `--timeout S`
 sets the wait per step (default 120). For a `terminal` harness the doctor only checks that the
-program starts.
+program starts. For a `claude-stdio` harness (Claude Code through acpmux's own adapter) the prompt
+is one `claude -p` turn with the profile's env.
 
 Examples ship in `cmux-tui/crates/acpmux/harnesses/`: `claude.toml`, `codex.toml`,
 `opencode.toml`, `pi.toml`, `gemini.toml` and `aider.toml` (terminal).
@@ -56,6 +59,9 @@ Examples ship in `cmux-tui/crates/acpmux/harnesses/`: `claude.toml`, `codex.toml
 1. Managed folder, for companies: `/Library/Application Support/cmux/harnesses/` (macOS),
    `/etc/cmux/harnesses/` (Linux). A managed profile wins over a user file with the same id.
 2. Your folder: `~/.config/cmux/harnesses/` (or `$XDG_CONFIG_HOME/cmux/harnesses/`).
+   A DEV build uses `harnesses/` in its own acpmux home instead (`~/.acpmux/builds/<build>/`,
+   or the old `~/.acpmux/tags/<tag>/`), so a test harness never shows in NIGHTLY, cmux NEXT or
+   release. An explicit `XDG_CONFIG_HOME` still wins.
 3. `~/.config/cmux/cmux.json`, key `agents.harnesses.<id>`, with the same keys as JSON.
 4. A repository or workspace: `<folder>/.cmux/harnesses/<id>.toml`. Never loaded on its own;
    see [Folder profiles](#folder-profiles).
@@ -74,8 +80,9 @@ schema = 1
 id = "acme"
 name = "Acme Agent"             # display name
 description = "Acme's internal coding agent"
-icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB), or a built-in:
-                                # claude, openai, codex, opencode, pi, gemini, terminal, generic
+icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB), one emoji ("🦊"),
+                                # an SF Symbol ("hammer.fill"; "sf:NAME" forces one), an agent
+                                # mark (claude, openai, gemini, goose, amp, ...), terminal or generic
 protocol = "acp"                # acp (default) | terminal | claude-stdio
 command = "acme-agent"          # program on PATH, or an absolute path (no spaces, no arguments)
 args = ["acp", "--model", "${model}"]   # ${model} = the chosen model, ${cwd} = the chat folder
@@ -128,6 +135,34 @@ cwd = "{cwd}"
 
 Each `{ ... }` model entry stays on one line (TOML inline tables).
 
+## Icons
+
+Every harness has an icon in the model picker, New Tab, Home, subagent rows, Settings, its chats'
+tabs and its workspaces' sidebar rows.
+Set your own from the CLI or from Settings > Agents (**Icon…** on your profile's row: type a value,
+choose or drop a PNG or SVG, or **Automatic**):
+
+```sh
+cmux harness icon acme 🦊                 # one emoji
+cmux harness icon acme hammer.fill        # an SF Symbol
+cmux harness icon acme goose              # an agent's mark
+cmux harness icon acme ~/Pictures/acme.svg   # copied next to the profile as acme.svg
+cmux harness icon acme --clear            # back to automatic
+cmux harness icon acme                    # what cmux shows now, and why
+cmux harness add acme --command acme-agent --icon 🦊
+```
+
+Without an `icon` line cmux picks one: the mark of the agent the harness runs, read from its id
+(`claude-work`), its program (`codex-acp`), the package a runner starts (`npx -y
+@google/gemini-cli` is Gemini; also `bunx`, `pnpm dlx`, `uvx`, `pipx run`) or its family; else
+`terminal` for a terminal harness; else a monogram of its name (`Zeta Bot` is `ZB`) on a color fixed
+by its id, so it never changes between launches or devices. A missing or broken icon file is a
+doctor error, never a blank icon. An SVG may not hold scripts or event handlers. Clients draw the
+daemon's one answer, `iconSpec` on each `_acpmux/harnesses` entry: `{kind: brand|glyph|emoji|symbol|
+image|monogram, ..., source: profile|id|command|family|default}`. The app draws an SF Symbol for its pages (`harness.symbol` on the agent page,
+`agents.run {action: "symbol"}` in Settings) and natively in the tab strip and sidebar; a name the
+Mac cannot draw shows the symbol's monogram (`text`, `hue`).
+
 ## Secrets
 
 Never put a secret (API key, token, password) in a profile file. Store it in the system secret
@@ -144,6 +179,50 @@ starts. A literal value under a secret-looking key (`KEY`, `TOKEN`, `SECRET`,
 `PASSWORD`, `PASSWD`, `CREDENTIAL`, `AUTH`, `COOKIE` in the name) is a warning in your own file and an error in managed and
 folder files. The doctor and every diagnostic show env key names and their source kind, never
 values; harness output that the doctor prints has every resolved env value masked.
+
+## Your own model endpoint
+
+An Anthropic-compatible or OpenAI-compatible endpoint (a company gateway, a local model server)
+becomes a harness with one command. A Chief can then use it as its backend.
+
+```sh
+cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com \
+    --model acme-large [--keychain-item ITEM] [--name "Acme"]
+cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \
+    --model qwen3 [--keychain-item ITEM]
+cmux harness secret set acme ANTHROPIC_AUTH_TOKEN     # openai-endpoint: CMUX_BYO_API_KEY
+cmux harness doctor acme                              # one real hello turn
+```
+
+- `anthropic-endpoint` writes a `claude-stdio` profile (acpmux's own Claude Code adapter,
+  command `claude`) with `ANTHROPIC_BASE_URL` (the URL before `/v1/messages`), `ANTHROPIC_MODEL`,
+  `ANTHROPIC_SMALL_FAST_MODEL` and `ANTHROPIC_DEFAULT_HAIKU_MODEL` set to the model, and
+  `ANTHROPIC_AUTH_TOKEN = { keychain = ITEM }` (sent as `Authorization: Bearer`). Every other
+  `ANTHROPIC_*` and Claude provider switch from your login shell or the daemon
+  (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, ...) is removed
+  from its environment, so your own Claude login never redirects it.
+- `openai-endpoint` writes an `opencode acp` profile with `OPENCODE_CONFIG_CONTENT` (OpenCode's
+  inline config, which wins over your global and project config): provider `byo` on
+  `@ai-sdk/openai-compatible` with `options.baseURL` (the URL before `/chat/completions`, usually
+  ending in `/v1`), `options.apiKey = "{env:CMUX_BYO_API_KEY}"` and your model, and
+  `"model": "byo/<model>"`; `CMUX_BYO_API_KEY = { keychain = ITEM }`.
+- The base URL is https; plain http only to `localhost`, `127.0.0.1` or `::1`. A URL with a user,
+  password or key, a Keychain item name that looks like a key, and a key passed as a parameter are
+  refused: the key goes only into the Keychain.
+- Without `--keychain-item` the item is `cmux-harness/<id>/<KEY>`, which `cmux harness secret set`
+  writes. With it, the profile reads the item you name (`service` or `service/account`).
+- A family or global route binding never rewrites an endpoint harness; a chat's or
+  workspace's route still does.
+- `cmux harness doctor ID` (and `_acpmux/harness/doctor {id, prompt: true}`) sends one real prompt:
+  `claude -p` with the profile's env for `anthropic-endpoint` (at least 60 s), the ACP prompt for
+  `openai-endpoint`. A failure names the fix: **check the key**, **check the base URL** or
+  **model not found**. Env values are masked in everything it prints.
+
+From the app (the unix socket): `_acpmux/harness/add {example: "anthropic-endpoint" |
+"openai-endpoint", id, displayName, baseUrl, model, keychainItem?}` answers with `secret: {key,
+keychainItem}`; `_acpmux/harness/secret/set {id, key, value}` stores the value (service
+`cmux-harness`, account `<id>/<key>`, through `security -i` on stdin) and points the profile at
+it, never echoing the value; then `_acpmux/harness/doctor {id, prompt: true}`.
 
 ## Terminal harnesses (no ACP)
 
@@ -221,6 +300,10 @@ Run `cmux harness doctor <id>` and do what each `fix:` line says. Common results
 
 - **command not found**: the program is not on your login `PATH`. Use an absolute path or fix
   `PATH` in your shell profile.
+- **no file at PATH**: the absolute `command` points at nothing. Install the program there or fix
+  the path in the profile file the fix line names.
+- **PATH is not executable**: a script without its execute bit. Run the `chmod +x PATH` that the
+  fix line prints.
 - **missing Keychain item**: run `cmux harness secret set <id> <KEY>`.
 - **auth check failed**: run the `[auth].login` command once.
 - **initialize timed out**: the program did not speak ACP on stdout. Check its ACP flag, and that

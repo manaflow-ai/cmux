@@ -49,6 +49,7 @@ BUSL_DIRS = (
     "workers/ci-artifacts/",
     "workers/iroh-v2/",
     "workers/presence/",
+    "workers/device-hub/",
     "services/iroh-relay-minter/",
     "cmux-tui/relays/cloudflare-do/",
     "backend/",
@@ -69,6 +70,7 @@ THIRD_PARTY = {
     "cmux-tui/crates/cmux-app-host/schema/fixtures/": "manifest fixtures of a hypothetical third-party app",
     "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/schema/fixtures/": "copy of the fixtures above",
     "webviews/test/fixtures/": "test fixtures copied from other files",
+    "Packages/macOS/CmuxComputerUseHelper/Sources/CCuaDriverABI/": "C header generated from cmux-cua's cua-driver-sdk (MIT; THIRD_PARTY_LICENSES.md cmux-cua engine)",
     "workers/cmux-vm/upstream/": "the VM provider's SDK type declarations and OpenAPI document, pinned for coverage checks (THIRD_PARTY_LICENSES.md)",
 }
 

@@ -6,14 +6,14 @@ after source.json or the daemon has been written.  This helper verifies the
 commit manifest for every companion, writes only missing objects, and records
 completion separately so legacy source metadata is never overwritten.
 
-The caller supplies the uploader from a trusted checkout.  In particular, a
-pull_request_target job must pass the uploader checked out from its base ref;
-the assets are opaque build outputs and are never executed here.
+The caller supplies the uploader from a trusted checkout; the assets are
+opaque build outputs and are never executed here.
 """
 
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -30,6 +30,9 @@ from typing import Any
 # Linux daemon mode fetches the musl daemon and its app host
 # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target). The
 # workflow reads this list with --list-companions.
+# Binary and checksum uploads in flight at once (publish_tree).
+UPLOAD_WORKERS = 8
+
 COMPANION_NAMES = (
     "cmux-tui-aarch64-apple-darwin",
     "cmux-tui-app-host-aarch64-apple-darwin",
@@ -52,11 +55,48 @@ GATE_NAMES = COMPANION_NAMES[:3]
 # commit's build of the same tree, and completion-windows.json names that
 # commit. The workflow reads this list with --list-windows-companions.
 WINDOWS_NAMES = ("cmux-tui-x86_64-pc-windows-gnu.exe",)
+# The small per-terminal host the Windows daemon spawns beside itself
+# (cx-1vlzr; fetched as cmux-tui-host.exe next to cmux-tui.exe). Optional:
+# published when the Windows commit manifest attests it, skipped when that
+# manifest predates it, so republishing an older tree writes the same
+# completion-windows.json bytes. --list-windows-optional-companions lists it.
+# acpmux for GPUI on Windows (cx-ephhf; scripts/fetch-acpmux.sh in cmux-gpui)
+# is optional the same way: its own build job may fail, and Windows builds
+# from before it have none.
+WINDOWS_OPTIONAL_NAMES = (
+    "cmux-tui-host-x86_64-pc-windows-gnu.exe",
+    "cmux-tui-acpmux-x86_64-pc-windows-gnu.exe",
+)
+# acpmux for GPUI on Linux and macOS (hq-1f; the Windows build is a Windows
+# companion above). The cmux-tui build makes it for every Unix target and the
+# commit manifest attests it, so a tree carries each one that manifest attests
+# (a pull request tree's manifest, built from its downloaded artifacts, has
+# none). completion.json attests them: a new tree's completion.json lists
+# them beside GATE_NAMES. A republication of a tree whose completion.json
+# exists keeps that file's names (existing_completion_file), so a tree
+# published before acpmux writes the same immutable bytes and gets no acpmux.
+# The workflow reads this list with --list-acpmux-companions.
+ACPMUX_NAMES = (
+    "cmux-tui-acpmux-x86_64-unknown-linux-musl",
+    "cmux-tui-acpmux-aarch64-unknown-linux-musl",
+    "cmux-tui-acpmux-aarch64-apple-darwin",
+    "cmux-tui-acpmux-x86_64-apple-darwin",
+)
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
 
 class PublicationError(RuntimeError):
     pass
+
+
+class PublicationConflict(PublicationError):
+    """Another publisher wrote this tree's source.json first, with other bytes.
+
+    Raised only with --conflict-exit-code, and only for source.json, which a
+    publication writes first: the caller then waits for that publication to
+    complete and keeps it (two runs of one tree key at once). A conflict on
+    any later object stays a hard failure.
+    """
 
 
 def _sha256(path: Path) -> str:
@@ -93,6 +133,7 @@ def _upload(
     bucket: str,
     key: str,
     cache_control: str,
+    conflict_exit_code: int | None = None,
 ) -> None:
     command = [
         sys.executable,
@@ -109,10 +150,17 @@ def _upload(
         "--cache-control",
         cache_control,
     ]
+    if conflict_exit_code is not None:
+        command += ["--conflict-exit-code", str(conflict_exit_code)]
     try:
         result = subprocess.run(command, check=False, text=True, capture_output=True)
     except OSError as error:
         raise PublicationError(f"could not execute trusted uploader {uploader}: {error}") from error
+    if conflict_exit_code is not None and result.returncode == conflict_exit_code:
+        raise PublicationConflict(
+            f"another publisher wrote {key} first with other bytes: "
+            f"{(result.stderr or result.stdout).strip() or 'no output'}"
+        )
     if result.returncode:
         detail = (result.stderr or result.stdout).strip()
         raise PublicationError(
@@ -135,6 +183,8 @@ def publish_tree(
     publish_source: bool = False,
     windows_manifest_file: Path | None = None,
     windows_source_commit: str | None = None,
+    existing_completion_file: Path | None = None,
+    conflict_exit_code: int | None = None,
 ) -> dict[str, str]:
     """Validate and publish all tree companions (COMPANION_NAMES).
 
@@ -146,6 +196,12 @@ def publish_tree(
     ``windows_manifest_file`` and ``windows_source_commit`` (together) also
     publish WINDOWS_NAMES from ``assets_dir``, attested by that commit's
     manifest, and record them in completion-windows.json.
+
+    ACPMUX_NAMES that ``manifest_file`` attests are published too and listed
+    in completion.json. ``existing_completion_file`` is the tree's published
+    completion.json, when there is one: completion.json is write-once, so the
+    publication then lists exactly that file's names again (and publishes no
+    acpmux that it does not list).
     """
     if len(key) != 40 or any(character not in "0123456789abcdef" for character in key):
         raise PublicationError(f"invalid tree key {key!r}")
@@ -181,6 +237,45 @@ def publish_tree(
             )
         digests[name] = actual
 
+    existing_gate: set[str] | None = None
+    if existing_completion_file is not None:
+        existing = _load_json(existing_completion_file, "published completion.json")
+        if existing.get("key") != key:
+            raise PublicationError("published completion.json key does not match requested key")
+        existing_binaries = existing.get("binaries")
+        if not isinstance(existing_binaries, dict):
+            raise PublicationError("published completion.json has no binaries object")
+        existing_gate = set(existing_binaries)
+        unknown = existing_gate - set(GATE_NAMES) - set(ACPMUX_NAMES)
+        if unknown:
+            raise PublicationError(
+                f"published completion.json lists binaries this publisher does not know: {sorted(unknown)}"
+            )
+    for name in ACPMUX_NAMES:
+        if binaries.get(name) is None:
+            if existing_gate is not None and name in existing_gate:
+                raise PublicationError(
+                    f"published completion.json lists {name}, which the commit manifest does not attest"
+                )
+            continue
+        if existing_gate is not None and name not in existing_gate:
+            continue
+        expected = _require_sha(binaries.get(name), f"manifest binary {name}")
+        path = assets_dir / name
+        if not path.is_file():
+            raise PublicationError(f"missing companion {name} in {assets_dir}")
+        actual = _sha256(path)
+        if actual != expected:
+            raise PublicationError(
+                f"companion {name} digest {actual} does not match commit manifest {expected}"
+            )
+        digests[name] = actual
+    gate_names = set(GATE_NAMES) | (set(digests) & set(ACPMUX_NAMES))
+    if existing_gate is not None and existing_gate != gate_names:
+        raise PublicationError(
+            f"published completion.json lists {sorted(existing_gate)}, this publication {sorted(gate_names)}"
+        )
+
     windows_digests: dict[str, str] = {}
     if (windows_manifest_file is None) != (windows_source_commit is None):
         raise PublicationError("--windows-manifest-file and --windows-source-commit go together")
@@ -199,6 +294,19 @@ def publish_tree(
         if not isinstance(windows_binaries, dict):
             raise PublicationError("Windows commit manifest has no binaries object")
         for name in WINDOWS_NAMES:
+            expected = _require_sha(windows_binaries.get(name), f"Windows manifest binary {name}")
+            path = assets_dir / name
+            if not path.is_file():
+                raise PublicationError(f"missing companion {name} in {assets_dir}")
+            actual = _sha256(path)
+            if actual != expected:
+                raise PublicationError(
+                    f"companion {name} digest {actual} does not match commit manifest {expected}"
+                )
+            windows_digests[name] = actual
+        for name in WINDOWS_OPTIONAL_NAMES:
+            if windows_binaries.get(name) is None:
+                continue
             expected = _require_sha(windows_binaries.get(name), f"Windows manifest binary {name}")
             path = assets_dir / name
             if not path.is_file():
@@ -241,30 +349,29 @@ def publish_tree(
             bucket=bucket,
             key=f"{prefix}/source.json",
             cache_control=cache,
+            conflict_exit_code=conflict_exit_code,
         )
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-tree-") as temporary:
         temporary_dir = Path(temporary)
+        uploads: list[tuple[Path, str]] = []
         for name, digest in {**digests, **windows_digests}.items():
-            binary = assets_dir / name
-            _upload(
-                uploader,
-                binary,
-                endpoint_url=endpoint_url,
-                bucket=bucket,
-                key=f"{prefix}/{name}",
-                cache_control=cache,
-            )
             checksum = temporary_dir / f"{name}.sha256"
             checksum.write_text(f"{digest}  {name}\n")
-            _upload(
-                uploader,
-                checksum,
-                endpoint_url=endpoint_url,
-                bucket=bucket,
-                key=f"{prefix}/{name}.sha256",
-                cache_control=cache,
-            )
+            uploads += [(assets_dir / name, f"{prefix}/{name}"), (checksum, f"{prefix}/{name}.sha256")]
+
+        # source.json stays first (above) and the completion files last (below);
+        # the binaries and their checksums are independent immutable writes, so
+        # they go up together (UPLOAD_WORKERS at a time) instead of one round
+        # trip each: 22 sequential uploads took 44 s a key (run 40804446248).
+        # Every upload is waited on, and the first failure is raised, before
+        # any completion file is written.
+        def upload(item: tuple[Path, str]) -> None:
+            _upload(uploader, item[0], endpoint_url=endpoint_url, bucket=bucket, key=item[1], cache_control=cache)
+
+        with ThreadPoolExecutor(max_workers=max(1, min(UPLOAD_WORKERS, len(uploads)))) as pool:
+            for future in [pool.submit(upload, item) for item in uploads]:
+                future.result()
 
         def write_completion(
             name: str, binaries: dict[str, str], commit: str = source_commit
@@ -290,9 +397,9 @@ def publish_tree(
 
         if windows_digests and windows_source_commit is not None:
             write_completion("completion-windows.json", windows_digests, windows_source_commit)
-        write_completion("completion-linux.json", {n: d for n, d in digests.items() if n not in GATE_NAMES})
+        write_completion("completion-linux.json", {n: d for n, d in digests.items() if n not in gate_names})
         # Last: the cmux-next gate reads completion.json as "the tree is complete".
-        write_completion("completion.json", {n: d for n, d in digests.items() if n in GATE_NAMES})
+        write_completion("completion.json", {n: d for n, d in digests.items() if n in gate_names})
     return {**digests, **windows_digests}
 
 
@@ -304,11 +411,21 @@ def main(argv: list[str] | None = None) -> int:
     if argv == ["--list-windows-companions"]:
         print("\n".join(WINDOWS_NAMES))
         return 0
+    if argv == ["--list-windows-optional-companions"]:
+        print("\n".join(WINDOWS_OPTIONAL_NAMES))
+        return 0
+    if argv == ["--list-acpmux-companions"]:
+        print("\n".join(ACPMUX_NAMES))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-companions", action="store_true",
                         help="print the companion names, one per line, and exit")
     parser.add_argument("--list-windows-companions", action="store_true",
                         help="print the Windows companion names, one per line, and exit")
+    parser.add_argument("--list-windows-optional-companions", action="store_true",
+                        help="print the optional Windows companion names, one per line, and exit")
+    parser.add_argument("--list-acpmux-companions", action="store_true",
+                        help="print the acpmux companion names, one per line, and exit")
     parser.add_argument("--key", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)
@@ -319,9 +436,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="the commit manifest that attests the Windows companions")
     parser.add_argument("--windows-source-commit",
                         help="the commit whose build the Windows companions are")
+    parser.add_argument("--existing-completion-file", type=Path,
+                        help="the tree's published completion.json: this publication lists the same names")
     parser.add_argument("--uploader", type=Path, required=True)
     parser.add_argument("--endpoint-url", required=True)
     parser.add_argument("--bucket", required=True)
+    parser.add_argument("--conflict-exit-code", type=int,
+                        help="exit with this code, with no immutable-r2-conflict annotation, when another "
+                             "publisher wrote source.json first; the caller waits for that publication")
     args = parser.parse_args(argv)
     try:
         digests = publish_tree(
@@ -336,7 +458,12 @@ def main(argv: list[str] | None = None) -> int:
             publish_source=args.publish_source,
             windows_manifest_file=args.windows_manifest_file,
             windows_source_commit=args.windows_source_commit,
+            existing_completion_file=args.existing_completion_file,
+            conflict_exit_code=args.conflict_exit_code,
         )
+    except PublicationConflict as error:
+        print(f"cmux-tui tree {args.key}: {error}", file=sys.stderr)
+        return args.conflict_exit_code
     except (OSError, PublicationError, ValueError) as error:
         print(f"cmux-tui tree publication failed: {error}; see {REPAIR_POINTER}", file=sys.stderr)
         return 1

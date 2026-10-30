@@ -3,24 +3,25 @@ import CmuxNextDaemon
 import Foundation
 import CmuxNextRemote
 
-/// The confirmation sheets of the destructive SSH machine actions.
+/// The confirmation of Install cmux-tui on an SSH machine (Forget has an
+/// undo toast instead, `RemoteForgetUndo`).
 enum RemoteConfirmation {
     static func prompt(for id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
-        guard let session = try? RemoteHandlers.machine(invocation, context) else { return nil }
+        guard id == "remote.install", let session = try? RemoteHandlers.machine(invocation, context) else { return nil }
         let host = session.host
-        switch id {
-        case "remote.install":
-            var commit = "?"
-            if let binary = try? DaemonLauncherBinary.resolve() { commit = await BundledCmuxTUI.commit(binary: binary).map { String($0.prefix(12)) } ?? "?" }
+        var commit = "?"
+        if let binary = try? DaemonLauncherBinary.resolve() { commit = await BundledCmuxTUI.commit(binary: binary).map { String($0.prefix(12)) } ?? "?" }
+        if session.updateOffered {
             return DestructiveConfirmation.Prompt(
-                title: RemoteStrings.installTitle(host.label),
-                body: RemoteStrings.installBody(commit: commit, path: host.remoteBinary, destination: host.destination.description)
-                    + (RemoteStrings.detail(session).map { "\n\n" + $0 } ?? ""),
-                button: RemoteStrings.install)
-        default:
-            return DestructiveConfirmation.Prompt(title: RemoteStrings.forgetTitle(host.label), body: RemoteStrings.forgetBody,
-                                                  button: RemoteStrings.forget)
+                title: RemoteStrings.updateTitle(host.label),
+                body: RemoteStrings.updateBody(commit: commit, path: host.remoteBinary, machine: host.label),
+                button: RemoteStrings.update)
         }
+        return DestructiveConfirmation.Prompt(
+            title: RemoteStrings.installTitle(host.label),
+            body: RemoteStrings.installBody(commit: commit, path: host.remoteBinary, destination: host.destination.description)
+                + (RemoteStrings.detail(session).map { "\n\n" + $0 } ?? ""),
+            button: RemoteStrings.install)
     }
 }
 

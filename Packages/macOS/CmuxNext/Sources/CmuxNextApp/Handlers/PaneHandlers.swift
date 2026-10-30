@@ -35,6 +35,14 @@ enum PaneHandlers {
         content.focus.send(.focusPane(pane.rawValue, source: .intent))
     }
 
+    /// A pane-navigation key (Focus Pane Left, Next Pane, a pane number, a column key) moves focus
+    /// where the person asked, so the layout records a keyboard move: no without-a-click flash.
+    static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+        DebugPaneFocus.began(content.focus)
+        content.layoutModel.focus(pane, notify: false, source: .keyboard)
+        focus(pane, in: content)
+    }
+
     // MARK: Splits
 
     private static func bindSplits(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -67,21 +75,35 @@ enum PaneHandlers {
         let controller = ctx.services.paneController(for: pane)
         let content = controller?.workspace
         let handle = pane.handle
-        let cwd = invocation["cwd"]?.stringValue ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
+        // Ghostty's `split-inherit-working-directory = false`: the home folder (NewTerminalStart).
+        let named = invocation["cwd"]?.stringValue
+            ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
+        // Else the folder of the tab it splits: a terminal's, or an agent chat's exact folder.
+        let inherited = named ?? NewTerminalStart.inherited(besides: controller?.selectedTab, in: pane, services: ctx.services)
+        let cwd = inherited ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let logger = ctx.services.daemon.logger
         // The one tool-split rule (AppServices.toolSplit, cx-yihq): never a new column; from the
-        // docked chat, a person's terminal opens as a tab in the strip (its cwd the explicit one or
-        // the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
+        // docked chat, a person's terminal opens as a tab in the strip (its cwd the explicit one,
+        // else the chat's, else the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
+        // A person's split of a browser tab, the New Tab page or a chat opens the New Tab page (cx-jfo7),
+        // unless it asked for a terminal (the chat header's Terminal).
+        let page = !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
         switch ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
         case .split:
-            break
+            if page, let controller { NewTabPage.split(controller, edge: edge(direction)); return }
         case .refused(let reason):
             return ctx.refuse(reason)
         case .tab(let strip):
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
-            return strip.newTerminalTab(cwd: invocation["cwd"]?.stringValue, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+            if page { return strip.newTabPage() }
+            return strip.newTerminalTab(cwd: inherited, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+        case .besideDock(let dock):
+            // Every direction is a column on the dock's right: the pinned dock neither splits nor moves.
+            if page { NewTabPage.split(dock, edge: .right); return }
+            dock.workspace?.newColumn(after: dock.layoutPaneID, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+            return
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
         let sizing = controller.flatMap { controller in
@@ -99,26 +121,41 @@ enum PaneHandlers {
         // Cmd+D on a daemon with client keys: the new pane shows and takes focus in this frame
         // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
-        if let provisional { content?.expectFocus(on: provisional.surface, generation: intent) }
+        if let provisional { content?.focus.expect(.tab(provisional.tabID), generation: intent) } // its id is stable through the confirm; its surface is not
         // The window's keys wait until the new pane has the keyboard (cx-wb5.76): on the old path
-        // focus moves only after the reply, and on the optimistic path the swap to the daemon's
-        // pane remounts the view; keys typed in either gap went to the old pane.
+        // focus moves only after the reply; on the optimistic path the provisional view stays (it
+        // attaches when the daemon confirms) and takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
-        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
+        // The provisional pane is in the store now, and the window lays it out and mounts it in this
+        // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
+        // The split and the even sizing of its chain are one gesture: hold the chain's target
+        // before waiting for the daemon even on the compatibility path. Optimistic splits also
+        // show their provisional pane in this frame; older daemons cannot show that pane until
+        // the reply, but their existing chain must not wait for a second sizing phase. The ratio
+        // intents go once the daemon made the split.
+        let shownSizing = content?.layoutModel.showSplitSizing(sizing)
+        if provisional == nil { content?.layoutView.syncWithModel() }
+        let intended = provisional.map { provisional in
+            defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
+            return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
+        }
         ctx.registry.track(Task {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
-                let created = if let provisional {
-                    try await command.sendIntended(on: daemon, provisional: provisional)
+                let created = if let intended {
+                    try await intended()
                 } else {
                     try await command.send(on: daemon)
                 }
-                content?.expectFocus(on: created.surface, generation: intent)
+                BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
+                if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
-                content?.layoutModel.applySplitSizing(sizing)
+                if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 return nil
             } catch {
+                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
                 return "split: \(error)"
             }
@@ -144,21 +181,31 @@ enum PaneHandlers {
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
                     return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
-                focus(next, in: content)
+                focusByKey(next, in: content)
             })
         }
         registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
         registry.bind("focusNextPane", invoke: { cycleFocus(ctx, $0, offset: 1) })
+        registry.bind("focusPaneByNumber", invoke: { invocation in
+            guard let pane = ctx.paneController(invocation), let content = pane.workspace,
+                  let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
+            guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
+            // Focus Next Pane's order; 9 is always the last pane, as Cmd-9 is the last workspace.
+            let order = screen.layout.visualPanes
+            let index = number >= 9 ? order.count - 1 : number - 1
+            guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
+            focusByKey(order[index], in: content)
+        })
     }
 
     private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
         guard let pane = ctx.paneController(invocation), let content = pane.workspace,
               let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.panes
+        let order = screen.layout.visualPanes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
-        focus(order[(index + offset + order.count) % order.count], in: content)
+        focusByKey(order[(index + offset + order.count) % order.count], in: content)
     }
 
     // MARK: Sizing

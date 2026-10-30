@@ -33,8 +33,15 @@ export async function editorThemes(
 ): Promise<ThemeRegistrationAny[]> {
   const resolved = resolveDiffViewerAppearance(appearance);
   const terminal = [
-    { ...shikiThemeFromGhostty({ ...resolved.themes.light, type: "light" }, resolved), name: LIGHT_THEME },
-    { ...shikiThemeFromGhostty({ ...resolved.themes.dark, type: "dark" }, resolved), name: DARK_THEME },
+    // Monaco parses token colors itself, so they are literal colors, not page variables.
+    {
+      ...shikiThemeFromGhostty({ ...resolved.themes.light, type: "light" }, resolved, { variables: false }),
+      name: LIGHT_THEME,
+    },
+    {
+      ...shikiThemeFromGhostty({ ...resolved.themes.dark, type: "dark" }, resolved, { variables: false }),
+      name: DARK_THEME,
+    },
   ] as ThemeRegistrationAny[];
   const names = syntaxThemeNames(syntaxTheme);
   const load = async (name: string, fallback: ThemeRegistrationAny, as: string) => {

@@ -44,6 +44,19 @@ enum TabContent {
         }
     }
 
+    /// The kind a timed tab switch reports (`debug.tab_switch`).
+    @MainActor var switchKind: String {
+        switch self {
+        case .terminal: "terminal"
+        case .browser(let entry): entry.tab.engineKind == .cef ? "chromium" : "webkit"
+        case .agent: "agent"
+        case .page: "page"
+        case .placeholder: "placeholder"
+        case .notice: "notice"
+        case .conversation: "conversation"
+        }
+    }
+
     /// A Ghostty terminal (it is ready on its first frame, not when shown).
     var isTerminal: Bool {
         if case .terminal = self { true } else { false }
@@ -54,7 +67,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
-        case .agent(let view): view.webView
+        case .agent(let view): view.focusTarget
         case .page(let view): view.focusTarget
         case .placeholder(let view): view
         case .notice(let view): view
@@ -71,15 +84,24 @@ final class TerminalEntry {
     let session: TerminalSession
     let io: DaemonTerminalIO
     /// Set while the terminal is a provisional split's (S3): the view attaches once the
-    /// daemon's tab replaces the provisional one (``confirm(validity:target:store:)``).
+    /// daemon's tab replaces the provisional one (``confirm(validity:target:themeKey:store:)``).
     private(set) var gate: TerminalTargetGate?
-    /// The key of this terminal's own theme.
-    let themeKey: TerminalThemeKey
+    /// The key of this terminal's own theme; a provisional split's moves to its daemon terminal at the confirm.
+    private(set) var themeKey: TerminalThemeKey
+    /// A provisional view waits for its tab's daemon surface (``TabContentCache/awaitConfirm(_:of:daemon:)``).
+    var confirmation: Task<Void, Never>?
+    weak var confirming: TabModel? // the tab record that task watches
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
     let themeBinding: TerminalThemeBinding
     /// Tab `dead` and connection changes for this view.
     private var watch: TerminalLinkWatch
+    /// The TextBox composer under this terminal, made the first time a TextBox action runs on it.
+    var textBox: TextBoxController?
+
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
 
     init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore,
          surface: SurfaceID, gate: TerminalTargetGate? = nil) {
@@ -95,9 +117,10 @@ final class TerminalEntry {
 
     /// The daemon's tab replaced the provisional one: the same view and session attach to it,
     /// and keys typed meanwhile reach it in order.
-    func confirm(validity: String, target: TerminalAttachment.Target, store: DaemonStore) {
+    func confirm(validity: String, target: TerminalAttachment.Target, themeKey: TerminalThemeKey, store: DaemonStore) {
         guard let gate else { return }
         self.validity = validity
+        self.themeKey = themeKey
         self.gate = nil
         watch.stop()
         watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session)
@@ -106,18 +129,25 @@ final class TerminalEntry {
 
     func close() {
         gate?.cancel()
+        confirmation?.cancel()
         watch.stop()
         session.close()
         io.close()
+        session.view.removeFromSuperview() // parked hidden in a pane until now
     }
 }
 
-/// A live WebKit page with its chrome.
+/// A live browser page with its chrome.
 final class BrowserEntry {
     let tab: any BrowserTab
     let chrome: BrowserChromeView
     /// Owns the chrome's (weak) Extensions menu handler.
     var extensionMenuHandler: (any ExtensionMenuHandling)?
+
+    // No isolated-deinit hop inside an action's task-local scope (cx-t7hu).
+    nonisolated deinit {
+        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
+    }
 
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
         self.tab = tab
@@ -128,7 +158,6 @@ final class BrowserEntry {
     }
 
     func close() {
-        tab.close()
-        chrome.removeFromSuperview()
+        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
     }
 }

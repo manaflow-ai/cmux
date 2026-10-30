@@ -81,6 +81,63 @@ cache_bin="$cache_dir/acpmux"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# An nx-remote --app-from-fleet job (NX_APP set, for example
+# `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- scripts/cmux-next/build-acpmux.sh --print-path`):
+# the fleet-built app carries acpmux in Resources/bin, with acpmux.version
+# naming the commit it was built from. Seed the commit-addressed cache from it
+# instead of running Cargo, only when that commit is this tree's commit, the
+# binary is a regular file and it has every requested architecture. Without
+# NX_APP, or when any check fails, nothing changes.
+if [[ -n "${NX_APP:-}" && ! -x "$cache_bin" ]]; then
+  app_bin="$NX_APP/Contents/Resources/bin/acpmux"
+  app_commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$NX_APP/Contents/Resources/bin/acpmux.version" 2>/dev/null || true)"
+  app_archs="$(lipo -archs "$app_bin" 2>/dev/null || true)"
+  why=""
+  if [[ ! -f "$app_bin" || -L "$app_bin" || ! -x "$app_bin" ]]; then
+    why="no regular executable at $app_bin"
+  elif [[ "$app_commit" != "$source_commit" ]]; then
+    why="the app's acpmux is from commit ${app_commit:-unknown}, not $source_commit"
+  else
+    for arch in $archs; do
+      [[ " $app_archs " == *" $arch "* ]] || why="the app's acpmux has architectures ${app_archs:-unknown}, not $archs"
+    done
+  fi
+  if [[ -z "$why" ]]; then
+    mkdir -p "$cache_dir"
+    cp -f "$app_bin" "$cache_bin.tmp.$$"
+    chmod 755 "$cache_bin.tmp.$$"
+    mv -f "$cache_bin.tmp.$$" "$cache_bin"
+    printf '%s\n' "commit=$source_commit" "source=nx-app" "archs=$app_archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+    echo "acpmux from the fleet-built app $NX_APP (no Cargo build)" >&2
+  else
+    echo "warning: not using the acpmux of NX_APP: $why" >&2
+  fi
+fi
+
+# A tree fetch (pin-cmux-tui.sh fetch) puts the published acpmux of this
+# cmux-tui tree next to cmux-tui, checksum-verified. Any commit of that tree,
+# including a local merge commit no workflow publishes, seeds its cache from
+# it when it has every requested architecture, so a developer Mac does not
+# stop on "no cached acpmux" for a binary it already has.
+if [[ ! -x "$cache_bin" && -x "$repo_root/scripts/cmux-next/pin-cmux-tui.sh" ]]; then
+  tree_bin="$("$repo_root/scripts/cmux-next/pin-cmux-tui.sh" acpmux-path 2>/dev/null || true)"
+  if [[ -n "$tree_bin" && -f "$tree_bin" && ! -L "$tree_bin" && -x "$tree_bin" ]]; then
+    tree_archs="$(lipo -archs "$tree_bin" 2>/dev/null || true)"
+    missing=""
+    for arch in $archs; do
+      [[ " $tree_archs " == *" $arch "* ]] || missing+=" $arch"
+    done
+    if [[ -z "$missing" ]]; then
+      mkdir -p "$cache_dir"
+      cp -f "$tree_bin" "$cache_bin.tmp.$$"
+      chmod 755 "$cache_bin.tmp.$$"
+      mv -f "$cache_bin.tmp.$$" "$cache_bin"
+      printf '%s\n' "commit=$source_commit" "source=same-tree $tree_bin" "archs=$tree_archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+      echo "acpmux from the same-tree fetch $tree_bin (no Cargo build)" >&2
+    fi
+  fi
+fi
+
 if [[ -x "$cache_bin" ]]; then
   if [[ "$print_path" -eq 1 ]]; then
     printf '%s\n' "$cache_bin"
@@ -124,13 +181,16 @@ fi
 # Install the targets into the toolchain cargo actually uses: cmux-tui pins its
 # own channel in rust-toolchain.toml, so rustup must run from that directory
 # (from the repo root it would provision the default toolchain instead, and the
-# x86_64 slice would fail with "can't find crate for core"). Idempotent.
+# x86_64 slice would fail with "can't find crate for core"). Only missing
+# targets are added, so a warm toolchain needs no network here.
 rust_targets=()
 for arch in $archs; do
   rust_targets+=("$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin")
 done
 echo "==> ensuring Rust targets ${rust_targets[*]} for the cmux-tui toolchain"
-(cd "$source_root/cmux-tui" && rustup target add "${rust_targets[@]}")
+# shellcheck source=scripts/lib/rust-targets.sh
+source "$repo_root/scripts/lib/rust-targets.sh"
+(cd "$source_root/cmux-tui" && ensure_rust_targets "${rust_targets[@]}")
 
 # A persistent target dir in the tree's own (ignored) cmux-tui/target: the
 # next commit of a warm tree or fleet slot compiles incrementally instead of

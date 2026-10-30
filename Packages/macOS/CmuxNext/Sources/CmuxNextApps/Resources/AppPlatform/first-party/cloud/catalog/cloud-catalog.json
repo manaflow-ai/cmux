@@ -130,6 +130,13 @@
           "socket": {
             "type": "string",
             "description": "The link's local socket (owner-only directory) until the host passes a carrier fd."
+          },
+          "vm_kind": {
+            "enum": [
+              "owner",
+              "team"
+            ],
+            "description": "The signed-in caller's kind on this machine, from the Worker's connect_info for this link (cmux-platform#89). Only owner grants owner privileges (vm_kind owner on agent-session start and trust); it ends with the link."
           }
         },
         "required": [
@@ -137,7 +144,8 @@
           "carrier",
           "generation",
           "state",
-          "socket"
+          "socket",
+          "vm_kind"
         ]
       },
       "cli": {
@@ -1435,6 +1443,7 @@
           "machine",
           "proxy",
           "url",
+          "incarnation",
           "generation"
         ],
         "properties": {
@@ -1447,7 +1456,9 @@
             "required": [
               "kind",
               "host",
-              "port"
+              "port",
+              "username",
+              "password"
             ],
             "properties": {
               "kind": {
@@ -1461,11 +1472,26 @@
               },
               "port": {
                 "type": "integer"
+              },
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "password": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 256
               }
             }
           },
           "url": {
             "type": "string"
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           },
           "generation": {
             "type": "integer",

@@ -1,7 +1,10 @@
 import AppKit
+import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import CmuxNextBrowser
 
 /// Serves the Passwords page's `cmux.passwords.*` ops (webviews/src/pages/passwords/types.ts,
 /// plans/cmux-next/passwords.md 1.4) from a ``PasswordStore``. The page is user-only: no
@@ -31,6 +34,8 @@ final class PasswordsPageProvider: PageProvider {
     let secrets: any PasswordSecretSurface
     /// The page view: the sheets attach to its window.
     var anchor: () -> NSView? = { nil }
+    /// `browser.passwords.allowExport`: off (the default) refuses export before any sheet (decision P3).
+    var allowExport: () -> Bool = { false }
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
     private var revision = 0
@@ -89,7 +94,8 @@ final class PasswordsPageProvider: PageProvider {
         }
     }
 
-    /// `cmux.passwords.changed {profile, revision}`: one event per change of a profile's store.
+    /// `cmux.passwords.changed {profile, revision}`: one event per change of a profile's store, and
+    /// `{revision}` (no profile) when `browser.passwords.allowExport` changes, so the page re-reads.
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == PasswordOps.changed else { throw PageError.unknownOp(stream) }
@@ -98,7 +104,17 @@ final class PasswordsPageProvider: PageProvider {
             self.revision += 1
             onEvent(["profile": .string(profile), "revision": .number(Double(self.revision))])
         }
-        return PageSubscription { stop() }
+        let gate = Task { [weak self] in
+            var last: Bool?
+            for await allowed in ObservationStream({ [weak self] in self?.allowExport() ?? false }) {
+                let changed = last.map { $0 != allowed } ?? false
+                last = allowed
+                guard changed, let self else { continue }
+                self.revision += 1
+                onEvent(["revision": .number(Double(self.revision))])
+            }
+        }
+        return PageSubscription { stop(); gate.cancel() }
     }
 
     // MARK: Reads
@@ -112,6 +128,8 @@ final class PasswordsPageProvider: PageProvider {
             "sections": [
                 "passwords": .bool(capabilities.passwords), "passkeys": .bool(capabilities.passkeys),
                 "exceptions": .bool(capabilities.exceptions), "export": .bool(capabilities.export),
+                "exportOff": .bool(!allowExport()),
+                "browserImport": .bool(!BrowserSourceRegistry.shared.browsers.isEmpty), // none: CMUX_NO_BROWSER_DATA_IMPORT
             ],
         ]
     }

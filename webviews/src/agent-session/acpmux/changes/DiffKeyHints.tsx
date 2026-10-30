@@ -3,12 +3,17 @@ import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 
 /// The changes view's reading keys, always in view (useDiffKeys). They are the view's own keys,
-/// not app shortcuts the user rebinds, so they are drawn as they are.
-export function DiffKeyHints() {
+/// not app shortcuts the user rebinds, so they are drawn as they are. `hunkKey` is s in Unstaged,
+/// u in Staged.
+export function DiffKeyHints({ hunkKey }: { hunkKey?: "s" | "u" }) {
   const t = useT();
   const hints: [keys: string[], label: string][] = [
     [["j", "k"], t("diff.keys.files")],
     [["n", "p"], t("diff.keys.changes")],
+    [["v"], t("diff.keys.viewed")],
+    ...(hunkKey
+      ? [[[hunkKey], t(hunkKey === "s" ? "diff.keys.stageHunk" : "diff.keys.unstageHunk")] as [string[], string]]
+      : []),
     [["esc"], t("diff.keys.back")],
   ];
   return (

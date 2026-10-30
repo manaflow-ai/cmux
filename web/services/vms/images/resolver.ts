@@ -1,4 +1,5 @@
 import type { ProviderId } from "../drivers";
+import type { CloudRemoteAuthMode } from "../clientGrant";
 import { allowUnmanifestedImages, type VmRuntimeEnv } from "../config";
 import { VmImageConfigError, type VmImageSource } from "../errors";
 import manifest from "./manifest.json";
@@ -59,6 +60,8 @@ export type VmImageManifestEntry = {
   /** The shape this snapshot boots at. Entries without one are size-less (pre-ladder bakes). */
   readonly size?: VmImageManifestSize;
   readonly cmuxdRemoteCommit: string;
+  /** Authentication mode frozen into this image's cmux remote listener. */
+  readonly cmuxRemoteAuth?: CloudRemoteAuthMode;
   /** The cmux commit whose devbox definition produced this image. */
   readonly repoCommit?: string;
   readonly builtAt: string;
@@ -66,6 +69,12 @@ export type VmImageManifestEntry = {
   readonly agentToolResolvedVersions?: Record<string, string>;
   readonly validationStatus: "passed" | "failed" | "unknown";
   readonly notes?: string;
+  /**
+   * A test image: never a default, and requestable by id only by a caller
+   * whose Stack user id is in CMUX_VM_RESTRICTED_IMAGE_USER_IDS. Anyone else
+   * gets the same refusal as an id that is not in the manifest.
+   */
+  readonly restricted?: boolean;
 };
 
 export type VmImageSelection = {
@@ -85,7 +94,20 @@ export type VmImageResolveOptions = {
    * at least this much; omitted means the smallest size the manifest offers.
    */
   readonly memoryMb?: number;
+  /** The Stack user asking for an explicit image; restricted entries need it allowlisted. */
+  readonly callerUserId?: string;
 };
+
+/** The env var listing the Stack user ids allowed to request restricted (test) images. */
+export const VM_RESTRICTED_IMAGE_USERS_ENV = "CMUX_VM_RESTRICTED_IMAGE_USER_IDS";
+
+/** True when `userId` may request a restricted manifest image (comma- or space-separated allowlist; empty allows nobody). */
+export function vmRestrictedImageAllowed(userId: string | undefined, env: VmRuntimeEnv = process.env): boolean {
+  const caller = userId?.trim();
+  if (!caller) return false;
+  const allowed = (env[VM_RESTRICTED_IMAGE_USERS_ENV] ?? "").split(/[\s,]+/).filter((id) => id.length > 0);
+  return allowed.includes(caller);
+}
 
 const typedManifest = manifest as {
   readonly schemaVersion: number;
@@ -129,7 +151,8 @@ export function findVmImageManifestEntry(
 export function listVmImageKindDefaults(provider: ProviderId, kind: VmImageKind): VmImageManifestEntry[] {
   return typedManifest.images
     .filter((entry) =>
-      entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind === true
+      entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind === true &&
+      entry.restricted !== true
     )
     .sort((a, b) => sizeRank(a) - sizeRank(b));
 }
@@ -242,6 +265,7 @@ export function resolveVmImage(
   env: VmRuntimeEnv = process.env,
   options: VmImageResolveOptions = {},
 ): VmImageSelection {
+  if (provider === "gcp") return resolveGcpImage(requestedImage, env, options);
   const kind = options.kind;
   if (kind !== undefined && !isVmImageKind(kind)) {
     throw new VmImageConfigError({
@@ -255,7 +279,7 @@ export function resolveVmImage(
 
   const requested = requestedImage?.trim();
   if (requested) {
-    return resolveRequested(provider, requested, env, kind);
+    return resolveRequested(provider, requested, env, kind, options.callerUserId);
   }
 
   const effectiveKind = kind ?? VM_IMAGE_DEFAULT_KIND;
@@ -275,13 +299,59 @@ export function resolveVmImage(
   });
 }
 
+/** GCP images live in the user's project, so Labs uses an explicit image URI or deployment default. */
+function resolveGcpImage(
+  requestedImage: string | undefined,
+  env: VmRuntimeEnv,
+  options: VmImageResolveOptions,
+): VmImageSelection {
+  const image = requestedImage?.trim() || env.CMUX_VM_GCP_IMAGE?.trim();
+  if (!image) {
+    throw new VmImageConfigError({
+      provider: "gcp",
+      kind: options.kind,
+      source: requestedImage ? "request" : "default",
+      allowedImages: [],
+      reason: "CMUX_VM_GCP_IMAGE is not configured",
+    });
+  }
+  return {
+    provider: "gcp",
+    image,
+    imageVersion: null,
+    manifestEntry: null,
+    kind: options.kind ?? "base",
+    size: null,
+  };
+}
+
 function resolveRequested(
   provider: ProviderId,
   image: string,
   env: VmRuntimeEnv,
   kind: VmImageKind | undefined,
+  callerUserId: string | undefined,
 ): VmImageSelection {
   const entry = findVmImageManifestEntry(provider, image, kind);
+  // Any entry naming this image counts: one image is often listed once per
+  // kind, and an unrestricted twin must not open a restricted one.
+  const restricted = typedManifest.images.some((candidate) =>
+    candidate.provider === provider && candidate.restricted === true &&
+    (candidate.imageId === image || candidate.version === image)
+  );
+  if (restricted && !vmRestrictedImageAllowed(callerUserId, env)) {
+    // The refusal an unknown id gets in a deployed runtime, so a test image's
+    // existence does not leak (local dev, which accepts unknown ids, still
+    // refuses this one).
+    throw new VmImageConfigError({
+      provider,
+      image,
+      kind,
+      source: "request",
+      allowedImages: listVmImageIds(provider),
+      reason: `${image} is not listed in the Cloud VM image manifest`,
+    });
+  }
   if (entry) {
     const selection = selectionFromEntry(entry);
     if (kind !== undefined && selection.kind !== kind) {

@@ -181,13 +181,7 @@
    "refuse": "transport.invalid_frame",
    "method": null,
    "id": "3"
-  },
-  "swift_expect": {
-   "refuse": "transport.method_refused",
-   "method": null,
-   "id": null
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
+  }
  },
  {
   "name": "junk",
@@ -464,6 +458,15 @@
  {
   "name": "request _acpmux/watch passes",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/watch\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
+ },
+ {
+  "name": "request _acpmux/sessions passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/sessions\",\"params\":{}}",
   "first": false,
   "token": "abc",
   "expect": {
@@ -772,24 +775,24 @@
   }
  },
  {
-  "name": "escaped '_acpmux/sessions' refused",
-  "text": "{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0073\\u0065\\u0073\\u0073\\u0069\\u006f\\u006e\\u0073\",\"params\":{}}",
+  "name": "escaped '_acpmux/web_token_rotate' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":511,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0077\\u0065\\u0062\\u005f\\u0074\\u006f\\u006b\\u0065\\u006e\\u005f\\u0072\\u006f\\u0074\\u0061\\u0074\\u0065\",\"params\":{}}",
   "first": false,
   "token": null,
   "expect": {
    "refuse": "transport.method_refused",
-   "method": "_acpmux/sessions",
+   "method": "_acpmux/web_token_rotate",
    "id": "511"
   }
  },
  {
-  "name": "notification '_acpmux/sessions' refused",
-  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/sessions\",\"params\":{}}",
+  "name": "notification '_acpmux/web_token_rotate' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/web_token_rotate\",\"params\":{}}",
   "first": false,
   "token": null,
   "expect": {
    "refuse": "transport.method_refused",
-   "method": "_acpmux/sessions",
+   "method": "_acpmux/web_token_rotate",
    "id": null
   }
  },
@@ -1324,11 +1327,7 @@
    "refuse": "transport.invalid_frame",
    "method": "session/new",
    "id": "1"
-  },
-  "swift_expect": {
-   "send": "unchanged"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
+  }
  },
  {
   "name": "string id",
@@ -1381,10 +1380,6 @@
    "refuse": "transport.invalid_frame",
    "method": "_acpmux/harnesses",
    "id": "30"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
-  "swift_expect": {
-   "send": "unchanged"
   }
  },
  {
@@ -1396,10 +1391,6 @@
    "refuse": "transport.invalid_frame",
    "method": "_acpmux/harnesses",
    "id": "30"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
-  "swift_expect": {
-   "send": "unchanged"
   }
  },
  {
@@ -1411,9 +1402,14 @@
    "refuse": "transport.invalid_frame",
    "method": "_acpmux/harnesses",
    "id": "30"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
-  "swift_expect": {
+  }
+ },
+ {
+  "name": "request _acpmux/btw passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/btw\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
    "send": "unchanged"
   }
  }

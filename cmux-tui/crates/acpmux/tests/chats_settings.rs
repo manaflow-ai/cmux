@@ -2,6 +2,11 @@
 //! cmux.json `agents.chats.enabled`, `.discovery`, `.roots` and the roots
 //! managed config adds. Every store is a synthetic fixture in a temp home.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::chats::{ChatService, ChatSources};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -25,7 +30,9 @@ impl Drop for Home {
 }
 
 fn home(tag: &str) -> Home {
-    let base = std::env::temp_dir().join(format!("acpmux-chatset-{tag}-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-chatset-{tag}-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).unwrap();
     Home(std::fs::canonicalize(&base).unwrap())
 }
@@ -135,6 +142,7 @@ async fn turning_chats_off_hides_every_chat_and_survives_a_restart() {
     assert_eq!((off["enabled"].clone(), keys(&off)), (json!(false), Vec::<String>::new()));
 
     // The settings are in the daemon's file (owner-only), so a restart keeps them.
+    #[cfg(unix)]
     let file = h.0.join(".acpmux/chat-settings.json");
     #[cfg(unix)]
     {

@@ -18,8 +18,8 @@ from test_ci_change_areas import (
     module,
     run_guard_status,
     run_linux_preflight,
-    run_tests_gate,
-    tests_gate_needs,
+    run_platform_gate,
+    platform_gate_needs,
     workflow_job_block,
     workflow_job_step_script,
 )
@@ -305,18 +305,18 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.macos != 'false' }}",
+            "if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false' }}",
             block,
         )
 
-        no_macos = tests_gate_needs(macos="false", macos_result="skipped")
+        no_macos = platform_gate_needs(macos="false", macos_result="skipped")
         no_macos["linux-preflight"]["result"] = "skipped"
-        result = run_tests_gate(no_macos)
+        result = run_platform_gate(no_macos)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-        macos = tests_gate_needs()
+        macos = platform_gate_needs()
         macos["linux-preflight"]["result"] = "skipped"
-        result = run_tests_gate(macos)
+        result = run_platform_gate(macos)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("linux preflight did not pass: skipped", result.stderr)
 
@@ -365,7 +365,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ghosttykit_release": "false",
             "submodule_forward_only": "false",
         })
-        self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
+        self.assertEqual(groups, ("ci", "quality-determinism"))
 
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
         outputs = route(["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift", "CLAUDE.md"], macos="true")
@@ -420,9 +420,9 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
         }
         expected_groups = {
-            "scripts/ci/build_graph_health.py": ("preflight",),
+            "scripts/ci/build_graph_health.py": ("preflight", "quality-determinism"),
             "tests/test_build_graph_health.py": ("preflight", "quality-determinism"),
-            "scripts/ci/swift_incremental_diagnostics.py": ("preflight",),
+            "scripts/ci/swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
             "tests/test_swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
             # cmux.ci.guard runs it too, so the ci leg observes it.
             "tests/test_ci_self_hosted_guard.sh": ("preflight", "ci", "quality-determinism"),
@@ -432,6 +432,21 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 outputs, actual_groups = route_decision([path])
                 self.assertEqual(outputs, expected)
                 self.assertEqual(actual_groups, groups)
+
+    def test_syntax_only_python_uses_the_quality_lane(self):
+        # A syntax-only Python file should not pull in the serial preflight
+        # bucket just to run the repository-wide py_compile check.
+        _, groups = route_decision(["scripts/ci/new_syntax_only.py"])
+        self.assertEqual(groups, ("quality-determinism",))
+
+    def test_the_pr_media_privacy_check_runs_its_own_and_the_uploaders_tests(self):
+        # tests/test_ci_pr_media_privacy.py runs in ci; tests/test_pr_media.py,
+        # whose uploads go through the check, in preflight.
+        _, groups = route_decision(["scripts/ci/pr_media_privacy.py"])
+        self.assertIn("ci", groups)
+        self.assertIn("preflight", groups)
+        _, groups = route_decision(["tests/test_ci_pr_media_privacy.py"])
+        self.assertIn("ci", groups)
 
     def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
         expected = {
@@ -515,6 +530,33 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     result = run_guard_status(results={job: outcome})
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(f"{job}: {outcome} (route {route_name}=true)", result.stderr)
+
+        # The direct CI fast-guards job owns the only `ci` matrix group on a
+        # pull request. The reusable call therefore has no surviving matrix
+        # leg for that route, and its skipped aggregate is valid only when
+        # the input proves that `ci` was the sole requested group.
+        ci_only = dict.fromkeys(REUSABLE_GUARDS, "true")
+        ci_only["linux_guard_test_groups"] = json.dumps(["ci"])
+        self.assertEqual(
+            run_guard_status(
+                inputs=ci_only,
+                results={"workflow-guard-tests": "skipped"},
+            ).returncode,
+            0,
+        )
+        mixed = dict(ci_only)
+        mixed["linux_guard_test_groups"] = json.dumps(["ci", "quality-determinism"])
+        mixed_result = run_guard_status(
+            inputs=mixed,
+            results={"workflow-guard-tests": "skipped"},
+        )
+        self.assertNotEqual(mixed_result.returncode, 0)
+        self.assertIn("workflow-guard-tests: skipped (route linux_guard_tests=true)", mixed_result.stderr)
+        malformed = dict(ci_only)
+        malformed["linux_guard_test_groups"] = "not-json"
+        malformed_result = run_guard_status(inputs=malformed)
+        self.assertNotEqual(malformed_result.returncode, 0)
+        self.assertIn("invalid linux_guard_test_groups", malformed_result.stderr)
 
         for outcome in ("skipped", "failure", "cancelled"):
             with self.subTest(job="ghosttykit-release-check", outcome=outcome):
@@ -612,16 +654,100 @@ class GuardLegBalanceTests(unittest.TestCase):
         steps = self.steps_by_name()
         for name in ("Validate hung test watchdog", "Validate xcodebuild noninteractive crash prompt guard"):
             with self.subTest(step=name):
-                self.assertEqual(steps[name].get("if"), "${{ matrix.group == 'app-host-watchdog' }}")
+                self.assertEqual(steps[name].get("if"), "${{ !cancelled() && matrix.group == 'app-host-watchdog' }}")
         # The crash prompt test reads this helper; no step names it in a run.
         for path in ("scripts/ci/xcodebuild_noninteractive.py", "scripts/ci/hung_test_watchdog.py",
                      "scripts/ci/run_with_timeout.py", "scripts/ci/ci_process_tree.py"):
             with self.subTest(path=path):
                 self.assertIn("app-host-watchdog", groups_for_path(path) or ())
 
-    def test_ios_conventions_run_in_the_ios_leg(self):
-        step = self.steps_by_name()["Validate iOS package conventions for this change"]
-        self.assertEqual(step.get("if"), "${{ matrix.group == 'release-ios' }}")
+    def test_shared_ios_lint_guards_run_in_the_preflight_leg(self):
+        """The iOS package conventions lint and test-ios.yml run on feat-cmux-next too (cmux-next.yml runs the
+        lint, test-ios.yml runs on its pull requests), so their guards are not in the main-only release-ios leg,
+        which feat-cmux-next pull requests never run."""
+        steps = self.steps_by_name()
+        for name in ("Validate iOS package conventions for this change", "Validate manual iOS workflow ref resolution"):
+            with self.subTest(step=name):
+                self.assertEqual(steps[name].get("if"), "${{ !cancelled() && matrix.group == 'preflight' }}")
+        for path in ("scripts/lint_swift_namespaces.py", "scripts/swift_source_mask.py",
+                     "scripts/ci/lint-ios-conventions-diff.sh", "tests/test_ios_workflow_dispatch_ref.py"):
+            with self.subTest(path=path):
+                owners = groups_for_path(path) or ()
+                self.assertIn("preflight", owners)
+                self.assertNotIn("release-ios", owners)
+
+
+class FeatGuardRoutingTests(unittest.TestCase):
+    """cmux-next-guards.yml's guard group job routes ci-guards.yml's groups for feat-cmux-next.
+
+    ci.yml routes the groups by path only for pull requests into main, so a feat-cmux-next pull
+    request ran only the `ci` and `release-notary` groups and about 70 guard tests never ran there
+    (tests/pr-lane-exemptions.json). classify_feat reads the same ownership (groups_for_path, and
+    classify's routes for the lockfile and source-lint jobs), leaves out the main-only release-ios
+    group, and bounds the fail-open rule: an unknown path in a product source area runs no extra group,
+    any other unknown path runs every routed group.
+    """
+
+    feat = staticmethod(lambda paths: detect_linux_guard_changes.classify_feat(paths))
+
+    def test_routed_groups_are_every_group_but_the_always_run_and_main_only_ones(self):
+        routed = detect_linux_guard_changes.FEAT_ROUTED
+        self.assertEqual(
+            set(routed),
+            (set(GROUPS) - {"ci", "release-notary", "release-ios"})
+            | {"workflow-guard-history", "workflow-guard-source-lints"},
+        )
+
+    def test_a_change_to_a_groups_paths_runs_that_group(self):
+        for path, group in (
+            ("scripts/ci/build_graph_health.py", "preflight"),
+            ("scripts/ci/hung_test_watchdog.py", "app-host-watchdog"),
+            ("scripts/ci/require_swift_test_execution.py", "app-host-execution"),
+            ("scripts/ci/sanitize-xcode-source-packages-cache.py", "preflight"),
+            ("tests/test_reuse_release_product.py", "release-tooling"),
+            ("tests/test_bash_integration_no_done_notifications.py", "quality-determinism"),
+            ("scripts/lint_swift_namespaces.py", "preflight"),
+            ("tests/test_ios_workflow_dispatch_ref.py", "preflight"),
+            ("Packages/macOS/CmuxNext/Package.resolved", "workflow-guard-history"),
+            ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift", "workflow-guard-source-lints"),
+        ):
+            with self.subTest(path=path):
+                self.assertIn(group, self.feat([path]))
+
+    def test_the_main_only_release_ios_group_never_runs(self):
+        for paths in ([], [".github/workflows/ci-guards.yml"], ["new-area/input"],
+                      ["ios/scripts/upload-testflight.sh"], ["tests/test_ios_testflight_notes.py"]):
+            with self.subTest(paths=paths):
+                self.assertNotIn("release-ios", self.feat(paths))
+        self.assertEqual(self.feat(["ios/scripts/upload-testflight.sh"]), ())
+
+    def test_no_diff_and_unknown_tooling_paths_run_every_routed_group(self):
+        for paths in ([], ["scripts/cmux-next/new-tool.sh"], [".github/workflows/new.yml"], ["new-area/input"],
+                      ["agent-chat/src/x.ts"], ["Resources/Info.plist"], ["../escape"]):
+            with self.subTest(paths=paths):
+                self.assertEqual(self.feat(paths), detect_linux_guard_changes.FEAT_ROUTED)
+
+    def test_unknown_product_source_runs_no_extra_group(self):
+        """254 of feat-cmux-next's last 300 commits touched a path ci.yml routes to every group; running all ten
+        groups on the head and the base for each would be the norm, not the exception."""
+        self.assertEqual(self.feat(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"]),
+                         ("workflow-guard-source-lints",))
+        self.assertEqual(self.feat(["webviews/src/x.ts", "cmux-tui/crates/a/src/lib.rs", "Native/OptChat/x.swift",
+                                    "backend/x.ts", "schemas/settings/x.json", "release-notes/next/x.md"]), ())
+
+    def test_docs_only_runs_no_extra_group(self):
+        self.assertEqual(self.feat(["docs/guide.md", "plans/x.md", "AGENTS.md"]), ())
+
+    def test_a_routing_policy_change_runs_every_routed_group(self):
+        self.assertEqual(self.feat(["scripts/ci/workflow_guard_groups.py"]), detect_linux_guard_changes.FEAT_ROUTED)
+
+    def test_main_routing_is_unchanged_by_the_feat_rule(self):
+        # ci.yml's rule for pull requests into main: an unknown product path still runs every group.
+        self.assertEqual(
+            detect_linux_guard_changes.classify_test_groups(
+                ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"], event="pull_request", macos="false"),
+            GROUPS,
+        )
 
 
 if __name__ == "__main__":

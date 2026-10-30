@@ -4,41 +4,62 @@ version = 4
 
 [[package]]
 name = "acpmux"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "cmux-agent-pane-policy",
  "cmux-chat-index",
  "cmux-coderouter",
+ "cmux-codex-acp",
+ "cmux-git",
+ "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
+ "cmux-sdk",
+ "cmux-tailnet",
  "cmux-unix-socket",
+ "cmux-wg",
+ "cmux-worktree-care",
  "crossterm",
  "dirs",
  "futures",
  "futures-util",
+ "getrandom 0.3.4",
  "libc",
+ "memchr",
  "notify",
+ "plist",
+ "png",
  "pulldown-cmark",
  "ratatui",
+ "rcgen",
  "regex",
  "reqwest",
+ "ring",
  "rustls",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "syntect",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "unicode-width",
  "uuid",
  "wait-timeout",
+ "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -157,7 +178,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -168,7 +189,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -793,6 +814,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-pty",
  "futures-util",
  "getrandom 0.3.4",
@@ -909,9 +931,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-json",
  "libc",
  "rquickjs",
  "serde",
@@ -922,16 +954,19 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "jsonschema",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
 name = "cmux-browser-host"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-json",
  "getrandom 0.3.4",
  "hmac",
  "libc",
@@ -940,6 +975,13 @@ dependencies = [
  "serde_json",
  "sha1",
  "url",
+]
+
+[[package]]
+name = "cmux-build-identity"
+version = "0.1.0"
+dependencies = [
+ "cmux-tui-source-watch",
 ]
 
 [[package]]
@@ -981,6 +1023,8 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-json",
+ "cmux-link",
  "cmux-local-auth",
  "fs4",
  "futures-util",
@@ -994,7 +1038,6 @@ dependencies = [
  "libc",
  "reqwest",
  "rustls",
- "security-framework",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1006,6 +1049,31 @@ dependencies = [
  "url",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-codex-acp"
+version = "0.1.0"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a#ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-config"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-json",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "jsonschema",
+ "notify",
+ "plist",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
 ]
 
 [[package]]
@@ -1021,7 +1089,9 @@ name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-local-auth",
  "cmux-sdk",
+ "getrandom 0.3.4",
  "libc",
  "log",
  "serde",
@@ -1036,8 +1106,8 @@ dependencies = [
  "bzip2",
  "openh264-sys2",
  "rustls",
+ "rustls-native-certs",
  "sha2 0.10.9",
- "webpki-roots 1.0.9",
 ]
 
 [[package]]
@@ -1046,6 +1116,31 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-flow-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cmux-focus-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-git"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "sha2 0.10.9",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -1058,19 +1153,60 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "url",
+]
+
+[[package]]
+name = "cmux-holder"
+version = "0.1.0"
+dependencies = [
+ "cmux-flow-trace",
+ "cmux-process",
+ "libc",
+]
+
+[[package]]
+name = "cmux-holder-v3"
+version = "0.1.0"
+dependencies = [
+ "cmux-holder",
+ "libc",
 ]
 
 [[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-json",
  "cmux-server",
  "cmux-server-core",
+ "flate2",
  "libc",
  "proptest",
+ "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-kitty-media"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "memchr",
  "tempfile",
 ]
 
@@ -1108,6 +1244,7 @@ dependencies = [
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-wire",
  "cmux-terminal-sizing",
  "serde_json",
 ]
@@ -1128,6 +1265,24 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-mux2"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "libc",
+]
+
+[[package]]
+name = "cmux-palette-ranker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1152,6 +1307,22 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -1217,12 +1388,13 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-build-identity",
+ "cmux-json",
  "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-tui-core",
- "cmux-tui-source-watch",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -1274,6 +1446,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-transcript"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -1291,8 +1474,11 @@ dependencies = [
 name = "cmux-server"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "cmux-json",
  "cmux-server-core",
  "flate2",
+ "futures-util",
  "getrandom 0.3.4",
  "libc",
  "reqwest",
@@ -1303,6 +1489,11 @@ dependencies = [
  "sha2 0.10.9",
  "tar",
  "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1310,12 +1501,14 @@ name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "hmac",
  "proptest",
  "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
 ]
 
 [[package]]
@@ -1326,6 +1519,18 @@ dependencies = [
  "cmux-sdk",
  "crossterm",
  "ratatui",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
  "serde_json",
 ]
 
@@ -1359,6 +1564,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-json",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",
@@ -1401,15 +1607,24 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "acpmux",
  "anyhow",
  "async-trait",
  "base64",
  "bytes",
+ "cmux-agent-pane-policy",
+ "cmux-api-compat",
+ "cmux-build-identity",
+ "cmux-chat-index",
+ "cmux-config",
+ "cmux-holder",
  "cmux-host",
+ "cmux-json",
  "cmux-link",
+ "cmux-panic-log",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1417,6 +1632,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-tui-cdp",
  "cmux-tui-core",
+ "cmux-tui-hooks",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
@@ -1431,7 +1647,10 @@ dependencies = [
  "parking_lot",
  "plist",
  "ratatui",
+ "regex",
  "reqwest",
+ "ring",
+ "rquickjs",
  "rusqlite",
  "rustls",
  "serde",
@@ -1444,7 +1663,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
- "toml_edit 0.22.27",
  "unicode-segmentation",
  "unicode-width",
  "url",
@@ -1461,6 +1679,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-json",
  "serde_json",
  "tungstenite",
 ]
@@ -1470,6 +1689,8 @@ name = "cmux-tui-cloud-conversations"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
+ "cmux-json",
  "serde",
  "serde_json",
  "url",
@@ -1478,18 +1699,27 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-flow-trace",
+ "cmux-git",
  "cmux-history",
+ "cmux-holder",
+ "cmux-json",
+ "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
@@ -1504,10 +1734,12 @@ dependencies = [
  "cmux-unix-socket",
  "flate2",
  "fs4",
+ "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "notify",
  "parking_lot",
  "proptest",
  "quick-xml",
@@ -1518,13 +1750,33 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "socket2",
  "tokio",
+ "tokio-tungstenite",
  "tungstenite",
  "uds_windows",
  "url",
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-hooks"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-json",
+ "cmux-tui-platform",
+ "getrandom 0.3.4",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "toml",
+ "toml_edit 0.22.27",
+ "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1565,6 +1817,7 @@ name = "cmux-tui-platform"
 version = "0.1.0"
 dependencies = [
  "cmux-link",
+ "cmux-process",
  "cmux-pty",
  "cmux-sdk",
  "cmux-unix-socket",
@@ -1611,6 +1864,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-weft"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "cmux-wg",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "ip_network",
+ "proptest",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-wg"
 version = "0.1.0"
 dependencies = [
@@ -1626,6 +1906,16 @@ dependencies = [
  "tokio-util",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-worktree-care"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1967,7 +2257,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.3",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2115,7 +2405,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2251,7 +2541,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2283,17 +2573,6 @@ checksum = "b95f7c0680e4142284cf8b22c14a476e87d61b004a3a0861872b32ef7ead40a2"
 dependencies = [
  "bit-set 0.5.3",
  "regex",
-]
-
-[[package]]
-name = "fancy-regex"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e24cb5a94bcae1e5408b0effca5cd7172ea3c5755049c5f3af4cd283a165298"
-dependencies = [
- "bit-set 0.8.0",
- "regex-automata",
- "regex-syntax",
 ]
 
 [[package]]
@@ -2385,9 +2664,9 @@ dependencies = [
 
 [[package]]
 name = "fluent-uri"
-version = "0.3.2"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1918b65d96df47d3591bed19c5cca17e3fa5d0707318e4b5ef2eae01764df7e5"
+checksum = "bc74ac4d8359ae70623506d512209619e5cf8f347124910440dbc221714b328e"
 dependencies = [
  "borrow-or-share",
  "ref-cast",
@@ -2612,9 +2891,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2773,9 +3054,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hickory-net"
-version = "0.26.1"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2295ed2f9c31e471e1428a8f88a3f0e1f4b27c15049592138d1eebe9c35b183"
+checksum = "084e7bd6a377435d568f652153e571b50970d7ccc1d1eeec0519f834632287e1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2802,9 +3083,9 @@ dependencies = [
 
 [[package]]
 name = "hickory-proto"
-version = "0.26.1"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bab31817bfb44672a252e97fe81cd0c18d1b2cf892108922f6818820df8c643"
+checksum = "7e2da0694c15b44c6f68a6b05e0233617008c54080e31d6eb848d858a9c5b38d"
 dependencies = [
  "data-encoding",
  "idna",
@@ -2822,9 +3103,9 @@ dependencies = [
 
 [[package]]
 name = "hickory-resolver"
-version = "0.26.1"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0d58d28879ceecde6607729660c2667a081ccdc082e082675042793960f178c"
+checksum = "0e4f9f4603319422d482738f3f6fe5aac03157fdbfed1cd85a3ff45adb09072f"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -3406,6 +3687,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-pki-types",
+ "rustls-platform-verifier",
  "serde",
  "serde_bytes",
  "strum",
@@ -3415,7 +3697,7 @@ dependencies = [
  "tokio-websockets",
  "tracing",
  "url",
- "webpki-roots 1.0.9",
+ "webpki-roots",
  "ws_stream_wasm",
 ]
 
@@ -3546,27 +3828,28 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.30.0"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1b46a0365a611fbf1d2143104dcf910aada96fafd295bab16c60b802bf6fa1d"
+checksum = "fd0ed8b751461fbfdedb74cc37d44732fa6e59573c317ab5c81f5fd25f6b7d2e"
 dependencies = [
  "ahash",
  "base64",
  "bytecount",
  "email_address",
- "fancy-regex 0.14.0",
+ "fancy-regex 0.16.2",
  "fraction",
+ "getrandom 0.3.4",
  "idna",
  "itoa",
  "num-cmp",
  "num-traits",
- "once_cell",
  "percent-encoding",
  "referencing",
  "regex",
  "regex-syntax",
  "serde",
  "serde_json",
+ "unicode-general-category",
  "uuid-simd",
 ]
 
@@ -4169,7 +4452,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5316,13 +5599,14 @@ dependencies = [
 
 [[package]]
 name = "referencing"
-version = "0.30.0"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8eff4fa778b5c2a57e85c5f2fe3a709c52f0e60d23146e2151cbef5893f420e"
+checksum = "afe861b03e7fa6a3948e0bc5c4cec36ec2ffdda92317f21959a955ae11f3bd89"
 dependencies = [
  "ahash",
  "fluent-uri",
- "once_cell",
+ "getrandom 0.3.4",
+ "hashbrown 0.16.1",
  "parking_lot",
  "percent-encoding",
  "serde_json",
@@ -5514,14 +5798,14 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -5572,7 +5856,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5583,9 +5867,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.14"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0527518605e68109d875e248ea259b6758801cf165e4b2c2733ae3b51f12535a"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -5709,7 +5993,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6054,7 +6338,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6265,10 +6549,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6281,7 +6565,7 @@ dependencies = [
  "parking_lot",
  "rustix",
  "signal-hook",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6544,7 +6828,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tungstenite",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -6810,7 +7093,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6824,6 +7107,12 @@ name = "unicase"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
+
+[[package]]
+name = "unicode-general-category"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f"
 
 [[package]]
 name = "unicode-ident"
@@ -7051,7 +7340,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b082222b4f6619906941c17eb2297fff4c2fb96cb60164170522942a200bd8"
 dependencies = [
  "outref",
- "uuid",
  "vsimd",
 ]
 
@@ -7221,27 +7509,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.11"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.9",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -7355,7 +7634,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

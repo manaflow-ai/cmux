@@ -92,7 +92,7 @@ impl Surface {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) mod test_fixture {
     use std::os::unix::net::UnixStream;
     use std::sync::Arc;
@@ -120,6 +120,7 @@ pub(crate) mod test_fixture {
             SurfaceOptions::default(),
             Arc::downgrade(mux),
             HostedSurfaceLaunch {
+                adopted: false,
                 attachment,
                 kitty_reservation: None,
                 terminate_on_error: false,

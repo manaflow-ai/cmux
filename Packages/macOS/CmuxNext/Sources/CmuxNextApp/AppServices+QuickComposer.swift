@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextFloating
 
 extension AppServices {
     /// Start Agent's chat is a standalone agent page in its compact layout
@@ -10,16 +11,16 @@ extension AppServices {
     /// focused pane of the frontmost main window.
     func makeQuickComposer() -> QuickComposerController {
         QuickComposerController(
-            makeChat: { [weak self] in
+            makeChat: { [weak self] session in
                 guard let self, self.agentTabs.canHostChat,
-                      let chat = self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick)) else { return nil }
+                      let chat = self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick), session: session) else { return nil }
                 let projects = NewTabPage.handler(self, cwd: nil) { _, _ in }
                 chat.model.onListProjects = { query in await projects.listProjects(query) }
                 return chat
             },
             makeWindow: { QuickComposerPanel() },
             openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false },
-            startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }
+            startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }, context: { [weak self] in await FloatingChatContext.focused(in: self) }
         )
     }
 

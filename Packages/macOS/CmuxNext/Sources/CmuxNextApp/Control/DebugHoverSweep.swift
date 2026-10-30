@@ -1,5 +1,6 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextBridge
 import CmuxNextSettings
 import CmuxNextTabs
 
@@ -102,6 +103,7 @@ enum DebugHoverSweep {
         return .object([
             "shown": coordinator.machine.shownTarget.map { .string($0.id.rawValue) } ?? .null,
             "first_show_ms": shownAfter.map { .number($0) } ?? .null,
+            "card": DebugCardGrid.report(),
             "snapshot": params["path"] == nil ? .null : await DebugWindowSnapshot.captureAsync(snapshotParams, services: services),
         ])
     }

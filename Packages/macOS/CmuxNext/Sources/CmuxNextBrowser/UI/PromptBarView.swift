@@ -2,15 +2,18 @@ import AppKit
 import CmuxNextDesign
 
 /// Glass bar that asks the first pending prompt of the tab: a permission
-/// request, a JavaScript alert, confirm, or text input, or HTTP
-/// authentication (user name and password).
+/// request (camera, microphone, location, notifications, downloads), a JavaScript alert, confirm, or text input, HTTP
+/// authentication (user name and password), or a link to another app
+/// (Open, with "Always allow" for the site).
 final class PromptBarView: NSView {
     private(set) var prompt: BrowserPrompt?
-    private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     private let inputField = ChromeTextField()
     /// HTTP authentication fields.
     let userField = ChromeTextField()
     let passwordField = ChromeSecureTextField()
+    /// "Always allow" of a link to another app.
+    private let alwaysCheck = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
     private let buttons = NSStackView()
     private let stack = NSStackView()
     private let density = DensityBinding()
@@ -40,6 +43,7 @@ final class PromptBarView: NSView {
         stack.addArrangedSubview(inputField)
         stack.addArrangedSubview(userField)
         stack.addArrangedSubview(passwordField)
+        stack.addArrangedSubview(alwaysCheck)
         stack.addArrangedSubview(buttons)
 
         let content = OverlayBackingView()
@@ -70,6 +74,7 @@ final class PromptBarView: NSView {
             guard let self else { return }
             let padding = BrowserMetrics.overlayPadding
             messageLabel.font = BrowserMetrics.bodyFont
+            alwaysCheck.font = BrowserMetrics.bodyFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
             for field in [inputField, userField, passwordField] as [NSTextField] {
                 field.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
@@ -80,12 +85,6 @@ final class PromptBarView: NSView {
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
         }
         density.start()
-    }
-
-    /// Lines the message takes (tests).
-    var messageLineCount: Int {
-        let line = NSLayoutManager().defaultLineHeight(for: messageLabel.font ?? BrowserMetrics.bodyFont)
-        return max(1, Int((messageLabel.intrinsicContentSize.height / line).rounded()))
     }
 
     /// The message wraps at the width the bar may take: `promptMaxWidth`,
@@ -128,6 +127,7 @@ final class PromptBarView: NSView {
         inputField.isHidden = true
         userField.isHidden = true
         passwordField.isHidden = true
+        alwaysCheck.isHidden = true
 
         switch prompt.kind {
         case .permission(let kind):
@@ -136,8 +136,10 @@ final class PromptBarView: NSView {
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
             case .automaticDownloads: Strings.permissionAutomaticDownloads(prompt.origin)
+            case .location: Strings.permissionLocation(prompt.origin)
+            case .notifications: Strings.permissionNotifications(prompt.origin)
             }
-            if kind == .automaticDownloads {
+            if [.automaticDownloads, .location, .notifications].contains(kind) {
                 // Chrome's question: Block or Allow, remembered for the site.
                 addButton(PageInfoStrings.block, prominent: false, response: .deny)
                 addButton(PageInfoStrings.allow, prominent: true, response: .allow)
@@ -154,6 +156,10 @@ final class PromptBarView: NSView {
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.ok, prominent: true, response: .accept)
+        case .beforeUnload(let isReload):
+            messageLabel.stringValue = "\(isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle)\n\(Strings.beforeUnloadMessage)"
+            addButton(Strings.cancel, prominent: false, response: .cancel)
+            addButton(isReload ? Strings.beforeUnloadReload : Strings.beforeUnloadLeave, prominent: true, response: .accept)
         case .textInput(let message, let defaultText):
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             inputField.stringValue = defaultText ?? ""
@@ -168,6 +174,28 @@ final class PromptBarView: NSView {
             passwordField.isHidden = false
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.authSignIn, prominent: true, response: nil)
+        case .openExternalApp(let app, _):
+            messageLabel.stringValue = Strings.externalAppPrompt(origin: prompt.origin, app: app)
+            alwaysCheck.title = Strings.externalAppAlwaysAllow
+            alwaysCheck.state = .off
+            // A page with no origin offers no "Always allow" (BrowserExternalApps).
+            alwaysCheck.isHidden = prompt.origin.isEmpty
+            addButton(Strings.cancel, prominent: false, response: .cancel)
+            addButton(Strings.externalAppOpen, prominent: true, response: nil)
+        case .savePassword(let username, let update):
+            let question = update ? Strings.passwordUpdatePrompt(prompt.origin) : Strings.passwordSavePrompt(prompt.origin)
+            messageLabel.stringValue = username.isEmpty ? question : "\(question)\n\(username)"
+            // An update is for a saved sign-in: Chromium's update bubble has no Never either.
+            if !update { addButton(Strings.passwordNever, prominent: false, response: .deny) }
+            addButton(Strings.passwordNotNow, prominent: false, response: .cancel)
+            addButton(update ? Strings.passwordUpdate : Strings.passwordSave, prominent: true, response: .accept)
+        case .verificationOffer(let offer):
+            // The code shows here, in chrome the page cannot read; Fill Code types it, never submits.
+            messageLabel.stringValue = offer.code.map { Strings.verificationCodeOffer(site: offer.senderSite, code: $0) }
+                ?? Strings.verificationLinkOffer(site: offer.senderSite)
+            addButton(Strings.verificationNotNow, prominent: false, response: .cancel)
+            if offer.link != nil { addButton(Strings.verificationOpenLink, prominent: offer.code == nil, response: .allowOnce) }
+            if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
         }
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)
@@ -176,12 +204,17 @@ final class PromptBarView: NSView {
         }
     }
 
-    /// The answer of the prompt's prominent button: the typed text, or the
-    /// typed user name and password.
+    /// The answer of the prompt's prominent button: the typed text, the
+    /// typed user name and password, or Open (always, when checked).
     func submit() {
         guard let prompt else { return }
         if case .credentials = prompt.kind {
             prompt.respond(.credentials(user: userField.stringValue, password: passwordField.stringValue))
+        } else if case .openExternalApp = prompt.kind {
+            prompt.respond(alwaysCheck.state == .on ? .allow : .allowOnce)
+        } else if case .verificationOffer(let offer) = prompt.kind {
+            // Return answers the prominent button: Fill Code, or Open Link when there is no code.
+            prompt.respond(offer.code != nil ? .accept : .allowOnce)
         } else {
             prompt.respond(.text(inputField.stringValue))
         }

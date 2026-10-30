@@ -14,7 +14,7 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "space.clearTheme",
                 title: String(localized: "action.space.clearTheme", defaultValue: "Reset Space Theme", table: "ThemeActions", bundle: .module),
-                keywords: ["room", "profile", "theme", "reset", "ghostty"], category: .workspace, symbol: "paintbrush.slash",
+                keywords: ["room", "profile", "theme", "reset", "ghostty"], category: .workspace, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile], cliName: "space clear-theme"
             ),
             ActionDescriptor(
@@ -27,7 +27,7 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspace.clearTheme",
                 title: String(localized: "action.workspace.clearTheme", defaultValue: "Reset Workspace Theme", table: "ThemeActions", bundle: .module),
-                keywords: ["workspace", "theme", "reset", "ghostty"], category: .workspace, symbol: "paintbrush.slash",
+                keywords: ["workspace", "theme", "reset", "ghostty"], category: .workspace, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-theme"
             ),
             ActionDescriptor(
@@ -40,7 +40,7 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "terminal.clearTheme",
                 title: String(localized: "action.terminal.clearTheme", defaultValue: "Reset Terminal Theme", table: "ThemeActions", bundle: .module),
-                keywords: ["terminal", "tab", "theme", "reset", "ghostty"], category: .terminal, symbol: "paintbrush.slash",
+                keywords: ["terminal", "tab", "theme", "reset", "ghostty"], category: .terminal, symbol: "eraser",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.tab], cliName: "terminal clear-theme"
             ),
         ]
@@ -68,11 +68,15 @@ nonisolated extension CatalogArgument {
     /// The `theme` value that means "the Ghostty config" (no own theme).
     static let themeConfigValue = "config"
 
-    /// Same list and order as onboarding's theme step
-    /// (`ThemeCatalog.curated` in CmuxNextDesign; a test keeps them equal).
+    /// The pinned themes, in picker order (palette, context menus and Settings via
+    /// `SettingsPaletteSource`).
+    /// Soft Blue, Clay Orange, Olive Grey and the two Light pairs are cmux's own
+    /// (Resources/cmux-themes, bundled with Ghostty's).
     static let curatedThemes = [
-        "Catppuccin Mocha", "TokyoNight", "Rose Pine", "Gruvbox Dark", "Nord", "Vesper",
-        "Catppuccin Latte", "Rose Pine Dawn", "GitHub Light Default",
+        "Rose Pine", "Rose Pine Moon", "Catppuccin Mocha", "TokyoNight", "Gruvbox Dark", "Nord", "Vesper",
+        "Soft Blue", "Clay Orange", "Olive Grey",
+        "Rose Pine Dawn", "Catppuccin Latte", "GitHub Light Default",
+        "Soft Blue Light", "Clay Orange Light",
     ]
 }
 

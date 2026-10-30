@@ -19,8 +19,8 @@ import {
   type CurrentPrincipalShape
 } from "@cmux/protocol"
 import { Effect, Layer, Redacted } from "effect"
-import { HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http"
+import { HttpApiBuilder } from "effect/http-api"
 import { authenticate, mintAccessToken, publicJwks } from "./auth.ts"
 import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
@@ -33,7 +33,8 @@ import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
-import { conversationMutate, conversationRead } from "./home-routes.ts"
+import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
+import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
@@ -99,7 +100,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("inbox.") ? `inbox:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
 const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.list", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
@@ -175,9 +176,9 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
   handlers
     .handle("challenge", ({ payload }) =>
       Effect.gen(function* () {
-        const r = yield* Effect.tryPromise({ try: () => rpc<ChallengeResult>(userStub(payload.user).challenge(payload.user, payload.install)), catch: () => new Forbidden({ code: "auth.forbidden", message: "challenge failed" }) })
+        const r = yield* Effect.tryPromise({ try: () => rpc<ChallengeResult>(userStub(payload.user).challenge(payload.user, payload.install, payload.team)), catch: () => new Forbidden({ code: "auth.forbidden", message: "challenge failed" }) })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-        return { install: payload.install, nonce: r.nonce, expires_at: r.expires_at, message_prefix: challengeMessagePrefix(env.ENVIRONMENT, payload.install) }
+        return { install: payload.install, nonce: r.nonce, expires_at: r.expires_at, message_prefix: challengeMessagePrefix(env.ENVIRONMENT, payload.install, payload.team) }
       })
     )
     .handle("token", ({ payload }) =>
@@ -233,9 +234,18 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
+        if (payload.op === "participant.avatar.set") return yield* Effect.tryPromise({ try: () => avatarSetRoute(env, principal, frame), catch: unreachable }) // Participant avatars (home-avatar-routes.ts).
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
         if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
+        if (payload.op === "server.network.confirm") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).serverNetworkConfirm(p.team!, p, frame)), catch: unreachable })
+        }
+        if (payload.op === "host.network.bind") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).hostNetworkBind(p.team!, p, frame)), catch: unreachable })
+        }
         if (payload.op === "domain.verify" || payload.op === "domain.release") {
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).domainOp(p.team!, p, frame)), catch: unreachable })
@@ -263,8 +273,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
+          // Authorization already verified this exact request's Stack session. It is never an op param,
+          // owner command or durable field; only the Native API receives it for the requested approval.
+          const header = (yield* HttpServerRequest.HttpServerRequest).headers.authorization
+          const session = typeof header === "string" ? /^Bearer\s+(\S+)$/i.exec(header)?.[1] : undefined
           return yield* Effect.tryPromise({
-            try: () => pairApprove(env, submitter, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
+            try: () => pairApprove(env, submitter, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f)), { session }),
             catch: unreachable
           })
         }
@@ -350,11 +364,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
-        if (payload.op === "server.revoke" && response.ok) {
+        if ((payload.op === "server.revoke" || payload.op === "host.remove") && response.ok && typeof (response.value as { install?: unknown }).install === "string") {
           const v = response.value as { host: string; install: string }
           const team = principal.team!
           const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
-          return { ...response, value: { host: v.host, install_revoked: flushed.revoked.includes(v.install) } }
+          return { ...response, value: payload.op === "server.revoke" ? { host: v.host, install_revoked: flushed.revoked.includes(v.install) } : { host: v.host } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {
@@ -367,6 +381,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           const teamReply = toResponse("team.ensure_personal", team.frames)
           if (!teamReply.ok) return yield* new OwnerUnreachable({ code: "owner.unreachable", message: `personal team: ${teamReply.error?.message}`, retryable: true })
+          // The verified email now reaches this account (dm.open by email, message requests); best effort.
+          yield* Effect.promise(() => linkVerifiedAddress(env, principal))
         }
         return response
       })
@@ -383,23 +399,21 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
         if (payload.op === "server.pair.preview") {
           const r = yield* Effect.tryPromise({ try: () => pairPreview(env, principal, payload.params), catch: unreachable })
-          if (!r.ok) {
-            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-            return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
-          }
+          if (!r.ok && r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+          if (!r.ok) return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
         const resolved = yield* principalFor(def.owner, principal)
+        const avatar = payload.op === "participant.avatar.get" ? yield* Effect.tryPromise({ try: () => avatarGetRoute(env, resolved, payload.params), catch: unreachable }) : undefined
+        if (avatar) return "invalid" in avatar ? yield* new BadRequest({ code: "validation.invalid", message: avatar.invalid }) : "hidden" in avatar ? yield* new BadRequest({ code: "selector.not_found", message: "no such participant picture" }) : { op: payload.op, value: avatar.value, stream: "avatars", revision: "0" }
         // G8: an approval is read from the team and owner (ConnectionDO, or CloudDO for Cloud) that posted it, for its members (approval-route.ts).
         const { reader, owner } = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalRoute(env, resolved, payload.params), catch: unreachable }) : { reader: resolved, owner: def.owner }
         // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
         if (payload.op === "home.search") {
           const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
-          if (!r.ok) {
-            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-            if (r.code === "search.unavailable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
-            return yield* new BadRequest({ code: "validation.invalid", message: r.message })
-          }
+          if (!r.ok && r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+          if (!r.ok && r.code === "search.unavailable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
+          if (!r.ok) return yield* new BadRequest({ code: "validation.invalid", message: r.message })
           return { op: payload.op, value: r.value, stream: `search:${reader.user}`, revision: "0" }
         }
         if (providerReadOpNames.has(payload.op) || googleReadOpNames.has(payload.op)) {
@@ -425,7 +439,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           catch: unreachable
         })
         if (!r.ok) {
-          if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found" || r.code === "cloud.machine.not_bound") return yield* new BadRequest({ code: r.code, message: r.message })
+          if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found" || r.code === "cloud.machine.not_bound" || r.code === "unknown_message") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
         }
         // A webhook trigger's secret is derived in the Worker, never stored in the DO.

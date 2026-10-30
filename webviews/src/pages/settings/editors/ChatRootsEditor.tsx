@@ -1,4 +1,5 @@
-import { useSettingsState, useStore } from "../context";
+import { Fragment } from "react";
+import { useSettingsSelector, useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
 import type { EditorProps } from "./types";
@@ -7,8 +8,7 @@ import type { EditorProps } from "./types";
  * come from the native validator, which knows this device's home and symbolic links. */
 export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
-  const state = useSettingsState();
-  const live = state.rows.get(row.key);
+  const live = useSettingsSelector((state) => state.rows.get(row.key));
   const folders =
     live?.folders ??
     (Array.isArray(value) ? value.map(String).map((path) => ({ path, managed: false, reason: null })) : []);
@@ -16,37 +16,32 @@ export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) 
   return (
     <span className="folder-list" aria-labelledby={labelId}>
       {folders.map((folder) => (
-        <span
-          key={folder.path}
-          className="folder-item"
-          data-folder={folder.path}
-          data-locked={folder.managed || undefined}
-        >
-          <span className="folder-path selectable">
-            {folder.path}
-            {folder.reason && <output className="row-error">{folder.reason}</output>}
+        <Fragment key={folder.path}>
+          <span className="folder-item" data-folder={folder.path} data-locked={folder.managed || undefined}>
+            <span className="folder-path selectable">{folder.path}</span>
+            {folder.managed ? (
+              <span className="row-managed" title={t("settingsWindow.managed.device")}>
+                <Icon name="lock" />
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                disabled={disabled}
+                aria-label={`${t("settingsPage.remove")} ${folder.path}`}
+                onClick={() =>
+                  void store.set(
+                    row.key,
+                    userRoots.filter((path) => path !== folder.path),
+                  )
+                }
+              >
+                {t("settingsPage.remove")}
+              </button>
+            )}
           </span>
-          {folder.managed ? (
-            <span className="row-managed" title={t("settingsWindow.managed.device")}>
-              <Icon name="lock" />
-            </span>
-          ) : (
-            <button
-              type="button"
-              className="button"
-              disabled={disabled}
-              aria-label={`${t("settingsPage.remove")} ${folder.path}`}
-              onClick={() =>
-                void store.set(
-                  row.key,
-                  userRoots.filter((path) => path !== folder.path),
-                )
-              }
-            >
-              {t("settingsPage.remove")}
-            </button>
-          )}
-        </span>
+          {folder.reason && <output className="row-error folder-reason">{folder.reason}</output>}
+        </Fragment>
       ))}
       <button
         type="button"

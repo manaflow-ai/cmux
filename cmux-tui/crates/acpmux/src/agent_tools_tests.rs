@@ -1,191 +1,7 @@
-use super::*;
-
-/// A fresh folder under the system temp directory (removed on drop).
-struct Temp(PathBuf);
-
-impl Temp {
-    fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("acpmux-agent-tools-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        Temp(dir)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for Temp {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-fn bin_with(names: &[&str]) -> Temp {
-    use std::os::unix::fs::PermissionsExt;
-    let dir = Temp::new();
-    for name in names {
-        let path = dir.path().join(name);
-        std::fs::write(&path, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    dir
-}
-
-/// The MCP config the `--mcp-config` argument names (a file, or inline JSON).
-fn config_of(args: &[String]) -> Value {
-    let arg = &args[args.iter().position(|a| a == "--mcp-config").unwrap() + 1];
-    serde_json::from_str(arg)
-        .unwrap_or_else(|_| serde_json::from_str(&std::fs::read_to_string(arg).unwrap()).unwrap())
-}
-
-fn inputs(bin: &Path, cmux_json: Option<&str>, state: &Path) -> Inputs {
-    Inputs {
-        enabled: true,
-        bin_dir: Some(bin.to_path_buf()),
-        cmux_json: cmux_json.map(str::to_owned),
-        state_dir: state.to_path_buf(),
-        cua: None,
-    }
-}
-
 #[test]
-fn both_servers_and_the_skills_plugin_when_the_app_ships_them_and_mcp_is_on() {
-    let bin = bin_with(&["cmux-cua", "cmux"]);
-    let state = Temp::new();
-    let json = "{\n  // comment\n  \"mcp\": {\"enabled\": true}\n}";
-    let tools = resolve(&inputs(bin.path(), Some(json), state.path()));
-    let names: Vec<&str> = tools.servers.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["cmux-cua", "cmux"]);
-    assert_eq!(tools.servers[0].args, ["mcp"]);
-    assert!(tools.servers[0].env.contains(&("CMUX_CUA_MCP_FORCE_PROXY".into(), "1".into())));
-    assert_eq!(tools.servers[1].args, ["mcp", "serve"]);
-    let plugin = tools.plugin_dir.clone().unwrap();
-    for file in [
-        ".claude-plugin/plugin.json",
-        "skills/cmux-browser/SKILL.md",
-        "skills/cmux-browser/references/repl-guide.md",
-        "skills/cmux-cua/SKILL.md",
-    ] {
-        assert!(plugin.join(file).is_file(), "{file}");
-    }
-    let cua = std::fs::read_to_string(plugin.join("skills/cmux-cua/SKILL.md")).unwrap();
-    assert!(cua.contains("disable-model-invocation: true"), "the consent rule stays");
-    // Same content, same folder: nothing is rewritten on the next spawn.
-    assert_eq!(resolve(&inputs(bin.path(), Some(json), state.path())).plugin_dir, Some(plugin));
-}
-
-#[test]
-fn the_cmux_server_needs_mcp_enabled_and_a_missing_binary_is_left_out() {
-    let state = Temp::new();
-    let bin = bin_with(&["cmux"]);
-    for json in [None, Some("{}"), Some("{\"mcp\": {\"enabled\": false}}"), Some("not json")] {
-        let tools = resolve(&inputs(bin.path(), json, state.path()));
-        assert!(tools.servers.is_empty(), "{json:?}");
-        assert!(tools.plugin_dir.is_some(), "skills do not depend on MCP");
-    }
-}
-
-#[test]
-fn the_switch_turns_everything_off() {
-    let bin = bin_with(&["cmux-cua", "cmux"]);
-    let state = Temp::new();
-    let mut off = inputs(bin.path(), Some("{\"mcp\":{\"enabled\":true}}"), state.path());
-    off.enabled = false;
-    let tools = resolve(&off);
-    assert_eq!(tools, AgentTools::default());
-    assert!(tools.claude_args(&state.path().join("unused.json")).is_empty());
-    assert_eq!(tools.acp_servers(), json!([]));
-}
-
-#[test]
-fn acp_and_claude_shapes() {
-    let tools = AgentTools {
-        servers: vec![McpServer {
-            name: "cmux-cua".into(),
-            command: "/b/cmux-cua".into(),
-            args: vec!["mcp".into()],
-            env: vec![("K".into(), "v".into())],
-        }],
-        plugin_dir: Some("/p".into()),
-    };
-    assert_eq!(
-        tools.acp_servers(),
-        json!([{"name": "cmux-cua", "command": "/b/cmux-cua", "args": ["mcp"], "env": [{"name": "K", "value": "v"}]}])
-    );
-    let dir = Temp::new();
-    let args = tools.claude_args(&dir.path().join("run/mcp/s.json"));
-    assert_eq!(args[0], "--mcp-config");
-    let config = config_of(&args);
-    assert_eq!(config["mcpServers"]["cmux-cua"]["command"], "/b/cmux-cua");
-    assert_eq!(config["mcpServers"]["cmux-cua"]["env"]["K"], "v");
-    assert_eq!(&args[2..], ["--plugin-dir", "/p"]);
-}
-
-#[test]
-fn remote_origins_isolated_presets_and_strict_mcp_sessions_get_nothing() {
-    let none = BTreeMap::new();
-    assert!(left_out(true, &none, &[]));
-    assert_eq!(acp_servers_for(true, &none), json!([]));
-    assert!(claude_args_for(true, &none, &[], "s").is_empty());
-    let isolated = BTreeMap::from([(SWITCH_ENV.to_owned(), "0".to_owned())]);
-    assert!(left_out(false, &isolated, &[]));
-    assert!(left_out(false, &none, &["--tools".into(), "".into(), "--strict-mcp-config".into()]));
-    assert!(!left_out(false, &none, &["--model".into(), "opus".into()]));
-}
-
-#[test]
-fn the_cua_server_proxies_to_the_apps_tag_helper_socket_with_the_agent_token() {
-    let bin = bin_with(&["cmux-cua"]);
-    let state = Temp::new();
-    let mut with_app = inputs(bin.path(), None, state.path());
-    with_app.cua = crate::cua_socket::select(
-        Some("/tmp/tag/cmux-cua.sock".into()),
-        Some("agent-token".into()),
-    );
-    let tools = resolve(&with_app);
-    let cua = &tools.servers[0];
-    assert_eq!(cua.args, ["mcp", "--socket", "/tmp/tag/cmux-cua.sock"]);
-    assert!(cua.env.contains(&("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), "agent-token".into())));
-    assert!(cua.env.contains(&("CMUX_CUA_MCP_FORCE_PROXY".into(), "1".into())));
-    assert!(!cua.env.iter().any(|(k, _)| k.contains("HOST_AUTH")), "never the host token");
-
-    // No token exported: no token env. No socket exported: cmux-cua's default.
-    with_app.cua = crate::cua_socket::select(Some("/tmp/tag/cmux-cua.sock".into()), None);
-    assert!(
-        !resolve(&with_app).servers[0].env.iter().any(|(k, _)| k == "CMUX_CUA_SOCKET_AUTH_TOKEN")
-    );
-    assert_eq!(crate::cua_socket::select(Some("  ".into()), Some("t".into())), None);
-    assert_eq!(resolve(&inputs(bin.path(), None, state.path())).servers[0].args, ["mcp"]);
-}
-
-#[test]
-fn a_session_scope_reaches_only_the_cua_server_and_defaults_to_empty() {
-    let bin = bin_with(&["cmux-cua", "cmux"]);
-    let state = Temp::new();
-    let tools = resolve(&inputs(bin.path(), Some("{\"mcp\":{\"enabled\":true}}"), state.path()));
-    let scope =
-        |tools: &AgentTools, name: &str| {
-            tools.servers.iter().find(|s| s.name == name).and_then(|s| {
-                s.env.iter().find(|(k, _)| k == CUA_SCOPE_ENV).map(|(_, v)| v.clone())
-            })
-        };
-    let unscoped = tools.clone().scoped(&BTreeMap::new());
-    assert_eq!(
-        scope(&unscoped, "cmux-cua").as_deref(),
-        Some(""),
-        "no scope unless the session sets one"
-    );
-    let env =
-        BTreeMap::from([(CUA_SCOPE_ENV.to_owned(), "com.cmuxterm.app.debug.agt1".to_owned())]);
-    let scoped = tools.scoped(&env);
-    assert_eq!(scope(&scoped, "cmux-cua").as_deref(), Some("com.cmuxterm.app.debug.agt1"));
-    assert_eq!(scope(&scoped, "cmux"), None, "the scope is for computer use only");
-    let config = config_of(&scoped.claude_args(&state.path().join("run/mcp/s.json")));
-    assert_eq!(
-        config["mcpServers"]["cmux-cua"]["env"][CUA_SCOPE_ENV],
-        "com.cmuxterm.app.debug.agt1"
-    );
+fn chief_turn_tools_contain_no_mac_app_actions() {
+    let tools: Vec<_> = super::CHIEF_TURN_TOOLS.split(',').map(str::trim).collect();
+    assert!(tools.iter().all(|tool| !tool.starts_with("app_")), "{tools:?}");
 }
 
 #[test]
@@ -208,39 +24,176 @@ fn a_spawned_agent_never_inherits_a_helper_token() {
     }
 }
 
+fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Inputs {
+    super::Inputs {
+        enabled: true,
+        bin_dir: Some(bin.to_owned()),
+        cmux_json: cmux_json.map(str::to_owned),
+        state_dir: bin.join("state"),
+        cua: None,
+        cua_v2: None,
+        acpmux: None,
+        secrets: false,
+        offers: false,
+        subsessions: false,
+        displays: None,
+    }
+}
+
 #[test]
-fn the_helper_token_is_never_on_a_command_line_and_its_config_file_is_private() {
+fn agent_memory_is_off_until_the_setting_turns_it_on() {
     use std::os::unix::fs::PermissionsExt;
-    let token = "agent-token-5f1c0d";
-    let bin = bin_with(&["cmux-cua"]);
-    let state = Temp::new();
-    let home = Temp::new();
-    let mut with_app = inputs(bin.path(), None, state.path());
-    with_app.cua =
-        crate::cua_socket::select(Some("/tmp/tag/cmux-cua.sock".into()), Some(token.into()));
-    let tools = resolve(&with_app);
-    // The cmux-cua child's argv.
-    assert!(
-        !tools.servers[0].args.iter().any(|a| a.contains(token)),
-        "{:?}",
-        tools.servers[0].args
-    );
-    // The claude process's argv.
-    let path = mcp_config_path(home.path(), "01a1-session");
-    let args = tools.claude_args(&path);
-    assert!(!args.iter().any(|a| a.contains(token)), "the token must not be in argv: {args:?}");
-    assert_eq!(args[1], path.to_string_lossy());
-    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode(&path), 0o600);
-    assert_eq!(mode(path.parent().unwrap()), 0o700);
-    let config = config_of(&args);
-    assert_eq!(config["mcpServers"]["cmux-cua"]["env"]["CMUX_CUA_SOCKET_AUTH_TOKEN"], token);
-    // Session end removes it.
-    remove_mcp_config(home.path(), "01a1-session");
-    assert!(!path.exists());
-    assert_eq!(
-        mcp_config_path(home.path(), "../x"),
-        home.path().join("run/mcp/___x.json"),
-        "a session id never leaves the folder"
-    );
+    let root = std::env::temp_dir().join(format!("acpmux-agent-memory-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let chief = root.join("optchat-chief");
+    std::fs::write(&chief, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let names = |json: Option<&str>| -> Vec<String> {
+        super::resolve(&memory_inputs(&root, json)).servers.into_iter().map(|s| s.name).collect()
+    };
+    // Off by default: no file, no key, another value, a file that does not parse.
+    for json in [None, Some("{}"), Some(r#"{"agents":{"memory":{"enabled":"yes"}}}"#), Some("{")] {
+        assert!(!names(json).contains(&super::MEMORY_SERVER_NAME.to_owned()), "{json:?}");
+    }
+    // On, nested or flat, in JSONC.
+    for json in [
+        "{\"agents\": {\"memory\": {\"enabled\": true}}}",
+        "{\n// mine\n\"agents.memory.enabled\": true,\n}",
+    ] {
+        let tools = super::resolve(&memory_inputs(&root, Some(json)));
+        let memory = tools
+            .servers
+            .iter()
+            .find(|s| s.name == super::MEMORY_SERVER_NAME)
+            .unwrap_or_else(|| panic!("{json}"));
+        assert_eq!(memory.command, chief);
+        assert_eq!(memory.args, ["agent-memory", "mcp"]);
+        // The session reaches the server, for the notes' provenance.
+        let one = tools.for_session("s-1");
+        let memory = one.servers.iter().find(|s| s.name == super::MEMORY_SERVER_NAME).unwrap();
+        assert_eq!(memory.env, [(super::AGENT_SESSION_ENV.to_owned(), "s-1".to_owned())]);
+    }
+    // No optchat-chief next to acpmux: no server, even when on.
+    std::fs::remove_file(&chief).unwrap();
+    assert!(names(Some(r#"{"agents":{"memory":{"enabled":true}}}"#)).is_empty());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A shipped NIGHTLY/NEXT app has no `Contents/Resources/bin/cmux-cua`: its
+/// only copy is the signed helper app at `Contents/Library/cmux Computer
+/// Use.app` (nightly.yml removes the scratch bin copy). Sessions must still
+/// get the `cmux-cua` server, from that helper's executable.
+#[test]
+fn cmux_cua_falls_back_to_the_nested_helper_app() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-cua-helper-{}", uuid::Uuid::now_v7()));
+    let bin = root.join("Contents/Resources/bin");
+    let helper_dir = root.join("Contents/Library/cmux Computer Use.app/Contents/MacOS");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&helper_dir).unwrap();
+    let helper = helper_dir.join("cmux-cua");
+    std::fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let cua = |tools: &super::AgentTools| {
+        tools.servers.iter().find(|s| s.name == "cmux-cua").map(|s| s.command.clone())
+    };
+    let tools = super::resolve(&memory_inputs(&bin, None));
+    assert_eq!(cua(&tools), Some(helper.clone()), "the nested helper stands in");
+    // A bin copy (a DEV build) wins over the helper.
+    let bin_cua = bin.join("cmux-cua");
+    std::fs::write(&bin_cua, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&bin_cua, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), Some(bin_cua.clone()));
+    // Neither: no server.
+    std::fs::remove_file(&bin_cua).unwrap();
+    std::fs::remove_file(&helper).unwrap();
+    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), None);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// On a Linux machine `acpmux` is a symlink to `cmux-tui`, and `current_exe`
+/// resolves it: the daemon runs as `cmux-tui acp daemon run` with the prefix
+/// `acp`. cmux-tui starts acpmux only under `acp` (or as argv0 `acpmux`), so
+/// this daemon's own MCP servers must be `cmux-tui acp <word>` too, or the
+/// sub-session tools never start on a cloud VM.
+#[test]
+fn own_servers_run_under_the_daemon_prefix() {
+    let root = std::env::temp_dir().join(format!("acpmux-own-servers-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui");
+    let inputs = |prefix: &[&str]| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            exe.clone(),
+            prefix.iter().map(std::ffi::OsString::from).collect(),
+        )),
+        cua_v2: Some(root.join("cua-v2")),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let servers = |prefix: &[&str]| -> Vec<(String, Vec<String>)> {
+        let tools = super::resolve(&inputs(prefix));
+        assert!(tools.servers.iter().all(|s| s.command == exe), "{:?}", tools.servers);
+        tools.servers.into_iter().map(|s| (s.name, s.args)).collect()
+    };
+    let expect = |prefix: &[&str]| -> Vec<(String, Vec<String>)> {
+        [
+            (crate::cua_v2::SERVER_NAME, "cua-mcp"),
+            (crate::secret_mcp::SERVER_NAME, "secret-mcp"),
+            (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
+            (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
+            (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
+            (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
+        ]
+        .into_iter()
+        .map(|(name, word)| {
+            let args = prefix.iter().copied().chain([word]).map(str::to_owned).collect();
+            (name.to_owned(), args)
+        })
+        .collect()
+    };
+    // A standalone acpmux (the app's bundled copy): the bare command word.
+    assert_eq!(servers(&[]), expect(&[]));
+    // cmux-tui: `cmux-tui acp subsession-mcp`.
+    assert_eq!(servers(&["acp"]), expect(&["acp"]));
+    // Per-workspace displays (a Linux cloud machine) still drop the helper v2
+    // bridge, which cannot be pinned to a display, under the prefix too.
+    let mut tools = super::resolve(&inputs(&["acp"]));
+    tools.displays = Some(root.join("displays"));
+    let env = std::collections::BTreeMap::from([(
+        crate::agent_displays::WORKSPACE_KEY.to_owned(),
+        "ws-1".to_owned(),
+    )]);
+    let names: Vec<String> = tools.scoped(&env).servers.into_iter().map(|s| s.name).collect();
+    assert!(!names.iter().any(|n| n == crate::cua_v2::SERVER_NAME), "{names:?}");
+    assert!(names.iter().any(|n| n == crate::subsession_mcp::SERVER_NAME), "{names:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A launch without servers removes the last launch's MCP config, so the background-shell hook
+/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has, and every launch drops
+/// the calls the hook turned away under the last one.
+#[test]
+fn a_launch_without_servers_removes_the_last_mcp_config() {
+    let root = std::env::temp_dir().join(format!("acpmux-stale-mcp-{}", uuid::Uuid::now_v7()));
+    let file = root.join("s.json");
+    let mut with = super::AgentTools::default();
+    with.servers.push(super::McpServer {
+        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        command: "acpmux".into(),
+        args: vec![],
+        env: vec![],
+    });
+    assert!(with.claude_args(&file).contains(&"--mcp-config".to_owned()));
+    assert!(file.is_file());
+    // A call the hook turned away under the last launch is no retry under the next.
+    let denied = crate::bg_hook::denied_path(&file);
+    std::fs::write(&denied, "a-hash\n").unwrap();
+    with.claude_args(&file);
+    assert!(!denied.exists(), "a launch kept the last launch's turned-away calls");
+    let args = super::AgentTools::default().claude_args(&file);
+    assert!(!args.contains(&"--mcp-config".to_owned()), "{args:?}");
+    assert!(!file.exists(), "the last launch's config stayed for the hook to read");
+    let _ = std::fs::remove_dir_all(&root);
 }

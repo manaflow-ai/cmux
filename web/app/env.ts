@@ -223,6 +223,9 @@ export const env = createEnv({
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Cloud VM firewall rule create and delete, per signed-in user.
     CMUX_VM_FIREWALL_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Provider-costing Cloud VM creates, forks, restores, Base operations,
+    // and snapshots. Deployed routes fail closed when this rule is absent.
+    CMUX_VM_ALLOCATION_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Native ingress gates run before Stack verification, so provider outages
     // cannot turn reconnect/readiness fan-out into an auth-request storm.
     CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -293,10 +296,14 @@ export const env = createEnv({
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_MAX_YEARLY_1920_PRICE_ID: z.string().min(1).optional(),
     STRIPE_GO_MONTHLY_10_PRICE_ID: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
     // configuration is found by its metadata (see services/billing/stripe.ts).
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
+    // Dedicated Team portal: cancellation/invoices/payment methods are enabled,
+    // but subscription quantity updates are disabled.
+    STRIPE_TEAM_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: retiredEnvValue(
       "STRIPE_TEAM_MONTHLY_PRICE_ID",
       "STRIPE_TEAM_MONTHLY_60_PRICE_ID",
@@ -432,6 +439,10 @@ export const env = createEnv({
     // Server-to-worker authentication for revision publication. Native clients
     // hold only their Stack access token and can never mint invalidations.
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: z.string().min(32).max(512).optional(),
+    // Server-to-worker authentication for Cloud machine list (`vms` sync)
+    // publication. Must equal the presence Worker's VMS_PUBLISHER_SECRET.
+    // Optional: unset skips publication and the Mac list keeps polling.
+    CMUX_PRESENCE_VMS_PUBLISHER_SECRET: z.string().min(32).max(512).optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -489,6 +500,7 @@ export const env = createEnv({
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: trimEnv(process.env.CMUX_TEAM_INVITE_RATE_LIMIT_ID),
     CMUX_VM_FIREWALL_RATE_LIMIT_ID: trimEnv(process.env.CMUX_VM_FIREWALL_RATE_LIMIT_ID),
+    CMUX_VM_ALLOCATION_RATE_LIMIT_ID: trimEnv(process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
@@ -526,9 +538,13 @@ export const env = createEnv({
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: trimEnv(process.env.STRIPE_MAX_MONTHLY_200_PRICE_ID),
+    STRIPE_MAX_YEARLY_1920_PRICE_ID: trimEnv(process.env.STRIPE_MAX_YEARLY_1920_PRICE_ID),
     STRIPE_GO_MONTHLY_10_PRICE_ID: trimEnv(process.env.STRIPE_GO_MONTHLY_10_PRICE_ID),
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
       process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
+    ),
+    STRIPE_TEAM_PORTAL_CONFIGURATION_ID: trimEnv(
+      process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID,
     ),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
     STRIPE_TEAM_MONTHLY_60_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_60_PRICE_ID),
@@ -594,6 +610,9 @@ export const env = createEnv({
     CMUX_PRESENCE_BASE_URL: trimEnv(process.env.CMUX_PRESENCE_BASE_URL),
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
       process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
+    ),
+    CMUX_PRESENCE_VMS_PUBLISHER_SECRET: trimEnv(
+      process.env.CMUX_PRESENCE_VMS_PUBLISHER_SECRET,
     ),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
       process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,

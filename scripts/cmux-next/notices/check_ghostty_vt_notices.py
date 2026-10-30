@@ -137,7 +137,9 @@ def covered_packages(manifests: list[Path]) -> set[str]:
 
 
 REGENERATE = (
-    "regenerate it on a Testbox: `$HQ_TOOLS/scripts/testbox-warmup.sh --lane <lane>`, then "
+    "regenerate it: push the gitlink change to ghosttykit-pin/<name> (a later commit, so the push's diff names "
+    "the workflow's paths) and commit the vt-link-graph artifact of its cmux-next-source-archive.yml run; or on a "
+    "Testbox: `$HQ_TOOLS/scripts/testbox-warmup.sh --lane <lane>`, then "
     "`blacksmith testbox run --id <tbx> 'python3 scripts/cmux-next/notices/vt_link_graph.py generate "
     "--dwarfdump /usr/lib/llvm-18/bin/llvm-dwarfdump --out scripts/cmux-next/notices/vt-link-graph.json'` and "
     "`blacksmith testbox download --id <tbx> scripts/cmux-next/notices/vt-link-graph.json "

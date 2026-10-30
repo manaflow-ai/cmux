@@ -8,11 +8,11 @@ Every visual value of the cmux-next macOS app, with its source. Machine-readable
 
 ## 1. Color model
 
-Chrome has no fixed palette, except group colors (below). Every color derives from the terminal theme (Ghostty config: `background`, `foreground`, `palette`, `selection-*`, `background-opacity`, `background-blur`) in `ThemeTokens.derive` (`Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:109-167 (ThemeTokens.derive)`). Surfaces next to the terminal are the terminal background, so there is no seam. Fills are the foreground at low alpha. Text is the foreground, muted toward the background only as far as WCAG contrast allows (4.5:1 for primary and secondary, 3:1 for tertiary and status marks). There is no accent hue. The one hue chrome uses is `highlight` (the theme's ANSI 4, usually blue), and only in agent pane composer controls: the Send fill, the pressed plan toggle (`highlight` at 16% with `highlight` text) and a switch's on state (`webviews/src/agent-session/acpmux/composerControls.css`: `.acpmux-send`, `.acpmux-plan[aria-pressed=true]`, `.acpmux-on .acpmux-switch`). `textSelection` is the theme's `selection-background`, so it is blue when the theme's is.
+Chrome has no fixed palette, except group colors (below). Every color derives from the terminal theme (Ghostty config: `background`, `foreground`, `palette`, `selection-*`, `cursor-color`, `background-opacity`, `background-blur`) in `ThemeTokens.derive` (`Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:140-215 (ThemeTokens.derive)`). Surfaces next to the terminal are the terminal background, so there is no seam. Fills are the foreground at low alpha. Text is the foreground, muted toward the background only as far as WCAG contrast allows (4.5:1 for primary and secondary, 3:1 for tertiary and status marks). There is no accent hue by default (`appearance.accent` = neutral; another value gives selection, the focus ring, `highlight` and `accent` the app theme's accent, see the token table; a theme's own accent, its `appearance.themeEdits` `<theme>/accent` edit or else its file's `# cmux-accent = #rrggbb` line, does the same and wins over `appearance.accent`). With the neutral accent, the one hue chrome uses is `highlight` (the theme's ANSI 4, usually blue), and only in agent pane composer controls: the Send fill, the pressed plan toggle (`highlight` at 16% with `highlight` text) and a switch's on state (`webviews/src/agent-session/acpmux/composerControls.css`: `.acpmux-send`, `.acpmux-plan[aria-pressed=true]`, `.acpmux-on .acpmux-switch`). `textSelection` is the theme's `selection-background`, so it is blue when the theme's is.
 
 The default theme is `light:Apple System Colors Light,dark:Apple System Colors` (`Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+DefaultTheme.swift:11-16 (GhosttyRuntime.defaultThemeSpec)`), following the macOS appearance. Before the config is read the app uses Ghostty's built-in default: background `#282C34`, foreground `#FFFFFF` (`ThemeInput.swift:52-59 (ThemeInput.ghosttyDefault)`).
 
-Ports must implement `derive` exactly, not copy the table below: the table is only the result for five reference themes. [tools/derive_theme_tokens.py](tools/derive_theme_tokens.py) is a line-for-line port; use it as the oracle in unit tests.
+Ports must implement `derive` exactly, not copy the table below: the table is only the result for five reference themes, and the accent table under it for seven `appearance.accent` cases (`themes.*OwnAccent` in the json add two themes with their own accent). [tools/derive_theme_tokens.py](tools/derive_theme_tokens.py) is a line-for-line port of `ThemeTokens.derive` and `AppTheme.derive` (its `--check-app-vectors` replays `schemas/theme/app-theme-vectors.json`, the web module's output, with no difference); use it as the oracle in unit tests.
 
 ### Formulas
 
@@ -20,37 +20,40 @@ Every source line below is in `ThemeTokens.derive` (`ThemeTokens.swift`) unless 
 
 | token | formula (dark / light) | source |
 |---|---|---|
-| windowBackground, sidebarBackground, contentBackground | bg with alpha = background-opacity | ThemeTokens.swift:126,138-140 |
-| chromeBackground | mix(bg, fg, 0.05 / 0.035) | :141 |
-| elevatedBackground | mix(bg, fg, 0.07 / 0.02) | :142 |
-| stripBackground | mix(bg, black, 0.22 / 0.05), alpha = opacity | :143 |
-| textPrimary | fg pushed toward white or black in 0.02 steps until 4.5:1 over pressedFill-on-bg | :119, :173-183 (`readable`) |
-| textSecondary | textPrimary mixed toward bg, up to 0.38, keeping 4.5:1 | :120, :187-195 (`muted`) |
-| textTertiary | textPrimary mixed toward bg, up to 0.55, keeping 3:1 | :121 |
-| hoverFill | fg @ 0.06 / 0.05 | :114 |
-| selectionFill | fg @ 0.10 / 0.08 | :115 |
-| secondarySelectionFill | fg @ 0.07 / 0.055 | :151 |
-| pressedFill | fg @ 0.14 / 0.11 | :116 |
-| badgeFill | fg @ 0.14 / 0.10 | :153 |
-| separator | fg @ 0.08 / 0.07; clear under borders none | :154; Palette.swift:66 (`Palette.separator`) |
-| paneBorder | fg @ 0.07 / 0.09; clear under borders none | :155; Palette.swift:68 (`Palette.paneBorder`) |
-| focusRing | fg @ 0.40 (pane ring replaces alpha, see focusRing.contrast) | :156 |
-| glassTint | bg @ 0.40 / 0.30 | :157 |
-| shadow | mix(bg, black, 0.85), opaque; layers set opacity | :158 |
-| textSelection | selection-background, else mix(bg, fg, 0.22) | :159 |
-| attention / danger / success | ANSI 3 / 1 / 2 pushed to 3:1 on bg | :160-162 |
-| highlight | ANSI 4 pushed to 3:1 | :127, :163 |
-| highlightText | bg or textPrimary, whichever contrasts more, if 4.5:1; else black or white | :128-135 |
-| sidebarStep | fg @ 0.04: the sidebar's tonal step, laid over the window backdrop | :144 |
-| stripStep | black @ 0.22 / 0.05: the darker tab strip's step over the backdrop; over the opaque background it composites to stripBackground | :145 |
+| windowBackground, sidebarBackground, contentBackground | bg with alpha = background-opacity | ThemeTokens.swift:169,181-183 |
+| chromeBackground | mix(bg, fg, 0.05 / 0.035) | :184 |
+| elevatedBackground | mix(bg, fg, 0.07 / 0.02) | :185 |
+| stripBackground | = windowBackground: every tab strip is the window ground (appearance.tabBarBackground is retired) | :186 |
+| textPrimary | fg when it reads 4.5:1 on both bg and the worse of pressedFill-on-bg and selectionFill-on-bg; else fg pushed toward white and toward black in 0.02 steps until it reads on both, keeping the candidate whose primary and secondary have the higher least contrast (capped at 4.5) | :156-161, :240-273 (`inks`) |
+| textSecondary | textPrimary mixed toward bg, up to 0.38, keeping 4.5:1 | :156, :239-247 (`muted`) |
+| textTertiary | textPrimary mixed toward bg, up to 0.55, keeping 3:1 | :157 |
+| hoverFill | fg @ 0.06 / 0.05 | :148 |
+| selectionFill | fg @ 0.10 / 0.08; with appearance.accent: accent @ 0.26 / 0.16 | :150 |
+| secondarySelectionFill | fg @ 0.07 / 0.055; with appearance.accent: accent @ 0.18 / 0.11 | :196 |
+| pressedFill | fg @ 0.14 / 0.11 | :151 |
+| badgeFill | fg @ 0.14 / 0.10 | :198 |
+| separator | fg @ 0.08 / 0.07; clear under borders none | :199; Palette.swift:66 (`Palette.separator`) |
+| paneBorder | fg @ 0.07 / 0.09; clear under borders none | :200; Palette.swift:68 (`Palette.paneBorder`) |
+| focusRing | fg @ 0.40 (pane ring replaces alpha, see focusRing.contrast); with appearance.accent: the accent | :201 |
+| glassTint | bg @ 0.40 / 0.30 | :202 |
+| shadow | mix(bg, black, 0.85), opaque; layers set opacity | :203 |
+| textSelection | terminalSelection, else mix(bg, fg, 0.22) | :204 |
+| terminalSelection | selection-background when textPrimary reaches 3:1 on it over bg (not an inverse-video selection), else none | :162-164, :205 |
+| caret | cursor-color pushed to 3:1 on bg, else textPrimary | :206 |
+| attention / danger / success | ANSI 3 / 1 / 2 pushed to 3:1 on bg | :207-209 |
+| highlight | ANSI 4 pushed to 3:1; with appearance.accent: the accent | :170, :210 |
+| highlightText | bg or textPrimary, whichever contrasts more, if 4.5:1; else black or white | :171-178, :211 |
+| sidebarStep | fg @ 0.04: the Home Chief sidebar fill and the workspace row placeholder bar | :187 |
+| stripStep | black @ 0.22 / 0.05: no strip paints it; the sidebar's space marks soften toward it (ProfileBarView.markColor) | :190 |
 | textOnPrimary | opaque contentBackground (text and glyphs on a textPrimary fill: drag count badge, colored section chips) | Palette.swift:88 (`Palette.textOnPrimary`) |
-| accent | = focusRing (AppKit's accent stays in the theme's grays) | Palette.swift:85 (`Palette.accent`) |
+| accent | textPrimary with appearance.accent = neutral (the default); else the app accent (AppTheme: the named ANSI color, or for `theme` magenta, else blue, else cyan; a theme's own accent replaces that starting color; fitted to 3:1 on surfaces). AppKit controls use `Palette.accent` = focusRing | :146, :212; AppTheme.swift (`AppTheme.accentSeed`); Palette.swift:116 (`Palette.accent`) |
+| onAccent | opaque bg with the neutral accent; else AppTheme onAccent (4.5:1 on accent) | :213 |
 
 `mix(a, b, t)` is per-channel sRGB linear interpolation that keeps a's alpha (`ThemeRGB.swift:104 (ThemeRGB.mixed)`). Contrast is WCAG relative luminance (`ThemeRGB.swift:84-96 (ThemeRGB.relativeLuminance, contrast)`). "dark" means luminance(bg) < luminance(fg).
 
 ### Resolved values
 
-Value, then the color composited on the window background, both rounded half away from zero. A screenshot can differ from a composited value by one 8-bit level, because the window server blends in 8 bits: Apple System dark selectionFill composites to `#353535` by `ThemeRGB.composited`, and the screenshot shows `#343434`; hover shows `#2B2B2B` against `#2C2C2C`. The token values themselves are exact. Sidebar fills sit on the sidebar step (`sidebarStep`), not on the bare window background.
+Value, then the color composited on the window background, both rounded half away from zero. A screenshot can differ from a composited value by one 8-bit level, because the window server blends in 8 bits: Apple System dark selectionFill composites to `#353535` by `ThemeRGB.composited`, and the screenshot shows `#343434`; hover shows `#2B2B2B` against `#2C2C2C`. The token values themselves are exact. Sidebar and tab strip fills sit on the bare window background (one background).
 
 | token | appleSystemDark | appleSystemLight | ghosttyDefault | monokaiClassic | githubLight |
 |---|---|---|---|---|---|
@@ -59,7 +62,7 @@ Value, then the color composited on the window background, both rounded half awa
 | contentBackground | `#1E1E1E` | `#FEFFFF` | `#282C34` | `#272822` | `#FFFFFF` |
 | chromeBackground | `#292929` | `#F5F6F6` | `#33373E` | `#32332C` | `#F7F7F7` |
 | elevatedBackground | `#2E2E2E` | `#F9FAFA` | `#373B42` | `#363730` | `#FBFBFB` |
-| stripBackground | `#171717` | `#F1F2F2` | `#1F2229` | `#1E1F1B` | `#F2F2F2` |
+| stripBackground | `#1E1E1E` | `#FEFFFF` | `#282C34` | `#272822` | `#FFFFFF` |
 | sidebarStep | `#FFFFFF0A` → `#272727` | `#0000000A` → `#F4F5F5` | `#FFFFFF0A` → `#31343C` | `#FDFFF10A` → `#30312A` | `#1F23280A` → `#F6F6F6` |
 | stripStep | `#00000038` → `#171717` | `#0000000D` → `#F1F2F2` | `#00000038` → `#1F2229` | `#00000038` → `#1E1F1B` | `#0000000D` → `#F2F2F2` |
 | textPrimary | `#FFFFFF` | `#000000` | `#FFFFFF` | `#FDFFF1` | `#1F2328` |
@@ -81,6 +84,25 @@ Value, then the color composited on the window background, both rounded half awa
 | success | `#26A439` | `#26A439` | `#B5BD68` | `#A6E22E` | `#116329` |
 | highlight | `#0869CB` | `#0869CB` | `#81A2BE` | `#FD971F` | `#0969DA` |
 | highlightText | `#FFFFFF` | `#FEFFFF` | `#282C34` | `#272822` | `#FFFFFF` |
+| accent | `#FFFFFF` | `#000000` | `#FFFFFF` | `#FDFFF1` | `#1F2328` |
+| onAccent | `#1E1E1E` | `#FEFFFF` | `#282C34` | `#272822` | `#FFFFFF` |
+| caret | `#98989D` | `#929297` | `#FFFFFF` | `#FDFFF1` | `#1F2328` |
+
+The Apple System Colors files name `cursor-color = #98989d`; the other reference themes name none (caret = textPrimary).
+
+With `appearance.accent` (tokens not listed are the same as without it):
+
+| token | appleSystemDark red | appleSystemDark green | appleSystemDark blue | appleSystemLight red | appleSystemLight green | appleSystemLight blue | monokaiClassic theme |
+|---|---|---|---|---|---|---|---|
+| selectionFill | `#FF453A42` → `#592825` | `#32D74B42` → `#234E2A` | `#0A84FF42` → `#193959` | `#E5272229` → `#FADCDC` | `#008A2329` → `#D5ECDC` | `#0074E529` → `#D5E9FB` | `#AE81FF42` → `#4A3F5B` |
+| focusRing | `#FF453A` | `#32D74B` | `#0A84FF` | `#E52722` | `#008A23` | `#0074E5` | `#AE81FF` |
+| highlight | `#FF453A` | `#32D74B` | `#0A84FF` | `#E52722` | `#008A23` | `#0074E5` | `#AE81FF` |
+| highlightText | `#1E1E1E` | `#1E1E1E` | `#1E1E1E` | `#000000` | `#000000` | `#000000` | `#272822` |
+| accent | `#FF453A` | `#32D74B` | `#0A84FF` | `#E52722` | `#008A23` | `#0074E5` | `#AE81FF` |
+| onAccent | `#1E1E1E` | `#1E1E1E` | `#1E1E1E` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | `#272822` |
+| textPrimary | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | `#000000` | `#000000` | `#000000` | `#FDFFF1` |
+| textSecondary | `#AAAAAA` | `#B3B3B3` | `#AAAAAA` | `#616161` | `#616161` | `#616161` | `#B2B4A9` |
+| textTertiary | `#888888` | `#919191` | `#888888` | `#7F8080` | `#7F8080` | `#7F8080` | `#92938A` |
 
 Pane focus ring colors (fg with the contrast alpha): subtle `fg@0.20`, standard `fg@0.55`, strong `fg@0.85`. Apple dark: `#FFFFFF33` / `#FFFFFF8C` / `#FFFFFFD9`; Apple light: `#00000033` / `#0000008C` / `#000000D9`.
 
@@ -153,7 +175,7 @@ Default density is **compact** (`DesignSettings.swift:25 (DesignSettings.density
 | iconSize / smallIconSize | 14 / 12 | 16 / 14 | :88-90 |
 | scrollEdgeFade | 18 | 22 | :91 |
 | panePadding | 2 | 4 | Metrics.swift:91-95 (`Metrics.panePadding`) |
-| divider thickness / hit width | 1 / 7 | 1 / 7 | ChromeTunables.swift:32-33 (`ChromeTunables.dividerThickness`, `dividerHitWidth`) |
+| divider thickness / hit width | 1 / 7 | 1 / 7 | MetricTunables.swift:107-112 (`MetricTunables.dividerThickness`, `dividerHitWidth`) |
 | tab background inset / content inset | 1 / 8 | 1 / 8 | ChromeTunables.swift:28-31 (`tabBackgroundInset`, `tabContentLeadingInset`) |
 | terminal text inset | 4 | 4 | PaneChromeMetrics.swift:46 (`PaneChromeMetrics.terminalTextInset`) |
 
@@ -180,16 +202,16 @@ Hairlines are one device pixel (1/scale pt). Strip offsets snap to device pixels
 
 | surface | macOS 26+ | older macOS | Reduce Transparency | source |
 |---|---|---|---|---|
-| Floating overlays: palette, palette actions menu and shortcut recorder, hover cards, browser find bar, prompt bar, notices and page info, tab group editor, restart notice, drop overlay, drop highlight, pinned column backdrop, refusal HUD | NSGlassEffectView .regular, tint glassTint, radius panelCornerRadius | NSVisualEffectView .popover, withinWindow, glassTint layer, 1/scale separator border | opaque: mix(window, textPrimary, 0.14), 1/scale opaque separator border | OverlayMaterial.swift (OverlayMaterial.select, ReduceTransparency, ThemeTokens.opaqueOverlayFill); OverlaySurface.swift (OverlaySurfaceView.applyTheme); Glass.swift (Glass.makeOverlayPanel) |
-| Sidebar | `ChromeStepView` with sidebarStep over the window backdrop | same | same (the backdrop is opaque) | SidebarContainerView.swift (SidebarContainerView.backdropStep); ChromeStepView.swift (ChromeStepView) |
-| Tab strip (darker) | `ChromeStepView` with stripStep over the window backdrop; none for tabBarBackground window | same | same | PaneContentView.swift:15,56-58 (PaneContentView.stripBackdrop, stripStep) |
+| Floating overlays: palette, palette actions menu and shortcut recorder, hover cards, browser find bar, prompt bar, notices and page info, tab group editor, restart notice, drop overlay, drop highlight, pinned column backdrop, refusal HUD | NSGlassEffectView .regular, tint glassTint, radius panelCornerRadius | NSVisualEffectView .popover, withinWindow, glassTint layer, 1/scale separator border | opaque: mix(window, textPrimary, up to 0.14) on a dark theme with light text, else mix(window, white, 0.14); 1/scale opaque separator border | OverlayMaterial.swift (OverlayMaterial.select, ReduceTransparency, ThemeTokens.opaqueOverlayFill); OverlaySurface.swift (OverlaySurfaceView.applyTheme); Glass.swift (Glass.makeOverlayPanel) |
+| Sidebar | nothing: the window backdrop shows through (ChromeStepView retired) | same | same | SidebarContainerView.swift |
+| Tab strip | nothing: stripBackground = windowBackground (appearance.tabBarBackground retired) | same | same | ThemeTokens.swift:186 |
 | Window | one backdrop: opaque, translucent, frosted or Liquid Glass (see Theme scopes and translucency) | frosted instead of glass | opaque | WindowBackdrop.swift (WindowBackdrop); WindowMaterialView.swift (WindowMaterialView) |
 
 Every listed surface draws through `OverlaySurfaceView`: the drop overlay, drop highlight, pinned column backdrop and refusal HUD directly, the palette, its actions menu and shortcut recorder, hover cards, the browser find bar, prompt bar, notices and page info, the tab group editor and the restart notice through `Glass.makeOverlayPanel`. One observer (`ReduceTransparency`) switches every live surface when the setting changes; a theme scope repaint recolors the fallback.
 
 The "older macOS" column cannot run in the macOS app today: `Packages/macOS/CmuxNext/Package.swift` requires macOS 26. Ports on a platform without Liquid Glass use the vibrancy row where the platform has a blur, else the opaque fallback.
 
-The overlay tint strength Debug tunable (default 1, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
+The overlay tint strength Debug tunable (default 1.25, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
 
 ## 5. Motion
 
@@ -210,14 +232,16 @@ Speed `fast` (default) scales times by 1, `normal` by 1.5, `off` disables (`Moti
 | fade | s | use |
 |---|---|---|
 | hover | 0.08 | hover fills, revealed buttons |
-| focus | 0.10 | focus ring, inactive dim |
+| focus | 0.10 | focus ring |
+| paneDim | 0.15 | inactive pane dim |
+| focusFlash | 0.5 | ring flash when focus moves without a click (Debug, off) |
 | fadeIn / fadeOut | 0.12 / 0.08 | palette, find bar, notices, hover card |
 | crossfade | 0.10 | thumbnail swap; Reduce Motion ceiling |
 | lift | 0.12 | drag lift shadow |
 | theme | 0.16 | theme switch |
 | highlight | 1.20 | Settings row highlight after a search jump or deep link |
 
-Loops: spinner 0.9 s/turn (the braille style steps its 10 frames over the same period), status pulse 1.8 s (easeInEaseOut, low opacity 0.35), attention flash 0.6 s (two blinks of 0.3 s). The pane attention ring's pulse style uses the 1.8 s period with low opacity 0.3 and runs for `notifications.attention.duration` (`Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)`). Marquee: delay 0.6 s, 40 pt/s, minimum 0.4 s, hold 1.2 s, ignore under 2 pt. Palette open scale 0.97, close 0.98. Source: `Motion/MotionTunables.swift:10-80 (MotionTunables.springDefaults, fadeDefaults, loopDefaults, marquee*, panel*Scale)`.
+Loops: spinner 0.9 s/turn (the braille style steps its 10 frames over the same period), status pulse 1.8 s (easeInEaseOut, low opacity 0.35), attention flash 1.0 s (two blinks of 0.5 s; nothing flashes faster than 2 Hz). The pane attention ring's pulse style uses the 1.8 s period with low opacity 0.3 and runs for `notifications.attention.duration` (`Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)`). Marquee: delay 0.6 s, 40 pt/s, minimum 0.4 s, hold 1.2 s, ignore under 2 pt. Palette open scale 0.97, close 0.98. Source: `Motion/MotionTunables.swift:10-80 (MotionTunables.springDefaults, fadeDefaults, loopDefaults, marquee*, panel*Scale)`.
 
 Reduce Motion: no movement springs and no loops; fades capped at 0.1 s; the attention ring fades in once (`Motion/MotionPolicy.swift (MotionPolicy)`).
 
@@ -228,13 +252,14 @@ Reduce Motion: no movement springs and no loops; fades capped at 0.1 s; the atte
 | appearance.density | compact, comfortable | every metric |
 | appearance.borders | default, none | none clears all borders, hairlines, separators, the focus ring, the attention width and the omnibar editing ring; the agent pane clears its composer, menu, code block and card edges (`data-borders="none"`). [Borders none](images/window/dark-borders-none.png) |
 | appearance.focusIndicator | both, border, tabs, none | border = focus ring; tabs = inactive pane tabs subtler |
-| appearance.tabBarBackground | window, darker | darker paints stripBackground |
+| appearance.accent | neutral, theme, red, green, yellow, blue, magenta, cyan | neutral = no hue; else selectionFill, focusRing, highlight, accent and onAccent take the app accent |
+| appearance.tabBarBackground | retired | ignored: every surface draws the one window background |
 | focusRing.contrast | subtle 0.20, standard 0.55, strong 0.85 | ring alpha |
 | focusRing.{enabled,style,color,width,cornerRadius,showWhenSinglePane} | true, ring, nil, 1, nil, false | |
-| focus.inactiveTabStyle (the Debug tunable of the same name overrides it) | fade, tonal, quiet; strength 0.35 (Debug tunable) | see tabs page (`CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath)`) |
+| focus.inactiveTabStyle (the Debug tunable of the same name overrides it) | fade, tonal, quiet; strength 0.4 (Debug tunable) | see tabs page (`CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath)`) |
 | sidebar.sectionLook (Debug tunable `sidebar.sections.look` overrides it) | quiet, card, tray, lines, linesIcons | see sidebar page |
 | sidebar.topBandMaxShare / bottomBandMaxShare / pinnedBandsScroll | 1/3, 0.25 (range 0.1-0.9), true | share of the sidebar height a pinned band takes before it scrolls inside; false: bands never scroll and the list shrinks (three rows minimum) |
-| notifications.attention.* | style blink, width 2, blinkCount 2, duration 3 s, persist true | pane attention ring. Blink: blinkCount blinks over 0.3 s each (0.6 s for 2), then holds. duration applies to the pulse style only |
+| notifications.attention.* | style blink, width 2, blinkCount 2, duration 3 s, persist true | pane attention ring. Blink: blinkCount blinks over 0.5 s each (1.0 s for 2), then holds. duration applies to the pulse style only |
 | appearance.backgroundBlur | unset (Ghostty's background-blur), frosted, glass, glass-clear, none | the window material |
 | appearance.statusIndicator.* | style arc (arc, native, dot, braille, none), size 1 (0.5-1.5), thickness 1.5, color textSecondary, honorStatusStyle true | status glyphs on sidebar rows, section headers and tabs. The cmux.json key is `size` (`StatusIndicatorConfigParser.swift:13`); the model field is `StatusIndicatorSettings.scale` |
 | layout.panePadding / paneCornerRadius / paneBorder / paneBorderColor / paneBorderWidth | density values | pane chrome |

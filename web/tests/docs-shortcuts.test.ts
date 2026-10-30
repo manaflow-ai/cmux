@@ -62,7 +62,9 @@ describe("keyboard shortcuts docs", () => {
   test("table aliases are extra keys on their action's row", () => {
     const rows = new Map(shortcutCategories.flatMap((category) => category.shortcuts).map((row) => [row.id, row]));
     expect(rows.get("resizePaneLeft")!.combos).toContainEqual(["⌃", "⌘", "←"]);
-    expect(rows.get("navigate.next")!.combos).toContainEqual(["⌃", "⇥"]);
+    // Ctrl-Page Down is Next Sidebar Item's alias; Cmd-Opt-Right went back to Ghostty's pane focus (ddd7c7b9a9a).
+    expect(rows.get("nextSidebarTab")!.combos).toContainEqual(["⌃", "PgDn"]);
+    expect(rows.get("nextSidebarTab")!.combos).not.toContainEqual(["⌥", "⌘", "→"]);
   });
 
   test("titles are the app's own translations", () => {

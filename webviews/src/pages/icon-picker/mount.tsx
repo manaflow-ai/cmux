@@ -15,6 +15,7 @@ import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import type { SymbolMode } from "../../icon-picker/symbols";
 import table from "./generated/strings.json";
 import { CLIPBOARD_WRITE, hostAssets, hostPrefs, IconPickerOps, sessionCatalog, type PickerSession } from "./host";
+import { appPopupHost } from "../shared/pagePopupHost";
 
 export interface MountedPicker {
   readonly store: PickerStore;
@@ -71,12 +72,13 @@ export function mountIconPicker(
       flushSync(render);
     });
   const reactRoot = makeRoot(root);
+  const popupHost = appPopupHost(client);
   const copyText = client
     ? (text: string) => void client.call(CLIPBOARD_WRITE, { text }).catch(() => undefined)
     : undefined;
   const render = () =>
     reactRoot.render(
-      <UiProvider container={root} dir={languageDirection(strings.language)}>
+      <UiProvider container={root} popupHost={popupHost} dir={languageDirection(strings.language)}>
         <IconPicker
           key={session.id}
           store={store}

@@ -1,4 +1,4 @@
-import os // cmux: OSAllocatedUnfairLock for the monogram font cache
+import os // OSAllocatedUnfairLock for the monogram font cache
 import AppKit
 import CoreText
 
@@ -79,7 +79,7 @@ final class SidebarAvatarCache {
     private var map: [Key: CGImage] = [:]
     private let lock = NSLock()
 
-    func image(_ spec: AvatarSpec, diameter d: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
+    func image(_ spec: AvatarSpec, diameter d: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
         let k = Key(spec: spec, d: d, scale: ctx.scale, dark: ctx.palette.dark)
         lock.lock()
         if let img = map[k] { lock.unlock(); return img }
@@ -98,7 +98,7 @@ final class SidebarAvatarCache {
 
 /// The drawing: pure functions of a summary and a render context (any thread).
 enum SidebarDraw {
-    static let p3 = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() // cmux: no force unwrap
+    static let p3 = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() // no force unwrap
     /// Where `AvatarSpec.image` paths resolve (the host sets it; default: the app bundle's
     /// "assets" folder).
     static var assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
@@ -108,36 +108,50 @@ enum SidebarDraw {
         guard !images.isEmpty else { return }
         DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { withExtendedLifetime(images) {} } }
     }
-    // cmux: no force unwrap: Core Text's UI font lookup returns an optional (crash program, cx-qpqs class).
+    // no force unwrap: Core Text's UI font lookup returns an optional.
     static let nameFont = uiFont(.emphasizedSystem, SidebarMetrics.nameSize)
     static let previewFont = uiFont(.system, SidebarMetrics.previewSize)
     static let timeFont = uiFont(.system, SidebarMetrics.timeSize)
     static let pinNameFont = uiFont(.system, SidebarMetrics.pinNameSize)
     static let bubbleFont = uiFont(.system, 11)
+    static let sectionFont = uiFont(.emphasizedSystem, 11)
 
-    // cmux: the UI font, or Helvetica at that size when Core Text returns none.
+    // the UI font, or Helvetica at that size when Core Text returns none.
     static func uiFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
+        // crash-allow: a factory for the static lets and the held monogram cache only (never per draw; cx-qpqs)
         CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
     }
 
-    // cmux: monogram fonts held per half point for the process: avatars draw on
+    // monogram fonts held per half point for the process: avatars draw on
     // concurrentPerform threads, and a font made and dropped per draw can come
     // back nil there (cx-qpqs).
     private static let monogramFonts = OSAllocatedUnfairLock<[CGFloat: CTFont]>(initialState: [:])
+    // emoji avatar fonts held per exact size, like the monogram fonts (avatar diameters are a few
+    // fixed sizes, so the store stays small).
+    private static let emojiFonts = OSAllocatedUnfairLock<[CGFloat: CTFont]>(initialState: [:])
+    static func emojiFont(_ size: CGFloat) -> CTFont {
+        emojiFonts.withLock { fonts in
+            if let held = fonts[size] { return held }
+            // crash-allow: made once under the emojiFonts lock and held for the process (cx-qpqs)
+            let font = CTFontCreateWithName("AppleColorEmoji" as CFString, size, nil)
+            fonts.updateValue(font, forKey: size) // dictionary write
+            return font
+        }
+    }
     static func monogramFont(_ size: CGFloat) -> CTFont {
         let key = (size * 2).rounded() / 2
         return monogramFonts.withLock { fonts in
             if let held = fonts[key] { return held }
             let font = uiFont(.emphasizedSystem, key)
-            fonts.updateValue(font, forKey: key) // cmux: dictionary write
+            fonts.updateValue(font, forKey: key) // dictionary write
             return font
         }
     }
 
     /// A flipped (top-left origin) bitmap in the context's color space at its scale.
-    static func bitmap(size: CGSize, ctx: SidebarRenderContext, _ draw: (CGContext) -> Void) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
-        let w = max(1, CrashGuard.int((size.width * ctx.scale).rounded(.up))), h = max(1, CrashGuard.int((size.height * ctx.scale).rounded(.up))) // cmux: no trap on NaN
-        // cmux: no force unwraps; an allocation that fails draws nothing (logged once).
+    static func bitmap(size: CGSize, ctx: SidebarRenderContext, _ draw: (CGContext) -> Void) -> CGImage? { // nil when the bitmap cannot be allocated
+        let w = max(1, CrashGuard.int((size.width * ctx.scale).rounded(.up))), h = max(1, CrashGuard.int((size.height * ctx.scale).rounded(.up))) // no trap on NaN
+        // no force unwraps; an allocation that fails draws nothing (logged once).
         guard let g = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: ctx.space,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else {
             return SidebarBitmapFailure.checked(nil, size: size)
@@ -197,11 +211,11 @@ enum SidebarDraw {
         case let .monogram(m):
             g.saveGState()
             g.addEllipse(in: r); g.clip()
-            // cmux: an optional gradient draws nothing when it fails (SidebarCrashSafe).
+            // an optional gradient draws nothing when it fails (SidebarCrashSafe).
             let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
             g.drawLinearGradient(grad, start: CGPoint(x: r.midX, y: r.minY), end: CGPoint(x: r.midX, y: r.maxY), options: [])
             g.restoreGState()
-            let font = monogramFont((r.width * 0.42).rounded()) // cmux: held, no force unwrap (cx-qpqs)
+            let font = monogramFont((r.width * 0.42).rounded()) // held, no force unwrap (cx-qpqs)
             let white = CGColor(gray: 1, alpha: 1)
             let l = line(m.uppercased(), font, white)
             let lw = width(l)
@@ -222,11 +236,7 @@ enum SidebarDraw {
         case let .emoji(e):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
-            let font = CTFontCreateWithName("AppleColorEmoji" as CFString, r.width * 0.5, nil)
-            let l = line(e, font, CGColor(gray: 0, alpha: 1))
-            var asc: CGFloat = 0, desc: CGFloat = 0
-            let lw = CGFloat(CTLineGetTypographicBounds(l, &asc, &desc, nil))
-            draw(l, x: r.midX - lw / 2, baseline: r.midY + (asc - desc) / 2, g)
+            emoji(e, in: r, g) // cmux: centered by its drawn box, one share of the disc
         case let .group(members):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
@@ -239,7 +249,7 @@ enum SidebarDraw {
             case 3: slots = [(0.27, 0.07, 0.46), (0.07, 0.45, 0.46), (0.47, 0.45, 0.46)]
             default: slots = [(0.08, 0.08, 0.42), (0.50, 0.08, 0.42), (0.08, 0.50, 0.42), (0.50, 0.50, 0.42)]
             }
-            for (s, member) in zip(slots, m.map(Optional.some) + Array(repeating: nil, count: max(0, slots.count - m.count))) { // cmux: no index math
+            for (s, member) in zip(slots, m.map(Optional.some) + Array(repeating: nil, count: max(0, slots.count - m.count))) { // no index math
                 let sub = CGRect(x: r.minX + s.0 * d, y: r.minY + s.1 * d, width: s.2 * d, height: s.2 * d)
                 // A ring in the disc's color separates overlapping members.
                 g.setFillColor(p.groupDisc)
@@ -249,6 +259,33 @@ enum SidebarDraw {
         }
     }
 
+    /// cmux: an emoji avatar's drawn box (its glyph image bounds) spans this share of the disc's
+    /// diameter at every size, so the pinned tile and the row draw one avatar.
+    static let emojiShare: CGFloat = 0.6
+
+    /// cmux: `e` centered on the disc `r` by its drawn box, not by its advance and line height,
+    /// at `emojiShare` of the disc. Set at half the disc, the art of the Chief's 🫡 filled 47 % of
+    /// the tile's disc and 52 % of the row's (the user's screenshot, 2026-10-20: a small emoji in
+    /// a big disc).
+    static func emoji(_ e: String, in r: CGRect, _ g: CGContext) {
+        let black = CGColor(gray: 0, alpha: 1)
+        let probe = drawnBounds(line(e, emojiFont(r.width * 0.5), black))
+        let side = max(probe.width, probe.height)
+        guard side > 0, side.isFinite else { return }
+        // Half points, so the held fonts stay few (cx-qpqs).
+        let size = max(1, (r.width * 0.5 * emojiShare * r.width / side * 2).rounded() / 2)
+        let l = line(e, emojiFont(size), black)
+        let b = drawnBounds(l) // y up from the baseline; `draw` puts the baseline at y down
+        draw(l, x: r.midX - b.midX, baseline: r.midY + b.midY, g)
+    }
+
+    /// cmux: a line's drawn box (glyph bounds, y up from the baseline), else its typographic box.
+    static func drawnBounds(_ l: CTLine) -> CGRect {
+        let glyphs = CTLineGetBoundsWithOptions(l, .useGlyphPathBounds)
+        if glyphs.width > 0, glyphs.height > 0, glyphs.width.isFinite, glyphs.height.isFinite { return glyphs }
+        return CTLineGetBoundsWithOptions(l, [])
+    }
+
     // MARK: Row
 
     /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
@@ -256,9 +293,9 @@ enum SidebarDraw {
     /// does not depend on it either; only the text (name and 2-line preview) is redrawn when
     /// the width changes, from cached measurement (SidebarTextCache), so a live resize redraws
     /// the visible rows' text at the exact width in every frame.
-    static func rowTime(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, time: ConversationTimeFormatter) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
+    static func rowTime(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, time: ConversationTimeFormatter) -> CGImage? { // nil when the bitmap cannot be allocated
         let p = ctx.palette
-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
+        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // no force unwrap
         // `.distantPast`: a row without a time (the host's extra search results).
         let tl = line(c.lastAt == .distantPast ? "" : time.string(c.lastAt, now: ctx.now), timeFont, secondary)
         // Glyphs before the time, right to left: the muted bell, then the not-delivered mark.
@@ -283,15 +320,57 @@ enum SidebarDraw {
 
     /// Name and preview at the list's text width; `timeWidth`: the time part's width.
     static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
-                        text: SidebarTextCache) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
+                        text: SidebarTextCache) -> CGImage? { // nil when the bitmap cannot be allocated
+        let t = rowTextLines(c, emphasized: emphasized, ctx: ctx, timeWidth: timeWidth, text: text)
+        return drawRowText(name: t.name, preview: t.preview, ctx: ctx)
+    }
+
+    /// Everything a row's text bitmap depends on other than its key: where the name is truncated
+    /// (nil: the whole name fits), where the preview's lines break, and where its last line is
+    /// truncated (nil: not truncated). The lines are drawn left-aligned at x 0, so two text widths
+    /// with the same layout draw the same pixels (the wider bitmap's extra columns are empty; the
+    /// layer's contents gravity is top-left, nothing is scaled).
+    struct RowTextLayout: Equatable {
+        var name: CGFloat?
+        var breaks: [Int]
+        var lastLine: Bool
+        var truncatedAt: CGFloat?
+        var scale: CGFloat
+    }
+
+    /// The text bitmap and its layout; nil image when the layout equals `shown` (the bitmap on
+    /// screen, drawn at another width, has these pixels already); nil when the bitmap cannot be allocated.
+    static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
+                        text: SidebarTextCache, unless shown: RowTextLayout?) -> (image: CGImage?, layout: RowTextLayout)? {
+        let t = rowTextLines(c, emphasized: emphasized, ctx: ctx, timeWidth: timeWidth, text: text)
+        if let shown, shown == t.layout { return (nil, t.layout) }
+        guard let image = drawRowText(name: t.name, preview: t.preview, ctx: ctx) else { return nil }
+        return (image, t.layout)
+    }
+
+    /// A row's name line, preview lines and their layout at the list's text width.
+    private static func rowTextLines(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
+                                     text: SidebarTextCache) -> (name: CTLine, preview: [CTLine], layout: RowTextLayout) {
         let M = SidebarMetrics.self
         let w = ctx.metrics.textWidth
         let m = text.measure(c, emphasized: emphasized, palette: ctx.palette, generation: ctx.generation)
-        return bitmap(size: CGSize(width: max(1, w), height: M.rowHeight), ctx: ctx) { g in
-            let nameW = w - timeWidth - M.timeGap
-            draw(truncated(m.name, nameW, nameFont, m.nameColor), x: 0, baseline: M.nameBaseline, g)
-            guard !c.typing, let ts = m.preview else { return }
-            for (i, l) in lines(ts, length: m.previewLength, font: previewFont, color: m.secondary, width: w, lines: 2).enumerated() {
+        let nameW = w - timeWidth - M.timeGap
+        let name = truncated(m.name, nameW, nameFont, m.nameColor)
+        var layout = RowTextLayout(name: name === m.name ? nil : nameW, breaks: [], lastLine: false, truncatedAt: nil, scale: ctx.scale)
+        var preview: [CTLine] = []
+        if !c.typing, let ts = m.preview {
+            let r = linesWithBreaks(ts, length: m.previewLength, font: previewFont, color: m.secondary, width: w, lines: 2)
+            preview = r.lines
+            layout.breaks = r.breaks; layout.lastLine = r.lastLine; layout.truncatedAt = r.truncatedAt
+        }
+        return (name, preview, layout)
+    }
+
+    private static func drawRowText(name: CTLine, preview: [CTLine], ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
+        let M = SidebarMetrics.self
+        return bitmap(size: CGSize(width: max(1, ctx.metrics.textWidth), height: M.rowHeight), ctx: ctx) { g in
+            draw(name, x: 0, baseline: M.nameBaseline, g)
+            for (i, l) in preview.enumerated() {
                 draw(l, x: 0, baseline: M.previewBaseline + CGFloat(i) * M.previewLineHeight, g)
             }
         }
@@ -299,19 +378,29 @@ enum SidebarDraw {
 
     /// Line breaking from a cached typesetter (the measurement), the last line truncated.
     static func lines(_ ts: CTTypesetter, length n: Int, font: CTFont, color: CGColor, width w: CGFloat, lines: Int) -> [CTLine] {
-        var out: [CTLine] = []
+        linesWithBreaks(ts, length: n, font: font, color: color, width: w, lines: lines).lines
+    }
+    /// `lines` and what decides them: the length of each line broken by the typesetter, whether a
+    /// last line (the rest, truncated to the width when longer) follows, and the width it was
+    /// truncated at (nil: it fits).
+    static func linesWithBreaks(_ ts: CTTypesetter, length n: Int, font: CTFont, color: CGColor, width w: CGFloat,
+                                lines: Int) -> (lines: [CTLine], breaks: [Int], lastLine: Bool, truncatedAt: CGFloat?) {
+        var out: [CTLine] = [], breaks: [Int] = []
         var start = 0
         while start < n, out.count < lines {
             if out.count == lines - 1 {
-                out.append(truncated(CTTypesetterCreateLine(ts, CFRange(location: start, length: n - start)), w, font, color))
-                break
+                let rest = CTTypesetterCreateLine(ts, CFRange(location: start, length: n - start))
+                let last = truncated(rest, w, font, color)
+                out.append(last)
+                return (out, breaks, true, last === rest ? nil : w)
             }
             let count = CTTypesetterSuggestLineBreak(ts, start, Double(w))
             if count <= 0 { break }
             out.append(CTTypesetterCreateLine(ts, CFRange(location: start, length: count)))
+            breaks.append(count)
             start += count
         }
-        return out
+        return (out, breaks, false, nil)
     }
 
     /// A small incoming-bubble tail under a bubble's lower-left corner (flipped coordinates).
@@ -326,8 +415,8 @@ enum SidebarDraw {
 
     /// The title of the host's extra search section: 11 pt semibold, secondary, at the row
     /// text's x, baseline 20 pt in a 28 pt band (to verify against Messages' search sections).
-    static func sectionHeader(_ title: String, width: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
-        let font = uiFont(.emphasizedSystem, 11) // cmux: no force unwrap (cx-qpqs)
+    static func sectionHeader(_ title: String, width: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
+        let font = sectionFont
         let l = truncated(line(title, font, ctx.palette.secondary), width - 2 * SidebarMetrics.selectionInsetX - 10, font, ctx.palette.secondary)
         return bitmap(size: CGSize(width: max(1, width), height: 28), ctx: ctx) { g in
             draw(l, x: SidebarMetrics.selectionInsetX + 10, baseline: 20, g)
@@ -339,7 +428,8 @@ enum SidebarDraw {
     /// The avatar's rect in a tile (tile coordinates).
     static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
         let d = m.pinAvatar
-        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: m.compact ? SidebarMetrics.pinTopPad / 2 : SidebarMetrics.pinTopPad, width: d, height: d)
+        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // compact: centered like a row's avatar
+        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
     }
 
     /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
@@ -356,17 +446,19 @@ enum SidebarDraw {
         return (n, b)
     }
     /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
-    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
-        natural <= tileWidth - 8 ? 0 : (tileWidth - 8).rounded(.down)
+    /// `unread`: the room leaves space for the dot before the name (`tileLabel`).
+    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat, unread: Bool = false) -> CGFloat {
+        let room = tileWidth - 8 - (unread ? tileDotDiameter + tileDotGap : 0)
+        return natural <= room ? 0 : room.rounded(.down)
     }
     /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
     static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
         natural + 16 <= tileWidth - 6 ? 0 : (tileWidth - 6).rounded(.down)
     }
     /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
-    static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
+    static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
         let p = ctx.palette
-        let color = emphasized ? p.selectedText : p.name
+        let color = emphasized ? p.selectedText : p.pinName // cmux: pinName (Home's neutral selection)
         let full = line(tileName(c), pinNameFont, color)
         let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
         let w = max(1, width(l).rounded(.up))
@@ -374,7 +466,7 @@ enum SidebarDraw {
     }
     /// The newest unread message in a bubble (2 lines at most) with its tail at the lower left;
     /// the bitmap has 1 pt left and 5 pt below the bubble for the tail. `keyWidth` 0: one line.
-    static func tileBubbleImage(_ c: ConversationSummary, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
+    static func tileBubbleImage(_ c: ConversationSummary, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
         let p = ctx.palette
         let lines = keyWidth > 0 ? wrapped(c.preview, bubbleFont, p.bubbleText, width: keyWidth - 16, lines: 2)
                                  : [line(c.preview.replacingOccurrences(of: "\n", with: " "), bubbleFont, p.bubbleText)]
@@ -413,21 +505,38 @@ enum SidebarDraw {
     /// (flipped tile coordinates; to verify).
     static func senderRect(_ k: Int, avatar ar: CGRect, diameter d: CGFloat) -> CGRect {
         let angles: [CGFloat] = [135, 45, -45]   // degrees, y down: 135 = lower left
-        let a = (angles[checked: min(max(k, 0), 2)] ?? 135) * .pi / 180 // cmux: checked
+        let a = (angles[checked: min(max(k, 0), 2)] ?? 135) * .pi / 180 // checked
         let r = ar.width / 2
         let c = CGPoint(x: ar.midX + cos(a) * r, y: ar.midY + sin(a) * r)
         return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
     }
 
-    /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
-    /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
-    static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
-        let d: CGFloat = 12
+    /// The pinned tile's unread dot: the row dot's size, this far before the name.
+    static let tileDotDiameter: CGFloat = SidebarMetrics.dotDiameter
+    static let tileDotGap: CGFloat = 4
+
+    /// The name's frame and the unread dot's (nil: read) under the avatar (tile coordinates).
+    /// Messages' pinned grid: the dot sits inline before the name ("• Instinct") and the pair is
+    /// centred, so the dot never meets the bubble over the avatar's top, its tail or the avatar
+    /// (the user, 2026-10-21: the old dot at the avatar's upper left overlapped the bubble's tail).
+    /// `nameWidth`: the name bitmap's width in points. Not for the compact list (no names).
+    static func tileLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
         let ar = tileAvatar(m)
-        let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
-        var cy = ar.midY - ar.height * 0.25
-        if let bubble { cy = max(cy, bubble.maxY + d / 2 + 3) }
-        return CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
+        let y = ar.maxY + SidebarMetrics.pinNameGap
+        let lead = unread ? tileDotDiameter + tileDotGap : 0
+        let x0 = max(4, ((m.tileWidth - lead - nw) / 2).rounded())
+        let name = CGRect(x: x0 + lead, y: y, width: nw, height: SidebarMetrics.pinNameHeight)
+        guard unread else { return (name, nil) }
+        // Centred on the name's lowercase letters (11 pt font, baseline 11 pt in the 16 pt line).
+        let d = tileDotDiameter
+        return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
+    }
+
+    /// The compact list's tile dot: where a row's dot sits (tile coordinates; no names there).
+    static func compactTileUnreadDot(_ m: SidebarMetrics) -> CGRect {
+        let d = SidebarMetrics.dotDiameter
+        let x0 = m.tileRect(0).minX
+        return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
     }
 }
 
@@ -438,7 +547,8 @@ enum SidebarMotion {
     /// Off: every change shows at once (benches; a host may turn it off).
     static var enabled = true
     /// Typing bubble in: a scale spring of 0.209 s and a 0.12 s fade, both 0.05 s after the change
-    /// (transcript `typing.pop`, `typing.fade`). Out: a 0.2 s fade 0.02 s after it (`typing.out`).
+    /// (the iOS transcript's `typing.pop`, `typing.fade`; the macOS transcript now uses Messages' fits
+    /// `typing.scale`, `typing.opacity`). Out: a 0.2 s fade 0.02 s after it (`typing.out`).
     static let typingInDelay: CFTimeInterval = 0.05
     static let typingPop: CFTimeInterval = 0.209
     static let typingFade: CFTimeInterval = 0.12
@@ -558,7 +668,7 @@ final class SidebarTypingLayer: CALayer {
         bounds = CGRect(origin: .zero, size: Self.size)
         cornerRadius = Self.size.height / 2
         let d = Self.dotDiameter
-        for (i, (dot, hi)) in zip(dots, lit).enumerated() { // cmux: no index math
+        for (i, (dot, hi)) in zip(dots, lit).enumerated() { // no index math
             dot.bounds = CGRect(x: 0, y: 0, width: d, height: d)
             dot.cornerRadius = d / 2
             dot.position = CGPoint(x: Self.size.width / 2 + CGFloat(i - 1) * Self.dotPitch, y: Self.size.height / 2)
@@ -581,7 +691,7 @@ final class SidebarTypingLayer: CALayer {
         for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
     }
     /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
-    var isPulsing: Bool { Self.stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
+    var isPulsing: Bool { stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
     /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
     static var stillPhase: Double?
     private static func level(_ i: Int, phase t: Double) -> Double {
@@ -591,9 +701,12 @@ final class SidebarTypingLayer: CALayer {
     }
     /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
     /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
+    /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
+    private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
     func animate() {
-        if let ph = Self.stillPhase {
-            for (i, d) in lit.enumerated() { d.opacity = Float(Self.level(i, phase: ph)) }
+        if let ph = stillPhase {
+            // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
+            for (i, d) in lit.enumerated() { d.removeAnimation(forKey: "pulse"); d.opacity = Float(Self.level(i, phase: ph)) }
             return
         }
         let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
@@ -635,7 +748,7 @@ final class SidebarTextCache {
         if let m = map[k] { lock.unlock(); return m }
         lock.unlock()
         let nameColor = emphasized ? p.selectedText : p.name
-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
+        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // no force unwrap
         let text = SidebarStrings.preview(c)
         let attr = NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): SidebarDraw.previewFont,

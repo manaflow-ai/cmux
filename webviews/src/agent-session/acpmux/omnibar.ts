@@ -4,13 +4,23 @@ import type { TabKind } from "./NewTabPage";
 /// workspaces (jumping to one beats opening a duplicate), recent sessions, folders,
 /// commands and browser history. The host sends it with the new tab page.
 export type OmnibarContext = {
-  tabs: { id: string; kind: TabKind; title: string; detail?: string; workspace?: string }[];
+  /// `icon`: a browser tab's or page's favicon, a `data:image/` URL from the host.
+  tabs: { id: string; kind: TabKind; title: string; detail?: string; workspace?: string; icon?: string }[];
   workspaces: { id: string; name: string; detail?: string }[];
   sessions: { sessionId: string; title: string; harness?: string; detail?: string }[];
   folders: string[];
   commands: string[];
-  history: { url: string; title?: string }[];
+  history: { url: string; title?: string; icon?: string }[];
+  /// Every Commands palette (Cmd-Shift-P) action the host can run here (`app.action`), in the
+  /// palette's order: `detail` is its palette section, `keycaps` its shortcut.
+  actions?: OmnibarAction[];
 };
+
+/// One Commands palette action the host offers the bar (CmuxNextPalette PaletteCommandEntry).
+export type OmnibarAction = { id: string; title: string; detail?: string; keywords: string[]; keycaps?: string[] };
+
+/// The most action rows accepted from the host: every palette action fits (AgentPaneOmnibar.maximumActions).
+export const MAX_NEW_TAB_ACTIONS = 2000;
 
 export const EMPTY_OMNIBAR: OmnibarContext = {
   tabs: [],
@@ -25,6 +35,11 @@ export const EMPTY_OMNIBAR: OmnibarContext = {
 export const MAX_NEW_TAB_ENTRIES = 40;
 
 const string = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+/// A favicon the host sent: an inline image only (the page's CSP allows `img-src data:`).
+const icon = (value: unknown) => {
+  const text = string(value);
+  return text?.startsWith("data:image/") ? { icon: text } : {};
+};
 const records = (value: unknown) =>
   (Array.isArray(value) ? value : []).filter(
     (item): item is Record<string, unknown> => typeof item === "object" && item !== null,
@@ -35,16 +50,26 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const object = value as Record<string, unknown>;
   const kinds = new Set(["terminal", "browser", "agent"]);
+  const seen = new Set<string>();
   return {
     tabs: records(object.tabs)
       .flatMap((tab) => {
         const id = string(tab.id);
-        const title = string(tab.title) ?? "";
-        if (!id || !kinds.has(tab.kind as string)) return [];
+        const title = string(tab.title);
+        // A row needs a place to go: never a New Tab page's `about:blank`, never a tab listed twice.
+        if (!id || !title || title === "about:blank" || !kinds.has(tab.kind as string) || seen.has(id)) return [];
+        seen.add(id);
         const detail = string(tab.detail);
         const workspace = string(tab.workspace);
         return [
-          { id, kind: tab.kind as TabKind, title, ...(detail ? { detail } : {}), ...(workspace ? { workspace } : {}) },
+          {
+            id,
+            kind: tab.kind as TabKind,
+            title,
+            ...(detail ? { detail } : {}),
+            ...(workspace ? { workspace } : {}),
+            ...icon(tab.icon),
+          },
         ];
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
@@ -67,19 +92,43 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       .flatMap((entry) => {
         const url = string(entry.url);
         const title = string(entry.title);
-        return url ? [{ url, ...(title ? { title } : {}) }] : [];
+        return url ? [{ url, ...(title ? { title } : {}), ...icon(entry.icon) }] : [];
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
+    actions: omnibarActions(object.actions),
   };
 }
 
+/// Reads the host's palette actions, dropping one without an id or a title.
+export function omnibarActions(value: unknown): OmnibarAction[] {
+  const strings = (list: unknown) => (Array.isArray(list) ? list.flatMap((item) => string(item) ?? []) : []);
+  return records(value)
+    .flatMap((action): OmnibarAction[] => {
+      const id = string(action.id);
+      const title = string(action.title);
+      if (!id || !title) return [];
+      const detail = string(action.detail);
+      const keycaps = strings(action.keycaps);
+      return [
+        {
+          id,
+          title,
+          keywords: strings(action.keywords),
+          ...(detail ? { detail } : {}),
+          ...(keycaps.length ? { keycaps } : {}),
+        },
+      ];
+    })
+    .slice(0, MAX_NEW_TAB_ACTIONS);
+}
+
 export type OmnibarRow =
-  | { type: "tab"; id: string; kind: TabKind; title: string; detail?: string }
+  | { type: "tab"; id: string; kind: TabKind; title: string; detail?: string; icon?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "session"; id: string; title: string; harness?: string; detail?: string }
   | { type: "folder"; path: string }
   | { type: "command"; command: string }
-  | { type: "history"; url: string; title?: string }
+  | { type: "history"; url: string; title?: string; icon?: string }
   /// The typed text as the selected kind: run it, open or search it.
   | { type: "run"; text: string }
   | { type: "open"; text: string }
@@ -117,6 +166,7 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     kind: tab.kind,
     title: tab.title,
     ...(tab.detail || tab.workspace ? { detail: [tab.workspace, tab.detail].filter(Boolean).join(" · ") } : {}),
+    ...(tab.icon ? { icon: tab.icon } : {}),
   }));
   const workspaces = context.workspaces.map((workspace): OmnibarRow => ({
     type: "workspace",
@@ -137,6 +187,7 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     type: "history",
     url: entry.url,
     ...(entry.title ? { title: entry.title } : {}),
+    ...(entry.icon ? { icon: entry.icon } : {}),
   }));
 
   if (!text) {
@@ -172,6 +223,17 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
     kind === "terminal" ? [{ type: "run", text }] : kind === "browser" ? [{ type: "open", text }] : [];
   const last: OmnibarRow = { type: "ask", text };
   return [...first, ...scored.slice(0, MAX_ROWS - first.length - 1), last];
+}
+
+/// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1) (Lucas 2026-10-26): Down
+/// on the last row wraps to the first, and Up on the first row returns to the field (-1, no row:
+/// Return sends the prompt), so the caret can move again. From the field Down takes the first row
+/// and Up the last.
+export function stepSelection(current: number, step: 1 | -1, count: number): number {
+  if (count === 0) return -1;
+  if (current < 0) return step === 1 ? 0 : count - 1;
+  if (step === 1) return (current + 1) % count;
+  return current - 1;
 }
 
 /// The row Enter takes before the arrows move: the typed text's own row. None for an

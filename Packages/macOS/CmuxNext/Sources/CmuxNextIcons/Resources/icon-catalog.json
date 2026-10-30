@@ -85,6 +85,12 @@
    "family": "action"
   },
   {
+   "name": "action.more.vertical",
+   "meaning": "More options (menu), vertical: the browser toolbar's More button",
+   "sf": "ellipsis.vertical",
+   "family": "action.more"
+  },
+  {
    "name": "action.pause",
    "meaning": "Pause",
    "sf": "pause.circle",
@@ -130,6 +136,12 @@
    "name": "action.review",
    "meaning": "Review / about this page",
    "sf": "doc.text.magnifyingglass",
+   "family": "action"
+  },
+  {
+   "name": "action.share",
+   "meaning": "Share (a link, the app)",
+   "sf": "square.and.arrow.up",
    "family": "action"
   },
   {
@@ -197,6 +209,12 @@
    "meaning": "New conversation (agent rail and conversation list).",
    "sf": "square.and.pencil",
    "family": "agent.chat"
+  },
+  {
+   "name": "agent.chief",
+   "meaning": "The Chief, the agent that runs a server's other agents (server panel, Chief placement row).",
+   "sf": "brain",
+   "family": "agent"
   },
   {
    "name": "agent.fork",
@@ -271,6 +289,24 @@
    "family": "app.sample"
   },
   {
+   "name": "appearance.dark",
+   "meaning": "Page color scheme forced dark (browser theme button)",
+   "sf": "questionmark.square.dashed",
+   "family": "appearance"
+  },
+  {
+   "name": "appearance.light",
+   "meaning": "Page color scheme forced light (browser theme button)",
+   "sf": "sun.max",
+   "family": "appearance"
+  },
+  {
+   "name": "appearance.system",
+   "meaning": "Page color scheme follows the app (browser theme button)",
+   "sf": "questionmark.square.dashed",
+   "family": "appearance"
+  },
+  {
    "name": "apps.stack",
    "meaning": "Apps / group selected",
    "sf": "square.stack.3d.up",
@@ -331,10 +367,66 @@
    "family": "browser"
   },
   {
+   "name": "browser.extensions.manage",
+   "meaning": "Extensions menu Manage extensions (Chrome kSettingsChromeRefreshOldIcon)",
+   "sf": "gearshape",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.extensions.sidepanel",
+   "meaning": "Extensions menu row: open the extension's side panel (Chrome kDockToRightOldIcon)",
+   "sf": "sidebar.right",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.extensions.webstore",
+   "meaning": "Extensions menu footer: get extensions from the Chrome Web Store (Chrome kStorefrontOldIcon)",
+   "sf": "storefront",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.find.next",
+   "meaning": "Find bar next match (Chrome kKeyboardArrowDownChromeRefreshOldIcon)",
+   "sf": "chevron.down",
+   "family": "browser.find",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.find.previous",
+   "meaning": "Find bar previous match (Chrome kKeyboardArrowUpChromeRefreshOldIcon)",
+   "sf": "chevron.up",
+   "family": "browser.find",
+   "source": "chromium",
+   "alias": false
+  },
+  {
    "name": "browser.incognito",
    "meaning": "Incognito / private window",
    "sf": "eyeglasses",
    "family": "browser"
+  },
+  {
+   "name": "browser.menu.cast",
+   "meaning": "Page menu Cast (Chrome kCastChromeRefreshOldIcon)",
+   "sf": "airplayvideo",
+   "family": "browser.menu",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.menu.translate",
+   "meaning": "Page menu Translate (Chrome kGTranslateIcon)",
+   "sf": "translate",
+   "family": "browser.menu",
+   "source": "chromium",
+   "alias": false
   },
   {
    "name": "browser.new",
@@ -343,10 +435,240 @@
    "family": "browser"
   },
   {
+   "name": "browser.omnibox.dangerous",
+   "meaning": "Address bar Dangerous site (Chrome kDangerousChromeRefreshOldIcon)",
+   "sf": "exclamationmark.triangle.fill",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.notsecure",
+   "meaning": "Address bar Not secure (Chrome kNotSecureWarningChromeRefreshOldIcon)",
+   "sf": "exclamationmark.triangle",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.pageinfo",
+   "meaning": "Address bar site info on a secure page, the tune icon (Chrome kSecurePageInfoChromeRefreshOldIcon)",
+   "sf": "slider.horizontal.3",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.search",
+   "meaning": "Address bar search (Chrome kSearchChromeRefreshOldIcon)",
+   "sf": "magnifyingglass",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.star",
+   "meaning": "Address bar Bookmark this tab (Chrome kStarChromeRefreshOldIcon)",
+   "sf": "star",
+   "family": "browser.omnibox",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.omnibox.star.active",
+   "meaning": "Address bar page is bookmarked (Chrome kStarActiveChromeRefreshOldIcon)",
+   "sf": "star.fill",
+   "family": "browser.omnibox.star",
+   "source": "chromium",
+   "alias": false
+  },
+  {
    "name": "browser.stop",
    "meaning": "Stop loading",
    "sf": "xmark",
    "family": "browser"
+  },
+  {
+   "name": "browser.tab.audio",
+   "meaning": "Tab is playing audio (Chrome kVolumeUpChromeRefreshOldIcon)",
+   "sf": "speaker.wave.2",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.tab.muted",
+   "meaning": "Tab audio is muted (Chrome kVolumeOffChromeRefreshOldIcon)",
+   "sf": "speaker.slash",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.tab.pause",
+   "meaning": "Media controls Pause (Chrome kPauseOldIcon)",
+   "sf": "pause.fill",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.tab.play",
+   "meaning": "Media controls Play (Chrome kPlayArrowOldIcon)",
+   "sf": "play.fill",
+   "family": "browser.tab",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.back",
+   "meaning": "Browser toolbar Back (Chrome kBackArrowChromeRefreshOldIcon)",
+   "sf": "chevron.backward",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.bookmarks",
+   "meaning": "Browser toolbar Favorites / bookmarks panel (Chrome kBookmarksSidePanelRefreshOldIcon)",
+   "sf": "book",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.close",
+   "meaning": "Browser chrome close / dismiss (find bar, notices; Chrome kCloseChromeRefreshOldIcon)",
+   "sf": "xmark",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.devtools",
+   "meaning": "Browser toolbar Developer tools (Chrome kCodeChromeRefreshOldIcon)",
+   "sf": "chevron.left.forwardslash.chevron.right",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.downloads",
+   "meaning": "Browser toolbar Downloads button (Chrome kDownloadToolbarButtonChromeRefreshOldIcon)",
+   "sf": "arrow.down.to.line",
+   "family": "browser.toolbar",
+   "source": "chromium"
+  },
+  {
+   "name": "browser.toolbar.downloads.active",
+   "meaning": "Browser toolbar Downloads while a download runs (Chrome kDownloadInProgressChromeRefreshOldIcon)",
+   "sf": "arrow.down",
+   "family": "browser.toolbar.downloads",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.extensions",
+   "meaning": "Browser toolbar Extensions button, the puzzle (Chrome kExtensionChromeRefreshOldIcon)",
+   "sf": "puzzlepiece.extension",
+   "family": "browser.toolbar",
+   "source": "chromium"
+  },
+  {
+   "name": "browser.toolbar.extensions.crashed",
+   "meaning": "An extension crashed (Chrome kExtensionCrashedCustomIcon)",
+   "sf": "exclamationmark.triangle",
+   "family": "browser.toolbar.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.forward",
+   "meaning": "Browser toolbar Forward (Chrome kForwardArrowChromeRefreshOldIcon)",
+   "sf": "chevron.forward",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.media",
+   "meaning": "Browser toolbar media controls (Chrome kMediaToolbarButtonChromeRefreshOldIcon)",
+   "sf": "music.note.list",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.more",
+   "meaning": "Browser toolbar More / app menu, three vertical dots (Chrome kBrowserToolsChromeRefreshOldIcon)",
+   "sf": "ellipsis",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.opennewtab",
+   "meaning": "Open in a new tab (side panel; Chrome kOpenInNewChromeRefreshOldIcon)",
+   "sf": "arrow.up.forward.square",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.pin",
+   "meaning": "Pin (extensions menu, side panel; Chrome kKeepOldIcon)",
+   "sf": "pin",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.profile",
+   "meaning": "Browser toolbar profile / avatar (Chrome kAccountCircleChromeRefreshOldIcon)",
+   "sf": "person.crop.circle",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.reload",
+   "meaning": "Browser toolbar Reload (Chrome kReloadChromeRefreshOldIcon)",
+   "sf": "arrow.clockwise",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.stop",
+   "meaning": "Browser toolbar Stop loading (Chrome kNavigateStopChromeRefreshOldIcon)",
+   "sf": "xmark",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.unpin",
+   "meaning": "Unpin a pinned item (extensions menu, side panel; Chrome kKeepOffOldIcon)",
+   "sf": "pin.slash",
+   "family": "browser.toolbar",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.zoom.in",
+   "meaning": "Page zoomed in (Chrome kZoomPlusChromeRefreshOldIcon)",
+   "sf": "plus.magnifyingglass",
+   "family": "browser.toolbar.zoom",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.toolbar.zoom.out",
+   "meaning": "Page zoomed out (Chrome kZoomMinusChromeRefreshOldIcon)",
+   "sf": "minus.magnifyingglass",
+   "family": "browser.toolbar.zoom",
+   "source": "chromium",
+   "alias": false
   },
   {
    "name": "browserprofile.badge",
@@ -360,6 +682,18 @@
    "sf": "questionmark.square.dashed",
    "family": "browserprofile",
    "denseStyle": "solid"
+  },
+  {
+   "name": "checkbox.off",
+   "meaning": "Unchecked box in a multiple-choice list",
+   "sf": "square",
+   "family": "checkbox"
+  },
+  {
+   "name": "checkbox.on",
+   "meaning": "Checked box in a multiple-choice list",
+   "sf": "checkmark.square.fill",
+   "family": "checkbox"
   },
   {
    "name": "cloud",
@@ -434,6 +768,12 @@
    "family": "composer"
   },
   {
+   "name": "composer.steer",
+   "meaning": "Steer: send a queued message into the running turn now (the queued row's Steer, as ChatGPT and Codex draw it).",
+   "sf": "questionmark.square.dashed",
+   "family": "composer"
+  },
+  {
    "name": "computeruse.click",
    "meaning": "Computer-use click (activity rows), clear on click.",
    "sf": "cursorarrow.click",
@@ -449,6 +789,12 @@
    "name": "computeruse.observe",
    "meaning": "Computer-use observe screen.",
    "sf": "eye",
+   "family": "computeruse"
+  },
+  {
+   "name": "computeruse.scroll",
+   "meaning": "Computer use: the agent scrolled (Agent Activity event rows).",
+   "sf": "scroll",
    "family": "computeruse"
   },
   {
@@ -552,6 +898,13 @@
    "meaning": "Expanded disclosure / expand",
    "sf": "chevron.down",
    "family": "disclosure"
+  },
+  {
+   "name": "disclosure.folded",
+   "meaning": "A folded group whose rows are hidden (Chrome's tab group header, chevron up)",
+   "sf": "chevron.up",
+   "family": "disclosure",
+   "alias": false
   },
   {
    "name": "extension",
@@ -660,6 +1013,12 @@
    "name": "group.new",
    "meaning": "New group / folder / load unpacked",
    "sf": "folder.badge.plus",
+   "family": "group"
+  },
+  {
+   "name": "group.ungroup",
+   "meaning": "Ungroup workspaces",
+   "sf": "square.stack.3d.up.slash",
    "family": "group"
   },
   {
@@ -783,6 +1142,48 @@
    "family": "machine"
   },
   {
+   "name": "media.audio",
+   "meaning": "Tab is playing sound",
+   "sf": "speaker.wave.2",
+   "family": "media"
+  },
+  {
+   "name": "media.hub",
+   "meaning": "Media playing in the browser (media hub)",
+   "sf": "music.note",
+   "family": "media"
+  },
+  {
+   "name": "media.muted",
+   "meaning": "Tab sound muted",
+   "sf": "speaker.slash.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.next",
+   "meaning": "Next track",
+   "sf": "forward.end.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.pause",
+   "meaning": "Pause media",
+   "sf": "pause.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.play",
+   "meaning": "Play media",
+   "sf": "play.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.previous",
+   "meaning": "Previous track",
+   "sf": "backward.end.fill",
+   "family": "media"
+  },
+  {
    "name": "mobile.pair",
    "meaning": "Mobile pairing",
    "sf": "iphone",
@@ -843,6 +1244,18 @@
    "family": "notification"
   },
   {
+   "name": "omnibar.answer",
+   "meaning": "Omnibar suggestion: a computed answer (calculator, conversion)",
+   "sf": "equal.circle",
+   "family": "omnibar"
+  },
+  {
+   "name": "omnibar.switchtab",
+   "meaning": "Omnibar suggestion: switch to an open tab",
+   "sf": "rectangle.on.rectangle",
+   "family": "omnibar"
+  },
+  {
    "name": "overflow.more",
    "meaning": "Overflow (more bookmarks) / next screen",
    "sf": "chevron.right.2",
@@ -879,6 +1292,12 @@
    "family": "pane.split"
   },
   {
+   "name": "panel.right",
+   "meaning": "Show or hide the chat's right-side panel (the summary, the Inspector)",
+   "sf": "questionmark.square.dashed",
+   "family": "panel"
+  },
+  {
    "name": "permission.consent",
    "meaning": "Agent consent request / decision (activity rows).",
    "sf": "person.badge.shield.checkmark",
@@ -908,6 +1327,12 @@
    "sf": "questionmark.square.dashed",
    "family": "profile",
    "denseStyle": "solid"
+  },
+  {
+   "name": "remote.display",
+   "meaning": "Remote desktop / a machine's display (Remote View)",
+   "sf": "display",
+   "family": "remote"
   },
   {
    "name": "search",
@@ -1587,6 +2012,12 @@
    "meaning": "List / choices / all",
    "sf": "list.bullet",
    "family": "view"
+  },
+  {
+   "name": "window.new",
+   "meaning": "Move to a new window / new window",
+   "sf": "macwindow.badge.plus",
+   "family": "window"
   },
   {
    "name": "workspace",

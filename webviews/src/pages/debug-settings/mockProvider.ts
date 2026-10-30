@@ -8,6 +8,7 @@ import { formatNumber } from "./TunableControl";
 import {
   DebugTunablesOps,
   type DebugSettingsState,
+  type HangsInfo,
   type TunableControl,
   type TunableRow,
   type TunableValue,
@@ -34,7 +35,40 @@ export const SAMPLE_SECTIONS: MockSection[] = [
   { id: "glass", title: "Glass and Overlays", symbol: "drop" },
   { id: "browser", title: "Browser", symbol: "globe" },
   { id: "pages", title: "Pages", symbol: "doc.richtext" },
+  { id: "hangs", title: "Hangs", symbol: "exclamationmark.triangle" },
 ];
+
+/** Two recent hangs: one the app came back from, one it was killed in. */
+export const SAMPLE_HANGS: HangsInfo = {
+  section: "hangs",
+  title: "Recent hangs",
+  folder: "~/Library/Logs/com.cmuxterm.app.nightly/hangs",
+  empty: "No main-thread hangs recorded.",
+  show_folder: "Show Folder",
+  reveal: "Show in Finder",
+  copy: "Copy",
+  items: [
+    {
+      path: "/Users/me/Library/Logs/com.cmuxterm.app.nightly/hangs/hang-2026-10-22T00-42-10.123Z.txt",
+      started_text: "Oct 22, 2026 at 12:42:10 AM",
+      duration_text: "6.4 s",
+      ongoing: false,
+      frames: [
+        "libsystem_kernel.dylib __psynch_mutexwait + 8",
+        "libsystem_pthread.dylib _pthread_mutex_firstfit_lock_wait + 84",
+        "CmuxNextApp SessionStore.flush() + 212",
+        "CmuxNextApp AppDelegate.applicationDidBecomeActive(_:) + 96",
+      ],
+    },
+    {
+      path: "/Users/me/Library/Logs/com.cmuxterm.app.nightly/hangs/hang-2026-10-21T18-03-55.870Z.txt",
+      started_text: "Oct 21, 2026 at 6:03:55 PM",
+      duration_text: "at least 32.0 s, still blocked when written",
+      ongoing: true,
+      frames: ["libsystem_kernel.dylib mach_msg2_trap + 8", "CmuxNextApp +0x4f2a10"],
+    },
+  ],
+};
 
 const SWATCHES = [
   { value: "textPrimary", title: "textPrimary", swatch: "#E6E6E6" },
@@ -120,6 +154,14 @@ export const SAMPLE_TUNABLES: MockTunable[] = [
     default: true,
   },
   {
+    key: "diagnostics.hangFiles",
+    section: "hangs",
+    label: "Write a file for each main-thread hang",
+    help: "When the main thread is blocked for 2 seconds, the watchdog writes its stack to ~/Library/Logs/<bundle id>/hangs.",
+    control: { type: "bool", on: "On", off: "Off" },
+    default: true,
+  },
+  {
     key: "debugSettings.surface",
     section: "pages",
     label: "Debug Settings page",
@@ -145,7 +187,8 @@ const UNIT_TEXT: Record<string, (value: number) => string> = {
 };
 
 function display(value: TunableValue, control: TunableControl): string {
-  if (typeof value === "number") return control.type === "number" ? UNIT_TEXT[control.unit]!(value) : formatNumber(value);
+  if (typeof value === "number")
+    return control.type === "number" ? UNIT_TEXT[control.unit]!(value) : formatNumber(value);
   if (typeof value === "boolean") return control.type === "bool" ? (value ? control.on : control.off) : String(value);
   if (typeof value === "string") {
     if (control.type === "choice" || control.type === "color")
@@ -158,7 +201,9 @@ function display(value: TunableValue, control: TunableControl): string {
 function clamp(value: unknown, control: TunableControl): TunableValue | null {
   switch (control.type) {
     case "number":
-      return typeof value === "number" && Number.isFinite(value) ? Math.min(Math.max(value, control.min), control.max) : null;
+      return typeof value === "number" && Number.isFinite(value)
+        ? Math.min(Math.max(value, control.min), control.max)
+        : null;
     case "bool":
       return typeof value === "boolean" ? value : null;
     case "choice":
@@ -186,6 +231,7 @@ export class MockDebugTunablesProvider implements PageClient {
   notice?: string;
   /** Set to make every call reject as if the host went away. */
   offline = false;
+  hangs: HangsInfo = SAMPLE_HANGS;
   private readonly changed = new Set<(data: unknown, seq: number) => void>();
   private readonly handlers = new Map<string, PageHandler>();
   private seq = 0;
@@ -230,7 +276,8 @@ export class MockDebugTunablesProvider implements PageClient {
           this.overrides.clear();
           this.notice = "Every tunable is back to its default.";
         } else if (typeof fields.section === "string") {
-          for (const tunable of this.tunables) if (tunable.section === fields.section) this.overrides.delete(tunable.key);
+          for (const tunable of this.tunables)
+            if (tunable.section === fields.section) this.overrides.delete(tunable.key);
           this.notice = `Reset ${this.sections.find((section) => section.id === fields.section)?.title ?? fields.section}.`;
         } else if (typeof fields.key === "string") this.overrides.delete(fields.key);
         break;
@@ -249,6 +296,10 @@ export class MockDebugTunablesProvider implements PageClient {
           : JSON.stringify(Object.fromEntries(changes), null, 2);
         return { text } as R;
       }
+      case DebugTunablesOps.hangsReveal:
+        return {} as R;
+      case DebugTunablesOps.hangsCopy:
+        return { text: `cmux main-thread hang\n${String(fields.path)}` } as R;
       case "cmux.app.clipboard.write":
         return {} as R;
       default:
@@ -312,6 +363,7 @@ export class MockDebugTunablesProvider implements PageClient {
       changed: rows.filter((row) => row.changed).length,
       visible: visible.length,
       notice: this.notice,
+      hangs: this.hangs,
       sections: this.sections.map((section) => ({
         ...section,
         count: rows.filter((row) => row.section === section.id).length,

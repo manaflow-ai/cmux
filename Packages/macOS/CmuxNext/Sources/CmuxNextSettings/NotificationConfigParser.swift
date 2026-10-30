@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDesign
 
 /// `notifications.*` in cmux.json (the attention ring is
@@ -17,9 +18,12 @@ enum NotificationConfigParser {
             prefs.suppressWhileTypingSeconds = value
         }
         if let value = reader.bool("dockBadge") { prefs.dockBadge = value }
+        if let value = reader.choice("dockBounce", DockBounceMode.self) { prefs.dockBounce = value }
+        if let value = reader.choice("showPreviews", NotificationPreviews.self) { prefs.showPreviews = value }
         diagnostics += reader.diagnostics
         prefs.quietHours = quietHours(root, diagnostics: &diagnostics)
         prefs.mutedWorkspaces = mutedWorkspaces(root, diagnostics: &diagnostics)
+        prefs.sounds = sounds(root, diagnostics: &diagnostics)
         for source in NotificationSource.allCases {
             guard var entry = ConfigFieldReader(root, at: ["notifications", "sources", source.rawValue], diagnostics: &diagnostics) else { continue }
             var overrides = NotificationSourceOverrides()
@@ -33,9 +37,13 @@ enum NotificationConfigParser {
         return prefs
     }
 
-    /// `feed.mirrorNotifications.{agents, terminal}`.
+    /// `feed.mirrorNotifications.{agents, terminal}` and `feed.agentPermissionPrompts`.
     static func feedMirror(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> FeedMirrorPreferences {
         var mirror = FeedMirrorPreferences()
+        if var feed = ConfigFieldReader(root, at: ["feed"], diagnostics: &diagnostics) {
+            if let value = feed.bool("agentPermissionPrompts") { mirror.agentPermissionPrompts = value }
+            diagnostics += feed.diagnostics
+        }
         guard var reader = ConfigFieldReader(root, at: ["feed", "mirrorNotifications"], diagnostics: &diagnostics) else { return mirror }
         if let value = reader.bool("agents") { mirror.agents = value }
         if let value = reader.choice("terminal", FeedTerminalMirror.self) { mirror.terminal = value }

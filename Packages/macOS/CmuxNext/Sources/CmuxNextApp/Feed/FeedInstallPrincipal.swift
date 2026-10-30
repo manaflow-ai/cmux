@@ -34,6 +34,15 @@ final class FeedInstallPrincipal {
         }
     }
 
+    /// This Mac's install id, minting an install token when it is not known yet (the first
+    /// prompt can come before the sign-in's refresh settles); nil while signed out.
+    func ensureInstallID() async -> String? {
+        if let installID { return installID }
+        guard let token = try? await identity.installToken() else { return nil }
+        if let install = Self.install(ofToken: token) { installID = install }
+        return installID
+    }
+
     /// POSTs `body` to `path` (`v1/ops` or `v1/read`) as this install and
     /// returns the owner's reply; an owner error is `FeedServiceError.owner`.
     func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
@@ -46,13 +55,26 @@ final class FeedInstallPrincipal {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         for (name, value) in identity.requestHeaders { request.setValue(value, forHTTPHeaderField: name) }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // The install token never goes through the shared, caching session.
+        let (data, response) = try await CloudAPIClient.noStoreTransport.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 { await identity.invalidate() }
         guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
         }
         return reply
+    }
+
+    /// This Mac's context (environment, user, install from its token) and the
+    /// owner's presence keys (`user.presence_key.list`, owner Mac installs
+    /// only), for the agent permission bridge's allow check (cx-aocz).
+    func presenceKeys() async throws
+        -> (context: FeedApproveProofCheck.Context, keys: [String: FeedApproveProofCheck.Key]) {
+        let token = try await identity.installToken()
+        guard let context = FeedApproveProofCheck.context(ofToken: token) else { throw FeedServiceError.badReply }
+        let reply = try await call("v1/read", ["op": "user.presence_key.list", "params": [String: Any]()])
+        guard let value = reply["value"] as? [String: Any] else { throw FeedServiceError.badReply }
+        return (context, FeedApproveProofCheck.keys(from: value))
     }
 
     /// The `inst` claim of an install token (the owner's install id).

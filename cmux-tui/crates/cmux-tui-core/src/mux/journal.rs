@@ -5,16 +5,22 @@ use super::*;
 impl Mux {
     pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
+        // A terminal's first cwd report can precede its registration, and its
+        // shell may then stay quiet. Each committed graph change is where such
+        // a terminal can join the graph, so publish whatever report waited.
+        self.publish_pending_terminal_directories();
     }
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
+        self.journal_maintenance_control.note_change();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Test-only: output goes to the output store, never the journal.
+    #[cfg(test)]
     pub(crate) fn journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -32,6 +38,7 @@ impl Mux {
         });
     }
 
+    #[cfg(test)]
     pub(crate) fn try_journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -68,10 +75,6 @@ impl Mux {
                 Err(error)
             }
         }
-    }
-
-    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space(observed)
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
@@ -126,6 +129,22 @@ impl Mux {
             occurred_at_ms: crate::workspace_registry::unix_epoch_ms()?,
             event,
         })
+    }
+
+    /// A `terminal.output.gap` marker (surface/journal_reconnect.rs): small
+    /// and structural, it carries no output.
+    pub(crate) fn journal_terminal_output_gap(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+    ) {
+        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+            terminal_id,
+            generation,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+            reason,
+        });
     }
 
     pub(crate) fn journal_terminal_resize(
@@ -224,8 +243,18 @@ impl Mux {
         self.resource_projection_stats.snapshot()
     }
 
+    /// Flush the registry commits made so far to disk, soon, off the
+    /// caller's thread: after a reply went out, or after a background batch
+    /// (`workspace_registry::wal_durability`).
+    pub(crate) fn request_registry_flush(&self) {
+        self.registry_connection.request_flush();
+    }
+
     pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
-        self.registry_connection.write_path_stats().snapshot()
+        let mut snapshot = self.registry_connection.write_path_stats().snapshot();
+        (snapshot.wal_commits, snapshot.wal_synced_commits) =
+            self.registry_connection.durability_counts();
+        snapshot
     }
 
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
@@ -258,6 +287,29 @@ impl Mux {
         let _connection = self.registry_connection.get();
         entered.send(()).unwrap();
         release.recv().unwrap();
+    }
+
+    /// Caps the registry database at `pages` (its current size for None),
+    /// so a commit that needs a page fails with SQLITE_FULL as on a full disk.
+    #[cfg(test)]
+    pub(crate) fn set_registry_max_page_count_for_test(
+        &self,
+        pages: Option<i64>,
+    ) -> rusqlite::Result<()> {
+        let connection = self.registry_connection.get();
+        let pages = match pages {
+            Some(pages) => pages,
+            None => connection.query_row("PRAGMA page_count", [], |row| row.get(0))?,
+        };
+        let _: i64 =
+            connection
+                .query_row(&format!("PRAGMA max_page_count = {pages}"), [], |row| row.get(0))?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn journal_disk_full_for_test(&self) -> bool {
+        self.journal_ingress.disk_full_for_test()
     }
 
     #[cfg(test)]
@@ -345,6 +397,24 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
     }
 
+    /// A read-only reader for a `session.events` stream's resource pages and
+    /// the registry generation its pages carry, or `None` for an in-memory
+    /// registry (then the stream reads through `resource_events_after`).
+    /// Takes the registry lock once, briefly, with no SQLite work.
+    pub(crate) fn resource_event_reader(
+        &self,
+    ) -> anyhow::Result<Option<(crate::workspace_registry::SessionJournalReader, String)>> {
+        let (database_path, generation) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            (registry.session_journal_database_path(), registry.generation().to_owned())
+        };
+        database_path
+            .as_deref()
+            .map(crate::workspace_registry::SessionJournalReader::open)
+            .transpose()
+            .map(|reader| reader.map(|reader| (reader, generation)))
+    }
+
     /// The journal head without decoding any record or sealed segment.
     pub(crate) fn session_journal_head(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap().session_journal_head()
@@ -356,6 +426,21 @@ impl Mux {
         limit: usize,
     ) -> anyhow::Result<crate::workspace_registry::SessionJournalPage> {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
+    }
+
+    /// Records in `(sequence, through]` other than `terminal.output`, at
+    /// most `limit`, and the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_without_output_after`).
+    pub(crate) fn session_journal_without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_without_output_after(sequence, through, limit)
     }
 
     pub(crate) fn session_journal_reader(
@@ -484,6 +569,9 @@ impl Mux {
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
+        if !commit.replayed {
+            self.apply_agent_presence(ingress, commit.sequence);
+        }
         if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
             if agent_hook_terminal_gone(&error) {
                 if let Err(_bookkeeping_error) = self
@@ -516,7 +604,7 @@ impl Mux {
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
         {
             self.report_internal_diagnostic(

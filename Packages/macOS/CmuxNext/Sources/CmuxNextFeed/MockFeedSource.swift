@@ -56,17 +56,6 @@ public final class InMemoryFeedSource: FeedPostingSource {
         sink?(.connection(.disconnected("Feed owner unreachable")))
     }
 
-    /// Another device answers first (an iPhone push action): one event from
-    /// another principal's request, no `tx` of this client.
-    public func answerElsewhere(_ id: String, value: FeedAnswerValue, device: String, at: Date) {
-        guard var item = items[id], item.isOpenRequest else { return }
-        item.state = .answered
-        item.answer = FeedAnswerRecord(value: value, by: user, device: device, at: at)
-        item.closedAt = at
-        item.readAt = item.readAt ?? at
-        publish([item], tx: nil)
-    }
-
     /// The poster posts or updates an item.
     public func post(_ item: FeedItem) {
         if let key = item.dedupeKey,

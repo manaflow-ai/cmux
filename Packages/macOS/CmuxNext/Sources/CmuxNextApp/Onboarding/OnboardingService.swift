@@ -4,21 +4,23 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
+import CmuxNextSettings
 import os
 
-/// Owns the onboarding window: it opens only from the palette, the menu,
-/// the import and default-app actions and the browser-data offer, never at
-/// launch (Lawrence 2026-10-09: a launch goes straight to the main window).
-/// Also feeds imported history to the omnibar at launch.
+/// Owns the tool window (Import from Browser, Computer Use setup), the
+/// browser-data import offer, the default-app registry and the imported
+/// data, and feeds imported history to the omnibar at launch. Nothing opens
+/// at launch (Lawrence 2026-10-09: a launch goes straight to the main
+/// window); the one-time classic migration only adds classic's workspaces
+/// to the restored windows (Lawrence 2026-10-19, classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
-    /// The state file's one writer (`OnboardingStateFile` per channel).
-    let state: OnboardingStateQueue
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
-    /// The one onboarding window (set up in `init`).
+    /// The one tool window (set up in `init`).
     private let presenter = OnboardingWindowPresenter()
     var controller: OnboardingWindowController? { presenter.controller }
     /// The browser-data import offer on the first browser tab of a launch.
@@ -26,54 +28,71 @@ final class OnboardingService {
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
-    /// The classic snapshot is read once per app launch and shared by the
-    /// onboarding step and the background project-folder scan.
-    private let classicSessionReadTask: Task<[ClassicSessionWorkspace], Error>
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
+    /// Follows `browser.import.enabled` (``BrowserImportGate``).
+    private var importSettingFollow: Task<Void, Never>?
 
-    /// Computer Use Setup: the helper's grants for the palette action, Settings and this step.
+    /// Where `workspace.importClassic` reads classic's saved session; nil
+    /// reads the one classic saved last (tests point it at a fixture).
+    var classicSessions: ClassicSessionImporter?
+    /// How `workspace.importClassic` reaches a classic SSH workspace's host:
+    /// the daemon for that destination. Nil connects through `SSHService`
+    /// (tests stand in a daemon).
+    var classicSSH: (@MainActor (String) throws -> DaemonService)?
+    /// What acpmux would do with a classic agent session (`_acpmux/chat_open`):
+    /// only `adopt` opens a chat. Nil asks this Mac's acpmux (tests answer).
+    var classicChatPlan: (@MainActor (AgentPaneAdopt, String?) async throws -> AcpmuxChatOpenPlan?)?
+    /// The toast `workspace.importClassic` or the launch migration showed last.
+    var classicImportNotice: String?
+    /// The classic migration's folder (ledger, backups); nil uses
+    /// `Application Support/cmux-next/<bundle id>/classic-migration` (tests use a scratch folder).
+    var classicMigrationDirectory: URL?
+    /// The Application Support folder holding classic's `cmux` folder; nil is this Mac's.
+    var classicMigrationSupport: URL?
+    /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
+    var classicMigrationAtLaunch: Bool?
+    /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
+    var classicRunning: (@MainActor () -> Bool)?
+    /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
+    /// (`~/.local/state/cmux`); tests use a scratch folder.
+    var classicStateRoot: URL?
+    /// Answers the migration preview; nil presents the native cmux dialog.
+    /// Tests inject an answer without creating UI.
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> Bool)?
+    /// The migration run in flight or last finished: a new run waits for it.
+    var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
+
+    /// Keep in Sync's watches; `start` also seeds each profile's omnibar with its imported pages.
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, deliver: SavingImportDestination.omnibar(services.cache))
+
+    /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
-
-    /// Whether an open window can show `step` (`OnboardingWindowPresenter`).
-    static func reusesWindow(showing steps: [OnboardingModel.Step], for step: OnboardingModel.Step?) -> Bool {
-        OnboardingWindowPresenter.reusesWindow(showing: steps, for: step)
-    }
 
     init(services: AppServices) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
-        state = OnboardingStateQueue(file: OnboardingStateFile.live(environment: environment, bundleID: services.environment.launch.bundleID))
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
-        classicSessionReadTask = Task.detached(priority: .utility) {
-            try ClassicSessionImporter().read()
-        }
-        let classicSessionReadTask = self.classicSessionReadTask
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
         // once in the background while the app is starting.
-        projectScanTask = Task { [weak self, classicSessionReadTask] in
-            let classic: [ClassicSessionWorkspace]
-            do {
-                classic = try await classicSessionReadTask.value
-            } catch {
-                self?.logger.error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
-                classic = []
-            }
+        projectScanTask = Task { [weak self] in
             let folders = await Task.detached {
                 var scan = AgentProjectScan.live()
                 scan.filesPerApp = 200
                 let agent = scan.run().map(\.id)
-                func classicDirectories(_ layout: ClassicSessionLayout) -> [String] {
-                    switch layout {
-                    case .pane(let pane): pane.tabs.compactMap(\.workingDirectory)
-                    case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
-                    }
+                let classic: [ClassicSessionWorkspace]
+                do {
+                    classic = try ClassicSessionImporter().read()
+                } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
+                        .error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
+                    classic = []
                 }
-                let classicFolders = classic.flatMap { workspace in
-                    [workspace.workingDirectory] + classicDirectories(workspace.layout)
+                // Folders on this Mac: an SSH or Cloud VM workspace's are another machine's.
+                let classicFolders = classic.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
+                    [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
                 }
                 var seen = Set<String>()
                 return (agent + classicFolders).compactMap { path in
@@ -84,74 +103,35 @@ final class OnboardingService {
             guard let self else { return }
             projectFolders = folders
         }
-        presenter.makeModel = { [weak self] start, resume in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), start: start, resumingFirstRunAt: resume) }
+        presenter.makeModel = { [weak self] step in
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
         }
-        presenter.onWindowClose = { [weak self] in
-            // The task's session stays in acpmux (the agent may still be working); only the page closes.
-            self?.firstTask?.view.close()
-            self?.firstTask = nil
-        }
-    }
-
-    /// Returns the launch-cached classic snapshot, preserving read errors for
-    /// the onboarding step to display instead of silently dropping the step.
-    func scanClassicSessions() async throws -> [ClassicSessionWorkspace] {
-        try await classicSessionReadTask.value
-    }
-
-    /// The first task's chat, kept while the window is open so the step
-    /// shows the same chat when the user comes back to it.
-    private var firstTask: (cwd: URL, prompt: String, view: AgentPaneView)?
-
-    func firstTaskView(cwd: URL, prompt: String) -> AgentPaneView? {
-        if let firstTask, firstTask.cwd == cwd, firstTask.prompt == prompt { return firstTask.view }
-        firstTask?.view.close()
-        let view = services.agentTabs.standaloneView(seed: AgentPaneSeed(cwd: cwd.path, prompt: prompt))
-        firstTask = view.map { (cwd, prompt, $0) }
-        return view
     }
 
     var isShowing: Bool { controller != nil }
-    private(set) var gallery: OnboardingGalleryController?
-    /// The review tool's state: picks, notes, position
-    /// (`~/Library/Application Support/cmux/<tag>/onboarding-feedback.json`).
-    private(set) lazy var galleryStore = GalleryReviewStore(url: Self.galleryFile(tag: services.environment.tag))
 
-    static func galleryFile(tag: String?) -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appending(path: "cmux").appending(path: tag ?? "default").appending(path: "onboarding-feedback.json")
+    /// Follows `browser.import.enabled` from `settings` (`AppServices.settings`).
+    func followImportSetting(_ settings: SettingsController) {
+        importSettingFollow?.cancel()
+        importSettingFollow = BrowserImportGate(host: services).follow(settings)
     }
 
-    /// The onboarding review tool (DEBUG builds): one window, every screen's variants.
-    func showGallery() {
-        if let gallery { return gallery.present() }
-        let picks = AppOnboardingServices(owner: self)
-        // task-owner: one-shot theme file load for the samples
-        Task { [weak self] in
-            let themes = await picks.loadThemeChoices()
-            let ownTheme = await Task.detached { GhosttyOwnTheme.isSet() }.value
-            guard let self, gallery == nil else { return }
-            let accounts: () -> NSView? = { [weak self] in self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil }
-            let gallery = OnboardingGalleryController(store: galleryStore, makeServices: { store in
-                let sample = MockOnboardingServices.gallerySample(themes: themes, accountsView: accounts())
-                sample.ghosttyTheme = ThemeStore.shared.input
-                sample.ghosttyHasOwnTheme = ownTheme
-                for step in OnboardingModel.Step.allCases { sample.variantIDs[step] = store.pick(for: step) }
-                return sample
-            }, previewAppearance: { [weak self] dark in self?.services.terminalTheme.preview(dark: dark) })
-            gallery.onClose = { [weak self] in self?.gallery = nil }
-            self.gallery = gallery
-            gallery.present()
-        }
+    /// `browser.import.enabled` turned off: the browser tab's offer goes and an Import from Browser
+    /// window still open closes.
+    func importTurnedOff() {
+        browserImportOffer.importTurnedOff()
+        guard let controller, controller.model.step == .importData else { return }
+        controller.close()
     }
 
-    /// Opens onboarding at `step` (or brings the open one to that step).
+    /// Opens the tool window for `step` (or brings the open one forward).
     /// `importKinds` checks only those kinds on the import step and
-    /// `importTarget` names the cmux browser profile they go into (the cookie
-    /// import card: cookies, into the tab's profile); without kinds the step
+    /// `importTarget` names the cmux browser profile they go into (the
+    /// browser-data offer: into the tab's profile); without kinds the step
     /// makes one profile per source.
-    func show(step: OnboardingModel.Step? = nil, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+    func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+        // `browser.import.enabled` off: the import window does not open, whoever asks.
+        if step == .importData, !services.browserImportEnabled { return }
         presenter.show(step: step) { model, reused in
             if let importKinds {
                 model.importer.preset(kinds: importKinds, into: importTarget)
@@ -160,117 +140,19 @@ final class OnboardingService {
             }
         }
     }
-
-    /// The first run is at `step`: kept so a relaunch (or Continue Setup)
-    /// resumes it there. A finished run stays finished.
-    func recordProgress(_ step: OnboardingModel.Step, interacted: Bool) {
-        state.write("onboarding progress") { try $0.markProgress(step, interacted: interacted) }
-    }
-
-    /// Continue Setup (Help menu, palette, Settings): the open first run as
-    /// it is, else the first run at its saved step (from its start when
-    /// none is saved). Finished or not, it stays as it was.
-    func continueSetup() {
-        // task-owner: one queued file read, then the window opens
-        Task { [weak self] in
-            guard let state = self?.state else { return }
-            let resume = await state.perform { $0.resumeStep() }
-            self?.presenter.showFirstRun(resumingAt: resume)
-        }
-    }
-
-    func markDone(completed: Bool) {
-        state.write("onboarding state") { try $0.markDone(completed: completed) }
-    }
-
-    /// The workspace this launch created on the New Tab page because the
-    /// tree had none (`FirstWorkspace`): the first run lands on it instead
-    /// of opening a second one. Cleared once onboarding landed.
-    var freshWorkspaceID: String?
-
-    /// Onboarding ended (Skip or Done): records it, then lands (D3).
-    func didEnd(completed: Bool) {
-        // Only the first run's Skip or Done ends the first run; another
-        // window's (Import and Sync, a single step) leaves it as it is.
-        let firstRun = controller?.model.isFirstRun ?? true
-        if firstRun { markDone(completed: completed) }
-        restoreMainWindow()
-        land(firstRun: firstRun)
-    }
-
-    /// A launch that gave the tree its first workspace (`FirstWorkspace`,
-    /// `freshWorkspaceID` set in `WindowManager.restore`) shows it on its New
-    /// Tab page at once, not the Home page: nothing was chosen yet (Lawrence
-    /// 2026-10-09: "drop user into main screen asap"). Else nothing.
-    func landOnFirstWorkspace() {
-        guard let fresh = freshWorkspaceID, services.machines.workspace(id: fresh) != nil else { return }
-        _ = services.windows.reveal(workspaceID: fresh)
-    }
-
-    /// A minimized main window comes back in place and to the front
-    /// (`OnboardingLanding.restoresMainWindow`).
-    private func restoreMainWindow() {
-        guard let controller = services.windows.active, let window = controller.window,
-              OnboardingLanding.restoresMainWindow(minimized: window.isMiniaturized) else { return }
-        window.deminiaturize(nil)
-        services.windows.bringToFront(controller)
-    }
-
-    /// D3 (cx-aha.2): Skip and Done of the first run (also when Continue
-    /// Setup reopened it) land on a New Tab page, one path for both
-    /// buttons (`OnboardingLanding`). Selecting a workspace only changes
-    /// what the window shows: no window is ordered front, so the person
-    /// stays on their Space and a fullscreen window keeps its Space; with
-    /// no window open, a new one opens on the current Space.
-    private func land(firstRun: Bool) {
-        let windows = services.windows
-        let fresh = freshWorkspaceID.flatMap { services.machines.workspace(id: $0) == nil ? nil : $0 }
-        let landing = OnboardingLanding.decide(firstRun: firstRun, hasOpenWindow: !windows.registry.value.openWindows.isEmpty,
-                                               shown: windows.active?.shownTopPage, fresh: fresh)
-        switch landing {
-        case .stay: return
-        case .select(let id): _ = windows.reveal(workspaceID: id)
-        case .newWorkspace: services.registry.perform("newTab")
-        }
-        freshWorkspaceID = nil
-    }
-
-    /// Imported history and bookmarks go into each browser profile's
-    /// omnibar history at launch (after `BrowserProfileService` moved
-    /// pre-profile imports into their own profiles).
-    static func seedHistory(profiles: [String], store: ImportedDataStore, cache: TabContentCache) {
-        // task-owner: one-shot launch load of the import store
-        Task {
-            for id in profiles {
-                guard let profile = BrowserProfileRecord.engineProfile(for: id) else { continue }
-                let batches = await store.batches(profile: id)
-                if !batches.isEmpty { cache.history(for: profile).merge(batches.flatMap(Self.historyEntries)) }
-            }
-        }
-    }
-
-    /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
-    /// bookmark rows (`BookmarkSuggestionFeed`), not as visits.
-    nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
-        batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
-    }
 }
 
-/// Saves each imported profile and adds it to the live omnibar history.
-struct AppImportDestination: ImportDestination {
-    let store: ImportedDataStore
-    /// The bookmarks model (`AppServices.importedBookmarkSink`), when present.
-    var bookmarks: (any ImportedBookmarkSink)?
-    /// The omnibar history of a browser profile id.
-    let history: @MainActor @Sendable (String) -> InMemoryBrowserHistory
+extension SavingImportDestination {
+    /// Into this app: each batch's pages join its browser profile's omnibar history.
+    @MainActor static func app(_ services: AppServices, bookmarks: (any ImportedBookmarkSink)? = nil) -> SavingImportDestination {
+        SavingImportDestination(sync: services.onboarding.historySync, bookmarks: bookmarks)
+    }
 
-    func commit(_ batch: ImportBatch) async throws {
-        try await store.save(batch)
-        if let bookmarks, batch.kinds.contains(.bookmarks) {
-            try await bookmarks.replaceImportedBookmarks(batch.bookmarks, source: batch.source)
+    /// Imported pages join (or leave) their browser profile's omnibar history (bookmarks reach it as bookmark rows).
+    static func omnibar(_ cache: TabContentCache) -> ImportHistorySync.Deliver {
+        { id, pages, gone in
+            let entries = pages.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
+            await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).apply(merging: entries, forgetting: gone) }
         }
-        let entries = OnboardingService.historyEntries(batch)
-        let target = batch.source.targetProfileID
-        await MainActor.run { history(target).merge(entries) }
     }
 }

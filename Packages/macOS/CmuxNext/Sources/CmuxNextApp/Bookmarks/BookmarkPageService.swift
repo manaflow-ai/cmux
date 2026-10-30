@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -94,6 +95,21 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
 
     var managerTree: BookmarkTree { services.bookmarks.tree(profile) }
 
+    func favicon(for node: BookmarkNode) -> CGImage? {
+        if node.isFolder { return services.bookmarks.folderIconCGImage(of: node) }
+        return services.bookmarks.favicon(of: node, profile: profile, fetching: true)?.cgImage
+    }
+
+    var canSetFolderIcons: Bool { services.bookmarks.supportsFolderIcons }
+
+    /// Set Icon and Remove Icon on a folder row run the same actions as the bar's menu.
+    func setIcon(of node: BookmarkNode) { perform("bookmark.setIcon", on: node) }
+    func removeIcon(of node: BookmarkNode) { perform("bookmark.clearIcon", on: node) }
+
+    private func perform(_ id: ActionID, on node: BookmarkNode) {
+        services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .bookmark, id: node.id)))
+    }
+
     func apply(_ operation: BookmarkOperation) -> Bool {
         do {
             try services.bookmarks.apply(operation, profile: profile)
@@ -112,9 +128,11 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
         BookmarkOpener(services: services).openAll(in: folder, profile: profile, fromTab: tabKey)
     }
 
-    func importHTML() { BookmarkFiles(services: services).chooseImport(profile: profile) }
-    func importFromBrowser() { BookmarkBrowserImport(services: services).choose(profile: profile, window: NSApp.keyWindow) }
-    func exportHTML() { BookmarkFiles(services: services).chooseExport(profile: profile) }
+    /// The ⋮ menu's rows run the registered actions on this page's profile; Add Bookmark and New
+    /// Folder add to `folder` and ask for the rest in the palette, as from the bookmarks bar.
+    func moreMenu(folder: String) -> NSMenu? {
+        services.registry.makeContextMenu(for: .bookmarkManager, arguments: ["folder": .string(folder), "profile": .string(profile)])
+    }
 
     func copy(_ text: String) {
         NSPasteboard.general.clearContents()

@@ -154,7 +154,7 @@ Order: 0 and 1 now (no fork, no window); 2 to the browser-host lead; 3 starts in
 - **P1. Backend.** The Passwords page's provider is the Mac app, not a Rust daemon module (UI-STACK default). Recommended: Mac app; the daemon holds nothing about passwords.
 - **P2. Agent metadata.** Agents and MCP see no sites or usernames (recommended), or an opt-in `passwords:metadata` scope.
 - **P3. Export.** Off by default with a setting; when on, native confirmation, device auth, Chromium's CSV writer to a path the user picks. Recommended. Alternative: no export at all.
-- **P4. `chrome://password-manager`.** Redirect user navigations to the cmux page once the page reaches parity (recommended), or keep Chromium's page reachable for people. Agents never reach it (slice 0, either way).
+- **P4. `chrome://password-manager`.** Redirect user navigations to the cmux page once the page reaches parity (recommended), or keep Chromium's page reachable for people. Agents never reach it (slice 0, either way). Done (cx-d0d.76, `ChromiumPageRoute.passwordsPage`): typed URLs, `openBrowser` and new-tab URL requests show the cmux page. A link inside Chromium's own settings, in the same tab or in a tab Chromium creates (`.adoptTab`, no URL known when it is adopted), still loads Chromium's page, which needs a fork-side refusal.
 - **P5. Incognito fill.** No fill and no save (recommended, today's behavior), or fill from the window's source profile like Chrome.
 - **P6. Extension managers in agent-driven tabs.** Fork per-tab extension block (recommended), or refuse agent marking while a password manager extension is enabled.
 - **P7. Prompt variant.** After dogfood of the three prototypes.

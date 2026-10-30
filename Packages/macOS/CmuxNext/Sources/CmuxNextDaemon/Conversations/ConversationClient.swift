@@ -11,12 +11,12 @@ public struct ConversationClient: Sendable {
     }
 
     public static func supported(by connection: DaemonConnection) async -> Bool {
-        await connection.identity?.supports(DaemonCapabilities.shared.localConversations) == true
+        await connection.identity?.supports(DaemonCapability.localConversations.rawValue) == true
     }
 
     private func require() async throws {
         guard await Self.supported(by: connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.localConversations])
+            throw DaemonError.missingCapabilities([DaemonCapability.localConversations.rawValue])
         }
     }
 
@@ -40,9 +40,26 @@ public struct ConversationClient: Sendable {
         return try await connection.request(ConversationHistoryRequest(conversation: conversation, beforeSeq: seq, limit: limit)).messages
     }
 
+    /// `conversation-thread`; throws `missingCapabilities` on a daemon without `conversation-thread-v1`.
+    public func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread {
+        try await require()
+        return try await connection.request(ConversationThreadRequest(conversation: conversation, root: root, afterSeq: seq, limit: limit))
+    }
+
+    public func historyPage(_ conversation: String, before seq: UInt64, limit: Int) async throws -> ConversationHistory {
+        try await require()
+        return try await connection.request(ConversationHistoryRequest(conversation: conversation, beforeSeq: seq, limit: limit))
+    }
+
     public func op(_ request: ConversationOpRequest) async throws -> ConversationOpResult {
         try await require()
         return try await connection.request(request)
+    }
+
+    /// `conversation-link-resolve`: opens a permalink (conversation-tree-v1).
+    public func resolveLink(_ url: String) async throws -> ConversationLinkTarget {
+        try await require()
+        return try await connection.request(ConversationLinkResolveRequest(url: url))
     }
 
     public func typing(_ conversation: String, actor: String, on: Bool) async throws {

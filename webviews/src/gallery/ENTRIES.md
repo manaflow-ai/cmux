@@ -137,7 +137,9 @@ Each action is one step, and the stage measures it:
 - layout shift: the step's CLS sum and each shift with its source node (0 allowed).
 - action-to-settled latency: wall time from dispatching the gesture until the page settles; the
   matrix reports p50 / p95 / max, and an entry may gate each step with `settleMaxMs` when the
-  interaction has a user-facing responsiveness budget.
+  interaction has a user-facing responsiveness budget. Settling waits on frames, so like the
+  long frames below the budget fails only from Chromium's Long Animation Frames timing; a
+  WebKit step over it warns with the number.
 - long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
   reported (warn). A frame over 33 ms fails only from Chromium's Long Animation Frames data:
   headless WebKit on a CPU-only VM renders in software, and its rAF timing measures the VM. So
@@ -205,6 +207,9 @@ chat). Do not write those entries yourself.
   `bun run gallery:dev` for the gallery alone at `http://127.0.0.1:4210/gallery/`.
 - Live, with hot reload (tailnet): `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/live/`
   follows `feat-cmux-next` within about 20 s of a push. A save shows in the open page by itself.
+- Shell-generated `frame.html` stages include their gallery source path and load only that entry;
+  direct `frame.html?entry=...` links without the optional source hint fall back to the full
+  registry and show an explicit loading state while unrelated gallery modules compile.
 - Your branch before it lands: `scripts/gallery-live.sh up <branch>` in hq serves the pushed branch
   at `.../18796/wt/<name>/` (it prints the URL) and follows its pushes; it stops after 2 h with no
   requests. At most 6 run at once; `scripts/gallery-live.sh down <name>` stops one.
@@ -236,7 +241,7 @@ An experiment is a named set of alternative implementations ("arms") of one beha
 Lawrence can see them side by side and pick one. Three pieces, all next to the component:
 
 1. The definition, `<name>.experiment.ts`: `defineExperiment({ id, title, description, arms,
-defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
+   defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
    `description`. `defaultArm` is the arm that ships. Add the definition to
    `src/experiments/registry.ts` (one import, one list item).
 2. The component reads its arm with `experimentArm(definition)`. The arm comes from one place: the
@@ -245,7 +250,7 @@ defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and 
    else `defaultArm`. Keep each arm's code path separate, so a losing arm is one deletion.
 3. The gallery entry gets `experiment: { definition, setup?, script, measurements? }`. `script` is
    a list of named steps (`{ name, run: (ctx) => ... }`, the play context of play.ts; `{ deep:
-selector }` targets elements inside open shadow roots). `setup` brings the stage to the start
+   selector }` targets elements inside open shadow roots). `setup` brings the stage to the start
    state with every animation finished at once.
 
 The entry then has a **Compare arms** view. Each cell is the same variant at the same size, scale,

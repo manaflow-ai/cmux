@@ -13,6 +13,9 @@ public struct LaunchSnapshot: Sendable {
     public var tree: DaemonTree
     /// The window records (`WindowStateStore`'s document), when saved.
     public var windows: WindowStateDocument?
+    /// The sidebar document (`sidebar.get`'s JSON) when the daemon saved it: the pinned band draws from it
+    /// before the handshake. Nil from an older daemon or one without `sidebar-doc-v1`.
+    public var sidebarDoc: Data?
     public var session: String
     public var writtenAtMs: UInt64?
 
@@ -20,12 +23,37 @@ public struct LaunchSnapshot: Sendable {
     public static let maximumBytes = 8 * 1024 * 1024
     static let schemaVersion = 1
 
+    /// Why a snapshot file was not used (logged: a skipped snapshot shows the connecting state).
+    public enum Skip: Error, CustomStringConvertible {
+        case unreadable(String), tooLarge(Int), undecodable(String), otherSchema(Int), otherSession(String)
+
+        public var description: String {
+            switch self {
+            case .unreadable(let reason): "unreadable: \(reason)"
+            case .tooLarge(let bytes): "too large: \(bytes) bytes"
+            case .undecodable(let reason): "undecodable: \(reason)"
+            case .otherSchema(let version): "schema \(version)"
+            case .otherSession(let session): "session \(session)"
+            }
+        }
+    }
+
     /// Decodes a snapshot file's bytes; nil for another schema or session.
     public static func decode(_ data: Data, session: String,
                               frontend: String = DaemonConnection.origin,
                               windowsSubject: String = WindowStateStore.defaultSubject) -> LaunchSnapshot? {
-        guard data.count <= maximumBytes, let file = try? JSONDecoder().decode(File.self, from: data),
-              file.schemaVersion == schemaVersion, file.session == session else { return nil }
+        try? read(data, session: session, frontend: frontend, windowsSubject: windowsSubject)
+    }
+
+    /// `decode`, throwing why the bytes were not used.
+    public static func read(_ data: Data, session: String,
+                            frontend: String = DaemonConnection.origin,
+                            windowsSubject: String = WindowStateStore.defaultSubject) throws(Skip) -> LaunchSnapshot {
+        guard data.count <= maximumBytes else { throw .tooLarge(data.count) }
+        let file: File
+        do { file = try JSONDecoder().decode(File.self, from: data) } catch { throw .undecodable(String(describing: error)) }
+        guard file.schemaVersion == schemaVersion else { throw .otherSchema(file.schemaVersion) }
+        guard file.session == session else { throw .otherSession(file.session) }
         let record = file.frontendProjections?.first { projection in
             projection.frontend == frontend && projection.scope == ProjectionScope.personal.rawValue
                 && projection.subjectKey == windowsSubject
@@ -36,15 +64,19 @@ public struct LaunchSnapshot: Sendable {
         }
         var tree = file.tree
         tree.personal = file.personal
-        return LaunchSnapshot(tree: tree, windows: windows, session: file.session, writtenAtMs: file.writtenAtMs)
+        let sidebarDoc = file.sidebarDoc.flatMap { $0 == .null ? nil : try? JSONEncoder().encode($0) }
+        return LaunchSnapshot(tree: tree, windows: windows, sidebarDoc: sidebarDoc, session: file.session, writtenAtMs: file.writtenAtMs)
     }
 
     /// Reads the snapshot at `path` (from `LaunchSnapshotLocation`).
-    public static func load(path: String, session: String) -> LaunchSnapshot? {
+    public static func load(path: String, session: String) throws(Skip) -> LaunchSnapshot {
         let url = URL(fileURLWithPath: path)
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= maximumBytes,
-              let data = try? Data(contentsOf: url) else { return nil }
-        return decode(data, session: session)
+        let size: Int
+        do { size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 } catch { throw .unreadable(String(describing: error)) }
+        guard size <= maximumBytes else { throw .tooLarge(size) }
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch { throw .unreadable(String(describing: error)) }
+        return try read(data, session: session)
     }
 
     private struct File: Decodable {
@@ -55,9 +87,12 @@ public struct LaunchSnapshot: Sendable {
         /// Absent in a file from an older daemon.
         var personal: PersonalState?
         var frontendProjections: [FrontendProjection]?
+        /// Absent in a file from an older daemon.
+        var sidebarDoc: JSONValue?
 
         enum CodingKeys: String, CodingKey {
             case session, tree, personal
+            case sidebarDoc = "sidebar_doc"
             case schemaVersion = "schema_version"
             case writtenAtMs = "written_at_ms"
             case frontendProjections = "frontend_projections"
@@ -81,6 +116,29 @@ public struct LaunchSnapshotLocation: Sendable {
     public func path(session: String) -> String? {
         defaults().string(forKey: Self.key(session: session))
     }
+
+    /// The newest launch snapshot of `session` in a daemon state directory
+    /// (`CMUX_TUI_STATE_DIR`), where cmux-tui keeps each registry in
+    /// `<session>-<id>/`: the path when the defaults lost it. Nil without a
+    /// directory or a snapshot.
+    public static func find(session: String, in stateDirectory: URL?, files: FileManager = .default) -> String? {
+        guard let stateDirectory,
+              let entries = try? files.contentsOfDirectory(at: stateDirectory, includingPropertiesForKeys: nil) else { return nil }
+        // `<session>-<id>` with one id part, so `cmux-app-a` never takes `cmux-app-a-b`'s registry.
+        let ours = entries.filter { entry in
+            let name = entry.lastPathComponent
+            return name.hasPrefix(session + "-") && !name.dropFirst(session.count + 1).contains("-")
+        }
+        let candidates = ours.compactMap { directory -> (String, Date)? in
+            let file = directory.appendingPathComponent(fileName)
+            guard let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return nil }
+            return (file.path, modified)
+        }
+        return candidates.max { $0.1 < $1.1 }?.0
+    }
+
+    /// The daemon's snapshot file name (`LAUNCH_SNAPSHOT_FILE`).
+    static let fileName = "launch-snapshot.json"
 
     /// Records what the handshake reported (nil forgets it).
     public func record(_ path: String?, session: String) {

@@ -43,10 +43,11 @@ final class RemoteStateCard: NSView {
         surface.frame = bounds
     }
 
-    func configure(overlay: RemotePaneOverlay, host: String, colors: RemotePaneColors) {
+    func configure(overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, reconnecting: Bool = false,
+                   colors: RemotePaneColors) {
         for view in content { column.removeArrangedSubview(view); view.removeFromSuperview() }
-        let spec = Self.spec(for: overlay, host: host)
-        let icon: NSView = spec.spinner ? Self.spinner(colors: colors) : {
+        let spec = Self.spec(for: overlay, host: host, viaCloudTunnel: viaCloudTunnel, reconnecting: reconnecting)
+        let icon: NSView = spec.spinner ? Self.spinner() : {
             let image = RemoteChrome.symbol(spec.symbol, size: 24)
             image.contentTintColor = spec.symbolIsAttention ? colors.attention : colors.textSecondary
             return image
@@ -77,18 +78,19 @@ final class RemoteStateCard: NSView {
 
     private func press(_ kind: ButtonKind) {
         switch kind {
-        case .reconnect: onReconnect?()
+        case .reconnect, .signIn: onReconnect?()
         case .cancel: onCancel?()
         case .close: onClose?()
         }
     }
 
     enum ButtonKind {
-        case reconnect, cancel, close
+        case reconnect, signIn, cancel, close
 
         var title: String {
             switch self {
             case .reconnect: RemoteViewStrings.reconnect
+            case .signIn: RemoteViewStrings.signIn
             case .cancel: RemoteViewStrings.cancel
             case .close: RemoteViewStrings.close
             }
@@ -106,7 +108,15 @@ final class RemoteStateCard: NSView {
         var note: String?
     }
 
-    static func spec(for overlay: RemotePaneOverlay, host: String) -> Spec {
+    /// `viaCloudTunnel`: a Cloud desktop over the app's own tunnel, which the phase-1 trust gap
+    /// (the development note) does not describe.
+    /// `reconnecting`: an earlier session showed frames, so this connect is a reconnect (the last
+    /// frame stays behind the card).
+    static func spec(for overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, reconnecting: Bool = false) -> Spec {
+        if viaCloudTunnel, overlay == .connecting {
+            return Spec(spinner: true, title: reconnecting ? RemoteViewStrings.reconnectingTitle(host) : RemoteViewStrings.connectingTitle(host),
+                        detail: RemoteViewStrings.connectingCloudDetail, buttons: [.cancel])
+        }
         switch overlay {
         case .connecting:
             return Spec(spinner: true, title: RemoteViewStrings.connectingTitle(host),
@@ -131,26 +141,22 @@ final class RemoteStateCard: NSView {
         case .ended(.consentDenied):
             return Spec(symbol: "hand.raised.slash", title: RemoteViewStrings.deniedTitle,
                         detail: RemoteViewStrings.deniedDetail(host), buttons: [.reconnect, .close])
+        case let .ended(.signInRequired(rejected)):
+            return Spec(symbol: "lock", symbolIsAttention: rejected, title: RemoteViewStrings.signInTitle(host),
+                        detail: rejected ? RemoteViewStrings.signInRejectedDetail(host) : RemoteViewStrings.signInDetail(host),
+                        buttons: [.signIn, .close])
         }
     }
 
-    /// A spinner, or a still glyph when loops are off (Reduce Motion).
-    private static func spinner(colors: RemotePaneColors) -> NSView {
-        guard Motion.animatesLoops else {
-            let image = RemoteChrome.symbol("ellipsis.circle", size: 24)
-            image.contentTintColor = colors.textSecondary
-            return image
-        }
-        let indicator = NSProgressIndicator()
-        indicator.style = .spinning
-        indicator.controlSize = .regular
-        indicator.isIndeterminate = true
+    /// The themed spinner in the card's scope; it stills itself when loops are off (Reduce Motion).
+    private static func spinner() -> NSView {
+        let indicator = StatusIndicatorView.spinner()
         indicator.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             indicator.widthAnchor.constraint(equalToConstant: 26),
             indicator.heightAnchor.constraint(equalToConstant: 26),
         ])
-        indicator.startAnimation(nil)
+        indicator.spin(true)
         return indicator
     }
 }

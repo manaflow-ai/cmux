@@ -2,6 +2,7 @@ mod events_page;
 use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
+pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;
 mod patch_apply;
 mod topology_load;
@@ -226,6 +227,11 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
+         -- Covers the startup compaction (compact_resource_mutations), which
+         -- otherwise scanned and sorted the whole table: 272 ms -> 16 ms cold
+         -- on a 41.6 GB registry.
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_revision
+           ON resource_mutations(committed_revision DESC, idempotency_key);
          CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
            ON resource_agent_projections(committed_revision DESC, terminal_id DESC);
          CREATE INDEX IF NOT EXISTS resource_agent_projections_by_state_revision
@@ -501,7 +507,12 @@ pub(crate) fn migrate_resource_mutations_to_session_scope(
          FROM resource_mutations_by_origin;
          DROP TABLE resource_mutations_by_origin;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
-           ON resource_mutations(operation, committed_revision DESC);",
+           ON resource_mutations(operation, committed_revision DESC);
+         -- Covers the startup compaction (compact_resource_mutations), which
+         -- otherwise scanned and sorted the whole table: 272 ms -> 16 ms cold
+         -- on a 41.6 GB registry.
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_revision
+           ON resource_mutations(committed_revision DESC, idempotency_key);",
     )?;
     Ok(())
 }
@@ -1994,6 +2005,10 @@ pub struct ResourceEventBatch {
     pub previous_revision: u64,
     pub revision: u64,
     pub changes: Value,
+    /// The journal record's `placement_shift`: placements that moved by
+    /// ordinal only and are not restated in `changes`
+    /// (`crate::state::placement_shift`).
+    pub placement_shift: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2654,7 +2669,10 @@ pub(crate) fn prune_unchanged_resource_changes(
             }
             ResourceChange::UpsertTab(tab) => {
                 tab_parents.insert(tab.pane_id.to_string());
-                tab_parents.extend(resource_field_any(
+                // The pane a live tab moves out of; a retired tab that
+                // Reopen Closed makes again under its id left its old pane
+                // when it closed (the validator reads the live row too).
+                tab_parents.extend(live_resource_field(
                     transaction,
                     "resource_tabs",
                     "pane_id",
@@ -2721,9 +2739,14 @@ fn resource_change_is_stored(
 ) -> anyhow::Result<bool> {
     Ok(match change {
         ResourceChange::UpsertWorkspace { workspace, position, active_screen } => {
+            let (name_source, name_revision) = workspace_name_store::sql_name_provenance(
+                workspace.name_source,
+                workspace.name_revision,
+            )?;
             let stored = transaction
                 .query_row(
-                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id
+                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
+                            w.name_source, w.name_revision
                      FROM resource_workspaces rw
                      JOIN workspaces w ON w.workspace_key = rw.workspace_key
                      WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
@@ -2736,17 +2759,22 @@ fn resource_change_is_stored(
                             row.get::<_, String>(2)?,
                             row.get::<_, Option<i64>>(3)?,
                             row.get::<_, Option<String>>(4)?,
+                            (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
                         ))
                     },
                 )
                 .optional()?;
-            stored.is_some_and(|(numeric_id, name, group_key, stored_position, screen)| {
-                i64::try_from(workspace.id).ok() == Some(numeric_id)
-                    && name == workspace.name
-                    && group_key == workspace.group_key
-                    && stored_position == i64::try_from(*position).ok()
-                    && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
-            })
+            stored.is_some_and(
+                |(numeric_id, name, group_key, stored_position, screen, (source, revision))| {
+                    i64::try_from(workspace.id).ok() == Some(numeric_id)
+                        && name == workspace.name
+                        && group_key == workspace.group_key
+                        && stored_position == i64::try_from(*position).ok()
+                        && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
+                        && source == name_source
+                        && revision == name_revision
+                },
+            )
         }
         ResourceChange::UpsertScreen(screen) => {
             let stored = transaction
@@ -3348,19 +3376,27 @@ fn upsert_resource_workspace(
     active_screen: Option<&ScreenPublicId>,
     revision: i64,
 ) -> anyhow::Result<()> {
+    // Identity first: a key bound to another public id is refused as that,
+    // not as a name conflict with the other workspace's row.
     upsert_workspace_resource(transaction, workspace, revision)?;
+    workspace_name_store::fence_stored_row(transaction, workspace)?;
     let position = i64::try_from(position).context("workspace position exceeds SQLite range")?;
+    let (name_source, name_revision) =
+        workspace_name_store::sql_name_provenance(workspace.name_source, workspace.name_revision)?;
     transaction.execute(
         "INSERT INTO workspaces(
            workspace_key, numeric_id, name, group_key, position, tombstoned,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
+           created_revision, updated_revision, deleted_revision,
+           name_source, name_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL, ?7, ?8)
          ON CONFLICT(workspace_key) DO UPDATE SET
            numeric_id=excluded.numeric_id,
            name=excluded.name,
            group_key=excluded.group_key,
            position=excluded.position,
-           updated_revision=excluded.updated_revision",
+           updated_revision=excluded.updated_revision,
+           name_source=excluded.name_source,
+           name_revision=excluded.name_revision",
         params![
             workspace.key,
             i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
@@ -3368,6 +3404,8 @@ fn upsert_resource_workspace(
             workspace.group_key,
             position,
             revision,
+            name_source,
+            name_revision,
         ],
     )?;
     transaction.execute(
@@ -3414,6 +3452,15 @@ fn upsert_resource_tab(
     tab: &RegistryTab,
     revision: i64,
 ) -> anyhow::Result<()> {
+    // A retired tab made again (Reopen Closed of that same tab, see below)
+    // takes its identity back before the identity check refuses a tombstone.
+    if tab_is_retired(transaction, tab.public_id.as_str())? {
+        transaction.execute(
+            "UPDATE resource_identities SET deleted_revision = NULL, updated_revision = ?2
+             WHERE public_id = ?1 AND kind = 'tab'",
+            params![tab.public_id.as_str(), revision],
+        )?;
+    }
     upsert_resource_identity(transaction, tab.public_id.as_str(), "tab", revision)?;
     let (content_kind, content_id) = match &tab.content_id {
         ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
@@ -3450,16 +3497,42 @@ fn upsert_resource_tab(
             );
         }
     }
-    if let Some((stored_kind, stored_id)) = transaction
+    let stored = transaction
         .query_row(
-            "SELECT content_kind, content_id FROM resource_tabs WHERE public_id = ?1",
+            "SELECT content_kind, content_id, deleted_revision IS NOT NULL FROM resource_tabs
+             WHERE public_id = ?1",
             [tab.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)),
         )
-        .optional()?
-        && (stored_kind != content_kind || stored_id != content_id)
-    {
-        anyhow::bail!("tab {} cannot change its content identity", tab.public_id);
+        .optional()?;
+    match stored {
+        // A retired tab made again: only Reopen Closed of that same tab gets
+        // here (`requested_reopen_tab_id` admits a retired tab id, client ids
+        // must be unknown, random ids never collide), so its link keeps
+        // working (plans/cmux-next/durable-links-DESIGN.md). It takes its new
+        // content (a reopened terminal starts a new one) and lives again.
+        Some((_, _, true)) => {
+            transaction.execute(
+                "UPDATE resource_tabs
+                 SET deleted_revision = NULL, position = ?2, pane_id = ?3, content_kind = ?4,
+                     content_id = ?5, updated_revision = ?6
+                 WHERE public_id = ?1",
+                params![
+                    tab.public_id.as_str(),
+                    i64::try_from(tab.position).context("tab position exceeds SQLite range")?,
+                    tab.pane_id.as_str(),
+                    content_kind,
+                    content_id,
+                    revision,
+                ],
+            )?;
+        }
+        Some((stored_kind, stored_id, false))
+            if stored_kind != content_kind || stored_id != content_id =>
+        {
+            anyhow::bail!("tab {} cannot change its content identity", tab.public_id);
+        }
+        _ => {}
     }
     transaction.execute(
         "INSERT INTO resource_tabs(
@@ -3488,6 +3561,18 @@ fn upsert_resource_tab(
     Ok(())
 }
 
+/// Whether `tab_id` names a retired (closed) tab row.
+fn tab_is_retired(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<bool> {
+    Ok(transaction
+        .query_row(
+            "SELECT deleted_revision IS NOT NULL FROM resource_tabs WHERE public_id = ?1",
+            [tab_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
 fn upsert_resource_terminal(
     transaction: &Transaction<'_>,
     public_id: &TerminalPublicId,
@@ -3501,7 +3586,7 @@ fn upsert_resource_terminal(
     {
         require_live_workspace(transaction, &terminal.workspace_key)?;
     }
-    let launch_spec = canonical_json(&terminal.launch_spec)?;
+    let launch_spec = canonical_json(&durable_launch_spec(terminal))?;
     if launch_spec.len() > MAX_LAUNCH_SPEC_BYTES {
         anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
     }
@@ -3555,7 +3640,7 @@ fn upsert_resource_terminal(
             terminal.lifecycle.as_str(),
             launch_spec,
             exit,
-            terminal.on_exit.as_str(),
+            terminal.on_exit.column(),
             revision,
             (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(revision),
         ],
@@ -3778,6 +3863,9 @@ fn tombstone_resource_tab_row(
          WHERE active_tab_id = ?2 AND deleted_revision IS NULL",
         params![revision, tab_id],
     )?;
+    // tab-attention-v1: a closed tab no longer needs the person; a reopen
+    // keeps the tab id, so the mark must not come back with it.
+    crate::state::tab_state_store::clear_closed_tab_attention(transaction, tab_id)?;
     tombstone_resource_identity(transaction, tab_id, revision)
 }
 
@@ -3926,21 +4014,24 @@ fn set_resource_workspace_order(
         &live,
         workspace_ids.iter().map(WorkspacePublicId::as_str),
     )?;
-    for (position, workspace_id) in workspace_ids.iter().enumerate() {
-        transaction.execute(
-            "UPDATE workspaces
-             SET position = ?1, updated_revision = ?2
-             WHERE workspace_key = (
-               SELECT workspace_key FROM resource_workspaces
-               WHERE public_id = ?3 AND deleted_revision IS NULL
-             ) AND tombstoned = 0 AND position != ?1",
-            params![
-                i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                revision,
-                workspace_id.as_str(),
-            ],
-        )?;
-    }
+    // One statement: the order as a JSON array (index = position), so a
+    // creation or move at 2000 workspaces is not 2000 statements; only rows
+    // whose position changes are written.
+    let order = serde_json::to_string(
+        &workspace_ids.iter().map(WorkspacePublicId::as_str).collect::<Vec<_>>(),
+    )?;
+    transaction.execute(
+        "UPDATE workspaces
+         SET position = target.position, updated_revision = ?2
+         FROM (SELECT rw.workspace_key AS workspace_key, CAST(entry.key AS INTEGER) AS position
+               FROM json_each(?1) AS entry
+               JOIN resource_workspaces AS rw
+                 ON rw.public_id = entry.value AND rw.deleted_revision IS NULL) AS target
+         WHERE workspaces.workspace_key = target.workspace_key
+           AND workspaces.tombstoned = 0
+           AND workspaces.position != target.position",
+        params![order, revision],
+    )?;
     Ok(())
 }
 
@@ -4061,9 +4152,11 @@ fn validate_touched_resource_invariants(
             ResourceChange::TombstoneWorkspace { workspace_id } => {
                 workspaces.insert(workspace_id.to_string());
             }
-            ResourceChange::SetWorkspaceOrder { workspace_ids } => {
-                workspaces.extend(workspace_ids.iter().map(ToString::to_string));
-            }
+            // An order change writes only `workspaces.position`: the set
+            // (set_resource_workspace_order) and the contiguous positions
+            // (below) are its invariants, so it touches no workspace's own
+            // rows; validating every workspace per create cost O(n).
+            ResourceChange::SetWorkspaceOrder { .. } => {}
             ResourceChange::SetActiveWorkspace { workspace_id } => {
                 if let Some(workspace) = workspace_id {
                     workspaces.insert(workspace.to_string());
@@ -4658,15 +4751,21 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
              LEFT JOIN resource_workspaces rw
                ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
              WHERE w.tombstoned = 0 AND rw.public_id IS NULL
-               AND NOT EXISTS (
-                 SELECT 1
+               AND w.workspace_key NOT IN (
+                 -- One list, read once: a correlated NOT EXISTS reread every
+                 -- receipt per live workspace (876 x 3,723: 2 s at each open
+                 -- of a nightly registry, Lawrence 2026-10-29).
+                 SELECT json_extract(
+                          creation.intent_json,
+                          '$.workspace_reservation.workspace_key'
+                        )
                  FROM resource_creation_receipts creation
                  WHERE creation.execution_kind = 'effect'
                    AND creation.state = 'executing'
                    AND json_extract(
                          creation.intent_json,
                          '$.workspace_reservation.workspace_key'
-                       ) = w.workspace_key
+                       ) IS NOT NULL
                )
              LIMIT 1",
             [],
@@ -5026,16 +5125,9 @@ fn upsert_resource_identity(
 }
 
 fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let violation = transaction
-        .query_row("PRAGMA foreign_key_check", [], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })
-        .optional()?;
+    // The registry state tables only: the receipt ledgers and journal history
+    // are validated when read, and walking them made a large registry's open slow.
+    let violation = first_state_foreign_key_violation(transaction)?;
     if let Some((table, rowid, parent, index)) = violation {
         anyhow::bail!(
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"

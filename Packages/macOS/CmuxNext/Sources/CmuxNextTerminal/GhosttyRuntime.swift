@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextProcessEnvironment
+public import CmuxNextDesign
 import CmuxNextWakeups
 import GhosttyNextKit
 import os
@@ -119,6 +120,7 @@ public final class GhosttyRuntime {
         guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity) else { return }
         configuredBackgroundOpacity = opacity
         adoptedDuringReload = false
+        applyColorTransitionToSurfaces()
         ghostty_app_update_config(app, fresh)
         // Ghostty answers with CONFIG_CHANGE on this thread: the config it
         // applied carries the light/dark variant, `fresh` does not (it
@@ -127,10 +129,11 @@ public final class GhosttyRuntime {
         configDiagnostics = diagnostics
     }
 
-    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
+    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`). The caller hands over
+    /// its own clone of it (`GhosttyActionDecoder`), which this keeps and later frees.
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
         adoptedDuringReload = true
-        replaceConfig(ghostty_config_clone(applied))
+        replaceConfig(applied)
     }
 
     private func replaceConfig(_ fresh: ghostty_config_t?) {
@@ -156,6 +159,34 @@ public final class GhosttyRuntime {
     /// `reloadConfig()`.
     public static var themeOverride: String?
 
+    /// `appearance.themeEdits`: per-token color edits to themes, loaded after
+    /// the theme they edit (`themeLines`). Set it, then call `reloadConfig()`.
+    public static var themeEdits = ThemeEdits.none
+
+    /// `selection-background = <color>` for `appearance.highlightColor` (`ThemeEdits.highlight`),
+    /// loaded after the theme and its edits, so it wins in every terminal (a space, workspace or
+    /// terminal theme too) and reaches the chrome and pages through the config's selection color
+    /// (`ThemeBridge`). Empty for nil or anything but `#rrggbb`, so no other line can be injected.
+    public nonisolated static func highlightLines(_ color: String?) -> [String] {
+        guard let color, ThemeEdits.isColor(color) else { return [] }
+        return ["selection-background = \(color.lowercased())"]
+    }
+
+    /// The light/dark side `themeLines` takes from a pair, as the app's
+    /// color scheme last was (`applyColorScheme`).
+    static var colorSchemeIsDark = false
+
+    /// The theme lines cmux loads after the user's config files: `theme =
+    /// <spec>`, then the edits of the theme in effect (a pair's variant for
+    /// `isDark`), so an edited token wins and the rest stay the theme's.
+    /// `theme` nil is the Ghostty config's own theme, which has no name to
+    /// key edits by.
+    public nonisolated static func themeLines(_ theme: String?, isDark: Bool, edits: ThemeEdits) -> [String] {
+        guard let line = themeOverrideLine(theme) else { return [] }
+        let name = theme.flatMap(ThemeSpec.init).map { $0.name(isDark: isDark) }
+        return [line] + (name.map(edits.configLines(for:)) ?? [])
+    }
+
     /// `theme = <value>` for a well-formed theme spec; nil for anything
     /// that could inject another config line.
     nonisolated static func themeOverrideLine(_ value: String?) -> String? {
@@ -166,22 +197,27 @@ public final class GhosttyRuntime {
     }
 
     /// Loads the user's config. `theme` replaces `themeOverride` (a room,
-    /// workspace or terminal theme; see `themeConfig(named:)`).
-    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
+    /// workspace or terminal theme; see `themeConfig(named:)`). `configFile`
+    /// replaces `configOverrideKey`'s file for one load, so a test can load a
+    /// file of its own without writing the process environment: a setenv after
+    /// `ghostty_init` frees the environ copy libghostty reads, and the next
+    /// `ghostty_config_finalize` crashes (SIGSEGV; `ProcessEnvironmentGuard`).
+    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil,
+                           configFile: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
-        // cmux's terminal padding, theme and keybinds, before the user's
-        // files so theirs win.
+        // cmux's defaults, before the user's files so theirs win.
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
-        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
+        GhosttyUnfocusedSplit.loadDefault(into: config)
+        if let path = configFile ?? ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
-            ghostty_config_load_default_files(config)
+            loadDefaultFiles(into: config)
         }
         ghostty_config_load_recursive_files(config)
-        if let line = themeOverrideLine(theme ?? themeOverride) {
-            ghostty_config_load_string(config, line, UInt(line.utf8.count), "cmux.json")
+        for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) + highlightLines(themeEdits.highlight) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         for line in fontOverrideLines(fontOverride) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
@@ -192,7 +228,7 @@ public final class GhosttyRuntime {
         _ = configGet(config, &configured, key: "background-opacity")
         var configuredBlur: Int16 = 0
         _ = configGet(config, &configuredBlur, key: "background-blur")
-        for line in backgroundOverrideLines(backgroundOverride, configuredOpacity: configured, configuredBlur: Int(configuredBlur)) {
+        for line in GhosttyConfigBackground.overrideLines(configuredOpacity: configured, configuredBlur: Int(configuredBlur), theme: theme) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         // In a translucent window the root view's material and tint are the
@@ -203,11 +239,13 @@ public final class GhosttyRuntime {
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
         opacity = min(max(configured, 0), 1)
+        seeThroughLoaded = seeThroughShown
         if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
-                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden) {
+                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
+        loadImageStorageDefaultIfUnset(into: config)
         let count = ghostty_config_diagnostics_count(config)
         for index in 0..<count {
             let diagnostic = ghostty_config_get_diagnostic(config, index)
@@ -304,6 +342,14 @@ public final class GhosttyRuntime {
     private func applyColorScheme(_ appearance: NSAppearance) {
         guard let app else { return }
         isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let switched = isDark != Self.colorSchemeIsDark
+        Self.colorSchemeIsDark = isDark
+        defer {
+            // A light/dark pair's edits are its variants': the other side's need a reload.
+            if switched, !Self.themeEdits.isEmpty, let spec = Self.themeOverride.flatMap(ThemeSpec.init), spec.light != spec.dark {
+                reloadConfig()
+            }
+        }
         ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
         // A surface copies the app's scheme only when it is created; live
         // ones need it too (as Ghostty.app does per surface view), or open
@@ -374,7 +420,10 @@ nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
 /// 0 would erase them, so the config stays as it is. A terminal background
 /// override (`appearance.surfaces.terminal`) makes the surfaces transparent
 /// in an opaque window too: the terminal host paints the override behind
-/// the cells (`ownerPaintsBackground`).
+/// the cells (`ownerPaintsBackground`). So does background art, which makes
+/// a window see-through at full opacity: the host then paints only where the
+/// panes do (`WindowBackdrop.panesPaintBackground`), and the art reads
+/// through the window's one legible tint behind the cells.
 nonisolated enum GhosttyRuntimeSurfacePolicy {
     static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false) -> String? {
         (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells ? "background-opacity = 0" : nil

@@ -42,6 +42,10 @@ pub fn breaks_params_rule(
     if setting && meta.contains_key(&p.gesture_ticket_key) {
         return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
+    // A permission answer's `_meta` holds the pick's ticket and nothing else.
+    if method == "_acpmux/permission_respond" {
+        return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
+    }
     // A prompt held for the folder trust answer redeems its ticket beside its
     // acpmux.promptId (AcpmuxPaneMethods.swift `breaksParamsRule`).
     let prompt = method == "session/prompt";
@@ -50,7 +54,27 @@ pub fn breaks_params_rule(
     }
     let Some(raw_acpmux) = meta.get("acpmux") else { return false };
     let Some(acpmux) = raw_acpmux.as_object() else { return true };
-    acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k))
+    if acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k)) {
+        return true;
+    }
+    // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
+    // in a harness's argv or env): one model id, never a flag or anything else.
+    method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
+}
+
+/// The longest `_meta.acpmux.model` a start may carry, in bytes.
+pub const MAXIMUM_MODEL_ID_BYTES: usize = 256;
+
+/// One model id as harnesses name them (`claude-opus-5-5[1m]`,
+/// `provider/model:tag`, `model@version`): 1 to [`MAXIMUM_MODEL_ID_BYTES`]
+/// ASCII letters, digits and `._-/:@[]+`, not starting with `-`
+/// (AcpmuxPaneMethods+Params.swift `isModelID`).
+pub fn is_model_id(value: &Value) -> bool {
+    let Some(model) = value.as_str() else { return false };
+    !model.is_empty()
+        && model.len() <= MAXIMUM_MODEL_ID_BYTES
+        && !model.starts_with('-')
+        && model.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/:@[]+".contains(&b))
 }
 
 /// A session/prompt with every `_meta` inside its prompt blocks removed, at
@@ -173,8 +197,18 @@ pub fn session_refusal(
         return None;
     }
     let session = named.and_then(Value::as_str);
+    // Other params that name a session must name one of the pane's too.
+    let params = object.get("params").and_then(Value::as_object);
+    let param = |key: &String| params.and_then(|p| p.get(key));
+    let others_held = p.scoped_session_params.get(method).is_none_or(|keys| {
+        keys.iter().all(|key| param(key).and_then(Value::as_str).is_some_and(&holds))
+    });
+    // Ones that may name a session: none is fine, a named one (even null) must be the pane's.
+    let optional_held = p.optional_scoped_session_params.get(method).is_none_or(|keys| {
+        keys.iter().all(|key| param(key).is_none_or(|v| v.as_str().is_some_and(&holds)))
+    });
     match session {
-        Some(s) if holds(s) => None,
+        Some(s) if holds(s) && others_held && optional_held => None,
         _ => Some(Refused {
             refusal: Refusal::SessionNotInPane,
             method: Some(method.to_owned()),

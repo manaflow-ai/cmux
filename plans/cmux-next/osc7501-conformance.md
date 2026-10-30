@@ -12,8 +12,9 @@ window snapshots are in hq `.cmux-scratch/videos/cx-6so.36.5/` (`baseline-*`, `a
 Baseline: every record step passes, the query is answered (ST and BEL), but there are no banners,
 no app inheritance and no `Pst`. After the fix: banners "terraform needs approval", "A program
 failed", "EU West needs approval", "deploy asks a question" and "build failed", each with its
-workspace as subtitle. Regions show app=deploy, and infocmp shows `Pst`. XTGETTCAP `Pst` is still
-unanswered (the control capability `Co` is answered, so the DCS path works).
+workspace as subtitle. Regions show app=deploy, and infocmp shows `Pst`. XTGETTCAP `Pst` was still
+unanswered then (the control capability `Co` was answered, so the DCS path worked); it is answered
+since the ghostty-next pin moved (see the table).
 
 Layers: **P** = parser, `ghostty-next/src/terminal/osc/parsers/program_status.zig`
 (ported from ghostty-org/ghostty#14560 in manaflow-ai/ghostty-next#29) and its
@@ -85,13 +86,13 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 | `OSC 7501 ; ?` answered with the same body, same terminator | yes | P handler `.query` (only when a program_status effect is set); terminal host answers once (`host_parser.rs` `query_only_sink`, mirror `on_pty_write: None`); live `query-st`, `query-bel` |
 | only fixed bytes written back, records unreadable by the program | yes | P handler writes `\x1b]7501;?` + ST only |
 | **terminfo `Pst=\E]7501;%p1%s\E\\` (SHOULD)** | **fixed** | shipped overlay `Resources/terminfo-overlay/{78/xterm-ghostty,67/ghostty}` and base `Resources/ghostty/terminfo`; red `923186a09e37`, fix `8f789578fa97`; `scripts/cmux-next/tests/bundled-terminfo.test.sh`; live `terminfo-pst` |
-| XTGETTCAP `Pst` (same table) | **fixed in fork, pin pending** | manaflow-ai/ghostty-next#32 (red `8754b730a`, green `97f843dd9`, test "XTGETTCAP responses"); needs the ghostty-next pin bump (CORE window); live `xtgettcap-pst` stays a gap until then |
+| XTGETTCAP `Pst` (same table) | **fixed** | manaflow-ai/ghostty-next#32 (red `8754b730a`, green `97f843dd9`, test "XTGETTCAP responses"), pinned by `19fd88bc2321`; live `xtgettcap-pst` (2026-10-12, Linux cmux-tui from the hosted gate): `DCS +q507374` answers `DCS 1+r507374=…`, the hex of `\E]7501;%p1%s\E\\` |
 
 ## Display, notifications, security
 
 | Spec rule / contract row | Verdict | Where / evidence |
 | --- | --- | --- |
-| never markup; plain text only | yes | S shows `title` only as a `StatusReport.label`; banners are plain `UNNotificationContent` text |
+| never markup; plain text only | yes | S shows `title` as a `StatusReport.label`, and `title` and `msg` after `app` on the tab hover card's own quieter line (`StatusMapping.detail`, `TabHoverCardView`, cx-6so.36.9; test `ProgramStatusHoverDetailTests`); banners are plain `UNNotificationContent` text |
 | disarm bidi/invisible formatting outside the grid (SHOULD) | yes | D `shown_text` strips Cf controls; test `shown_text_drops_invisible_formatting_and_caps_length`; live `bidi` |
 | `msg`: MUST NOT read meaning into it | yes | no code branches on `msg` |
 | tab indicator: working (progress), blocked = attention dot, error/done = unseen badge | yes | S `StatusMapping.reports/needsInput/outcome`, `TabItemMapping.status`; live snapshots |
@@ -108,14 +109,14 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 | --- | --- | --- |
 | CLI `cmux terminal <sel> status [--json]`, MCP `terminal_get` | yes | `cmux-tui/crates/cmux-tui/src/cli/command/plan.rs`; live script reads every step through it |
 | session events / snapshot `extra.program_status` | yes | test `program_status_osc7501_reaches_snapshot_and_event_feed` |
-| cmux TUI | partial, not shown live | blocked and error records now post notifications to the same ledger that drives the TUI's tab and sidebar unread dots (`ui/sidebar.rs` `workspace_unread_color`). The TUI draws no working spinner or progress for any source (OSC 9;4 also has none). The live script's TUI step (TUI attached inside an app terminal) captured no usable screen, so the TUI is not proven live. |
-| daemon restart | gap | records are lost; the terminal host keeps none and the mirror is rebuilt from a screen snapshot, so the next report restores them. Fix needs the host to keep records and a host protocol field (CORE + terminal-host protocol). |
+| cmux TUI | yes | fixed (cx-6so.36.7): each tab in `list-workspaces` carries `program_status` (the strongest non-idle record's state and progress, as the app picks it), and a coalesced `program-status-changed` subscribe event carries the new value whenever it changes, which the TUI patches into its cached tree in place (no full refresh, no input stall). The tab bar shows a working program's progress after the title (`40%`, or `⋯` without one), `!` while it waits on the user and `✗` after it failed, tinted warning and error once its notification is read; a finished program shows nothing beyond its notification dot. The sidebar shows no mark yet. Test `a_remote_tab_shows_its_programs_progress_then_its_wait` (a TUI attached to a daemon over its socket). OSC 9;4 progress still has no TUI indicator. |
+| daemon restart | yes | fixed (cx-6so.36.6): the terminal host keeps the records and its snapshot carries them (`FLAG_PROGRAM_STATUS`, `supports_program_status`); the adopting daemon restores them after the replay, `updated_seq` included. Test `program_status_records_survive_a_daemon_restart`. A host started before this change has no records to give, so its terminals still start empty after a restart. Restoring raises no notification for a record that started waiting while no daemon was attached; its tab shows it. |
 | nested multiplexers (tmux, nested cmux, ssh) | yes for ssh; documented for the rest | ssh is transparent. A program inside tmux needs tmux passthrough (`allow-passthrough on` + DCS wrapping, the program's choice). A program inside a nested cmux reports to the inner terminal, whose daemon keeps the records; the outer cmux sees nothing, as the spec's "per pseudo-terminal" model says. |
 
 ## Left open, with reasons
 
-1. XTGETTCAP `Pst`: merged only once manaflow-ai/ghostty-next#32 lands and the pin moves (CORE window, rebuild of libghostty-vt and GhosttyKit).
-2. Daemon restart loses records (see table). Programs restore them with their next report; no data is wrong, only missing.
-3. The TUI has no working/progress indicator for any status source; adding one is a TUI feature, not a protocol rule.
-4. Notification wording comes from the daemon in English, like the agent-hook notifications ("Claude needs approval"); localizing daemon notification titles is a separate change for both producers.
-5. `msg` is not shown anywhere except the notification body (no hover detail exists for any status source yet).
+1. XTGETTCAP `Pst`: fixed (ghostty-next#32, pinned by `19fd88bc2321`; live check in the table).
+2. Daemon restart: fixed (cx-6so.36.6, see table). A replacement host (rehost after a host crash) is seeded with the owner's records and `next_seq` in its `LaunchAdopt` (cx-6so.36.10), so a daemon restart after a rehost restores them with the same `updated_seq`. Test `program_status_records_survive_a_host_replacement_then_a_daemon_restart`. When the records do not fit the frame beside the screen seed (at least about 1 MiB), only `next_seq` is seeded.
+3. TUI indicator: fixed (cx-6so.36.7, see table). OSC 9;4 progress has none yet.
+4. Program status banners: fixed (cx-6so.36.8). The app titles an OSC 7501 alert from the record it matched, in the app's language (`ProgramStatusNotification.title(localizations:)`, test `ProgramAlertTitleTests`); the daemon's English stays where the app shows the daemon's item: a notification with no record (or whose record misses the 1.5 s hold), the notifications panel row and its accessibility label, and the feed and iPhone push. Agent-hook notifications ("Claude needs approval") still come from the daemon in English.
+5. Fixed (cx-6so.36.9): the tab hover card shows the shown record's `app`, `title` and `msg` on one line. Other status sources (agent hooks, workspace status) still have no hover detail.

@@ -59,9 +59,6 @@ public nonisolated struct AppGrant: Sendable, Hashable, Codable {
         }
         return nil
     }
-
-    /// Scopes that are on (not `.denied`).
-    public var activeScopes: Set<String> { Set(scopes.filter { $0.value != .denied }.keys) }
 }
 
 /// Resource selectors (section 5.1): nil means any. An op whose params

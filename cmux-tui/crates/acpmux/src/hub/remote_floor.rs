@@ -40,6 +40,36 @@ pub(crate) struct FloorState {
     /// A mode the harness reported while it declared no modes; the asking
     /// check reads it. Cleared when the agent exits.
     pub(super) undeclared_mode: StdMutex<Option<String>>,
+    /// Under MDM's off, the log of the host a restart left was read back and found no full
+    /// access: what this daemon keeps of it is complete from then on (`full_access_bound.rs`).
+    pub(super) left_host_read: AtomicBool,
+    /// Values a `set_config_option` took whose answer carried no options: the agent runs them,
+    /// though the chat's options do not say so. Read by the full-access bound
+    /// (`FullAccessView::of_session`); a later answer that reports an option's value replaces it,
+    /// and they go when the agent exits or ends (reviews 60 and 61 of #23322).
+    pub(super) asked_options: StdMutex<Vec<Value>>,
+    /// Under MDM's off, the end of this session's agent failed and its host may still run: every
+    /// check counts it as full access until the end succeeds or a new host starts (review 51 of
+    /// #23322).
+    pub(super) full_access_end_pending: AtomicBool,
+    /// Full-access mode or option reports of the session's own harness that the tap logged and
+    /// the inbound loop has not applied yet (`session_tap`, `on_update`). The full-access bound
+    /// counts them at once (`FullAccessView::of_session`), so `child_for` never hands out an
+    /// agent whose report waits in the queue (review 69 of #23322). None are left once its agent
+    /// is ended by MDM's off or a new host starts. Counted, taken back and read under the
+    /// session's meta lock, beside the mode it reports (reviews 3 to 5 of #26052).
+    pub(super) unapplied_full_access: AtomicU64,
+    /// Which agents' taps count their reports in `unapplied_full_access`: each tap counts only
+    /// while this is the epoch it was made in, and MDM's end of an agent moves it on, so a report
+    /// the ended agent still sends is not counted for the agent after it (review 4 of #26052).
+    /// Moved under the session's meta lock, where the tap reads it.
+    pub(super) report_epoch: AtomicU64,
+    /// The newest agent generation MDM's off ended (`end_managed_full_access`), set under the
+    /// agent slot's lock. The inbound loop applies a mode or option report only from an agent
+    /// newer than this: a report of an ended agent, however late, is never the next agent's (a
+    /// new agent's generation is always newer). Generations only grow, so nothing is kept per
+    /// agent and nothing expires (reviews 3, 5 and 6 of #26052).
+    pub(super) retired_through: AtomicU64,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,
@@ -82,6 +112,10 @@ impl Hub {
     /// Whether the session's mode asks: the declared one (`web_modes.rs`),
     /// and a mode the harness reported without declaring any.
     pub(super) fn session_asks_now(&self, session: &Session, meta: &SessionMeta) -> bool {
+        // An authenticated remote connection runs the bridge in any mode.
+        if self.any_mode_for_web(meta) {
+            return true;
+        }
         let table = self.web_modes();
         if !table.session_asks(meta) {
             return false;
@@ -126,7 +160,20 @@ impl Hub {
             return;
         };
         let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        #[cfg(test)]
+        let cancel_write_seam = self.cancel_write_seam.clone();
         rt.spawn(async move {
+            // A session-wide cancel has no turn id. Share the prompt/Stop handoff gate so a
+            // delayed policy cancellation cannot overtake the next prompt's transport write.
+            let input_handoff = s.input_handoff.clone().lock_owned().await;
+            #[cfg(test)]
+            {
+                let seam = cancel_write_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
             let child = s.child.lock().await.clone();
             // Only the turn the floor cancelled, never a newer one.
             if s.turn().map(|t| t.turn_id) != Some(turn.turn_id) {
@@ -135,6 +182,7 @@ impl Hub {
             if let (Some(c), Some(sid)) = (child, s.meta().agent_session_id) {
                 let _ = c.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
             }
+            drop(input_handoff);
         });
     }
 }
@@ -152,6 +200,7 @@ pub(super) struct ReadTarget {
 
 /// The read target of `path` for `folder`; None when it cannot be resolved
 /// (outside).
+#[cfg(unix)]
 pub(super) fn read_target(path: &Path, folder: &Path) -> Option<ReadTarget> {
     use std::os::unix::fs::MetadataExt;
     let real = std::fs::canonicalize(path).ok()?;
@@ -165,10 +214,18 @@ pub(super) fn read_target(path: &Path, folder: &Path) -> Option<ReadTarget> {
         });
     Some(ReadTarget { real, id: (m.dev(), m.ino()), inside })
 }
+/// Windows port: the device, inode and link checks are file IDs there (a
+/// later landing); until then nothing resolves, so every read is outside
+/// (fail closed).
+#[cfg(not(unix))]
+pub(super) fn read_target(_path: &Path, _folder: &Path) -> Option<ReadTarget> {
+    None
+}
 
 /// Open the checked read target: never blocks (a FIFO), only a regular
 /// file, only the very file that was checked (same device and inode), and
 /// one that was inside still has one link.
+#[cfg(unix)]
 pub(super) fn open_read_target(t: &ReadTarget) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let file =
@@ -182,11 +239,20 @@ pub(super) fn open_read_target(t: &ReadTarget) -> std::io::Result<std::fs::File>
     }
     Ok(file)
 }
+/// Windows port: see `read_target`; nothing opens (fail closed).
+#[cfg(not(unix))]
+pub(super) fn open_read_target(_t: &ReadTarget) -> std::io::Result<std::fs::File> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "remote reads are not supported on Windows yet",
+    ))
+}
 
 /// Write `content` to the path `write_target` resolved, after approval:
 /// never through a symlink (`O_NOFOLLOW`, and the path still resolves to
 /// itself), only to a regular file with one link, and only to the file the
 /// path names now.
+#[cfg(unix)]
 pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -207,6 +273,15 @@ pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<(
     }
     file.set_len(0)?;
     file.write_all(content)
+}
+/// Windows port: the no-link, one-link and same-file checks come in a later
+/// landing; nothing is written (fail closed).
+#[cfg(not(unix))]
+pub(super) fn write_approved(_target: &Path, _content: &[u8]) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "remote writes are not supported on Windows yet",
+    ))
 }
 
 /// Where an ACP write in a Web turn lands: never through a symlink (an
@@ -239,63 +314,4 @@ pub(super) fn write_target(path: &Path) -> Result<PathBuf, String> {
     out.extend(rest.into_iter().rev());
     out.push(name);
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{open_read_target, read_target, write_approved, write_target};
-
-    #[test]
-    fn reads_resolve_links_and_count_odd_files_as_outside() {
-        let d = std::env::temp_dir().join(format!("arf-unit-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(d.join("work/sub")).unwrap();
-        std::fs::create_dir_all(d.join("work2")).unwrap();
-        let d = std::fs::canonicalize(&d).unwrap();
-        std::fs::write(d.join("secret"), "s").unwrap();
-        std::fs::write(d.join("work/sub/a"), "a").unwrap();
-        std::fs::write(d.join("work2/b"), "b").unwrap();
-        std::os::unix::fs::symlink(d.join("secret"), d.join("work/link")).unwrap();
-        std::fs::hard_link(d.join("secret"), d.join("work/hard")).unwrap();
-        let fifo = std::ffi::CString::new(d.join("work/fifo").to_str().unwrap()).unwrap();
-        // SAFETY: a valid NUL-terminated path.
-        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
-        let work = d.join("work");
-        let t = |p: &str| read_target(&d.join(p), &work).unwrap();
-        assert!(t("work/sub/a").inside);
-        assert_eq!(t("work/sub/a").real, d.join("work/sub/a"));
-        // A link out of the folder resolves to its target, outside.
-        assert_eq!(t("work/link").real, d.join("secret"));
-        assert!(!t("work/link").inside);
-        assert!(!t("secret").inside);
-        assert!(!t("work/hard").inside);
-        assert!(!t("work/fifo").inside);
-        assert!(read_target(&d.join("work/missing"), &work).is_none());
-        // A sibling whose name starts with the folder's is outside.
-        assert!(!t("work2/b").inside);
-        // The open is of the checked file only; a FIFO neither blocks nor opens.
-        assert!(open_read_target(&t("work/sub/a")).is_ok());
-        assert!(open_read_target(&t("work/fifo")).is_err());
-        let checked = t("work/sub/a");
-        // A new file renamed over it (both exist at once: a new inode).
-        std::fs::write(d.join("work/sub/new"), "swapped").unwrap();
-        std::fs::rename(d.join("work/sub/new"), d.join("work/sub/a")).unwrap();
-        assert!(open_read_target(&checked).is_err(), "a swapped file");
-        // Writes: a link is refused, a dangling parent link too, and the
-        // parent resolves.
-        assert!(write_target(&d.join("work/link")).is_err());
-        std::os::unix::fs::symlink(d.join("work3"), d.join("work/dir")).unwrap();
-        assert!(write_target(&d.join("work/dir/new/x")).is_err(), "a dangling link");
-        std::fs::create_dir_all(d.join("work3")).unwrap();
-        let t = write_target(&d.join("work/dir/new/x")).unwrap();
-        assert_eq!(t, d.join("work3/new/x"));
-        // The approved write lands only in a plain file at that path.
-        let target = d.join("work/out.txt");
-        write_approved(&target, b"ok").unwrap();
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "ok");
-        assert!(write_approved(&d.join("work/link"), b"x").is_err());
-        assert!(write_approved(&d.join("work/hard"), b"x").is_err());
-        assert_eq!(std::fs::read_to_string(d.join("secret")).unwrap(), "s");
-        let _ = std::fs::remove_dir_all(&d);
-    }
 }

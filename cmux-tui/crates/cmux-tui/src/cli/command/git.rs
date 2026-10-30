@@ -1,4 +1,4 @@
-//! `git status|diff|files|checkpoint`: the session host's git operations. The repository
+//! `git status|diff|branches|files|list|checkpoint|commit|push|worktree create|apply|remove`: the session host's git operations. The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -19,13 +19,25 @@ const TARGETS: &[(&str, &str)] = &[
     ("terminal", "term"),
 ];
 
-/// `git status`, `git diff [<path>...]` and `git files <query>...`.
+/// `git status`, `git diff [<path>...]`, `git branches`, `git files <query>...` and
+/// `git list`.
 pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     let selectors = target(flags, &mut params)?;
     let operation = match words {
         ["checkpoint", action @ ..] => return checkpoint::parse(action, flags, &selectors, params),
+        ["commit", paths @ ..] => return write::commit(paths, flags, &selectors, params),
+        ["push"] => return write::push(flags, &selectors, params),
+        ["worktree", "create"] => return write::worktree_create(flags, &selectors, params),
+        ["worktree", "apply"] => return write::worktree_apply(flags, &selectors, params),
+        ["worktree", "remove"] => return write::worktree_remove(flags, &selectors, params),
         ["status"] => Op::GitStatus,
+        ["branches"] => {
+            if let Some(value) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", value, 1, 1000)?;
+            }
+            Op::GitBranches
+        }
         ["diff", paths @ ..] => {
             let scope = flags.take("scope").unwrap_or_else(|| "uncommitted".to_string());
             validate_one_of("--scope", &scope, SCOPES)?;
@@ -40,6 +52,10 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
             if let Some(value) = flags.take("max-files") {
                 insert_bounded_u32(&mut params, "max_files", "--max-files", value, 1, 5000)?;
             }
+            if let Some(value) = flags.take("context-lines") {
+                let field = "context_lines";
+                insert_bounded_u32(&mut params, field, "--context-lines", value, 0, 1_000_000)?;
+            }
             if !paths.is_empty() {
                 let paths = paths.iter().map(|path| Value::String((*path).to_string()));
                 params.insert("paths".into(), Value::Array(paths.collect()));
@@ -52,6 +68,12 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
                 insert_bounded_u32(&mut params, "limit", "--limit", value, 1, 200)?;
             }
             Op::GitFilesSearch
+        }
+        ["list"] => {
+            if let Some(value) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", value, 1, 5000)?;
+            }
+            Op::GitFilesList
         }
         _ => return usage("git action"),
     };
@@ -89,3 +111,5 @@ fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selector
 mod checkpoint;
 #[cfg(test)]
 mod tests;
+mod write;
+pub(in crate::cli) use write::localize_commit_paths;

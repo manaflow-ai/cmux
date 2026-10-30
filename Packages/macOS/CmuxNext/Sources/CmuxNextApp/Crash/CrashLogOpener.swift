@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxNextCompat
 
 /// The one path every "Show Crash Logs" entrypoint takes (the Help menu, the
 /// palette, `cmux settings show-crash-logs`, the restart notice): the
@@ -28,9 +29,9 @@ nonisolated struct CrashLogOpener: Sendable {
         },
         reveal: { url in
             if url.hasDirectoryPath {
-                NSWorkspace.shared.open(url)
+                NSWorkspace.shared.openInBackground(url)
             } else {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
+                NSWorkspace.shared.revealInBackground([url])
             }
         }
     )

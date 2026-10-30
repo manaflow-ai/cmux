@@ -18,9 +18,6 @@ public nonisolated enum RemoteRdStreamKind: String, Sendable, Hashable, Codable 
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = RemoteRdStreamKind(rawValue: raw) ?? .unknown
     }
-
-    /// Media the viewer sends to the host.
-    public var isUpstream: Bool { self == .upAudio || self == .upVideo }
 }
 
 /// `stream_open`: opens stream `stream` (rd changes C3, C4, C6). The viewer

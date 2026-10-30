@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxHomeRender
 import Foundation
 
 /// CmuxHomeCore values as MessagesLab model values (catalyst Model.swift).
@@ -28,8 +29,55 @@ enum HomeMapping {
     /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
     typealias Links = (String) -> LinkMetadata?
 
+    /// A thread root's MessagesLab id and part owners, by its owner message id; nil when the
+    /// root is not among the mapped items or is retracted (a reply then shows as a plain message).
+    typealias Roots = (MessageID) -> (id: ID, owners: [Int])?
+
+    /// The thread roots among `items`, for `message(_:roots:)`: indexed by message id, a root's
+    /// parts mapped only when a reply asks for it.
+    static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
+                      media: @escaping Media = { _ in nil }, links: @escaping Links = { _ in nil }) -> Roots {
+        let wanted = indexed(items)
+        guard !wanted.isEmpty else { return { _ in nil } }
+        var byID: [MessageID: TranscriptItem] = [:]
+        for item in items {
+            if let mid = item.messageID, wanted.contains(mid), !item.isRetracted { byID.updateValue(item, forKey: mid) }
+        }
+        let found = byID
+        // A root with many replies is asked once per reply, per diff: map its parts once.
+        let mapped = RootCache()
+        return { root in
+            if let hit = mapped.entries[root] { return hit }
+            let entry = found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            mapped.entries.updateValue(entry, forKey: root) // a miss (nil) is cached too
+            return entry
+        }
+    }
+
+    /// The roots one `roots(in:)` answer already mapped (nil: not among the items).
+    private final class RootCache {
+        var entries: [MessageID: (id: ID, owners: [Int])?] = [:]
+    }
+
+    /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
+    /// `replyTo` when it names a later part of the root, else the root's last part): MessagesLab
+    /// lays it out and animates its arrival as a thread reply (connector, the root's 32 pt thread
+    /// gap). nil for a message that is no thread reply, or whose root is not among the mapped items
+    /// or retracted.
+    static func replyTo(_ item: TranscriptItem, roots: Roots) -> PartRef? {
+        guard let root = item.threadRoot, root != item.messageID, let r = roots(root), !r.owners.isEmpty else { return nil }
+        let homePart = item.replyTo?.message == root ? (item.replyTo?.partIndex ?? 0) : 0
+        // HomeStore names a whole message as part 0 (`PartRef(message:)`): that reply answers the root's
+        // last bubble, so the connector runs only from the bubble right above it, as in Messages. From
+        // part 0 it ran past a pasted block and pictures above the root's text (refs/imessage-layout/1.png).
+        // A part index that no shown part owns is the last part too.
+        let last = r.owners.count - 1
+        return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
+    }
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil }) -> Message {
+                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
+                        roots: Roots = { _ in nil }) -> Message {
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
         let messageID = id(item, aliases: aliases)
         // A person's text shows as typed, and so does a part with mentions (their offsets index
@@ -37,10 +85,31 @@ enum HomeMapping {
         // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
         let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
-        return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: parts, replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
+        var message = Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
+                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: edits(item),
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
+        // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
+        message.parent = parent(item, roots: roots)
+        if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
+            // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
+            // its seq still moves the read cursor, drawn as no row and counted as no reply.
+            message.deletedAt = Instant.format(item.createdAt)
+            message.replyTo = nil
+            message.parent = nil
+        }
+        return message
+    }
+
+    /// An edited message's edit as MessagesLab's `Message.edits`, so it shows "Edited" under it when it loads
+    /// already edited (a snapshot, a rebuild, an older page), as MessagesLab does: before, only a live edit
+    /// (HomeDiff `.edit`) added the label, and the next rebuild lost it. MessagesLab's `Edit.text` is the text
+    /// before the edit; HomeStore keeps no earlier text, so the edit holds the current text (the transcript reads
+    /// only that an edit exists; ComposerHistory reads the parts).
+    static func edits(_ item: TranscriptItem) -> [Message.Edit]? {
+        guard let at = item.editedAt, !item.isRetracted else { return nil }
+        let text = item.parts.compactMap { if case .text(let t, _) = $0 { t } else { nil } }.joined(separator: "\n")
+        return [Message.Edit(text: text, at: Instant.format(at))]
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the
@@ -78,16 +147,117 @@ enum HomeMapping {
     /// Markdown per bubble); every other part is one part. Text with
     /// mentions stays one bubble (the mention offsets index the whole text),
     /// and so does an agent's text with a fenced block (a split would cut it).
+    ///
+    /// A closed ```` ```mermaid ```` fence whose source the installed diagram renderer draws
+    /// (`HomeDiagramRowProvider`) is a diagram bubble of its own, between the text before and
+    /// after it; without a renderer, or for a source it refuses, the fence stays in the text.
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                       links: Links = { _ in nil }) -> [Part] {
+        // A work part shows its preview; its session id is no text (`WorkRef.shownText`).
+        if case .work(let work) = p, work.shownText == nil { return [] }
+        // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
+        func text(_ piece: String) -> [Part] {
+            if markdown, let split = tableParts(piece, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
+                return split
+            }
+            return textParts(.text(piece), media: media, progress: progress, markdown: markdown, links: links)
+        }
+        if case .text(let whole, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
+           let split = diagramParts(whole, diagrams: diagrams, text) {
+            return split
+        }
+        if case .text(let whole, let mentions) = p, mentions.isEmpty, markdown {
+            return text(whole)
+        }
+        return textParts(p, media: media, progress: progress, markdown: markdown, links: links)
+    }
+
+    /// `text` cut at its pipe tables: the text pieces by `textParts`, each table a table or plan card.
+    /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
+    /// is installed: the text then maps as it always did, tables as written in the bubble.
+    static func tableParts(_ text: String, _ textParts: (String) -> [Part]) -> [Part]? {
+        guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
+        let segments = HomeTableSplitter().segments(in: text)
+        guard segments.contains(where: { if case .table = $0 { return true } else { return false } }) else { return nil }
+        var out: [Part] = []
+        var pending = ""
+        func flush() {
+            let piece = pending.trimmingCharacters(in: .newlines)
+            pending = ""
+            if !piece.trimmingCharacters(in: .whitespaces).isEmpty { out += textParts(piece) }
+        }
+        for segment in segments {
+            switch segment {
+            case .text(let piece):
+                pending += pending.isEmpty ? piece : "\n" + piece
+            case .table(let table, let raw):
+                if let card = HomeTableRowProvider.part(table, raw: raw) {
+                    flush()
+                    out.append(card)
+                } else {
+                    pending += pending.isEmpty ? raw : "\n" + raw
+                }
+            }
+        }
+        flush()
+        return out
+    }
+
+    /// `text` cut at its Mermaid fences: the text pieces by `textParts`, each fence the renderer
+    /// draws as a diagram bubble, a refused fence kept in the text around it. nil when no fence
+    /// becomes a diagram (the text then maps as it always did).
+    static func diagramParts(_ text: String, diagrams: HomeDiagramRowProvider, _ textParts: (String) -> [Part]) -> [Part]? {
+        let segments = HomeMermaidSplitter().segments(in: text)
+        guard segments.contains(where: { if case .mermaid = $0 { return true } else { return false } }) else { return nil }
+        var out: [Part] = []
+        var pending = ""
+        var drew = false
+        func flush() {
+            let piece = pending.trimmingCharacters(in: .newlines)
+            pending = ""
+            if !piece.trimmingCharacters(in: .whitespaces).isEmpty { out += textParts(piece) }
+        }
+        for segment in segments {
+            switch segment {
+            case .text(let piece):
+                pending += piece
+            case .mermaid(let source, let fenced):
+                if let diagram = diagrams.part(source) {
+                    flush()
+                    out.append(diagram)
+                    drew = true
+                } else {
+                    pending += fenced
+                }
+            }
+        }
+        flush()
+        return drew ? out : nil
+    }
+
+    /// One HomeStore part as MessagesLab parts, without diagrams (`parts`).
+    private static func textParts(_ p: MessagePart, media: Media, progress: [String: Double], markdown: Bool, links: Links) -> [Part] {
         guard case .text(let text, let mentions) = p, mentions.isEmpty,
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
-            return [part(p, media: media, progress: progress, markdown: markdown)]
+            return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
+        }
+        // A person's reply that starts with a quote (Reply to Selection, ReplyQuote): the quote shows
+        // quietly at the top of the first text bubble, the reply below it.
+        if !markdown, let (quote, body) = ReplyQuote.split(text) {
+            let (head, run) = ReplyQuote.head(quote)
+            var shown = body.isEmpty ? [] : TextParts.parts(for: body)
+            if case let .text(t, runs)? = shown.first, !t.isEmpty {
+                let shift = (head as NSString).length + 1
+                shown[0] = .text(head + "\n" + t, runs: [run] + runs.map { var r = $0; r.start += shift; return r })
+            } else {
+                shown.insert(.text(head, runs: [run]), at: 0)
+            }
+            return shown
         }
         return TextParts.parts(for: text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = HomeMarkdown.render(t)
+                let (rendered, runs) = HomeMarkdown.render(t, chips: HomeLinkChip.showsInTranscript)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -130,18 +300,23 @@ enum HomeMapping {
 
     /// `markdown`: an agent's text part shows its Markdown styled (HomeMarkdown).
     /// A part with mentions keeps its text as written (mention offsets index it).
-    static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false) -> Part {
+    static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
+                     links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = HomeMarkdown.render(text)
+            let (shown, runs) = HomeMarkdown.render(text, chips: HomeLinkChip.showsInTranscript)
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {
                 TextRun(start: $0.start, length: $0.length, style: nil, link: nil, mention: $0.participant.rawValue, detected: nil)
             })
         case .linkPreview(let link):
-            let host = URL(string: link.url)?.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
-            return .link(url: link.url, title: link.title ?? host, siteName: host, image: nil, theme: "dark")
+            // What the sender attached; its picture is a blob fetched by hash (HomeMedia), never
+            // the URL. A preview this Mac fetched itself (its send, a tap) fills what the part lacks.
+            let host = URL(string: link.url).map(TextParts.host) ?? link.url
+            let fetched = links(link.url)
+            return .link(url: link.url, title: link.title ?? fetched?.title ?? host, siteName: link.site ?? fetched?.site ?? host,
+                         image: link.image.flatMap { media($0.hash) } ?? fetched?.image, theme: "dark")
         case .attachment(let ref):
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
@@ -151,6 +326,12 @@ enum HomeMapping {
             // yet: their text. The question card moves to the custom-row seam.
             return .text(p.plainText, runs: [])
         }
+    }
+
+    /// A link preview's picture as an image attachment ref (HomeMedia loads
+    /// it by hash, from the owner's record of the sender's upload).
+    static func attachmentRef(_ image: AttachmentDerivedImage) -> AttachmentRef {
+        AttachmentRef(hash: image.hash, name: "link-preview", mimeType: image.mimeType, byteCount: image.byteCount)
     }
 
     /// MessagesLab's attachment kind (its row drawing): image and video
@@ -193,9 +374,13 @@ enum HomeMapping {
         }
     }
 
-    static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
+    /// `avatars`: a chosen avatar by participant id (the host's Chief avatars); anyone else draws their initials.
+    static func participants(_ summary: ConversationSummary?, me: ParticipantID,
+                             avatars: [String: Participant.Avatar] = [:]) -> [Participant] {
         var out = (summary?.participants ?? []).map {
-            Participant(id: $0.id.rawValue, displayName: $0.displayName, isMe: $0.id == me, avatar: .monogram($0.initials))
+            // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
+            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
+                        avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         return out
@@ -215,9 +400,15 @@ enum HomeMapping {
     }
 
     /// The loaded window's place in the history: (messages before it, total).
-    static func window(_ items: [TranscriptItem], summary: ConversationSummary?) -> (start: Int, total: Int) {
+    /// HomeStore's window always ends at the newest message it has (Home has
+    /// no pager), so the total is the window's end, never the summary's
+    /// lastSeq: that can run ahead of the window (the inbox moves first, or
+    /// the view is made before its first page), and MessagesLab appends a
+    /// received message only while the window reaches the total (`atNewest`),
+    /// so every later message stayed hidden (cx-7nf0).
+    static func window(_ items: [TranscriptItem]) -> (start: Int, total: Int) {
         let first = items.first(where: { $0.seq != nil })?.seq ?? 1
         let start = max(0, Int(clamping: first) - 1) // // crash program: a seq past Int.max clamps
-        return (start, max(start + items.count, Int(clamping: summary?.lastSeq ?? 0)))
+        return (start, start + items.count)
     }
 }

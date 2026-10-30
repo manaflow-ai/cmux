@@ -5,9 +5,9 @@
 import type { NetworkRulePlan } from "../networkPolicy";
 import type { GuestPromptIdentity } from "../guestPrompt";
 
-export type ProviderId = "freestyle";
+export type ProviderId = "freestyle" | "gcp";
 
-const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
+const PROVIDER_IDS: readonly ProviderId[] = ["freestyle", "gcp"];
 
 export function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);
@@ -15,10 +15,30 @@ export function isProviderId(value: unknown): value is ProviderId {
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
+/**
+ * Options for a provider read a route bounds (routeDeadline.ts). The driver
+ * passes `signal` to every request the read makes, so no request outlives
+ * the route's answer.
+ */
+export type ProviderReadOptions = {
+  readonly signal?: AbortSignal;
+  /** Short-lived user credential; never persist this in providerMetadata. */
+  readonly credential?: ProviderCredential;
+};
+
+/**
+ * A provider's raw pause state, see `VMProvider.getPauseState`. `stopped` is
+ * a powered-off machine: not a finished pause (memory is gone) and not
+ * pausable either (the provider refuses to pause it).
+ */
+export type VmPauseState = "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed";
+
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
 /// reading: they report `asleep` with only their provisioned memory.
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
+  /** Health of the guest reporter, independent of provider power state. */
+  readonly health?: "healthy" | "unknown" | "unresponsive";
   readonly sampledAt: number;
   /** Timestamp of the latest guest reporter sample, even when it is stale. */
   readonly resourceSampledAt?: number;
@@ -87,6 +107,29 @@ export type CreateOptions = {
   /** Current prompt name, written into the guest rather than a shell environment. */
   promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
+  /**
+   * The billing customer (its team, or the user for a user-billed machine):
+   * the provider's end-user customer, so its abuse protection tells our
+   * customers apart.
+   * Providers without customers ignore it.
+   */
+  customerId?: string;
+  /**
+   * A short-lived credential handed off by the user's local client. Providers
+   * must use it only for this operation and never copy it to a VM row.
+   */
+  providerCredential?: ProviderCredential;
+  /**
+   * The workflow's durable record of the allocation. A driver whose cleanup
+   * needs a short-lived user credential names its provider id with `record`
+   * before it sends the allocation request (and must not allocate when that
+   * rejects), so an interrupted create still leaves a row naming its instance.
+   * It calls `released` once its own rollback confirmed the allocation gone.
+   */
+  createCleanupIntent?: {
+    readonly record: (providerVmId: string) => Promise<void>;
+    readonly released: () => void;
+  };
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
@@ -177,7 +220,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules"> & {
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules" | "customerId"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -201,6 +244,8 @@ export type SSHEndpoint = {
   // One-time credential for this attach session. Drivers decide whether that's a password,
   // a bearer over an SSH ProxyCommand, or an authorized_keys line the client pushes.
   credential: { kind: "password"; value: string } | { kind: "authorizedKey"; privateKeyPem: string };
+  /** Provider-neutral dial metadata for clients that open a local proxy first. */
+  proxy?: { readonly kind: "gcp-iap"; readonly project: string; readonly zone: string; readonly instance: string; readonly port: number };
   daemon?: {
     url: string;
     headers: Record<string, string>;
@@ -266,15 +311,11 @@ export type CmuxRemoteEndpoint = {
     remoteProtocol: number | null;
     version: string | null;
   };
-  /**
-   * The daemon's cloud listener grants carrier authentication: the client dials
-   * `remote connect --carrier` with no enrollment and no invitation, because the
-   * route is reachable only inside the owner's private network. False only for
-   * a daemon the provider could not bring to the trusted build, in which case
-   * an already-enrolled device may still dial with its stored key.
-   */
+  /** Compatibility mode: true only while this endpoint still relies on the
+   * private network for carrier authentication. Grant-required endpoints are
+   * false and carry a short-lived invitation below. */
   trustedCarrier: boolean;
-  /** @deprecated Never returned since the trusted listener; kept so older clients decode. */
+  /** A short-lived cryptographic grant for a client not yet admitted. */
   invitation?: {
     /** Single-use `cmux://enroll/...` URI; the client must pass it via `--invite-file`, never argv. */
     uri: string;
@@ -374,9 +415,107 @@ export type VMFileStat = {
 
 export type ExecOptions = {
   readonly timeoutMs?: number;
+  /**
+   * Run as root instead of the work user. Every exec ran as root before
+   * public `vm exec` moved to the work user (#16769); cmux's own guest
+   * maintenance that writes root-owned paths still needs it.
+   */
+  readonly asRoot?: boolean;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
   readonly providerMetadata?: Record<string, unknown>;
+  /**
+   * Standard input of the command (cx-psxg: the acpmux person key). A driver
+   * sends it only in the provider call itself, never in a backgrounded call
+   * the provider stores, and never logs, traces or persists it.
+   */
+  readonly stdin?: SecretBytes;
+  /** Ends the provider request: the driver passes it to every request it makes. */
+  readonly signal?: AbortSignal;
+  /**
+   * Gateway only: abort the provider request (through `signal`) when the
+   * calling fiber is interrupted, a timeout included. Without it an
+   * interrupted exec's request runs on to its own end.
+   */
+  readonly cancelOnInterrupt?: boolean;
 };
+
+const REDACTED = "[redacted]";
+
+/**
+ * Bytes that are never logged, traced, serialized or stored (cx-psxg). JSON,
+ * string conversion and Node's inspector print "[redacted]"; only
+ * {@link SecretBytes.base64} gives the bytes, for the provider request.
+ */
+export class SecretBytes {
+  #bytes: Uint8Array;
+  #wiped = false;
+
+  constructor(bytes: Uint8Array) {
+    this.#bytes = bytes;
+  }
+
+  get byteLength(): number {
+    return this.#bytes.byteLength;
+  }
+
+  /** The bytes as standard base64, for the provider request body only. */
+  base64(): string {
+    return Buffer.from(this.#bytes.buffer, this.#bytes.byteOffset, this.#bytes.byteLength).toString("base64");
+  }
+
+  /** The bytes as UTF-8 for a provider request or attach handoff only. */
+  utf8(): string {
+    return Buffer.from(this.#bytes.buffer, this.#bytes.byteOffset, this.#bytes.byteLength).toString("utf8");
+  }
+
+  /** Overwrites the bytes with zeros (the caller's buffer, which this object does not copy). */
+  wipe(): void {
+    this.#bytes.fill(0);
+    this.#wiped = true;
+  }
+
+  /** True once {@link wipe} has run; a wiped secret must never be sent. */
+  get wiped(): boolean {
+    return this.#wiped;
+  }
+
+  toJSON(): string {
+    return REDACTED;
+  }
+
+  toString(): string {
+    return REDACTED;
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return REDACTED;
+  }
+}
+
+/**
+ * A local-client credential for a user-owned provider. The server may hold
+ * this object only for the current request. `SecretBytes` keeps accidental
+ * traces, JSON responses, and error inspection redacted.
+ */
+export type ProviderCredential = {
+  readonly provider: "gcp";
+  readonly accessToken: SecretBytes;
+  readonly expiresAtUnix: number;
+  /** Public key is safe to send to Compute Engine instance metadata. */
+  readonly sshPublicKey?: string;
+  /** Private key is returned only to the caller's attach session. */
+  readonly sshPrivateKeyPem?: SecretBytes;
+  readonly sshUsername?: string;
+  /** Aborted by {@link wipeProviderCredential}, cancelling in-flight provider requests. */
+  readonly lifetime?: AbortController;
+};
+
+/** Zero-fills the credential's secrets. Safe to call more than once. */
+export function wipeProviderCredential(credential: ProviderCredential | undefined): void {
+  credential?.lifetime?.abort();
+  credential?.accessToken.wipe();
+  credential?.sshPrivateKeyPem?.wipe();
+}
 
 export type SnapshotRef = {
   id: string;
@@ -404,6 +543,8 @@ export interface VmCapabilities {
   readonly exec: boolean;
   /** Live CPU/memory/disk readings (`GET /api/vm/:id/stats`). */
   readonly stats: boolean;
+  /** Provider-level recovery for a frozen machine (`POST /api/vm/:id/restart`). */
+  readonly restart: boolean;
   /** Token-gated HTTPS preview URLs for arbitrary VM ports (`POST /api/vm/:id/open-port`). */
   readonly ports: boolean;
   /** A desktop (VNC) image exists for this provider. */
@@ -423,7 +564,7 @@ export type ProviderNetwork = {
   /** IPv4 CIDR, when the network has one. */
   readonly cidr: string | null;
   /** IPv6 CIDR. Always present: provider networks are dual-stack. */
-  readonly cidrV6: string;
+  readonly cidrV6: string | null;
 };
 
 /**
@@ -530,6 +671,10 @@ export type EnsureProviderNetworkOptions = {
    * network's range is fixed for its life.
    */
   readonly cidr?: string;
+  /** User-owned provider credential and placement for providers such as GCP. */
+  readonly providerCredential?: ProviderCredential;
+  readonly providerProject?: string;
+  readonly providerRegion?: string;
 };
 
 export interface VMProvider {
@@ -540,6 +685,8 @@ export interface VMProvider {
    * on drivers whose machines are only reachable at a public address.
    */
   readonly privateNetworking?: VMPrivateNetworking;
+  /** Set false when the provider provisions a VPC but has no tunnel/tailnet transport yet. */
+  readonly privateNetworkingTunnels?: boolean;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
    * throw NotImplementedError declares that here; `fork` defaults to whether the method
@@ -548,7 +695,11 @@ export interface VMProvider {
   readonly capabilities?: Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
-  destroy(vmId: string): Promise<void>;
+  /**
+   * Delete the machine; a machine already gone counts as deleted. `strict`: only the provider's
+   * own "no such machine" answer counts as gone (not any 404, which can be an endpoint error).
+   */
+  destroy(vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }): Promise<void>;
 
   /**
    * Optional: delete a persistent home volume by name. Implementations must treat
@@ -561,31 +712,45 @@ export interface VMProvider {
 
   /** Optional provider volume inventory used by the report-only VM reaper. */
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
+  /**
+   * Optional account-wide, read-only inventory for the staff health sweep. It
+   * covers every VM and TLS rule on the provider account, not only cmux rows.
+   */
+  readonly healthInventory?: VmHealthInventory;
 
-  getStatus?(vmId: string): Promise<VMStatus>;
+  getStatus?(vmId: string, options?: ProviderReadOptions): Promise<VMStatus>;
+  /**
+   * Whether the machine is paused at the provider, still moving between
+   * states (`in_progress`, e.g. Freestyle `pausing` or `starting`), or
+   * neither. Unlike {@link getStatus} this never folds a transition or a
+   * powered-off machine into `paused`; pause retries reconcile on it.
+   */
+  getPauseState?(vmId: string, credential?: ProviderCredential): Promise<VmPauseState>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
-  getStats?(vmId: string): Promise<VMStats>;
+  getStats?(vmId: string, options?: ProviderReadOptions): Promise<VMStats>;
   /** Optional direct guest probe; must not install tooling, mutate, or wake. */
   getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
+  /** Force a provider-level reboot without using the guest exec channel. */
+  restart?(vmId: string): Promise<void>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
   /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
   applyNetworkPolicy?(vmId: string, plan: NetworkRulePlan): Promise<void>;
 
-  pause(vmId: string): Promise<void>;
-  resume(vmId: string): Promise<VMHandle>;
+  pause(vmId: string, credential?: ProviderCredential): Promise<void>;
+  resume(vmId: string, credential?: ProviderCredential): Promise<VMHandle>;
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
   /** Backend-wrapped guest filesystem operations. Paths are validated by the route and driver. */
-  listFiles?(vmId: string, path: string): Promise<VMFileEntry[]>;
-  readFile?(vmId: string, path: string): Promise<VMFileContents>;
+  listFiles?(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileEntry[]>;
+  readFile?(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileContents>;
   writeFile?(vmId: string, path: string, data: Uint8Array, mode?: number): Promise<void>;
   makeDirectory?(vmId: string, path: string): Promise<void>;
   removeFile?(vmId: string, path: string): Promise<void>;
-  statFile?(vmId: string, path: string): Promise<VMFileStat>;
+  statFile?(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileStat>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
@@ -597,7 +762,7 @@ export interface VMProvider {
    * Optional: every snapshot taken from `vmId`, newest first. Absent on a
    * provider that cannot enumerate snapshots; the gateway answers unsupported.
    */
-  listSnapshots?(vmId: string): Promise<SnapshotRef[]>;
+  listSnapshots?(vmId: string, options?: ProviderReadOptions): Promise<SnapshotRef[]>;
   /**
    * Optional: delete one snapshot taken from `vmId`. A snapshot that does not
    * exist or was taken from another machine fails with an error
@@ -642,7 +807,7 @@ export interface VMProvider {
   // Optional: a live SSH endpoint the client can dial into. Drivers are responsible for
   // ensuring sshd is running (some providers need an explicit start step). Only drivers
   // listing `ssh` in attachTransports implement this.
-  openSSH?(vmId: string): Promise<SSHEndpoint>;
+  openSSH?(vmId: string, credential?: ProviderCredential): Promise<SSHEndpoint>;
   prepareSCP?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
@@ -678,10 +843,86 @@ export class ProviderError extends Error {
  * that. Routes answer with a non-retryable recreate action, never a retryable
  * outage; see docs/cloud-guest-upgrades.md.
  */
+/**
+ * A provider read did not answer within the route's budget and was aborted
+ * (routeDeadline.ts). Routes answer 504 vm_provider_timeout.
+ */
+export class ProviderReadDeadlineError extends ProviderError {
+  constructor(provider: ProviderId, operation: string, readonly waitedMs: number) {
+    super(provider, `${operation} did not answer within ${Math.round(waitedMs)} ms`);
+    this.name = "ProviderReadDeadlineError";
+  }
+}
+
 export class ProviderMachineRecreateRequiredError extends ProviderError {
   constructor(provider: ProviderId, message: string) {
     super(provider, message);
     this.name = "ProviderMachineRecreateRequiredError";
+  }
+}
+
+/**
+ * The machine is in a state the operation cannot run in (still starting,
+ * pausing, or not running). Routes answer 409 vm_state_conflict with a
+ * wait-and-retry action, never a generic outage.
+ */
+export class ProviderStateConflictError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderStateConflictError";
+  }
+}
+
+/** How a provider's 409 answer reads: no room for the machine, a machine-state conflict, or an unresponsive guest. */
+export type ProviderConflictKind = "capacity" | "state" | "unresponsive";
+
+/**
+ * Classifies a provider failure that is a 409 refusal. The first error in the
+ * cause chain that carries an HTTP status decides; it must be 409. Freestyle
+ * answers capacity as `CONFLICT` "no manager has enough capacity" or
+ * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, and a
+ * machine in the wrong state (still starting, not running) as `CONFLICT`.
+ * Every other status, any other 409, and a 409 that never reached the
+ * provider is null.
+ */
+/** Freestyle's placement refusal: "no manager has enough capacity for vm". */
+const PROVIDER_CAPACITY_MESSAGE = /\bno manager has enough capacity\b/i;
+
+/** Freestyle 409 messages about the machine's lifecycle state. */
+const PROVIDER_STATE_CONFLICT_MESSAGE = /\b(?:is )?still (?:starting|stopping|pausing|resuming|suspending|booting)\b|\bis not running\b|\bis (?:paused|pausing|suspended|suspending|stopped|stopping|starting|resuming)\b|\bresuming state\b/i;
+
+export function providerConflictKind(err: unknown): ProviderConflictKind | null {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderStateConflictError) return "state";
+    if (typeof current !== "object") return null;
+    const record = current as { status?: unknown; code?: unknown; message?: unknown; body?: { code?: unknown; message?: unknown }; cause?: unknown };
+    if (typeof record.status === "number") {
+      if (record.status !== 409) return null;
+      const code = typeof record.code === "string" ? record.code : typeof record.body?.code === "string" ? record.body.code : "";
+      const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";
+      if (code === "PLACEMENT_REJECTED" || PROVIDER_CAPACITY_MESSAGE.test(message)) return "capacity";
+      if (code === "VM_NON_RESPONSIVE") return "unresponsive";
+      // Only a message that names the machine's state is a state conflict.
+      // Every other 409 (network policy, slug, tunnel, port, snapshot in use,
+      // quota) is a real resource conflict and keeps the generic answer.
+      return PROVIDER_STATE_CONFLICT_MESSAGE.test(message) ? "state" : null;
+    }
+    current = record.cause;
+  }
+  return null;
+}
+
+/**
+ * A guest command the server needed never ran or never exited: the provider's
+ * exec channel failed, or the command outlived its timeout. Nothing about the
+ * service the command would have checked is known, so routes name the machine
+ * as unresponsive and give a restart action, never a generic outage.
+ */
+export class ProviderGuestUnresponsiveError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderGuestUnresponsiveError";
   }
 }
 
@@ -697,6 +938,61 @@ export class ProviderNetworkFullError extends ProviderError {
   }
 }
 
+/**
+ * The provider account holds its maximum number of TLS rules. The cap is
+ * account-wide, so the user cannot free it and an immediate retry cannot
+ * succeed; routes answer with a capacity refusal and operators are alerted.
+ */
+export class ProviderTlsRuleLimitError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderTlsRuleLimitError";
+  }
+}
+
+/** True when `err` or one of its causes is a {@link ProviderGuestUnresponsiveError}. */
+export function hasProviderGuestUnresponsiveCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderGuestUnresponsiveError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
+/**
+ * True when a provider failure says the call was never answered, not that it
+ * was refused: a stuck guest ({@link ProviderGuestUnresponsiveError}), a
+ * client timeout or abort, a gateway 502/504 (a background request polled
+ * past its limit), or the provider's VM_NON_RESPONSIVE. The first error in
+ * the chain that carries an HTTP status decides, so an early 401/403/404/429
+ * or another 5xx is a refusal. A hung call may still complete at the provider.
+ */
+export function isProviderHangCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderGuestUnresponsiveError) return true;
+    if (typeof current !== "object") return false;
+    const record = current as { status?: unknown; code?: unknown; name?: unknown; cause?: unknown };
+    if (typeof record.status === "number") {
+      return record.status === 502 || record.status === 504 || record.code === "VM_NON_RESPONSIVE";
+    }
+    if (record.name === "TimeoutError" || record.name === "AbortError") return true;
+    current = record.cause;
+  }
+  return false;
+}
+
+/** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
+export function hasProviderTlsRuleLimitCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderTlsRuleLimitError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
 /** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
 export class ProviderArtifactUnavailableError extends ProviderError {
   constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {
@@ -704,3 +1000,14 @@ export class ProviderArtifactUnavailableError extends ProviderError {
     this.name = "ProviderArtifactUnavailableError";
   }
 }
+
+/**
+ * Read-only account inventory for the staff Cloud VM health sweep. No member
+ * may start, pause, update, or delete anything.
+ */
+export type VmHealthInventory = {
+  listAccountVms(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderVmInventory>;
+  listAccountTlsRules(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderTlsRuleInventory>;
+  /** One bounded control-path request against a running VM; never wakes a paused one on purpose. */
+  probeControl(vmId: string, options: { readonly timeoutMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").VmControlProbe>;
+};

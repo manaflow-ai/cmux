@@ -9,7 +9,21 @@ export type TrustLevel = "trusted" | "untrusted" | "unknown";
 export type HarnessTrust = { claude?: TrustLevel; codex?: TrustLevel };
 /// `decided`: acpmux holds the user's own answer for the folder (an older acpmux and the mock
 /// daemon leave it out).
-export type FolderTrust = { cwd: string; level: TrustLevel; harnesses?: HarnessTrust; decided?: boolean };
+/// The git repository that holds a folder (`root`, its main working tree), and whether the folder
+/// is in a linked worktree of it: "Trust this repo" records `root`, which answers every worktree.
+export type TrustRepo = { root: string; worktree: boolean };
+/// `via`: the folder acpmux's decision was made for, when not this one (a parent folder, or a
+/// worktree's repository): Undo forgets the decision there.
+export type FolderTrust = {
+  cwd: string;
+  level: TrustLevel;
+  harnesses?: HarnessTrust;
+  decided?: boolean;
+  /// Why no question was asked (an auto-trust rule: `root`, `org`): no person answered.
+  auto?: string;
+  via?: string;
+  repo?: TrustRepo;
+};
 
 export type TrustSource = {
   get(cwd: string): Promise<unknown>;
@@ -27,11 +41,17 @@ export function readTrust(value: unknown): FolderTrust | undefined {
     const level = (reply.harnesses as Record<string, unknown> | undefined)?.[harness];
     if (LEVELS.includes(level as TrustLevel)) harnesses[harness] = level as TrustLevel;
   }
+  const repo = reply.repo as Partial<TrustRepo> | null | undefined;
   return {
     cwd: reply.cwd,
     level: reply.level as TrustLevel,
     ...(Object.keys(harnesses).length > 0 ? { harnesses } : {}),
     ...(typeof reply.decided === "boolean" ? { decided: reply.decided } : {}),
+    ...(typeof reply.auto === "string" && reply.auto ? { auto: reply.auto } : {}),
+    ...(typeof reply.via === "string" && reply.via ? { via: reply.via } : {}),
+    ...(repo && typeof repo.root === "string" && repo.root
+      ? { repo: { root: repo.root, worktree: repo.worktree === true } }
+      : {}),
   };
 }
 

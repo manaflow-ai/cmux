@@ -38,6 +38,7 @@ impl Engines for AppEngines {
             on_behalf_of: session.caller.on_behalf_of.clone(),
             origin: session.caller.origin.clone(),
             label: session.label.clone(),
+            terminal: session.terminal.clone(),
             implicit_session: false,
             engine: engine.to_owned(),
         };

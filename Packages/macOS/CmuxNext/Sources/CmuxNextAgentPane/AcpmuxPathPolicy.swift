@@ -6,7 +6,8 @@ public import Foundation
 /// canonical first (`realpath`: absolute, existing, symlinks and `..` resolved), then checked
 /// against each canonical root by path components, never by string prefix. A canonical path is
 /// what the daemon receives. Anything else is refused with a typed error. The daemon checks again
-/// (an existing canonical directory; a preset's pinned cwd wins), in its own lane.
+/// (an existing canonical directory; a preset's pinned cwd wins), in its own lane. A new chat on
+/// another machine names that machine's folder: only its shape is checked (``isPeerFolder(_:)``).
 nonisolated enum AcpmuxPathPolicy {
     /// The params a page frame may name a folder in, at any depth (C1): each value is a path or a
     /// list of paths. Every one of them must be a directory, except `path`, which may be a file.
@@ -20,12 +21,17 @@ nonisolated enum AcpmuxPathPolicy {
         public var method: String?
         /// The canonical path that is outside every root (the host may offer to add it).
         public var outsidePath: String? = nil
+        /// Whether ``outsidePath`` is the user's home folder or above it: never a root by a plain
+        /// click (cx-nn3e); the pane asks about it first (`workspace.useFolder`).
+        public var outsideIsHomeOrAbove = false
 
-        public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil) {
+        public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
+                    outsideIsHomeOrAbove: Bool = false) {
             self.error = error
             self.requestID = requestID
             self.method = method
             self.outsidePath = outsidePath
+            self.outsideIsHomeOrAbove = outsideIsHomeOrAbove
         }
 
         public static func == (lhs: Refusal, rhs: Refusal) -> Bool {
@@ -53,15 +59,19 @@ nonisolated enum AcpmuxPathPolicy {
         public var home: String? = nil
         /// Folders the user added or picked by a gesture: roots as given.
         public var granted: [String] = []
+        /// The pane's cmux workspace key, from the host (never the page): a local `session/new`
+        /// carries it as `_meta.acpmux.workspaceId` (``stampWorkspace(_:id:)``).
+        public var workspaceID: String?
 
         public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil, agentHome: AgentHomeFill? = nil,
-                    home: String? = nil, granted: [String] = []) {
+                    home: String? = nil, granted: [String] = [], workspaceID: String? = nil) {
             self.roots = roots
             self.gestureRoots = gestureRoots
             self.fillCwd = fillCwd
             self.agentHome = agentHome
             self.home = home
             self.granted = granted
+            self.workspaceID = workspaceID
         }
     }
 
@@ -90,20 +100,43 @@ nonisolated enum AcpmuxPathPolicy {
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)
         let userHome = scope.home.flatMap(canonical)
         let homeOrAbove = { (path: String) in path == "/" || userHome.map { contains(root: path, path: $0) } == true }
+        // The home folder is a root only when the user granted it (`workspace.useFolder`), and
+        // nothing above it ever is: not from the host's roots, not from the New Tab page's open
+        // folders (a terminal at `~` lists `~` there), not from a grant (cx-nn3e).
         var context = Context(roots: scope.roots.compactMap(canonical).filter { !homeOrAbove($0) }
-                                  + scope.granted.compactMap(canonical).filter { $0 != "/" },
-                              gestureRoots: scope.gestureRoots.compactMap(canonical).filter { $0 != "/" })
+                                  + scope.granted.compactMap(canonical).filter { $0 == userHome || !homeOrAbove($0) },
+                              gestureRoots: scope.gestureRoots.compactMap(canonical).filter { !homeOrAbove($0) },
+                              home: userHome)
         // The agent-home folder is a root once it exists (a running chat may still name it).
-        if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path {
+        if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path, !homeOrAbove(path) {
             context.roots.append(path)
         }
         var params = object["params"]
+        var peerCwd: String?
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
+        // Do not work in a project (`_meta.acpmux.noProject`, the new chat's project picker,
+        // cx-9g0w) skips the root: the chat starts in the agent-home folder. The key is the
+        // pane's own and never reaches acpmux.
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
-            if fields["cwd"] == nil {
-                if let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
+            var meta = fields["_meta"] as? [String: Any]
+            var acpmux = meta?["acpmux"] as? [String: Any]
+            let noProject = acpmux?["noProject"] as? Bool == true
+            let onPeer = startsOnPeer(acpmux)
+            let hadNoProject = acpmux?.removeValue(forKey: "noProject") != nil
+            // The pane's workspace, which acpmux holds the chat to (its sub-session limit, its
+            // computer use display); the host's value, never the page's.
+            if stampWorkspace(&acpmux, id: scope.workspaceID) || hadNoProject {
+                meta = meta ?? [:]
+                meta?["acpmux"] = acpmux
+                fields["_meta"] = meta
+                context.changed = true
+            }
+            // A peer without an explicit folder chooses its own default. This Mac's workspace
+            // and agent-home paths must never fill a request for another machine.
+            if fields["cwd"] == nil, !onPeer {
+                if !noProject, let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
                     fields["cwd"] = fill
                 } else if let agentHome = scope.agentHome, let path = agentHome.home.ensure(agentHome.workspace) {
                     fields["cwd"] = path
@@ -112,15 +145,28 @@ nonisolated enum AcpmuxPathPolicy {
                     return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
                 }
                 context.changed = true
+            } else if onPeer, fields["cwd"] != nil {
+                // A start on another machine (an ssh peer): its folder is that machine's, which
+                // this Mac's disk and roots say nothing about. Only its shape is checked here, it
+                // goes as the page named it, and that machine's acpmux checks it (cx-k21v).
+                guard let cwd = fields.removeValue(forKey: "cwd") as? String, isPeerFolder(cwd) else {
+                    return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+                }
+                peerCwd = cwd
             }
             params = fields
         }
         guard let params else { return .success(Checked(text: text, gestureRootsUsed: [])) }
-        let checked: Any
+        var checked: Any
         do {
             checked = try rewrite(params, context: &context)
+            if let peerCwd, var fields = checked as? [String: Any] {
+                fields["cwd"] = peerCwd
+                checked = fields
+            }
         } catch let refusal as Refusal {
-            return .failure(Refusal(error: refusal.error, requestID: id, method: method, outsidePath: refusal.outsidePath))
+            return .failure(Refusal(error: refusal.error, requestID: id, method: method, outsidePath: refusal.outsidePath,
+                                    outsideIsHomeOrAbove: refusal.outsideIsHomeOrAbove))
         } catch {
             return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
@@ -136,6 +182,8 @@ nonisolated enum AcpmuxPathPolicy {
     struct Context {
         var roots: [String]
         var gestureRoots: [String]
+        /// The user's canonical home folder, if any.
+        var home: String? = nil
         var changed = false
         var used: Set<String> = []
     }
@@ -168,7 +216,8 @@ nonisolated enum AcpmuxPathPolicy {
             context.used.insert(root)
             return resolved
         }
-        throw Refusal(error: .pathOutsideRoots, requestID: nil, method: nil, outsidePath: resolved)
+        let homeOrAbove = resolved == "/" || context.home.map { contains(root: resolved, path: $0) } == true
+        throw Refusal(error: .pathOutsideRoots, requestID: nil, method: nil, outsidePath: resolved, outsideIsHomeOrAbove: homeOrAbove)
     }
 
     /// Whether a page frame needs the disk check: it names a folder field at any depth, or it is a

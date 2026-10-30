@@ -14,7 +14,7 @@ public enum MessagePart: Hashable, Sendable, Codable {
     case question(AgentQuestion)
     /// A file or image, stored by content hash (bytes go to blob storage first).
     case attachment(AttachmentRef)
-    /// A link with its preview (fetched by the owner, never by the client).
+    /// A link with the preview its sender fetched (receivers never fetch it).
     case linkPreview(LinkPreview)
     /// A shared location.
     case location(LocationRef)
@@ -22,12 +22,22 @@ public enum MessagePart: Hashable, Sendable, Codable {
     public var plainText: String {
         switch self {
         case .text(let text, _): text
-        case .work(let work): work.preview ?? work.title
+        case .work(let work): work.shownText ?? ""
         case .approval(let approval): approval.prompt
         case .question(let question): question.transcriptText
         case .attachment(let file): file.name
         case .linkPreview(let link): link.title ?? link.url
         case .location(let place): place.label ?? "\(place.latitude), \(place.longitude)"
+        }
+    }
+
+    /// Content hashes of the blobs this part shows: an attachment's bytes,
+    /// poster and preview, or a link preview's image.
+    public var blobHashes: [String] {
+        switch self {
+        case .attachment(let ref): [ref.hash] + [ref.posterHash, ref.preview?.hash].compactMap { $0 }
+        case .linkPreview(let link): link.image.map { [$0.hash] } ?? []
+        case .text, .work, .approval, .question, .location: []
         }
     }
 }
@@ -58,6 +68,16 @@ public struct WorkRef: Hashable, Sendable, Codable {
         self.title = title
         self.status = status
         self.preview = preview
+    }
+
+    /// What a person reads for this work: its preview, else its title when that is a name of its
+    /// own. Nil when it has neither: the session id (`optchat-<home>-<line>`, a Chief turn's
+    /// acpmux session) is a machine name, never shown (Lawrence 2026-10-21). A Chief turn that
+    /// ends without a reply posts such a part as its done marker.
+    public var shownText: String? {
+        if let preview = preview?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty { return preview }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty || title == session ? nil : title
     }
 }
 
@@ -175,18 +195,23 @@ public struct AttachmentDerivedImage: Hashable, Sendable, Codable {
     }
 }
 
+/// A link with the preview its sender fetched (`link_preview` on the wire).
+/// Receivers render only from it and never fetch the URL.
 public struct LinkPreview: Hashable, Sendable, Codable {
     public var url: String
     public var title: String?
-    public var summary: String?
-    /// Content hash of the preview image, when the owner fetched one.
-    public var imageHash: String?
+    /// The site name (`og:site_name`, else the host).
+    public var site: String?
+    /// The page's image: an ordinary image attachment the sender uploaded to
+    /// the conversation (JPEG or WebP, at most 512 KB), fetched by its hash
+    /// like an attachment's original.
+    public var image: AttachmentDerivedImage?
 
-    public init(url: String, title: String? = nil, summary: String? = nil, imageHash: String? = nil) {
+    public init(url: String, title: String? = nil, site: String? = nil, image: AttachmentDerivedImage? = nil) {
         self.url = url
         self.title = title
-        self.summary = summary
-        self.imageHash = imageHash
+        self.site = site
+        self.image = image
     }
 }
 
@@ -251,6 +276,8 @@ public struct Message: Hashable, Sendable, Codable, Identifiable {
     public var replyTo: PartRef?
     /// The first message of the thread this message belongs to.
     public var threadRoot: MessageID?
+    /// A thread root's object (title, owner, resolution); nil for other messages.
+    public var thread: ThreadInfo?
 
     public init(
         id: MessageID,

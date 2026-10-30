@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
 import os
@@ -23,7 +24,15 @@ extension AppActionContext {
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
+            // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
+            services.burstTrace.mark(.refusal, input: registry.dispatchingInputEvent()?.timestamp)
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+        }
+        // An action's local change was rolled back because the daemon refused it: say so where
+        // refusals show, so the change does not just vanish.
+        registry.remoteFailureObserver = { action, notice in
+            Self.logger.notice("action \(action.rawValue, privacy: .public) rolled back: \(notice, privacy: .public)")
+            services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }
 
@@ -60,6 +69,27 @@ extension AppActionContext {
     func notFound<T>(_ reason: String) -> T? {
         registry.refuseNotFound(reason)
         return nil
+    }
+
+    /// Sets `id`'s target reason (after its bind): while `reason` returns a string, the
+    /// invocation's menu row is disabled and every run (palette, CLI, MCP, keyboard) is refused
+    /// with it. The lookups in `reason` never refuse on their own.
+    func setTargetReason(_ id: ActionID, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
+        ActionTargetReasons.set(id, in: registry) { [weak registry] invocation in
+            registry?.withoutRefusals { reason(invocation) }
+        }
+    }
+
+    /// Runs an action's asynchronous work and reports its failure: a capturing caller (the CLI,
+    /// MCP) awaits it and answers it; a palette, menu or keyboard run shows it when it comes.
+    func report(_ work: @escaping @MainActor () async -> ActionWorkFailure?) {
+        let task = Task { @MainActor in await work() }
+        if registry.isCapturingWork {
+            registry.track(task)
+        } else {
+            // task-owner: a run nobody awaits; the refusal shows when the work ends.
+            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
+        }
     }
 
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.
@@ -128,9 +158,30 @@ extension AppActionContext {
         return (pane, id)
     }
 
+    /// The tabs a tab action on `id` acts on: every selected tab of `pane`'s strip from a menu opened
+    /// on one of them (`actsOnTabSelection`) or from the palette or a shortcut on the focused tab (no
+    /// tab target), else `id`. So the tab menu and Cmd-Shift-P act on the same tabs.
+    func actingTabs(_ invocation: ActionInvocation, _ pane: PaneController, _ id: StripTabID) -> [StripTabID] {
+        invocation.actsOnTabSelection || explicitTarget(invocation, kinds: [.tab]) == nil ? pane.stripModel.actingTabs(for: id) : [id]
+    }
+
+    /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several
+    /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
+    func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
+        guard let pane = services.locateTab(model: tab).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
+        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
+    }
+
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
+            if let machine = invocation.targetMachineID {
+                guard let store = services.machines.daemon(machine: machine)?.store,
+                      let tab = store.tab(idOrResource: target.id), let pane = store.pane(holding: tab) else {
+                    return notFound(RefusalStrings.noTab(target.id))
+                }
+                return (tab, pane)
+            }
             return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
@@ -141,7 +192,8 @@ extension AppActionContext {
     /// The targeted daemon pane, found in any workspace.
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
-            let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
+            // Any machine's pane, as `daemonTab` finds any machine's tab.
+            let panes = services.machines.daemons.flatMap(\.store.workspaces).flatMap(\.screens).flatMap(\.panes)
             return panes.first { $0.id == target.id } ?? notFound(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }

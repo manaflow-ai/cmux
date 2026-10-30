@@ -74,6 +74,10 @@ pub(super) fn parse(
             if let Some(value) = flags.take("max-files") {
                 insert_bounded_u32(&mut params, "max_files", "--max-files", value, 1, 5000)?;
             }
+            if let Some(value) = flags.take("context-lines") {
+                let field = "context_lines";
+                insert_bounded_u32(&mut params, field, "--context-lines", value, 0, 1_000_000)?;
+            }
             if let Some(only) = flags.take("only") {
                 let paths = comma_separated("--only", &only)?.into_iter().map(Value::String);
                 params.insert("paths".into(), Value::Array(paths.collect()));

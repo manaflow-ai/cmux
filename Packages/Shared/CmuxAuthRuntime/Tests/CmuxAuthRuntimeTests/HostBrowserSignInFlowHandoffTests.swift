@@ -61,6 +61,63 @@ import Testing
         #expect(!harness.flow.isSigningIn && !harness.flow.isPresentingSignIn)
     }
 
+    @Test func browserCancellationDuringExternalCallbackValidationKeepsSignIn() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
+        await harness.client.closeUserGate()
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        let callbackState = harness.callbackState(session)
+        // Exercise a real popup cancellation, not the instant-cancel browser fallback.
+        clock.advance(by: .seconds(5))
+
+        // Safari opens the callback through LaunchServices, and the hosted
+        // session reports cancellation while that callback is still
+        // validating. The cancellation must not end the attempt before the
+        // callback has signed in.
+        let callback = Task { await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState)) }
+        await harness.waitForPendingUserRequest()
+        session.deliver(.cancelled(reason: "canceled_login"))
+        await harness.client.openUserGate()
+
+        #expect(await callback.value)
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
+    @Test func browserCancellationWhileExternalCallbackSeedsTokensKeepsSignIn() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
+        await harness.tokenStore.armSetTokensGate()
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        let callbackState = harness.callbackState(session)
+        // Exercise a real popup cancellation, not the instant-cancel browser fallback.
+        clock.advance(by: .seconds(5))
+
+        // A cancellation that lands while the callback writes its tokens must
+        // not make the callback clear them as raced, which left the app
+        // signed out with no error.
+        let callback = Task { await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState)) }
+        await harness.tokenStore.setTokensDidPark()
+        session.deliver(.cancelled(reason: "canceled_login"))
+        await harness.tokenStore.releaseSetTokensGate()
+
+        #expect(await callback.value)
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
     @Test func handoffOpenFailureEndsAttemptAndAllowsRetry() async {
         // The default browser fails to launch on the handed-off attempt.
         let harness = HostBrowserSignInFlowHarness(openSucceeds: false)
@@ -98,5 +155,44 @@ import Testing
 
         #expect(harness.openedURLs.isEmpty)
         #expect(harness.factory.sessions.count == 2)
+    }
+
+    /// A default browser that cannot host the sign-in popup (seen with Helium,
+    /// cx-13h6w) ends it at once as `canceledLogin`. The sign-in continues in
+    /// the default browser and its `<scheme>://auth-callback` signs the app in.
+    @Test func aPopupTheBrowserEndsAtOnceContinuesInTheDefaultBrowser() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let callbackState = harness.callbackState(harness.factory.sessions[0])
+
+        harness.factory.sessions[0].deliver(.cancelled(reason: "canceled_login"))
+        await harness.waitForCondition { harness.flow.signInIsSlow || !harness.flow.isSigningIn }
+
+        #expect(harness.openedURLs == [
+            URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\(callbackState)")!
+        ])
+        #expect(harness.flow.isSigningIn)
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState)))
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+    }
+
+    /// The person closing the popup after it showed ends the attempt; nothing
+    /// opens in the default browser.
+    @Test func aPopupThePersonClosesEndsTheAttempt() async {
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(clock: clock)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+
+        clock.advance(by: .seconds(5))
+        harness.factory.sessions[0].deliver(.cancelled(reason: "canceled_login"))
+
+        #expect(await attempt.value == false)
+        #expect(harness.openedURLs.isEmpty)
+        #expect(!harness.flow.isSigningIn)
     }
 }

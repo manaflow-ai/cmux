@@ -1,7 +1,8 @@
 """Launch and drive one tagged cmux-next build (AGENT-BRIEF launch rules).
 
-The app runs with a clean environment, never activates, and puts its window
-on the last screen. Only the PID this module started is ever killed.
+The app runs with a clean environment, never activates (unless
+`CMUX_EXT_E2E_ACTIVATE=1`, for a leased host nobody works on), and puts its
+window on the last screen. Only the PID this module started is ever killed.
 """
 import glob
 import json
@@ -24,6 +25,59 @@ def app_path(tag):
     if not matches:
         raise SystemExit(f"no tagged build for {tag}; run ./scripts/reload.sh --tag {tag}")
     return matches[0]
+
+
+class OpenedApp:
+    """The app started through LaunchServices (`open -g -n`), for hosts reached over ssh
+    (fleet capture minis): a process started from an ssh shell is outside the GUI
+    session, so its windows never show and its Chromium tabs never get a browser.
+    `CMUX_EXT_E2E_OPEN=1` picks it. Quacks like the Popen the rest of the module uses;
+    the PID is the one process running exactly this build's executable."""
+
+    def __init__(self, pid, binary):
+        self.pid = pid
+        self.binary = binary
+        self.returncode = None
+
+    @classmethod
+    def launch(cls, app, binary, env, log_dir, activate=False, timeout=20):
+        before = set(cls.pids(binary))
+        command = ["/usr/bin/open"] + ([] if activate else ["-g"]) + ["-n", "-a", app]
+        for key, value in env.items():
+            if key not in ("HOME", "USER", "TMPDIR", "PATH"):
+                command += ["--env", f"{key}={value}"]
+        if log_dir:
+            log = os.path.join(log_dir, "app.log")
+            command += ["--stdout", log, "--stderr", log]
+        subprocess.run(command, check=True)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            started = [pid for pid in cls.pids(binary) if pid not in before]
+            if started:
+                return cls(started[0], binary)
+            time.sleep(0.2)
+        raise SystemExit("open started no app process")
+
+    @staticmethod
+    def pids(binary):
+        listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        return [int(pid) for pid, _, command in (line.strip().partition(" ") for line in listing.splitlines())
+                if command == binary]
+
+    def poll(self):
+        # Not our child: once it exits its PID may be reused, so alive means the PID
+        # still runs this build's executable (quit signals only then).
+        if self.returncode is None and self.pid not in self.pids(self.binary):
+            self.returncode = 0
+        return self.returncode
+
+    def wait(self, timeout=None):
+        deadline = time.monotonic() + (timeout or 1e9)
+        while self.poll() is None:
+            if time.monotonic() > deadline:
+                raise subprocess.TimeoutExpired("cmux", timeout)
+            time.sleep(0.1)
+        return self.returncode
 
 
 def free_port():
@@ -77,15 +131,26 @@ class TaggedApp:
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""),
             "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CEF_EXTRA_SWITCHES": ":".join(switches),
         }
+        # A key window lets the checks that need one run (action.openPopup, typing in
+        # the omnibar); only on a host no person is using.
+        activate = os.environ.get("CMUX_EXT_E2E_ACTIVATE") == "1"
+        if activate:
+            del env["CMUX_NEXT_NO_ACTIVATE"]
+        # The last screen keeps the window off a person's main display; `CMUX_EXT_E2E_SCREEN=`
+        # (empty) leaves the app's own placement (a fleet mini's last screen is not drawn).
+        if screen := os.environ.get("CMUX_EXT_E2E_SCREEN", "last"):
+            env["CMUX_NEXT_TEST_WINDOW_SCREEN"] = screen
         if self.extensions:
             env["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] = ":".join(self.extensions)
-        log = open(os.path.join(self.log_dir, "app.log"), "w") if self.log_dir else subprocess.DEVNULL
         binary = os.path.join(self.path, "Contents/MacOS/cmux DEV")
-        self.process = subprocess.Popen([binary], env=env, stdout=log, stderr=subprocess.STDOUT,
-                                        start_new_session=True)
+        if os.environ.get("CMUX_EXT_E2E_OPEN") == "1":
+            self.process = OpenedApp.launch(self.path, binary, env, self.log_dir, activate)
+        else:
+            log = open(os.path.join(self.log_dir, "app.log"), "w") if self.log_dir else subprocess.DEVNULL
+            self.process = subprocess.Popen([binary], env=env, stdout=log, stderr=subprocess.STDOUT,
+                                            start_new_session=True)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
@@ -119,6 +184,19 @@ class TaggedApp:
         except (OSError, ConnectionError, ValueError):
             self.client = Client(self.socket_path, timeout=30)
             return self.client.call(method, params or {})
+
+    def open_chromium(self, url):
+        """Opens a Chromium tab and selects it. A tab a script opens stays in the background
+        (the window keeps its New Tab page), and an unshown Chromium tab has no browser yet,
+        so no extension would see its page."""
+        return self.open_selected("tab new-chromium", {"url": url})
+
+    def open_selected(self, name, args=None):
+        """Runs an action that opens a tab, then selects the tab it created."""
+        opened = self.action(name, args)
+        for tab in ((opened.get("result") or {}).get("created") or [])[:1]:
+            self.call("tab.focus", {"tab": tab})
+        return opened
 
     def action(self, name, args=None):
         params = {"action": name}
@@ -164,12 +242,16 @@ class TaggedApp:
             self.process.wait(timeout=15)
         except Exception:  # noqa: BLE001 - fall back to a signal to our own PID
             pass
-        if self.process.poll() is None:
-            os.kill(self.process.pid, signal.SIGTERM)
-            try:
-                self.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.kill(self.process.pid, signal.SIGKILL)
+        try:
+            if self.process.poll() is None:
+                os.kill(self.process.pid, signal.SIGTERM)
+                try:
+                    self.process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    if self.process.poll() is None:
+                        os.kill(self.process.pid, signal.SIGKILL)
+        except ProcessLookupError:  # it exited between the check and the signal
+            pass
 
     def dump(self, name, payload):
         if self.log_dir:

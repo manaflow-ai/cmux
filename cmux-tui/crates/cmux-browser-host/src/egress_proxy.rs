@@ -11,6 +11,7 @@
 use crate::egress_scope::{EgressRule, Refusal, Target};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -24,7 +25,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// SOCKS5 reply codes (RFC 1928 section 6).
-mod reply {
+pub(crate) mod reply {
     pub const OK: u8 = 0x00;
     pub const FAILURE: u8 = 0x01;
     pub const NOT_ALLOWED: u8 = 0x02;
@@ -34,12 +35,44 @@ mod reply {
     pub const ADDRESS_UNSUPPORTED: u8 = 0x08;
 }
 
+/// How the listener reaches one target: the connected upstream, or the
+/// SOCKS5 reply code that refuses it. `own` is the listener's address.
+pub(crate) trait Connector: Send + Sync {
+    fn connect(&self, target: &Target, own: SocketAddr) -> Result<TcpStream, u8>;
+}
+
 /// Starts the listener on 127.0.0.1 (a free port) and returns its address.
 /// It serves for the life of the process.
 pub fn start(rule: Arc<EgressRule>) -> io::Result<SocketAddr> {
+    let listening = start_with(rule)?;
+    let addr = listening.addr;
+    std::mem::forget(listening);
+    Ok(addr)
+}
+
+/// A running listener; dropping it stops accepting (connections already
+/// served run to their end).
+pub(crate) struct Listening {
+    pub(crate) addr: SocketAddr,
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for Listening {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        // Wakes the accept so the loop sees the flag.
+        let _ = TcpStream::connect_timeout(&self.addr, Duration::from_secs(1));
+    }
+}
+
+/// [`start`] with any [`Connector`] (crate::policy_proxy), until the
+/// returned [`Listening`] drops.
+pub(crate) fn start_with(rule: Arc<dyn Connector>) -> io::Result<Listening> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let addr = listener.local_addr()?;
     let live: Arc<Live> = Arc::default();
+    let stop: Arc<AtomicBool> = Arc::default();
+    let stopped = stop.clone();
     std::thread::Builder::new().name("cmux-browser-host-egress".into()).spawn(move || {
         loop {
             let client = match listener.accept() {
@@ -53,6 +86,9 @@ pub fn start(rule: Arc<EgressRule>) -> io::Result<SocketAddr> {
                 // A connection reset before accept drops that one only.
                 Err(_) => continue,
             };
+            if stopped.load(Ordering::SeqCst) {
+                return;
+            }
             if !live.enter() {
                 continue;
             }
@@ -60,7 +96,7 @@ pub fn start(rule: Arc<EgressRule>) -> io::Result<SocketAddr> {
             let spawned = std::thread::Builder::new()
                 .name("cmux-browser-host-egress-conn".into())
                 .spawn(move || {
-                    let _ = serve(client, &rule, addr);
+                    let _ = serve(client, &*rule, addr);
                     done.leave();
                 });
             if spawned.is_err() {
@@ -68,7 +104,7 @@ pub fn start(rule: Arc<EgressRule>) -> io::Result<SocketAddr> {
             }
         }
     })?;
-    Ok(addr)
+    Ok(Listening { addr, stop })
 }
 
 const EMFILE: i32 = 24;
@@ -106,8 +142,8 @@ impl Live {
     }
 }
 
-/// One client: handshake, rule, dial, copy.
-fn serve(mut client: TcpStream, rule: &EgressRule, own: SocketAddr) -> io::Result<()> {
+/// One client: handshake, connector, copy.
+fn serve(mut client: TcpStream, rule: &dyn Connector, own: SocketAddr) -> io::Result<()> {
     client.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
     client.set_nodelay(true)?;
     let mut head = [0u8; 2];
@@ -134,38 +170,10 @@ fn serve(mut client: TcpStream, rule: &EgressRule, own: SocketAddr) -> io::Resul
     if request[1] != 1 {
         return send_reply(&mut client, reply::COMMAND_UNSUPPORTED);
     }
-    let addrs = match rule.resolve(&target) {
-        // Never a connection to the listener itself (a cmux service port).
-        Ok(addrs) if addrs.iter().any(|a| is_self(*a, own)) => {
-            return send_reply(&mut client, reply::NOT_ALLOWED);
-        }
-        Ok(addrs) => addrs,
-        Err(Refusal::Blocked(_)) => return send_reply(&mut client, reply::NOT_ALLOWED),
-        Err(Refusal::Unresolved(_)) => return send_reply(&mut client, reply::HOST_UNREACHABLE),
-    };
-    let upstream = match dial(&addrs) {
+    let upstream = match rule.connect(&target, own) {
         Ok(upstream) => upstream,
-        Err(error) => {
-            let code = match error.kind() {
-                io::ErrorKind::ConnectionRefused => reply::REFUSED,
-                io::ErrorKind::TimedOut => reply::HOST_UNREACHABLE,
-                _ => reply::FAILURE,
-            };
-            return send_reply(&mut client, code);
-        }
+        Err(code) => return send_reply(&mut client, code),
     };
-    // Whose loopback port it is, checked on the connected peer: a listener
-    // existed at connect time, so a cmux service that (re)binds between a
-    // check and the connect cannot slip through.
-    // A peer that cannot be read is refused too (fail closed).
-    let refused = match upstream.peer_addr() {
-        Ok(peer) => is_self(peer, own) || rule.connected_service_refusal(peer).is_some(),
-        Err(_) => true,
-    };
-    if refused {
-        drop(upstream);
-        return send_reply(&mut client, reply::NOT_ALLOWED);
-    }
     send_reply(&mut client, reply::OK)?;
     client.set_read_timeout(None)?;
     let _ = upstream.set_nodelay(true);
@@ -175,8 +183,44 @@ fn serve(mut client: TcpStream, rule: &EgressRule, own: SocketAddr) -> io::Resul
     copy_both_ways(client, upstream)
 }
 
+impl Connector for EgressRule {
+    /// The isolated range rule: resolve once, check every address, dial
+    /// only checked ones, then check whose loopback port answered.
+    fn connect(&self, target: &Target, own: SocketAddr) -> Result<TcpStream, u8> {
+        let addrs = match self.resolve(target) {
+            // Never a connection to the listener itself (a cmux service port).
+            Ok(addrs) if addrs.iter().any(|a| is_self(*a, own)) => return Err(reply::NOT_ALLOWED),
+            Ok(addrs) => addrs,
+            Err(Refusal::Blocked(_)) => return Err(reply::NOT_ALLOWED),
+            Err(Refusal::Unresolved(_)) => return Err(reply::HOST_UNREACHABLE),
+        };
+        let upstream = dial(&addrs).map_err(|error| dial_failure(&error))?;
+        // Whose loopback port it is, checked on the connected peer: a listener
+        // existed at connect time, so a cmux service that (re)binds between a
+        // check and the connect cannot slip through.
+        // A peer that cannot be read is refused too (fail closed).
+        let refused = match upstream.peer_addr() {
+            Ok(peer) => is_self(peer, own) || self.connected_service_refusal(peer).is_some(),
+            Err(_) => true,
+        };
+        if refused {
+            return Err(reply::NOT_ALLOWED);
+        }
+        Ok(upstream)
+    }
+}
+
+/// The reply code for a dial that failed.
+pub(crate) fn dial_failure(error: &io::Error) -> u8 {
+    match error.kind() {
+        io::ErrorKind::ConnectionRefused => reply::REFUSED,
+        io::ErrorKind::TimedOut => reply::HOST_UNREACHABLE,
+        _ => reply::FAILURE,
+    }
+}
+
 /// Whether `addr` reaches the listener bound at `own` (127.0.0.1).
-fn is_self(addr: SocketAddr, own: SocketAddr) -> bool {
+pub(crate) fn is_self(addr: SocketAddr, own: SocketAddr) -> bool {
     let ip = match addr.ip() {
         std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(addr.ip(), std::net::IpAddr::V4),
         ip => ip,
@@ -223,7 +267,7 @@ fn send_reply(client: &mut TcpStream, code: u8) -> io::Result<()> {
 }
 
 /// The first checked address that answers.
-fn dial(addrs: &[SocketAddr]) -> io::Result<TcpStream> {
+pub(crate) fn dial(addrs: &[SocketAddr]) -> io::Result<TcpStream> {
     let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
     for addr in addrs {
         match TcpStream::connect_timeout(addr, CONNECT_TIMEOUT) {

@@ -32,6 +32,12 @@
 //!   refused (its hidden shell runs in the profile's store). Turning it
 //!   off again is refused (one way, like a policy lock). Known gap:
 //!   incognito with a proxy or permission grants answers `unsupported`.
+//! - A domain policy (cx-d0d.79, crate::headless_policy): the session's
+//!   new tabs open in a policy store (`<profile>/policy-<n>`, incognito in
+//!   an incognito session) whose connections go through the session's
+//!   policy listener. It takes the session's grants; a session proxy is
+//!   refused while it is there (the proxy would carry connections past the
+//!   policy), and so is a policy on a session with a proxy.
 
 use crate::cdp::TabOverrides;
 use crate::headless_source::HeadlessSource;
@@ -48,6 +54,8 @@ pub struct SessionConfig {
     store: Option<String>,
     /// Whether `store` is a proxy store.
     store_proxy: bool,
+    /// Whether `store` (or `incognito_store`) is the policy store.
+    store_policy: bool,
     /// The granted permissions (CDP names).
     permissions: Vec<String>,
     /// `session.configure {incognito}`: every tab opens incognito.
@@ -155,6 +163,12 @@ impl HeadlessSource {
         {
             let configs = self.configs();
             let config = configs.sessions.get(&session);
+            // Under a policy only an incognito session's store is checked.
+            if config.is_some_and(|c| c.store_policy && !c.incognito) {
+                return Err(unsupported(
+                    "incognito tabs under a domain policy are not supported yet: they would open outside the policy",
+                ));
+            }
             if let Some(store) = config.and_then(|c| c.incognito_store.clone()) {
                 return Ok(store);
             }
@@ -225,6 +239,13 @@ impl HeadlessSource {
                     "session.configure: an incognito session stays incognito",
                 ));
             }
+            // The policy store stays the session's store: no incognito
+            // switch moves its new tabs out of it.
+            if current.is_some_and(|c| c.store_policy && !c.incognito) && incognito == Some(true) {
+                return Err(unsupported(
+                    "incognito under a domain policy is not supported yet: its tabs would open outside the policy",
+                ));
+            }
             if incognito_on && (proxy_on || grants_on) {
                 return Err(unsupported(
                     "incognito with a proxy or permission grants is not supported yet",
@@ -233,6 +254,14 @@ impl HeadlessSource {
         }
         let proxy = match params.get("proxy") {
             None => None,
+            Some(proxy)
+                if !proxy.is_null()
+                    && self.configs().sessions.get(&session).is_some_and(|c| c.store_policy) =>
+            {
+                return Err(unsupported(
+                    "a proxy under a domain policy is not supported yet: it would carry connections past the policy",
+                ));
+            }
             Some(Value::Null) => Some(None),
             Some(proxy) => {
                 if proxy.get("username").is_some() || proxy.get("password").is_some() {
@@ -263,7 +292,8 @@ impl HeadlessSource {
                 config.overrides.headers = headers.as_object().cloned();
             }
             let stores_changed = proxy.is_some() || permissions.is_some();
-            if let Some(proxy) = proxy {
+            // `proxy: null` keeps the policy store (no proxy was set).
+            if let Some(proxy) = proxy.filter(|_| !config.store_policy) {
                 config.store_proxy = proxy.is_some();
                 config.store = proxy;
             }
@@ -275,7 +305,7 @@ impl HeadlessSource {
             }
             // Grants without a proxy store: back to the profile once none
             // is left (the private store closes at the session's end).
-            if config.permissions.is_empty() && !config.store_proxy {
+            if config.permissions.is_empty() && !config.store_proxy && !config.store_policy {
                 config.store = None;
             }
             let touched =
@@ -367,6 +397,48 @@ impl HeadlessSource {
         self.driver.open_tab(&params, context.as_deref(), overrides)
     }
 
+    /// Makes the session's policy store, whose connections go through
+    /// `server` (its policy listener), and opens its new tabs there; its
+    /// grants move with it. Refused for a session with a proxy store.
+    pub(crate) fn policy_store(&self, session: u64, server: &str) -> Result<String, DriverError> {
+        let incognito = {
+            let mut configs = self.configs();
+            let config = configs.sessions.entry(session).or_default();
+            if config.store_proxy {
+                return Err(DriverError::new(
+                    ErrorCode::Unsupported,
+                    "a domain policy on a session with a proxy is not supported yet: the proxy would carry connections past the policy",
+                ));
+            }
+            config.incognito
+        };
+        let context = if incognito {
+            self.driver.create_incognito_proxy_context(server)?
+        } else {
+            self.driver.create_proxy_context(server, Some("<-loopback>"))?
+        };
+        {
+            let mut configs = self.configs();
+            configs.next_store += 1;
+            let name = format!("{}/policy-{}", self.profile, configs.next_store);
+            configs.stores.insert(
+                context.clone(),
+                ProxyStore { owner: session, name, kept: false, incognito },
+            );
+            let config = configs.sessions.entry(session).or_default();
+            config.store_policy = true;
+            if incognito {
+                config.incognito_store = Some(context.clone());
+            } else {
+                config.store = Some(context.clone());
+            }
+        }
+        if !incognito {
+            self.grant_session_permissions(session)?;
+        }
+        Ok(context)
+    }
+
     /// A kept tab is the person's: the creating session's options leave it,
     /// and the proxy store it is in (any tab, a popup too) stays open until
     /// the host exits.
@@ -382,6 +454,11 @@ impl HeadlessSource {
         if had {
             let _ = self.driver.set_tab_overrides(target, None);
         }
+    }
+
+    /// Whether a tab in `context` was kept (the store outlives its session).
+    pub(crate) fn store_kept(&self, context: &str) -> bool {
+        self.configs().stores.get(context).is_some_and(|store| store.kept)
     }
 
     /// The session ended: its options leave its tabs, its proxy stores

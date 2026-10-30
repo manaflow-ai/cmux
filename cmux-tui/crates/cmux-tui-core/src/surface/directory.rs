@@ -32,6 +32,40 @@ impl Surface {
         self.as_pty()?.terminal_metadata.lock().unwrap().progress()
     }
 
+    /// The terminal's running shell command: how it uses the terminal and
+    /// when it started (`terminal-activity-v1`).
+    pub(crate) fn terminal_command_activity(
+        &self,
+    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .command_activity()
+    }
+
+    /// When the terminal's shell drew the prompt it sits at (OSC 133 A, until
+    /// the next command starts): `extra.prompt` (`terminal-activity-v1`).
+    pub(crate) fn terminal_prompt_since(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .prompt_since()
+    }
+
+    /// When the terminal last printed anything: `extra.last_output`
+    /// (`terminal-activity-v1`).
+    pub(crate) fn terminal_last_output(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .last_output()
+    }
+
     /// The terminal's OSC 7501 program status records as the public value
     /// (`extra.program_status`); `running` false hides the records that end
     /// with the process. `None` when nothing is shown.
@@ -41,8 +75,15 @@ impl Surface {
         records.to_json(running)
     }
 
-    /// Publish a changed OSC 9;4 progress or OSC 7501 program status as a
-    /// terminal upsert, then post the notifications the records asked for
+    /// The status this terminal's tab shows (`ShownProgramStatus`).
+    pub fn shown_program_status(&self) -> Option<crate::program_status::ShownProgramStatus> {
+        let records = self.as_pty()?.program_status_records();
+        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        records.shown(!self.is_dead())
+    }
+
+    /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
+    /// program status as a terminal upsert, then post the notifications the records asked for
     /// (after the upsert, so a client that opens the notification finds the
     /// record). The reader calls this after each output chunk, outside the
     /// parser lock.
@@ -50,17 +91,20 @@ impl Surface {
         let Some(pty) = self.as_pty() else { return };
         let (mut progress_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
-            (metadata.take_progress_change().is_some(), metadata.program_status())
+            let progress = metadata.take_progress_change().is_some();
+            (metadata.take_busy_change() || progress, metadata.program_status())
         };
         loop {
             // Once the PTY has recorded an exit, transient records are no
             // longer part of the hook envelope, matching the public snapshot.
             let running = self.terminal_end().is_none();
-            let (status_revision, status_change) = {
+            let (status_revision, status_change, shown_changed) = {
                 let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                records
+                let shown = records.take_shown_change(!self.is_dead());
+                let (revision, change) = records
                     .claim_pending_change(running)
-                    .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
+                    .map_or((None, None), |(revision, change)| (Some(revision), change));
+                (revision, change, shown)
             };
             #[cfg(test)]
             if status_revision.is_some() {
@@ -69,8 +113,10 @@ impl Surface {
                     hook();
                 }
             }
-            let status_changed = status_change.is_some();
-            if !progress_changed && !status_changed {
+            let status_changed = status_revision.is_some();
+            // A publish after the terminal died (reconnect) can hide its
+            // running records with no new report: send that shown change too.
+            if !progress_changed && !status_changed && shown_changed.is_none() {
                 return;
             }
             let Some(mux) = pty.mux.upgrade() else {
@@ -82,14 +128,18 @@ impl Surface {
                 }
                 return;
             };
-            let mutation =
-                if status_changed { "terminal.program_status" } else { "terminal.progress" };
-            let published = match mux.publish_terminal_progress(self, mutation, status_change) {
-                Ok(published) => published,
-                Err(error) => {
-                    eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
-                    false
+            let published = if progress_changed || status_changed {
+                let mutation =
+                    if status_changed { "terminal.program_status" } else { "terminal.progress" };
+                match mux.publish_terminal_progress(self, mutation, status_change) {
+                    Ok(published) => published,
+                    Err(error) => {
+                        eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+                        false
+                    }
                 }
+            } else {
+                true
             };
             if let Some(revision) = status_revision {
                 records
@@ -97,16 +147,22 @@ impl Surface {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .finish_change_publication(revision, published);
             }
+            // The tab indicator (TUI) changes only with the shown status.
+            if let Some(status) = shown_changed {
+                mux.emit_terminal_program_status(self.id, status);
+            }
             if published && status_changed {
                 let alerts =
                     records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
-                let notifications = pty
-                    .terminal_metadata
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .admit_program_status_alerts(alerts, Instant::now());
-                if !notifications.is_empty() {
-                    mux.post_terminal_notifications(self.id, notifications);
+                if !alerts.is_empty() {
+                    let notifications = pty
+                        .terminal_metadata
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .admit_program_status_alerts(alerts, Instant::now());
+                    if !notifications.is_empty() {
+                        mux.post_terminal_notifications(self.id, notifications);
+                    }
                 }
             }
             if !published {
@@ -178,12 +234,12 @@ impl Surface {
             return;
         }
         let raw = pty.pwd.lock().unwrap().clone();
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         let hosted = matches!(
             &*pty.runtime.lock().unwrap(),
             PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
         );
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         let hosted = false;
         let directory = raw
             .as_deref()

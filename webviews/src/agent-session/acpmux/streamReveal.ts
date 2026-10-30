@@ -137,3 +137,31 @@ export class StreamReveal {
     return code >= 0xd800 && code <= 0xdbff ? end + 1 : end;
   }
 }
+
+/// Han, kana, Hangul and full-width punctuation: scripts that write no spaces between words.
+const CJK = /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/;
+
+/// A word longer than this (a URL, a hash) shows as it arrives instead of waiting for its end.
+export const LONG_WORD_CHARS = 48;
+
+/// Where a streaming reply's visible text may end: at the end of a whole word, never inside one
+/// and never inside the last word while more may still arrive (it can still grow), so text grows a
+/// word at a time and nothing trails the last word. `raw` is the reveal's length; `shown` what
+/// already shows (the result never shrinks it); `done` once the stream ended, when all of it shows.
+export function wordEdge(text: string, raw: number, done: boolean, shown: number): number {
+  const limit = Math.min(raw, text.length);
+  if (done && limit >= text.length) return text.length;
+  let end = limit;
+  // The word ending at `end` is whole when what follows it has arrived and is a space. Chinese,
+  // Japanese and Korean put no spaces between words: each of their characters is whole.
+  const whole = (at: number) =>
+    (at < text.length && /\s/.test(text[at]!) && !/\s/.test(text[at - 1]!)) ||
+    CJK.test(text[at - 1]!) ||
+    (at < text.length && CJK.test(text[at]!));
+  // Measured from the word's start, not from what shows: once part of a long word shows, the
+  // rest grows as it arrives. Past LONG_WORD_CHARS the answer is known, so a run with no space in
+  // it (a data URL, a minified line) costs at most that many steps a frame.
+  while (end > 0 && limit - end <= LONG_WORD_CHARS && !whole(end)) end -= 1;
+  if (limit - end > LONG_WORD_CHARS) return limit;
+  return Math.max(end, Math.min(shown, text.length));
+}

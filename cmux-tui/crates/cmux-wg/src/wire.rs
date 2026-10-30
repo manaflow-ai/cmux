@@ -23,11 +23,11 @@ pub(crate) fn socket_addr(endpoint: IpEndpoint) -> SocketAddr {
 pub(crate) fn packet_source(packet: &[u8]) -> Option<IpAddr> {
     match packet.first()? >> 4 {
         4 if packet.len() >= 20 => {
-            let octets: [u8; 4] = packet[12..16].try_into().ok()?;
+            let octets: [u8; 4] = packet.get(12..16)?.try_into().ok()?;
             Some(IpAddr::V4(octets.into()))
         }
         6 if packet.len() >= 40 => {
-            let octets: [u8; 16] = packet[8..24].try_into().ok()?;
+            let octets: [u8; 16] = packet.get(8..24)?.try_into().ok()?;
             Some(IpAddr::V6(octets.into()))
         }
         _ => None,

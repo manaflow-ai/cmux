@@ -6,7 +6,7 @@ import os
 import shutil
 import time
 
-from . import cdp
+from . import bookmark_bridge, cdp
 from .app import TaggedApp
 from .collector import Collector
 
@@ -73,7 +73,7 @@ class Run:
         self.tag = tag
         self.run_dir = run_dir
         self.log = log
-        self.collector = Collector(run_id=str(int(time.time()))).start()
+        self.collector = Collector(run_id=str(int(time.time())), held=("/tab",)).start()
         self.app = None
         self.context = None
 
@@ -145,11 +145,12 @@ class Run:
             self.watch_auto_phase()
             self.collector.wait_for(lambda c: c.has_event("phase", phase="mv2", state="done"), 30)
             self.guarded(self.tabs_in_sync_check)
+            self.guarded(self.bookmark_bridge_check)
             self.guarded(self.focus_page_tab)
             self.app.quit()
             self.launch(extensions)
             self.worker_call("resetForUIPhase")
-            opened = self.app.action("tab new-chromium", {"url": self.collector.url + "/page.html?suite=mv3"})
+            opened = self.app.open_chromium(self.collector.url + "/page.html?suite=mv3")
             self.log(f"UI launch: page tab {opened.get('ok')}")
             self.guarded(self.ui_checks)
         finally:
@@ -167,13 +168,48 @@ class Run:
                 if event.get("kind") != "tab" or index in handled:
                     continue
                 handled.add(index)
-                self.check_adoption(event)
+                try:
+                    self.check_adoption(event)
+                finally:
+                    self.collector.ack(index)
             if self.collector.has_event("phase", phase="auto", state="done"):
                 self.log("auto phase done")
+                self.guarded(self.classify_refused_options_page)
                 return True
             time.sleep(0.3)
         self.note("mv3", "harness", "auto_phase_done", "fail", f"no 'done' after {timeout} s")
         return False
+
+    def classify_refused_options_page(self):
+        """`runtime.openOptionsPage` opens its tab with the active tab as opener; in
+        this harness that tab is agent-driven, and cmux replaces an extension page in
+        an agent-driven tab with about:blank (AgentURLPolicy, plans/cmux-next/passwords.md
+        section 2). A tab whose history starts at the options page and now shows
+        about:blank is that refusal, not a missing tab."""
+        result = self.collector.result("mv3", "runtime", "openOptionsPage")
+        if not result or result.get("status") != "fail":
+            return
+        options = f"chrome-extension://{MV3_ID}/options.html"
+        for target in cdp.targets(self.app.cdp_port):
+            if target.get("type") != "page" or target.get("url") != "about:blank":
+                continue
+            socket_url = target.get("webSocketDebuggerUrl")
+            if not socket_url:
+                continue
+            try:
+                page = cdp.Session(socket_url)
+                try:
+                    entries = page.call("Page.getNavigationHistory").get("entries") or []
+                finally:
+                    page.close()
+            except (OSError, RuntimeError, ValueError):
+                continue  # the tab closed or another client holds it
+            if entries and entries[0].get("url") == options:
+                self.collector.reclassify(
+                    "mv3", "runtime", "openOptionsPage", "unverified",
+                    "the options tab opened; cmux replaced it with about:blank because its opener "
+                    "is agent-driven (AgentURLPolicy); a tab a person uses keeps it")
+                return
 
     def check_adoption(self, event):
         role = event.get("role")
@@ -230,7 +266,7 @@ class Run:
         self.context = None
         self.app = TaggedApp(self.tag, extensions=extensions, log_dir=self.run_dir).launch()
         self.log(f"app pid {self.app.process.pid}, collector {self.collector.url}, cdp {self.app.cdp_port}")
-        opened = self.app.action("tab new-chromium", {"url": self.collector.url + "/home.html"})
+        opened = self.app.open_chromium(self.collector.url + "/home.html")
         self.log(f"open Chromium tab: {opened.get('ok')} {opened.get('error') or ''}")
 
     def guarded(self, step):
@@ -239,6 +275,9 @@ class Run:
         except (OSError, ConnectionError, RuntimeError) as error:
             self.note("mv3", "harness", step.__name__, "fail", f"runner error: {error!r}")
             return None
+
+    def bookmark_bridge_check(self):
+        bookmark_bridge.run(self, MV3_ID)
 
     def worker_call(self, name):
         worker = self.sw_session(MV3_ID)
@@ -290,7 +329,7 @@ class Run:
         if focus != url:
             tab = next((tab_id for tab_id, tab_url in self.browser_tabs() if tab_url == url), None)
             if tab:
-                self.app.action("tab go-to", {"tab": tab})
+                self.app.call("tab.focus", {"tab": tab})
                 focus = self.poll(self.focused_url, lambda u: u == url, 5)
         return focus == url
 
@@ -300,7 +339,8 @@ class Run:
         if self.poll(self.focused_url, lambda u: u == page, 10) != page:
             self.note("mv3", "harness", "ui_page_focused", "fail", f"focused tab {self.focused_url()!r}")
         # Toolbar action for the MV3 extension, with the badge and title the worker set.
-        report = self.extensions()
+        # The relaunched extension's action reaches the tab a moment after its page.
+        report = self.poll(self.extensions, lambda r: any(a.get("id") == MV3_ID for a in r.get("actions", [])), 10)
         action = next((a for a in report.get("actions", []) if a.get("id") == MV3_ID), None)
         toolbar = app.call("debug.extensions.toolbar").get("result") or {}
         # Unpinned actions live in the Extensions menu.
@@ -437,11 +477,15 @@ class Run:
         """Types the extension's keyword, a space and text into a new tab's
         omnibar (debug.key, this app only), then Enter: onInputEntered."""
         app = self.app
-        app.action("openBrowser", {"engine": "cef"})
+        app.open_selected("openBrowser", {"engine": "cef"})
         # Type only once the new tab's omnibar has focus (a fixed wait lost
         # the keys on a loaded machine).
-        self.poll(lambda: app.call("debug.omnibar").get("result") or {},
-                  lambda o: o.get("has_focus") and o.get("field_editor_active"), 10)
+        omnibar = lambda: app.call("debug.omnibar").get("result") or {}  # noqa: E731
+        focused = lambda o: o.get("has_focus") and o.get("field_editor_active")  # noqa: E731
+        # A scripted new tab need not take the omnibar focus; this checks the keyword, not that.
+        if not focused(self.poll(omnibar, focused, 5)):
+            app.action("focusBrowserAddressBar")
+            self.poll(omnibar, focused, 5)
         for key in list("cxt hello"):
             app.call("debug.key", {"key": key})
         state = app.call("debug.omnibar").get("result") or {}

@@ -23,6 +23,15 @@ pub struct HostLock {
     _file: File,
 }
 
+impl Drop for HostLock {
+    fn drop(&mut self) {
+        // A concurrent fork can inherit this open file description. Closing
+        // our descriptor alone then leaves the flock held until the child
+        // closes its copy. Explicitly unlock when the host guard drops.
+        let _ = self._file.unlock();
+    }
+}
+
 #[derive(Debug)]
 pub enum LockError {
     /// Another open file holds the flock: a host already runs for this home.
@@ -91,6 +100,60 @@ pub trait ProcessProbe {
     fn alive(&self, pid: i32) -> bool;
     /// The process's start, epoch ms, if known.
     fn start_ms(&self, pid: i32) -> Option<i64>;
+}
+
+/// Whether a host holds the lock at `path` now (a non-blocking probe on its
+/// own descriptor, released at once). A missing file or another error says
+/// no host. Also true for this process's own held lock.
+pub fn held(path: &Path) -> bool {
+    let Ok(file) = OpenOptions::new().read(true).open(path) else {
+        return false;
+    };
+    match file.try_lock() {
+        Ok(()) => {
+            let _ = file.unlock();
+            false
+        }
+        Err(TryLockError::WouldBlock) => true,
+        Err(TryLockError::Error(_)) => false,
+    }
+}
+
+/// The file next to the host lock `lock` that says its host is stopping
+/// (`mark_stopping`): a host that stops no longer uses its acpmux, so other
+/// Chiefs that stop at the same time do not count it (the last of them stops
+/// the Chief home's acpmux). The next host of that home removes it when it
+/// takes the lock.
+fn stopping_file(lock: &Path) -> std::path::PathBuf {
+    lock.with_file_name("host.stopping")
+}
+
+/// Marks the host of `lock` (this one) as stopping.
+pub fn mark_stopping(lock: &Path) {
+    let _ = std::fs::write(stopping_file(lock), format!("{}\n", std::process::id()));
+}
+
+/// Clears the mark, at a host's start.
+pub fn clear_stopping(lock: &Path) {
+    let _ = std::fs::remove_file(stopping_file(lock));
+}
+
+/// The file next to the host lock `lock` that names the host (its pid) that
+/// takes SIGUSR1 as "hand off when idle" (an update: the app waits for the
+/// Chief's turn to end before it hands acpmux off). An older host has no
+/// such file, and SIGUSR1 would end it at once, so the app does not send it.
+pub fn handoff_file(lock: &Path) -> std::path::PathBuf {
+    lock.with_file_name("host.handoff")
+}
+
+/// Says that this host (holding `lock`) takes SIGUSR1 as a handoff request.
+pub fn mark_handoff_when_idle(lock: &Path) {
+    let _ = std::fs::write(handoff_file(lock), format!("{}\n", std::process::id()));
+}
+
+/// Whether a host runs on `lock` and is not stopping.
+pub fn in_use(lock: &Path) -> bool {
+    held(lock) && !stopping_file(lock).exists()
 }
 
 /// Upgrade check, REMOVE AFTER ONE RELEASE (chief-mac.md section 2): a lock

@@ -1,3 +1,4 @@
+public import CmuxNextDesignTokens
 /// What a status indicator draws for one state, as a pure value: the layer
 /// only executes the plan, so every rule here is unit tested.
 public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
@@ -28,7 +29,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     }
 
     public enum Animation: Hashable, Sendable {
-        /// Continuous rotation (Motion `spinner` period).
+        /// Continuous clockwise rotation (Motion `spinner` period). The only
+        /// direction: every spinner turns the same way (Lawrence 2026-10-20), so
+        /// there is no backward case to reach for.
         case spin
         /// Rotation in discrete steps, one spoke at a time, like the native
         /// control.
@@ -40,6 +43,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// The dots dim and brighten one after another (one Motion `pulse`
         /// period per cycle).
         case wave
+        /// A slow opacity breath (Motion `breath` period): agent work's dot
+        /// (`StatusWorkingLook.breathe`).
+        case breathe
     }
 
     public enum Tint: Hashable, Sendable {
@@ -51,6 +57,15 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// The app's neutral accent at full strength (the theme
         /// foreground; no hue, the no-blue rule): agent work.
         case accent
+        /// The theme foreground softened to Codex's spinner grey (white at
+        /// 66% on Codex's dark sidebar): the Codex-like set's work.
+        case spinner
+        /// Codex's unread blue: the Codex-like set's done dot. The one hue a
+        /// status set adds (Leo's team asked for Codex's dot, 2026-10-14).
+        case unread
+        /// The theme accent (`Palette.accentFill`: the text color, or the hue
+        /// `appearance.accent` names): agent work's dot (`StatusWorkingLook`).
+        case working
     }
 
     public var glyph: Glyph
@@ -70,15 +85,27 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     /// (`Motion.animatesLoops`): then nothing animates and the static glyph
     /// stays, so an indicator never costs a frame it cannot be seen in.
     /// `set` restyles the attention and working marks (`StatusIconSet`);
-    /// the default `current` is the drawing above, unchanged.
+    /// the default `current` is the drawing above, unchanged. `isStatic`
+    /// (`StatusIndicatorConfig.isStatic`) draws the static look whatever the
+    /// set (`staticLookPlan`); `staticShapes` picks its shapes over the
+    /// Static set's glyphs.
+    /// `working` restyles agent work that would turn as an arc (`StatusWorkingLook`).
     public static func make(_ state: StatusIndicatorState, style: StatusIndicatorStyle, animates: Bool,
-                            set: StatusIconSet = .current) -> StatusIndicatorPlan {
-        var plan = set.plan(for: state) ?? staticPlan(state, style: style)
-        if !animates { plan.animation = nil }
+                            set: StatusIconSet = .current, isStatic: Bool = false,
+                            staticShapes: Bool = false, working: StatusWorkingLook = .spinner) -> StatusIndicatorPlan {
+        if isStatic { return staticLookPlan(state, style: style, shapes: staticShapes) }
+        var plan = working.restyle(set.plan(for: state) ?? staticPlan(state, style: style), for: state)
+        if !animates {
+            plan.animation = nil
+            // The Codex-like set's still work mark is a whole ring, not a stopped arc (Leo's team,
+            // 2026-10-14: a static ring under Reduce Motion or the Static mode). Loading keeps its stopped arc;
+            // the working dot stays a dot.
+            if set == .codex, state.isWorking, state.progress == nil, plan.glyph == .arc { plan.glyph = .mark(.vector(.idle)) }
+        }
         return plan
     }
 
-    private static func staticPlan(_ state: StatusIndicatorState, style: StatusIndicatorStyle) -> StatusIndicatorPlan {
+    static func staticPlan(_ state: StatusIndicatorState, style: StatusIndicatorStyle) -> StatusIndicatorPlan {
         switch state {
         case .idle:
             return .hidden
