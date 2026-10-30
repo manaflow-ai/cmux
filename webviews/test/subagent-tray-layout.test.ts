@@ -24,5 +24,5 @@ test("the bottom-stack tray's floor is its one row, not the stack's taller row",
   const floors = rules.flatMap((rule) =>
     [...rule.matchAll(/min-height:\s*([^;]+);/g)].map((match) => match[1]!.trim()),
   );
-  expect(floors.at(-1)).toBe("var(--ds-control-row, 28px)");
+  expect(floors.at(-1)).toBe("var(--ui-row-height, var(--ds-control-row, 28px))");
 });
