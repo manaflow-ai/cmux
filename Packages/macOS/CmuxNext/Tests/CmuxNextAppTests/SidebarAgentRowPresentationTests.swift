@@ -18,6 +18,12 @@ struct SidebarAgentRowPresentationTests {
         #expect(SidebarMapping.agentRowTitle(workspaceTitle: "lane-1", sessionName: "lane-1", chatTitle: nil, taskSummary: "Implement the adapter") == "Implement the adapter")
     }
 
+    @Test func aRestoredLegacyWorkspaceUsesItsSessionIdentity() {
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: "demo-lane", workspaceName: "demo-lane",
+                                             workspaceNameSource: .user, workspaceNameRevision: 0,
+                                             sessionName: "demo-lane", chatTitle: "Review the release", taskSummary: nil) == "Review the release")
+    }
+
     @Test func aRenamedAgentWorkspaceKeepsTheUserName() {
         #expect(SidebarMapping.agentRowTitle(workspaceTitle: "My review", sessionName: "lane-1",
                                              chatTitle: "Review the release", taskSummary: "Implement the adapter") == "My review")
@@ -53,6 +59,21 @@ struct SidebarAgentRowPresentationTests {
     }
 
     @MainActor
+    @Test func aFreeFormPromptDoesNotBecomeTheRowTitle() throws {
+        let workspace = try fixture(nameSource: .auto, freeFormPrompt: true)
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, autoNamesWorkspaces: true).title == "demo-lane")
+    }
+
+    @MainActor
+    @Test func aRunningTerminalFrontDoesNotUseABackgroundChatTitle() throws {
+        let workspace = try fixture(nameSource: .auto, terminalFront: true)
+        let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
+        let terminal = try #require(tabs.first(where: { $0.agentSession == nil }))
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, selectedTab: { _ in terminal.id },
+                                         autoNamesWorkspaces: true).title == "demo-lane")
+    }
+
+    @MainActor
     @Test func theFrontChatUsesItsOwnTask() throws {
         let workspace = try fixture(nameSource: .auto, secondAgent: true)
         let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
@@ -73,11 +94,18 @@ struct SidebarAgentRowPresentationTests {
 
     @MainActor
     private func fixture(name: String = "demo-lane", nameSource: WorkspaceNameSource = .user,
-                         nameRevision: UInt64 = 0, title: String? = nil, secondAgent: Bool = false) throws -> WorkspaceModel {
+                         nameRevision: UInt64 = 0, title: String? = nil, secondAgent: Bool = false,
+                         terminalFront: Bool = false, freeFormPrompt: Bool = false) throws -> WorkspaceModel {
         var chat = TabSnapshot(surface: 1, kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(
             host: "install:sidebar-title-fixture", session: "demo-lane", harness: "custom-fixture-harness"))
         var chats = [chat]
+        if terminalFront {
+            var terminal = TabSnapshot(surface: 99, kind: .pty, cwd: "/tmp")
+            terminal.title = "npm run dev"
+            terminal.commandSinceMs = 1
+            chats.insert(terminal, at: 0)
+        }
         if secondAgent {
             var other = TabSnapshot(surface: 2, kind: .conversation, cwd: nil)
             other.conversation = ConversationTabRef(agentSession: AgentSessionRef(
@@ -92,10 +120,12 @@ struct SidebarAgentRowPresentationTests {
         ]))
         let workspace = try #require(store.workspaces.first)
         let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
-        tabs[0].agent = AgentStatus(surface: 1, state: .idle, agent: "custom-fixture-harness",
-                                   lastPrompt: "Your task:\nTitle: Review the release\nCheck the build and report failures.")
+        let firstChat = try #require(tabs.first(where: { $0.agentSession != nil }))
+        firstChat.agent = AgentStatus(surface: 1, state: .idle, agent: "custom-fixture-harness",
+                                   lastPrompt: freeFormPrompt ? "Implement the adapter and report the result." : "Your task:\nTitle: Review the release\nCheck the build and report failures.")
         if secondAgent {
-            tabs[1].agent = AgentStatus(surface: 2, state: .working, agent: "claude",
+            let secondChat = try #require(tabs.last(where: { $0.agentSession != nil }))
+            secondChat.agent = AgentStatus(surface: 2, state: .working, agent: "claude",
                                        lastPrompt: "Your task:\nTitle: Fix the other task\nCheck a separate project.")
         }
         return workspace

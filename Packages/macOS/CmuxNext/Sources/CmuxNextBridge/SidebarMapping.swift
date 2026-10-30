@@ -214,12 +214,20 @@ public struct SidebarMapping {
         // Title metadata follows the session identity rather than the branding filter used by
         // the row's icon/status mark. BYO and newly added harnesses still get readable titles.
         if autoNamesWorkspaces ?? DesignSettings.shared.sidebarSections.autoNamesWorkspaces,
-           let agent = chatTab(front, tabs), let ref = agent.agentSession {
+           let face, let ref = face.agentSession {
             let turns = AgentTurnStateStore.shared
             // Resolve every title and task fact from the same front chat. A branded working
             // agent in another tab must not lend its prompt to this row.
-            let taskSummary = turns.detail(for: ref)?.prompt.flatMap(AgentTurnStates.promptGist)
-                ?? agent.agent?.lastPrompt.flatMap(AgentTurnStates.promptGist)
+            let prompt = turns.detail(for: ref)?.prompt ?? face.agent?.lastPrompt
+            let taskSummary = prompt.flatMap { prompt in
+                prompt.split(whereSeparator: \.isNewline).lazy.compactMap { line -> String? in
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard trimmed.lowercased().hasPrefix("title:") else { return nil }
+                    let value = trimmed.dropFirst("title:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                    return value.isEmpty ? nil : String(value)
+                }.first
+            }
+            let agent = face
             row.title = Self.agentRowTitle(workspaceTitle: row.title, workspaceName: workspace.name,
                                            workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
                                            explicitWorkspaceTitle: workspace.title, sessionName: ref.session,
@@ -235,11 +243,11 @@ public struct SidebarMapping {
                                     workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
                                     explicitWorkspaceTitle: String? = nil, sessionName: String?, chatTitle: String?,
                                     explicitChatTitle: String? = nil, taskSummary: String?) -> String {
-        if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return explicitWorkspaceTitle }
+        if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
         let originalName = workspaceName ?? workspaceTitle
         // A rename remains authoritative even when the user chose a default-looking name or
         // the session id. Revision zero also supports older sessions created with that id.
-        if workspaceNameSource == .user, workspaceNameRevision > 0 { return originalName }
+        if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
         let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
             || originalName == sessionName
         guard machineNamed else { return workspaceTitle }
