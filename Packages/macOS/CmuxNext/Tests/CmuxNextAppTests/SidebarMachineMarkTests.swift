@@ -70,6 +70,20 @@ import Testing
         #expect(names(label(minimal.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: minimal)))) == 1)
     }
 
+    /// Review of #28510 at 5f1d588f (P1): a machine that cannot connect has its status in the one-list label
+    /// (`gpu-box · Failed to start`). With no second line to draw it, the row's accessibility label says it.
+    @Test func aFailedMachinesStatusIsStillSpoken() throws {
+        let model = SidebarModel(sections: [mac, vm].map(section))
+        var o = model.listOptions()
+        o.machineStatusLabels[vm.id] = "Failed to start"
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: vm.id, title: "w", directory: "~/code/app")
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
+        #expect(content.detail == nil, "fixture: no second line draws it")
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        #expect(text.contains("gpu-box · Failed to start"), "VoiceOver lost the failed machine's status: \(text)")
+        #expect(text.components(separatedBy: "gpu-box").count - 1 == 1, "the computer was named twice: \(text)")
+    }
+
     /// A machine whose name holds the row's separator (`gpu · box`) is still named once.
     @Test func aNameWithTheSeparatorIsNamedOnce() throws {
         let dotted = SidebarMachine(id: MachineID("dotted"), name: "gpu · box", kind: .ssh)

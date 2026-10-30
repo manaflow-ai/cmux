@@ -57,12 +57,13 @@ extension WorkspaceRowView {
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
-        // A one-list row on another computer leads its second line with the computer's name
-        // (`SidebarLayout.machineLabel`): VoiceOver says it once. The whole name is compared, so a
-        // name with " · " in it still counts.
+        // The computer, once: a one-list row on another computer says it with its status when it cannot
+        // connect (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), which no line draws (Leo
+        // 2026-10-30: "remove the second line"). The whole name is compared, so a name with " · " in it
+        // still counts.
         if let machine = content.machine,
            !(detail == machine.name || detail?.hasPrefix(machine.name + WorkspaceRowContent.separator) == true) {
-            parts.append(machine.name)
+            parts.append(content.machineLabel ?? machine.name)
         }
         parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")
