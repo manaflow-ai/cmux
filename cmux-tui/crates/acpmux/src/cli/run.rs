@@ -16,8 +16,11 @@ pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
 mod launch;
+mod ls;
+pub use ls::LsArgs;
 mod parent;
 mod send_async;
+mod session_move;
 mod standard;
 mod transfer;
 
