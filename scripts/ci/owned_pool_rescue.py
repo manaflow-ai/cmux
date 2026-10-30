@@ -1444,6 +1444,8 @@ BUDGET_RESERVE = 100
 BUDGET_READ_SECONDS = 30
 # An installation token lasts 60 minutes; a new one is minted after this many seconds.
 TOKEN_REFRESH_SECONDS = 45 * 60
+# How long one janitor snapshot read serves every watch of a process (GitHub.pool_snapshot()).
+SNAPSHOT_CACHE_SECONDS = 60
 BOT_PERMISSIONS = {"actions": "write", "checks": "read", "contents": "read", "issues": "write",
                    "pull_requests": "write"}
 _CACHE_LIMIT = 4000
@@ -1510,6 +1512,8 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
         self._snapshot_token = read_token or token
+        # pool_snapshot()'s last read: (monotonic time, snapshot or None).
+        self._snapshot_cache: tuple[float, Mapping[str, Any] | None] | None = None
         self.sleep: Callable[[float], None] = time.sleep
         # Each watch (the sweeper runs one per thread on this one client) has its own
         # RATE_LIMIT_WAIT_SECONDS, so one run's waits never spend another's.
@@ -2005,9 +2009,34 @@ class GitHub:
             return None
         return base64.b64decode(str(data.get("content") or "")).decode("utf-8")
 
+    def snapshot_token(self) -> str:
+        """The token the snapshot reads send: the client's current read token. _fresh_token() swaps a new cmux-bot
+        token into the header sets in place, but the snapshot reads kept the token the client started with, which
+        expires after an hour: a sweeper's every snapshot read after its first hour was refused (401), and with no
+        snapshot the open-head failover keeps every run (sweeper run 41006853342, 2026-10-30: 22 refusals from
+        06:12Z, an hour after it started). A read token of another App, which this client never re-mints, gives way
+        to the minted App's once one is minted."""
+        self._fresh_token()
+        with self._lock:
+            authorization = str(self.read_headers.get("Authorization") or "")
+            if authorization not in self._app_auths and self.mint is not None:
+                authorization = str(self.headers.get("Authorization") or "")
+        return authorization.split(" ", 1)[1] if authorization.startswith("Bearer ") else self._snapshot_token
+
     def pool_snapshot(self, now: dt.datetime) -> Mapping[str, Any] | None:
-        """The queue janitor's newest trusted pool snapshot, or None when missing or stale (the pickers' read)."""
-        snapshot = pr_runner_pool.GitHub(self._snapshot_token, self.repo).snapshot(now=now)
+        """The queue janitor's newest trusted pool snapshot, or None when missing or stale (the pickers' read).
+
+        One read serves every watch of this process for SNAPSHOT_CACHE_SECONDS (the janitor writes one every 10
+        minutes, so a closer read finds the same one, and each read is two requests); each caller still judges its
+        age at its own `now`."""
+        with self._lock:
+            cached = self._snapshot_cache
+        if cached is not None and time.monotonic() - cached[0] < SNAPSHOT_CACHE_SECONDS:
+            snapshot = cached[1]
+        else:
+            snapshot = pr_runner_pool.GitHub(self.snapshot_token(), self.repo).snapshot(now=now)
+            with self._lock:
+                self._snapshot_cache = (time.monotonic(), snapshot)
         if snapshot is None or pr_runner_pool.snapshot_problem(snapshot, now):
             return None
         return snapshot
