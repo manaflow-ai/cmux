@@ -31,11 +31,10 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
             "share {verb}: the id is given twice (positionally and as {name})"
         )));
     }
-    let mut args = Vec::new();
-    for (name, id) in names.iter().zip(ids) {
-        args.push((*name).to_owned());
-        args.push(id.clone());
-    }
+    // `--share-id=ID`, not `--share-id ID`: the action parser reads a following word that starts
+    // with `--` as the next flag, and an id may.
+    let mut args: Vec<String> =
+        names.iter().zip(ids).map(|(name, id)| format!("{name}={id}")).collect();
     args.extend(flags.iter().cloned());
     Some(Ok((format!("share {verb}"), args)))
 }
@@ -74,11 +73,11 @@ mod tests {
     fn revoke_and_kick_name_their_ids() {
         assert_eq!(
             action(&words("share revoke s1 --json")),
-            Some(Ok(("share revoke".to_owned(), words("--share-id s1 --json"))))
+            Some(Ok(("share revoke".to_owned(), words("--share-id=s1 --json"))))
         );
         assert_eq!(
             action(&words("share kick s1 g2")),
-            Some(Ok(("share kick".to_owned(), words("--share-id s1 --guest-id g2"))))
+            Some(Ok(("share kick".to_owned(), words("--share-id=s1 --guest-id=g2"))))
         );
     }
 
@@ -86,12 +85,28 @@ mod tests {
     fn an_id_may_start_with_a_dash() {
         assert_eq!(
             action(&words("share revoke -Xk3_aQ9 --json")),
-            Some(Ok(("share revoke".to_owned(), words("--share-id -Xk3_aQ9 --json"))))
+            Some(Ok(("share revoke".to_owned(), words("--share-id=-Xk3_aQ9 --json"))))
         );
         assert_eq!(
             action(&words("share kick --a1b2 -g2")),
-            Some(Ok(("share kick".to_owned(), words("--share-id --a1b2 --guest-id -g2"))))
+            Some(Ok(("share kick".to_owned(), words("--share-id=--a1b2 --guest-id=-g2"))))
         );
+    }
+
+    /// The rewritten words go through the action parser the CLI uses, and the ids arrive whole.
+    #[test]
+    fn the_action_parser_reads_dash_led_ids_as_values() {
+        let Some(Ok((name, args))) = action(&words("share kick --a1b2 -g2")) else {
+            panic!("share kick names its ids")
+        };
+        let command =
+            super::super::app::run_action(&name, &args, super::super::app::ActionName::Cli)
+                .expect("the rewritten flags parse");
+        let super::super::app::AppCommand::Call { params, .. } = command else {
+            panic!("share kick is an action call")
+        };
+        assert_eq!(params["args"]["shareId"], "--a1b2", "{params}");
+        assert_eq!(params["args"]["guestId"], "-g2", "{params}");
     }
 
     #[test]
