@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The confirm and write order of a page's switches that widen what another machine may do on this Mac
 /// (Settings' Full access and Dedicated agent machine). The page's provider checks the person's click
@@ -26,8 +26,8 @@ import Foundation
     }
 
     @MainActor public final class WritePermit {
-        private(set) var valid = true
-        func invalidate() { valid = false }
+        public private(set) var valid = true
+        public func invalidate() { valid = false }
     }
 
     /// Turns `key` on or off through `write` (the host's error, or nil); throws `refusal` for an on that
