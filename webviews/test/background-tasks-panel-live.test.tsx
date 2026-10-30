@@ -285,3 +285,13 @@ test("a workflow agent's transcript loads its older history when the reader scro
   expect(reads.at(-1)).toMatchObject({ before: 200 });
   expect(transcript.textContent).toContain("The oldest page");
 });
+
+test("a transcript replaced by fewer rows shows all of them, not only the last", async () => {
+  const container = installDom();
+  const fresh = (n: number): AcpmuxRow[] =>
+    Array.from({ length: n }, (_, index) => ({ id: `n${index}`, version: 2, at: index, kind: "assistant", text: "y" }));
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(500)} running />));
+  await act(async () => root!.render(<SubagentTranscript rows={fresh(30)} running />));
+  expect(container.querySelectorAll("[data-row-id]").length).toBe(30);
+});
