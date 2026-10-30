@@ -6,6 +6,7 @@
 //! (`daemon/running.rs`).
 
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use crate::cli::errors;
@@ -105,14 +106,14 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         json!({})
     };
     if with_tools {
-        params["withTools"] = json!(true);
+        params.set("withTools", json!(true));
     }
     // The daemon drops closed rows itself (`hub/session_pages.rs`), so a `--live` reply
     // carries none of them; `RowFilter` checks again below.
     if live {
-        params["excludeStatus"] = json!(["closed"]);
+        params.set("excludeStatus", json!(["closed"]));
     }
-    let mut v = client.request(method::MUX_SESSIONS, params).await?;
+    let mut v = client.whole_list(method::MUX_SESSIONS, params).await?;
     if status.is_some() || pending || tag.is_some() || selected || rows.narrows() || named {
         let mut sessions = match v.get_mut("sessions") {
             Some(Value::Array(rows)) => std::mem::take(rows),
@@ -154,7 +155,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         if let Some(fields) = fields.as_deref() {
             sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
         }
-        v["sessions"] = Value::Array(sessions);
+        v.set("sessions", Value::Array(sessions));
     }
     if json_out {
         print_json(&v);
