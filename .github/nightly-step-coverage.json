@@ -182,6 +182,7 @@
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Restore signed app": {"plumbing": true},
         "Verify version surfaces": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
+        "Verify bundled CLI commands run from the bundle alone": {"nightly_only": "it runs the signed bundle's bin/cmux with an empty environment; pull requests build no app bundle, and the cmux-tui unit test vm_help_runs_in_process_without_a_cmux_vm_binary covers the in-process path"},
         "Verify signed diff sidecar protocol contract": {"nightly_only": "verify-diff-sidecar-artifact.sh --require-signed checks the signed Release sidecar's deterministic transport contract without launching app code; ci-macos.yml release-build runs the unsigned static check for pull requests into main"},
         "Verify signed app SSH daemon contract": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"},
         "Run bundled Ghostty theme picker helper regression": {"nightly_only": "launches the bundled ghostty helper's theme picker; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
