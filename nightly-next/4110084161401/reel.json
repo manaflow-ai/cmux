@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4110084161401",
+  "notes": "notes/4110084161401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28434,
+      "title": "ci(guards): run test_cmux_tui_owned_mini_caches.py, which its registry lane names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28388,
+      "title": "acpmux: publish a running turn's activity and plan step masked in the session summary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28346,
+      "title": "feat(chat): Save as Markdown in the chat menu's Copy submenu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28297,
+      "title": "Chief: read a paged acpmux session list whole",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28376,
+      "title": "acpmux: a chat started under a name (--name, a lane) gets a generated title",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28323,
+      "title": "cmux NEXT: Open Recovered Draft… in the palette reopens a recovered draft after its toast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27927,
+      "title": "fix(agent-chat): show harness sign-in before the first prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28399,
+      "title": "test(webviews): answer _acpmux/attachment in the suggested-tasks mock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27333,
+      "title": "NEXT iPhone: keep side queries off the keystroke path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28430,
+      "title": "cmux-next tests: quarantine the multiWindow classic upgrade order check (#28425)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28440,
+      "title": "fix(changelog): restore web formatting after PR links merge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27630,
+      "title": "Transcript hover fades require a fine pointer; remove dead hint animation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27921,
+      "title": "acpmux: preserve retries and adopted prompt outcomes across restart (takes over #26981)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28429,
+      "title": "base red: acpmux panic ratchet, the six indexing hits #28182 added",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28002,
+      "title": "Fix stale Chromium composer page during pane holds",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
