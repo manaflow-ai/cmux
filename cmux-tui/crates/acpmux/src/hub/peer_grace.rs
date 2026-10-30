@@ -65,7 +65,10 @@ impl Hub {
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
-            let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
+            let settles = matches!(
+                notice,
+                PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
+            );
             let key = (peer.clone(), generation);
             match notice {
                 PeerNotice::Disconnected(reason) => {
@@ -73,7 +76,11 @@ impl Hub {
                     drops.entry(key).or_insert_with(|| Instant::now() + DROP_GRACE);
                 }
                 notice => {
-                    if matches!(notice, PeerNotice::Connected | PeerNotice::Sessions(_)) {
+                    // A planned restart never enters the grace path either.
+                    if matches!(
+                        notice,
+                        PeerNotice::Connected | PeerNotice::Sessions(_) | PeerNotice::Restarting
+                    ) {
                         drops.remove(&key);
                     }
                     self.apply_peer_notice(&peer, generation, notice);
