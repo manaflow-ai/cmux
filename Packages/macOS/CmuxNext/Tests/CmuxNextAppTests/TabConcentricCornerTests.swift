@@ -154,12 +154,14 @@ import Testing
         defer { reset() }
         var shots: [(String, CGImage)] = []
         for density in [Density.compact, .comfortable] {
-            for style in [ChromeStyle?.none, .floating] {
+            // No `appearance.chromeStyle` (flat with the sidebar line, no rounded card: tabs keep the
+            // item radius and the hover card takes it), the curved main pane, and Floating Panes.
+            for style in [ChromeStyle?.none, .card, .floating] {
                 load(style, density: density)
                 let scene = Self.scene(tabs: 2, width: 360)
                 defer { scene.window.close() }
                 let image = try Self.render(scene, hoverRadius: try Self.shownCardRadius(scene))
-                shots.append(("\(style?.rawValue ?? "default") \(density)", image))
+                shots.append(("\(style?.rawValue ?? "unset (flat-sidebar-line)") \(density)", image))
             }
         }
         let sheet = PaneMoreShotsTests.contactSheet(shots)
@@ -195,7 +197,21 @@ import Testing
         root.layoutSubtreeIfNeeded()
         root.displayIfNeeded()
         CATransaction.flush()
-        return try PaneMoreShotsTests.snapshot(root)
+        return try upright(root)
+    }
+
+    /// The flipped host's layer tree drawn top side up (`PaneMoreShotsTests.snapshot` expects an
+    /// unflipped root), at 2x.
+    static func upright(_ view: NSView) throws -> CGImage {
+        let scale: CGFloat = 2
+        let size = view.bounds.size
+        let context = try #require(CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale),
+                                             bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.translateBy(x: 0, y: size.height * scale)
+        context.scaleBy(x: scale, y: -scale)
+        try #require(view.layer).render(in: context)
+        return try #require(context.makeImage())
     }
 }
 
