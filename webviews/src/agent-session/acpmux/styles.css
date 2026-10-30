@@ -159,6 +159,10 @@
    as the composer, so it takes every theme the same way. */
 .acpmux-newtab{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:clamp(48px,16vh,168px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 32px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 .acpmux-newtab>*{width:100%}
+/* The page's one left line (leo-workspace design/grid.md rules 2 and 6): the field row's leading glyph
+   box sits 18 in and a 16 px stroke glyph's ink starts about 2 px inside it, so ink starts 20 in from
+   the box's edge. Text that starts a line under the box (All sessions) starts its ink there too. */
+.acpmux-newtab{--acpmux-newtab-lead:20px}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.08);backdrop-filter:blur(18px) saturate(1.08);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
 .acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px;cursor:text}
 /* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box has no hover state (Leo 2026-10-18). */
@@ -173,7 +177,10 @@
 .acpmux-newtab kbd{font:11.5px/1 var(--font-ui);color:var(--acpmux-composer-dim)}
 .acpmux-newtab-kind kbd{margin-left:2px;opacity:.85}
 .acpmux-newtab-under,.acpmux-newtab-foot{display:flex;align-items:center;gap:8px;height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
-.acpmux-newtab-foot{height:auto;min-height:calc(var(--ds-control-row) + var(--ds-space-3) + 4 * var(--cmux-hairline,.5px));gap:var(--ds-space-2);padding:0 var(--ds-space-2) 0 calc(var(--ds-space-2) + var(--ds-space-1) / 2);border-top:var(--cmux-hairline,.5px) solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:var(--text-body)}
+/* The quiet row sits under the box, outside it: the box's own edge already ends the box there, so the
+   row draws no line of its own. One did, a hairline the box's full width that ran past its rounded
+   corners (design/grid.md rule 2). */
+.acpmux-newtab-foot{height:auto;min-height:calc(var(--ds-control-row) + var(--ds-space-3) + 4 * var(--cmux-hairline,.5px));gap:var(--ds-space-2);padding:0 var(--ds-space-2) 0 calc(var(--ds-space-2) + var(--ds-space-1) / 2);border-top:0;font-size:var(--text-body)}
 .acpmux-newtab-foot .acpmux-composer-foot{flex:1 1 auto;min-width:0}
 .acpmux-newtab-context{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}
 .acpmux-newtab-context .acpmux-chips{flex:none}
@@ -210,8 +217,12 @@
 .acpmux-omni-action{flex:none;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px;opacity:0}
 .acpmux-omni-row.is-selected .acpmux-omni-action,.acpmux-omni-row:hover .acpmux-omni-action{opacity:1}
 .acpmux-omni-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
-.acpmux-newtab-actions{align-self:flex-end;margin-top:10px;margin-inline-end:-8px}
-.acpmux-newtab-actions .acpmux-newtab-all{width:auto;font-size:12.5px;color:var(--acpmux-composer-dim)}
+/* All sessions starts its label on the page's left line: the ghost button's own inset sits left of it,
+   so its hover pill starts 8 px before the text (ghost.css). The row always spanned the page
+   (`.acpmux-newtab>*`), so the old trailing alignment never applied and the label landed 4 px off the
+   line. */
+.acpmux-newtab-actions{margin-top:10px}
+.acpmux-newtab-actions .acpmux-newtab-all{width:auto;margin-inline-start:calc(var(--acpmux-newtab-lead) - var(--ui-ghost-inset));font-size:12.5px;color:var(--acpmux-composer-dim)}
 .acpmux-newtab-failed{margin:8px 10px 0;color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Hover, press and focus: a tonal step from the theme, on the host's Motion `hover` fade. The
    compatibility alias falls back to 0.08 s before the host theme arrives. Under Reduce Motion the
