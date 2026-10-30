@@ -187,12 +187,24 @@ export function ComposerQueue({
   };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (id: string) =>
+  // Opening or closing a row under the pointer keeps the list's height until the pointer leaves it:
+  // the list sits on the composer, so growing it moved the row up, and the Steer, trash and ⋯ under
+  // the pointer with it (Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift
+  // layout"). The row opens down inside the list, which scrolls; the list fits its rows again once
+  // nothing in it is hovered.
+  const held = useRef(false);
+  const toggle = (id: string) => {
+    held.current = true;
     setOpen((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  };
+  /** Fits the list to its rows, unless a row the pointer opened holds its height. */
+  const fit = (current: HTMLElement) => {
+    if (!held.current) fitList(current);
+  };
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
   const draft = useRef<{ id: string; original: string; text: string }>(undefined);
   // The row a move keeps focus on, once the new order draws.
@@ -250,7 +262,7 @@ export function ComposerQueue({
       const opening = unfolded && !wasOpen.current;
       if (opening) current.scrollTop = 0;
       const firstFit = !current.hasAttribute("data-fit-ready");
-      fitList(current);
+      fit(current);
       if (firstFit) {
         fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
           fitReadyFrame.current = undefined;
@@ -268,10 +280,10 @@ export function ComposerQueue({
         const observer = new ResizeObserver(() => {
           if (current.clientWidth === width) return;
           width = current.clientWidth;
-          fitList(current);
+          fit(current);
         });
         observer.observe(current);
-        const rows = new ResizeObserver(() => fitList(current));
+        const rows = new ResizeObserver(() => fit(current));
         watched.current = { list: current, observer, rows };
       }
     }
@@ -655,7 +667,19 @@ export function ComposerQueue({
                 {t("composer.steering")}
               </span>
             )}
-            {entry.prompt}
+            {entry.retry ? (
+              <>
+                <span className="acpmux-queued-kind" data-kind="retry">
+                  {t("composer.queuedSubagentRetry")}
+                </span>
+                {entry.retry.name ?? entry.retry.agentId}
+                {open.has(entry.id) && entry.retry.error && (
+                  <span className="acpmux-queued-detail">{entry.retry.error}</span>
+                )}
+              </>
+            ) : (
+              entry.prompt
+            )}
           </span>
         </button>
       )}
@@ -697,6 +721,11 @@ export function ComposerQueue({
         onFocus={(event) => {
           const row = (event.target as HTMLElement).closest("li");
           if (row && list.current && !pressing.current) reveal(list.current, row);
+        }}
+        onPointerLeave={(event) => {
+          if (!held.current) return;
+          held.current = false;
+          fitList(event.currentTarget);
         }}
         onPointerDown={(event) => {
           pressing.current = true;

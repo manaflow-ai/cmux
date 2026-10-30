@@ -169,6 +169,36 @@ export function isRetryContinuation(msg: { _meta?: { provenance?: unknown } } | 
   return kind === "auto_resume" || kind === "subagent_retry";
 }
 
+/// acpmux's ask that the chat's agent resume a subagent that failed on a transient error (acpmux
+/// hub/subagent_retry.rs `retry_text`): which subagent, by its name and agent id, and the error.
+/// While it waits in the queue its row is a compact labelled line, the subagent's name after
+/// "Resume subagent" (ComposerQueue.tsx), never the text the agent reads with its agent id (Leo,
+/// 2026-10-30: "this looks weird and unrendered").
+export type SubagentRetryNotice = { name?: string; agentId: string; error?: string };
+
+/// `retry_text`'s words: `Your subagent "<name>" (agent id <id>) failed on a transient upstream
+/// error (<error>). Resume it …`, the name left out when acpmux has none. A queue listing's
+/// preview may cut it after the agent id.
+const RETRY_TEXT =
+  /^Your subagent (?:"([^"\n]*)" )?\(agent id ([^)\s]+)\) failed on a transient upstream error(?: \(([^\n]*?)\)\. Resume it)?/;
+
+/// The resume acpmux asked for, from a prompt's `subagent_retry` provenance (its agent id there)
+/// and its text, else from the text alone (a queue listing names no provenance); undefined for any
+/// other prompt.
+export function subagentRetryNotice(
+  text: string,
+  msg?: { _meta?: { provenance?: unknown } },
+): SubagentRetryNotice | undefined {
+  const provenance = msg?._meta?.provenance as { kind?: unknown; agentId?: unknown } | undefined;
+  const marked = provenance?.kind === "subagent_retry";
+  const words = RETRY_TEXT.exec(text.trimStart());
+  const agentId = (marked && typeof provenance.agentId === "string" && provenance.agentId) || words?.[2];
+  if (!agentId || (!marked && !words)) return undefined;
+  const name = words?.[1]?.trim();
+  const error = words?.[3]?.trim();
+  return { agentId, ...(name ? { name } : {}), ...(error ? { error } : {}) };
+}
+
 /// What a row's Retry does: `daemon` asks acpmux, `ask` asks the chat's agent.
 export type RetryAction = "daemon" | "ask";
 

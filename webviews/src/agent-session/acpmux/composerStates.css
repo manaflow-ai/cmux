@@ -618,6 +618,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
+/* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
+   before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird
+   and unrendered"). Opened, the error follows on its own line. */
+.acpmux-queued-kind[data-kind="retry"] {
+  vertical-align: top;
+  margin-right: 6px;
+}
+.acpmux-queued-detail {
+  display: block;
+  color: var(--acpmux-composer-dim);
+}
 /* Another agent's message: its received line (conversation.css .cv-received) across the row,
    its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
    stays about as tall as one of the person's. */

@@ -1,5 +1,5 @@
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
-import { isRetryContinuation } from "./subagents/retryState";
+import { isRetryContinuation, subagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
@@ -496,6 +496,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   };
 }
 
+/// A queue row's entry. acpmux's ask to resume a failed subagent is read from its text, which acpmux
+/// writes one way (`subagentRetryNotice`), unless the `queued` record's provenance gave it (`retry`):
+/// every rebuild of the entry keeps it.
 function queuedEntry(
   id: string,
   prompt: string,
@@ -505,6 +508,7 @@ function queuedEntry(
   message?: IncomingMessage,
   author?: Participant,
   inlineParts?: PromptContentPart[],
+  retry = message || author ? undefined : subagentRetryNotice(prompt),
 ): QueuedPrompt {
   return {
     id,
@@ -515,6 +519,7 @@ function queuedEntry(
     ...(message ? { message } : {}),
     ...(author ? { author } : {}),
     ...(inlineParts?.length ? { inlineParts } : {}),
+    ...(retry && !message ? { retry } : {}),
   };
 }
 
@@ -3778,6 +3783,7 @@ export class AcpmuxDirectClient {
               msg,
               this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
             ) ?? this.optimisticPromptParts.get(id),
+            subagentRetryNotice(String(msg.text ?? ""), msg),
           ),
         ];
       }
