@@ -264,7 +264,7 @@ describe("connections end to end (workerd)", () => {
       "https://api.github.com/app/installations/99/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
       "https://api.github.com/repos/": (req) => {
         posts.push(new URL(req.url).pathname)
-        return ok({ id: 1, html_url: "https://github.com/acme/web/issues/1#issuecomment-1" }, 201)
+        return ok({ id: 1, html_url: "https://github.com/ACME/WEB/issues/1#issuecomment-1" }, 201)
       }
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))

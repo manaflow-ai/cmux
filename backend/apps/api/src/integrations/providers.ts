@@ -149,9 +149,10 @@ export const github: ProviderImpl = {
     )
     if (!res.ok) throw failed("github", res, "comment", true)
     const b = await json(res)
-    if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || typeof b.html_url !== "string" ||
-      b.html_url !== `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}` &&
-      b.html_url !== `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`) {
+    const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
+    const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+    const pullUrl = `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+    if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || !returnedUrl || returnedUrl !== issueUrl && returnedUrl !== pullUrl) {
       throw new ProviderError("mutation.indeterminate", "github returned no valid comment receipt; check the provider")
     }
     return { value: { id: b.id, url: b.html_url } }
