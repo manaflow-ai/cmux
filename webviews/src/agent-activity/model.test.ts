@@ -7,7 +7,7 @@ const session = (id: string, label: string): ActivitySession => ({
   machineName: "This Mac",
   label,
   agentKind: "claude",
-  agentName: "Claude",
+  agentName: label,
   attribution: "",
   colorHex: "#fff",
   targetApps: [],
