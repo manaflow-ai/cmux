@@ -43,7 +43,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const head = page.locator(".acpmux-running-tray__head");
         await head.waitFor();
-        if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+        // A headed tray starts folded to its header (#27908); its chevron opens it.
+        expect(await head.getAttribute("aria-expanded")).toBe("false");
+        expect(await page.locator(".acpmux-running-tray__list").count()).toBe(0);
+        await head.click();
+        expect(await head.getAttribute("aria-expanded")).toBe("true");
         await page.locator(".acpmux-running-tray__list .acpmux-agent-line").first().waitFor();
         await page.evaluate(() => {
           for (const animation of document.getAnimations()) {
@@ -71,16 +75,18 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             return { left: box.left, right: box.right, width: box.width };
           };
           return {
+            tray: tray.getBoundingClientRect().right,
             rows: rows.map((row) => ({
               time: rect(".acpmux-agent-line__time", row),
               status: rect(".acpmux-agent-line__status", row),
               stop: rect(".acpmux-agent-line__stop-slot", row),
+              chevron: rect(".acpmux-agent-line__chevron svg", row),
               hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
             })),
             head: {
               time: rect(".acpmux-running-tray__time", head),
               status: rect(".acpmux-running-tray__status", head),
-              stop: rect(".acpmux-running-tray__stop-slot", head),
+              chevron: rect(".acpmux-running-tray__status svg", head),
             },
           };
         });
@@ -92,7 +98,12 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.head.time.right).toBe(first!.time.right);
         expect(columns.head.status.left).toBe(first!.status.left);
         expect(columns.head.status.right).toBe(first!.status.right);
-        expect(columns.head.stop.left).toBe(first!.stop.left);
+        // One chevron column at the tray's right edge, inside the rows' 8px padding (#27908): the
+        // header's, every line's (with Stop or without) and View all's.
+        expect(columns.head.chevron.right).toBeCloseTo(columns.tray - 8, 1);
+        for (const row of columns.rows) expect(row.chevron.right).toBeCloseTo(columns.head.chevron.right, 1);
+        // A line's Stop sits just before its chevron, never over it.
+        expect(columns.rows.every((row) => row.stop.right <= row.chevron.left + 0.5)).toBe(true);
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
 
