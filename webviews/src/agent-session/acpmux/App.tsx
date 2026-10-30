@@ -2974,7 +2974,8 @@ export function VirtualTranscript({
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// When the reader's latest input moved the transcript up (wheel up, ArrowUp/PageUp/Home, an
-  /// upward drag); any other input clears it.
+  /// upward drag) and the transcript has not processed a scroll event since. Any other input, and
+  /// the next processed scroll event, clears it: that event made the live offset the acknowledged one.
   const readerUpAt = useRef(Number.NEGATIVE_INFINITY);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
@@ -3465,9 +3466,10 @@ export function VirtualTranscript({
       // A reader can already be parked before the next wheel/default write. The live offset is
       // still authoritative for that recent upward input; gating this on `following` reused the
       // stale acknowledged top and produced a one-frame jump when an unseen row remeasured.
-      // A parked reader's other input (a click, a downward key or wheel) does not move the view up:
-      // a live offset above the acknowledged one then already holds a layout adjustment, and using
-      // it as the base would apply that row's height change twice.
+      // A parked reader's other input (a click, a downward key or wheel) does not move the view up,
+      // and neither does an upward input whose scroll event was already processed: a live offset
+      // above the acknowledged one then already holds a layout adjustment, and using it as the base
+      // would apply that row's height change twice. Only unprocessed upward input counts.
       const inputAt = followingRef.current ? readerAt.current : readerUpAt.current;
       const readerLeft =
         !clamped &&
@@ -3954,6 +3956,9 @@ export function VirtualTranscript({
     checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
+    // Every path below acknowledges `next`: upward input before this event is processed now, so a
+    // later live offset above it is layout work until the reader moves up again.
+    readerUpAt.current = Number.NEGATIVE_INFINITY;
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
     // read as the reader's scroll up).

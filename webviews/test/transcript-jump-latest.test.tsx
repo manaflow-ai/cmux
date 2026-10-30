@@ -120,7 +120,7 @@ test("a stale queued latest frame reports the live parked state to its parent", 
   }
 });
 
-test("a parked reader's downward input does not double-apply a row above that shrank, even just after an upward wheel", async () => {
+test("a parked reader's processed or non-upward input does not double-apply a row above that shrank, even just after an upward wheel", async () => {
   // Astra P2 on #26718: recent non-upward input (a click, a downward key or wheel) must not make the
   // live offset, which the browser already moved up for a row above that shrank, the anchor base.
   const long = `Answer 1.\n\n${"A long paragraph that later collapses. ".repeat(80)}`;
@@ -144,7 +144,13 @@ test("a parked reader's downward input does not double-apply a row above that sh
   const shrink = (await heightOf(tall)) - (await heightOf(short));
   expect(shrink).toBeGreaterThan(FOLLOW_BOTTOM_DEADBAND_PX * 4);
   const realNow = performance.now;
-  for (const lapse of [1_100, 0]) {
+  // Astra P2 (third round): with no click at all, the upward wheel's scroll event has already been
+  // processed, so the shrink inside its 1 s window is layout work, not unprocessed reader movement.
+  for (const { lapse, click } of [
+    { lapse: 1_100, click: true },
+    { lapse: 0, click: true },
+    { lapse: 0, click: false },
+  ]) {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const draw = (shown: AcpmuxRow[]) =>
       root.render(
@@ -173,7 +179,7 @@ test("a parked reader's downward input does not double-apply a row above that sh
       await act(async () => {
         // A click (not upward movement), then the shrink above lands with the browser's own offset
         // adjustment already applied before its scroll event.
-        scroller.dispatchEvent(new dom.window.Event("pointerdown"));
+        if (click) scroller.dispatchEvent(new dom.window.Event("pointerdown"));
         scroller.scrollTop = parked - shrink;
         draw(short);
       });
