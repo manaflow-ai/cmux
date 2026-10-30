@@ -497,3 +497,39 @@ describe("Home attachments: a self-hosted bucket's closed upload does not stop a
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
   })
 })
+
+describe("Home attachments: a part R2 could not store right now is retryable", { timeout: 120_000 }, () => {
+  it("an uploadPart that fails in R2 or the network answers 503 retryable, not a size error; the same part sent again stores and the file completes", async () => {
+    const alice = await signIn("att-part-transient")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 11) % 251)
+    const m = await multipart(alice, id, body)
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const own = (x: object, q: string | symbol) => {
+      const v = Reflect.get(x, q)
+      return typeof v === "function" ? v.bind(x) : v
+    }
+    const flaky = new Proxy(bucket, {
+      get(t, p) {
+        if (p !== "resumeMultipartUpload") return own(t, p)
+        return (key: string, uploadId: string) =>
+          new Proxy(t.resumeMultipartUpload(key, uploadId), {
+            get: (u, q) =>
+              q === "uploadPart"
+                ? async (_n: number, value: ReadableStream) => {
+                    await value.cancel().catch(() => undefined)
+                    throw new Error("uploadPart: We encountered an internal error. Please try again. (10001)")
+                  }
+                : own(u, q)
+          })
+      }
+    })
+    const failed = await m.putPart(1, undefined, { ...testEnv, HOME_ATTACHMENTS: flaky })
+    expect([failed.status, failed.json.error?.code, failed.json.error?.retryable]).toEqual([503, "attachment.part_unavailable", true])
+    expect((await m.putPart(1)).status).toBe(200)
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
