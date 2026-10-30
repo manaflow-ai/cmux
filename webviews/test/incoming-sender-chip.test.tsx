@@ -58,7 +58,7 @@ afterAll(() => {
 const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
-const { setChiefFaceHost } = await import("../src/agent-session/acpmux/chiefFace");
+const { refreshChiefFaces, setChiefFaceHost } = await import("../src/agent-session/acpmux/chiefFace");
 const { incomingPrompt } = await import("../src/agent-session/acpmux/conversation/incomingMessage");
 
 const t = translatorFor("en");
@@ -178,3 +178,28 @@ for (const [kind, provenance] of Object.entries(chiefMessages)) {
     }
   });
 }
+
+test("a Chief renamed in Home shows its new name on a line already drawn once the page asks again", async () => {
+  let name = "Ops Chief";
+  setChiefFaceHost(async () => ({ name, text: "OC" }));
+  setMessageOpened(undefined, "row-1", true);
+  try {
+    const parsed = incomingPrompt(sent, { _meta: { provenance: chiefMessages.session_message } });
+    const message = parsed?.kind === "message" ? parsed.message : undefined;
+    const { from } = await line(message!);
+    await act(async () => undefined);
+    expect(from?.textContent).toBe("Ops Chief");
+    name = "Release Chief";
+    await act(async () => {
+      refreshChiefFaces();
+      await Promise.resolve();
+    });
+    await act(async () => undefined);
+    expect(host.querySelector(".cv-received__from-line")?.textContent).toBe(
+      t("message.fromHeader", { name: "Release Chief" }),
+    );
+  } finally {
+    setMessageOpened(undefined, "row-1", false);
+    setChiefFaceHost(undefined);
+  }
+});
