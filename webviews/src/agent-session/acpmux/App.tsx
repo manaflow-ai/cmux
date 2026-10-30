@@ -5408,6 +5408,9 @@ function AcpmuxPane() {
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
   );
+  // The latest subagents, for callbacks that keep one identity (showSubagent names a pane's tab from it).
+  const freshAgentsRef = useRef(freshAgents);
+  freshAgentsRef.current = freshAgents;
   const workflowAdapter = useMemo(createWorkflowAdapter, []);
   const workflows = useMemo(
     () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
@@ -6635,11 +6638,13 @@ function AcpmuxPane() {
   /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
     if (subagentPane.current) return setSubagentView(id);
+    // Its tab takes the subagent's own name (its task; the Agent tool's description), not the chat's.
+    const title = freshAgentsRef.current.find((agent) => agent.id === id)?.name;
     // The pane the app opens is a new tab on this chat's own session (subagentPanes.ts). Hand the
     // chat over first, as openOwnTab does before `chat.openTab`, so that tab draws it from the
     // host's kept tail (tailCache.ts) before its own attach answers, instead of opening blank.
     directClient.current?.handOverCurrentTail();
-    void openSubagentPane(callNative, id, focus).then((opened) => {
+    void openSubagentPane(callNative, id, focus, title).then((opened) => {
       if (!opened && focus) setSubagentView(id);
     });
   }, []);

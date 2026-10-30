@@ -58,10 +58,12 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/// Asks the app for subagent `id`'s pane; false when it opened none.
-export async function openSubagentPane(call: Call, id: string, focus: boolean): Promise<boolean> {
+/// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
+/// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be
+/// tab-named the exact same as the parent").
+export async function openSubagentPane(call: Call, id: string, focus: boolean, title?: string): Promise<boolean> {
   try {
-    const reply = await call("chat.subagentPane", { subagent: id, focus });
+    const reply = await call("chat.subagentPane", title ? { subagent: id, focus, title } : { subagent: id, focus });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;

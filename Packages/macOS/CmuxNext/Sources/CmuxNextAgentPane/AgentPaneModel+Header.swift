@@ -222,12 +222,14 @@ extension AgentPaneModel {
             return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
-        case .subagentPane(let agent, let focus):
+        case .subagentPane(let agent, let focus, let title):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
             guard let sessionId, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
+            // Its tab is named after the subagent, not the chat (SubagentTabTitles).
+            SubagentTabTitles.shared.name(agent, of: sessionId, title: title)
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
