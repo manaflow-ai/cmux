@@ -274,7 +274,7 @@ extension AgentTabStore {
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
             let session = record.session ?? tabs.sessions[tabs.resolve(key)]
-            guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), let direct = daemon.remoteEndpoint else {
+            guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), daemon.remoteEndpoint != nil else {
                 // A chat this app started on that machine says what to do there; an older tab
                 // recorded for another Mac keeps the "runs on" notice.
                 guard started else { return nil }
@@ -282,7 +282,7 @@ extension AgentTabStore {
             }
             // Opening the chat or sending to it while its machine is down reconnects the machine
             // and goes on once its handshake finished, with no click.
-            let endpoint = direct
+            let endpoint = AgentTabRemoteHost.endpoint(on: daemon)
             let reconnect = tabs.machineLink.reconnecting(machine: daemon.machineID)
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))

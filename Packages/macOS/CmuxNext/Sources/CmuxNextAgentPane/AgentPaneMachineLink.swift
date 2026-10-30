@@ -83,7 +83,7 @@ public final class AgentPaneMachineLink {
 
     private func send(_ state: State?, to view: AgentPaneView) {
         let event = Self.event(state)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyMachineLink?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 
     private func restart() {
