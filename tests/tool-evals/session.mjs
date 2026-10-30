@@ -240,7 +240,10 @@ async function standInApp(path, cmux, origin) {
       const ws = workspaces.find((w) => w.focused) ?? workspaces[0];
       const panes = (await cmux(["pane", "list", "--workspace", ws.id]));
       const pane = (panes.items ?? panes).find((p) => p.focused);
-      return { topology: { focus: { workspace: ws.id, pane: pane?.id } } };
+      // The app's focus names every level, the tab too.
+      const tabs = pane ? await cmux(["tab", "list", "--pane", pane.id]) : [];
+      const tab = (tabs.items ?? tabs).find((t) => t.focused) ?? (tabs.items ?? tabs)[0];
+      return { topology: { focus: { workspace: ws.id, pane: pane?.id, tab: tab?.id } } };
     }
     if (method === "action.list" || method === "system.capabilities") return APP[method];
     throw { code: "app.unavailable", message: `the cmux app does not answer ${method} in this session; workspace, pane, tab and terminal tools work` };
