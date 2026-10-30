@@ -487,6 +487,9 @@ button.cv-subagent > :last-child {
   flex: none;
   color: var(--agent-muted);
 }
+.acpmux-running-tray .acpmux-summary-row {
+  height: var(--ui-row-height, 28px);
+}
 .acpmux-running-tray__time,
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
