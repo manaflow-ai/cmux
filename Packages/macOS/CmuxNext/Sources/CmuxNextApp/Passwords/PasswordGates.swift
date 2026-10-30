@@ -12,16 +12,45 @@ protocol DeviceOwnerAuthenticating: AnyObject {
 /// LocalAuthentication `deviceOwnerAuthentication`; false when the Mac cannot evaluate it.
 @MainActor
 final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
+    private final class Reply: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        private var finished = false
+
+        func install(_ continuation: CheckedContinuation<Bool, Never>) {
+            lock.lock()
+            defer { lock.unlock() }
+            if finished { continuation.resume(returning: false) } else { self.continuation = continuation }
+        }
+
+        func finish(_ answer: Bool) {
+            lock.lock()
+            guard !finished else { lock.unlock(); return }
+            finished = true
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: answer)
+        }
+    }
+
     func authenticate(reason: String) async -> Bool {
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            // The reply runs on a LocalAuthentication queue, never the main actor.
-            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
-                continuation.resume(returning: success)
+        let reply = Reply()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                reply.install(continuation)
+                // The reply runs on a LocalAuthentication queue, never the main actor.
+                context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
+                    reply.finish(success)
+                }
             }
-        }
+        }, onCancel: {
+            context.invalidate()
+            reply.finish(false)
+        })
     }
 }
 
