@@ -28,6 +28,7 @@ impl Hub {
             .ok_or_else(|| refused("turn_attestation.not_live"))?;
         if session.purged.load(Ordering::SeqCst)
             || session.closing.load(Ordering::SeqCst)
+            || session.status() == SessionStatus::Closed
             || !self.session_log_loaded(&session)
         {
             return Err(refused("turn_attestation.not_live"));
@@ -37,12 +38,14 @@ impl Hub {
         self.store
             .scan_strict(id, seq - 1, &mut |r| {
                 if r.dir == "mux" {
-                    if r.seq == seq && r.kind == "turn_started" && r.msg["turnId"] == turn_id {
+                    let same_turn = r.msg.get("turnId").and_then(Value::as_str) == Some(&turn_id);
+                    if r.seq == seq && r.kind == "turn_started" && same_turn {
                         started = true;
                     }
                     if (r.seq > seq && r.kind == "turn_started")
                         || (matches!(r.kind.as_str(), "turn_end" | "turn_result" | "turn_error")
-                            && (r.msg["turnId"] == turn_id || r.msg["turnSeq"] == seq))
+                            && (same_turn
+                                || r.msg.get("turnSeq").and_then(Value::as_u64) == Some(seq)))
                         || matches!(r.kind.as_str(), "stopped" | "exited")
                     {
                         ended = true;

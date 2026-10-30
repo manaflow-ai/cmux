@@ -27,11 +27,16 @@ impl Transport for Enrollment {
 }
 
 fn fixture() -> (Arc<Hub>, Arc<Session>) {
+    fixture_with_status(SessionStatus::Idle)
+}
+
+fn fixture_with_status(status: SessionStatus) -> (Arc<Hub>, Arc<Session>) {
     let mut cfg = Config::default();
     cfg.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    let meta: SessionMeta = serde_json::from_value(json!({"schema":META_SCHEMA,"id":"session-test",
+    let mut meta: SessionMeta = serde_json::from_value(json!({"schema":META_SCHEMA,"id":"session-test",
         "name":"session-test","harness":"fake","cwd":"/tmp","status":"idle","createdAt":1,"updatedAt":1})).unwrap();
+    meta.status = status;
     store.save(&meta).unwrap();
     let hub = Hub::new(cfg, store);
     let session = hub.resolve("session-test").unwrap();
@@ -50,8 +55,7 @@ fn fixture() -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
-#[test]
-fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only() {
+fn enrolled_identity() -> (tempfile::TempDir, EnrolledIdentity) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pairing/identity.json");
     assert!(EnrolledIdentity::load(&path).is_err());
@@ -67,7 +71,33 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
     )
     .unwrap();
     let enrolled = EnrolledIdentity::load(&path).unwrap();
-    let record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    (dir, enrolled)
+}
+
+#[test]
+fn turn_attestation_rejects_reconstructed_closed_session_with_stale_turn() {
+    let (_dir, enrolled) = enrolled_identity();
+    // Resolve persisted Closed metadata through the normal session reconstruction path,
+    // then supply a stale turn backed by turn_started but no terminal journal event.
+    let (hub, session) = fixture_with_status(SessionStatus::Closed);
+    assert_eq!(session.status(), SessionStatus::Closed);
+    assert!(!session.closing.load(Ordering::SeqCst));
+    assert!(!session.purged.load(Ordering::SeqCst));
+    assert!(session.turn.lock().unwrap().is_some());
+    assert!(hub.session_log_loaded(&session));
+    let error = match hub.issue_turn_attestation(&session.id, &enrolled, 60_000) {
+        Ok(_) => panic!("closed session must not receive a turn attestation"),
+        Err(error) => error,
+    };
+    assert_eq!(error, refused("turn_attestation.not_live"));
+}
+
+#[test]
+fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only() {
+    let (dir, enrolled) = enrolled_identity();
+    let record: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("pairing/identity.json")).unwrap())
+            .unwrap();
     let (hub, session) = fixture();
     let seq = session.turn.lock().unwrap().as_ref().unwrap().turn_seq;
     let value = hub.issue_turn_attestation(&session.id, &enrolled, 60_000).unwrap();
