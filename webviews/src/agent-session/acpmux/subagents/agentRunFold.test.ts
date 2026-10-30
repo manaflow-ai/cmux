@@ -421,3 +421,16 @@ test("a child's different explicit name cannot fall back to a matching prompt", 
   expect(fold.isRun("shell")).toBe(false);
   expect(fold.all()).toEqual([]);
 });
+
+test("a lone run whose requested name the daemon lowercases still pairs with its child", () => {
+  // The daemon claims `alpha` for `-n Alpha` (acpmux `short_name_of`): the call's requested name
+  // is compared in that spelling, so the one unambiguous start keeps its card, reply and link.
+  for (const requested of ["Alpha", "review/router"]) {
+    const { fold, send } = folder();
+    send(call("shell", `acpmux run --parent chat-1 -n ${requested} "Task"`));
+    const claimed = requested === "Alpha" ? "alpha" : "review-router";
+    expect(child(fold, 5, { event: "started", shortName: claimed, prompt: "Task", harness: "codex" })).toBe("shell");
+    expect(fold.isRun("shell")).toBe(true);
+    expect(fold.all()[0]).toMatchObject({ session: claimed, child: "child-1" });
+  }
+});
