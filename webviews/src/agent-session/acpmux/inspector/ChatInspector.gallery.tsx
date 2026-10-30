@@ -273,6 +273,7 @@ const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
 /// What acpmux reports a session spent (usageStats.ts), for Usage.
 const spent = (fields: Partial<SessionUsageStats>): SessionUsageStats => ({
   launcher: "claude",
+  autocompact: "none",
   compactions24h: 0,
   subagentsLive: 0,
   subagents1h: 0,
@@ -283,6 +284,7 @@ const spent = (fields: Partial<SessionUsageStats>): SessionUsageStats => ({
 });
 const ownUsage = spent({
   launcher: "claude-sr2",
+  autocompact: "capped",
   autocompactCap: 200_000,
   contextTokens: 94_000,
   contextWindow: 200_000,
@@ -355,13 +357,19 @@ const fleet: AcpmuxSessionEntry[] = [
     name: "lane-vm/review-27744",
     peer: "lane-vm",
     harness: "codex",
-    usageStats: spent({ launcher: "codex-acp", contextTokens: 41_000, tokens24h: 2_100_000 }),
+    // acpmux has not read a whole day yet: the 24h counts are unknown, never 0.
+    usageStats: {
+      launcher: "codex-acp",
+      autocompact: "unknown",
+      contextTokens: 41_000,
+      updatedAt: Date.UTC(2026, 9, 30, 3),
+    },
   }),
   sessionEntry({
     sessionId: "docs-pass",
     name: "docs-pass",
     harness: "claude",
-    usageStats: spent({ costUsd24h: 4.1, contextTokens: 22_000, tokens24h: 1_300_000 }),
+    usageStats: spent({ autocompact: "capped", costUsd24h: 4.1, contextTokens: 22_000, tokens24h: 1_300_000 }),
   }),
 ];
 
@@ -702,9 +710,24 @@ export default componentEntry<Props>({
       play: assertNarrowWorkflowLayout,
     },
     usage: {
-      note: "Usage open (Leo, 2026-10-30, on the deputies nobody could see spending): this chat's last 24 hours (cost, tokens, the context each call carries, its autocompact cap, compactions, subagents, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
+      note: "Usage open (Leo, 2026-10-30, on the deputies nobody could see spending): this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
       props: {
         ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-no-cap": {
+      note: "Usage for a chat acpmux says runs with no autocompact cap: Autocompact reads No cap, with Restart with cap beside it, disabled until acpmux can restart a session with a cap. A cap acpmux could not read reads as an em dash and offers nothing.",
+      props: {
+        ...full,
+        summary: { ...summary, usageStats: { ...ownUsage, autocompact: "none" as const, autocompactCap: undefined } },
         sections: {
           ...DEFAULT_SECTIONS,
           environment: false,
@@ -734,7 +757,7 @@ export default componentEntry<Props>({
       },
     },
     "usage-all": {
-      note: "Usage with View all open: every session with usage, the lane VM's Codex review without a cost (its tokens instead).",
+      note: "Usage with View all open: every session with usage, the lane VM's Codex review, whose 24h numbers acpmux has not read yet, shows an em dash, never $0.00.",
       props: {
         ...full,
         sections: {

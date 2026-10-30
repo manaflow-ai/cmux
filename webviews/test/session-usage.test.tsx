@@ -69,6 +69,7 @@ async function click(element: Element | null | undefined) {
 
 const stats = (fields: Record<string, unknown>) => ({
   launcher: "claude",
+  autocompact: "none",
   autocompactCap: null,
   contextTokens: null,
   contextWindow: null,
@@ -108,12 +109,13 @@ const SESSIONS = [
   sessionEntry({ sessionId: "fresh", name: "fresh", harness: "codex" }),
 ];
 
-test("usageStatsOf reads acpmux's usageStats; null numbers are unknown and a null cap is no cap", () => {
+test("usageStatsOf reads acpmux's usageStats; null numbers are unknown, and only autocompact none is no cap", () => {
   const parsed = usageStatsOf(
     stats({ autocompactCap: null, costUsd24h: 3.5, contextTokens: 310_000, subagents24h: 90 }),
   );
   expect(parsed).toEqual({
     launcher: "claude",
+    autocompact: "none",
     compactions24h: 0,
     subagentsLive: 0,
     subagents1h: 0,
@@ -127,7 +129,13 @@ test("usageStatsOf reads acpmux's usageStats; null numbers are unknown and a nul
   expect(usageStatsOf(stats({ autocompactCap: 200_000 }))?.autocompactCap).toBe(200_000);
   expect(usageStatsOf(null)).toBeUndefined();
   expect(usageStatsOf({ tokens24h: 5 })).toBeUndefined();
-  expect(usageStatsOf(stats({ tokens24h: -1, costUsd24h: "12" }))).toMatchObject({ tokens24h: 0 });
+  // Null and nonsense counts stay unknown: never a synthesized 0.
+  const unread = usageStatsOf(stats({ tokens24h: null, compactions24h: -1, subagents24h: null }));
+  expect(unread?.tokens24h).toBeUndefined();
+  expect(unread?.compactions24h).toBeUndefined();
+  expect(unread?.subagents24h).toBeUndefined();
+  expect(usageStatsOf(stats({ autocompact: undefined }))?.autocompact).toBe("unknown");
+  expect(usageStatsOf(stats({ autocompact: "capped", autocompactCap: 200_000 }))?.autocompact).toBe("capped");
   expect(usageStatsOf(stats({ costUsd24h: "12" }))?.costUsd24h).toBeUndefined();
   // The session list carries it on every entry, a peer's included.
   expect(SESSIONS[1]!.usageStats?.costUsd24h).toBe(1_420.5);
@@ -180,6 +188,7 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
       allSessions={SESSIONS}
       sections={{ ...DEFAULT_SECTIONS, usage: true }}
       onOpenChat={(id) => opened.push(id)}
+      onCompact={() => opened.push("compact")}
     />,
   );
   const usage = host.querySelector<HTMLElement>(".acpmux-chat-inspector-usage")!;
@@ -190,11 +199,26 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
   expect(own).toEqual([
     ["cost", "$12.40"],
     ["tokens", "4M"],
+    // acpmux sent no context for it: unknown, never 0.
+    ["context", "—"],
     ["cap", "No cap"],
     ["compactions", "0"],
     ["subagents", "2 live · 5 in 1h · 14 in 24h"],
     ["launcher", "claude"],
   ]);
+  // Each number has its next step: Compact for the context, Show for the subagents (no Subagents
+  // section here, so none), and Restart with cap for no cap, disabled until acpmux can do it.
+  const actions = (id: string) =>
+    [...usage.querySelectorAll<HTMLButtonElement>(`li[data-usage="${id}"] button`)].map((button) => [
+      button.textContent,
+      button.disabled,
+    ]);
+  expect(actions("context")).toEqual([["Compact", false]]);
+  expect(actions("cap")).toEqual([["Restart with cap", true]]);
+  expect(actions("subagents")).toEqual([]);
+  await click(usage.querySelector('li[data-usage="context"] button'));
+  expect(opened).toEqual(["compact"]);
+  opened.length = 0;
   const listed = () =>
     [...usage.querySelectorAll<HTMLElement>("ul[data-sort] > li")].map((row) => [
       row.querySelector(".acpmux-chat-inspector-row__name")?.textContent,
@@ -223,6 +247,35 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
   await click(rows[0]!.querySelector("button"));
   expect(opened).toEqual(["dep-land"]);
   expect(rows[2]!.querySelector("button")).toBeNull();
+});
+
+test("unknown numbers show an em dash, never 0 or $0.00, and an unread cap offers no restart", async () => {
+  await render(
+    <ChatInspector
+      summary={{
+        sessionId: "this-chat",
+        usageStats: usageStatsOf({
+          launcher: null,
+          autocompact: "unknown",
+          tokens24h: null,
+          costUsd24h: null,
+          updatedAt: 1,
+        }),
+      }}
+      allSessions={[]}
+      sections={{ ...DEFAULT_SECTIONS, usage: true }}
+    />,
+  );
+  const values = Object.fromEntries(
+    [...host.querySelectorAll<HTMLElement>("li[data-usage]")].map((row) => [
+      row.dataset.usage,
+      row.querySelector(".acpmux-chat-inspector-row__end")?.textContent,
+    ]),
+  );
+  expect(values).toEqual({ cost: "—", tokens: "—", context: "—", cap: "—", compactions: "—", subagents: "—" });
+  expect(host.querySelectorAll("li[data-usage] button").length).toBe(0);
+  // Folded, the section names no value rather than a made-up one.
+  expect(host.querySelector('section[data-section="usage"] .acpmux-chat-inspector-section__meta')).toBeNull();
 });
 
 test("a chat with no usage of its own still shows Usage while another session reports some; none at all shows none", async () => {

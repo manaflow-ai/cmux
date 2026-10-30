@@ -6577,6 +6577,19 @@ function AcpmuxPane() {
       workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
     [workflows, stopSubagent, showWorkflowAgent],
   );
+  // Session Info's Usage offers Compact for the chat's context, with the reach a context-full
+  // failure's Compact has: never a View Only chat or a read-only pane, never the next chat.
+  const usageCompactOffered = offersCompact(snapshot.commands);
+  const usageCompact = useMemo(
+    () =>
+      restartChat && usageCompactOffered
+        ? () => {
+            if (restartReaches(restartChat, sessionIdRef.current, directClient.current?.selectedSession))
+              void compactThrough(callNative)();
+          }
+        : undefined,
+    [restartChat, usageCompactOffered],
+  );
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -6606,6 +6619,7 @@ function AcpmuxPane() {
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
+    onCompact: quick ? undefined : usageCompact,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,

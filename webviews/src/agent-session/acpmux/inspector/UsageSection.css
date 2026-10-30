@@ -50,3 +50,27 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
+.acpmux-chat-inspector-usage__action {
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  cursor: default;
+}
+.acpmux-chat-inspector-usage__action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  color: var(--agent-text);
+}
+.acpmux-chat-inspector-usage__action:disabled {
+  opacity: 0.5;
+}
+.acpmux-chat-inspector-usage__action:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}

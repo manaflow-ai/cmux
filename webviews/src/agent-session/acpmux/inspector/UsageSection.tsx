@@ -12,7 +12,7 @@ import { agentTone } from "../subagents/agentTones";
 import { TonedIcon } from "../subagents/TonedIcon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import { byUsage, type SessionUsageStats, type UsageSort, usageCost, usageTokens } from "../usageStats";
+import { byUsage, type SessionUsageStats, UNKNOWN, type UsageSort, usageCost, usageTokens } from "../usageStats";
 import "./UsageSection.css";
 
 const ROW_ICON = rowIconSize(12);
@@ -24,47 +24,78 @@ export function usageMeta(t: Translate, stats: SessionUsageStats | undefined, lo
   if (!stats) return undefined;
   if (stats.costUsd24h !== undefined)
     return t("chatInspector.usage.cost24hValue", { cost: usageCost(stats.costUsd24h, locale) });
-  return t("chatInspector.usage.tokens24hValue", { tokens: usageTokens(stats.tokens24h, locale) });
+  if (stats.tokens24h !== undefined)
+    return t("chatInspector.usage.tokens24hValue", { tokens: usageTokens(stats.tokens24h, locale) });
+  return undefined;
 }
 
+/// What a row of this chat's numbers offers next (Leo's rule via acpmux-owner: every number has a
+/// next step): Compact for the context, the Subagents section for its subagents, and a Restart
+/// with an autocompact cap for an uncapped chat, shown disabled until acpmux can do it.
+type OwnAction = "compact" | "subagents" | "cap";
+type OwnRow = { id: string; name: string; value: string; action?: OwnAction };
+
+/// `value` formatted, or the unknown mark: never a synthesized 0 or $0.00.
+const known = <T,>(value: T | undefined, format: (value: T) => string) =>
+  value === undefined ? UNKNOWN : format(value);
+
 /// This chat's numbers, as name and value rows.
-function ownRows(t: Translate, stats: SessionUsageStats, locale?: string): [string, string, string][] {
-  const rows: [string, string, string][] = [];
-  if (stats.costUsd24h !== undefined)
-    rows.push(["cost", t("chatInspector.usage.cost24h"), usageCost(stats.costUsd24h, locale)]);
-  rows.push(["tokens", t("chatInspector.usage.tokens24h"), usageTokens(stats.tokens24h, locale)]);
-  if (stats.contextTokens !== undefined)
-    rows.push([
-      "context",
-      t("chatInspector.usage.perCall"),
-      stats.contextWindow
-        ? `${usageTokens(stats.contextTokens, locale)} / ${usageTokens(stats.contextWindow, locale)}`
-        : usageTokens(stats.contextTokens, locale),
-    ]);
-  rows.push([
-    "cap",
-    t("chatInspector.usage.autocompact"),
-    stats.autocompactCap === undefined ? t("chatInspector.usage.noCap") : usageTokens(stats.autocompactCap, locale),
-  ]);
-  rows.push(["compactions", t("chatInspector.usage.compactions24h"), String(stats.compactions24h)]);
-  rows.push([
-    "subagents",
-    t("chatInspector.usage.subagents"),
-    t("chatInspector.usage.subagentsValue", {
-      live: stats.subagentsLive,
-      hour: stats.subagents1h,
-      day: stats.subagents24h,
-    }),
-  ]);
-  if (stats.launcher) rows.push(["launcher", t("chatInspector.usage.launcher"), stats.launcher]);
+function ownRows(t: Translate, stats: SessionUsageStats, locale?: string): OwnRow[] {
+  const tokens = (value: number) => usageTokens(value, locale);
+  const subagents = [stats.subagentsLive, stats.subagents1h, stats.subagents24h];
+  const rows: OwnRow[] = [
+    {
+      id: "cost",
+      name: t("chatInspector.usage.cost24h"),
+      value: known(stats.costUsd24h, (cost) => usageCost(cost, locale)),
+    },
+    { id: "tokens", name: t("chatInspector.usage.tokens24h"), value: known(stats.tokens24h, tokens) },
+    {
+      id: "context",
+      name: t("chatInspector.usage.perCall"),
+      value:
+        stats.contextTokens !== undefined && stats.contextWindow
+          ? `${tokens(stats.contextTokens)} / ${tokens(stats.contextWindow)}`
+          : known(stats.contextTokens, tokens),
+      action: "compact",
+    },
+    {
+      id: "cap",
+      name: t("chatInspector.usage.autocompact"),
+      // Only acpmux's `none` is no cap; a cap it could not read is unknown, never "No cap".
+      value:
+        stats.autocompact === "none"
+          ? t("chatInspector.usage.noCap")
+          : stats.autocompact === "capped"
+            ? known(stats.autocompactCap, tokens)
+            : UNKNOWN,
+      ...(stats.autocompact === "none" && { action: "cap" as const }),
+    },
+    { id: "compactions", name: t("chatInspector.usage.compactions24h"), value: known(stats.compactions24h, String) },
+    {
+      id: "subagents",
+      name: t("chatInspector.usage.subagents"),
+      value: subagents.every((count) => count === undefined)
+        ? UNKNOWN
+        : t("chatInspector.usage.subagentsValue", {
+            live: known(stats.subagentsLive, String),
+            hour: known(stats.subagents1h, String),
+            day: known(stats.subagents24h, String),
+          }),
+      action: "subagents",
+    },
+  ];
+  if (stats.launcher) rows.push({ id: "launcher", name: t("chatInspector.usage.launcher"), value: stats.launcher });
   return rows;
 }
 
-/// What a list row's end says for `sort`.
+/// What a list row's end says for `sort`; unknown is the unknown mark.
 function sortValue(stats: SessionUsageStats, sort: UsageSort, locale?: string): string {
   if (sort === "cost")
-    return stats.costUsd24h === undefined ? usageTokens(stats.tokens24h, locale) : usageCost(stats.costUsd24h, locale);
-  return stats.contextTokens === undefined ? "–" : usageTokens(stats.contextTokens, locale);
+    return stats.costUsd24h === undefined
+      ? known(stats.tokens24h, (tokens) => usageTokens(tokens, locale))
+      : usageCost(stats.costUsd24h, locale);
+  return known(stats.contextTokens, (tokens) => usageTokens(tokens, locale));
 }
 
 /// Memoized: its props are the same objects until acpmux's numbers or list change (direct.ts keeps
@@ -74,6 +105,8 @@ export const UsageSection = memo(function UsageSection({
   sessions,
   chatId,
   onOpen,
+  onCompact,
+  onShowSubagents,
   locale,
   sort: initialSort = "cost",
   expanded: initialExpanded = false,
@@ -85,6 +118,11 @@ export const UsageSection = memo(function UsageSection({
   chatId?: string;
   /// Opens a listed chat, this Mac's or a peer's; without it the rows are plain text.
   onOpen?: (sessionId: string) => void;
+  /// Sends this chat's agent its `/compact` (App.tsx, as a context-full failure's Compact); without
+  /// it (an agent that serves no /compact, a View Only chat) Compact is not offered.
+  onCompact?: () => void;
+  /// Opens and shows the Subagents section; without it (no Subagents section) nothing is offered.
+  onShowSubagents?: () => void;
   locale?: string;
   /// The gallery's starting states.
   sort?: UsageSort;
@@ -100,10 +138,31 @@ export const UsageSection = memo(function UsageSection({
     <div className="acpmux-chat-inspector-usage" data-section="usage">
       {own && (
         <ul className="acpmux-chat-inspector-list">
-          {ownRows(t, own, locale).map(([id, name, value]) => (
+          {ownRows(t, own, locale).map(({ id, name, value, action }) => (
             <li key={id} className="acpmux-chat-inspector-row" data-usage={id}>
               <span className="acpmux-chat-inspector-row__name">{name}</span>
               <span className="acpmux-chat-inspector-row__end acpmux-chat-inspector-usage__value">{value}</span>
+              {action === "compact" && onCompact && (
+                <button type="button" className="acpmux-chat-inspector-usage__action" onClick={onCompact}>
+                  {t("context.compact")}
+                </button>
+              )}
+              {action === "subagents" && onShowSubagents && (
+                <button type="button" className="acpmux-chat-inspector-usage__action" onClick={onShowSubagents}>
+                  {t("chatInspector.usage.showSubagents")}
+                </button>
+              )}
+              {/* acpmux cannot restart a session with a cap yet: the step is named, not invented. */}
+              {action === "cap" && (
+                <button
+                  type="button"
+                  className="acpmux-chat-inspector-usage__action"
+                  disabled
+                  title={t("chatInspector.usage.restartWithCapSoon")}
+                >
+                  {t("chatInspector.usage.restartWithCap")}
+                </button>
+              )}
             </li>
           ))}
         </ul>

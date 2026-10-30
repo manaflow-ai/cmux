@@ -11,18 +11,23 @@
 export type SessionUsageStats = {
   /** The harness executable as launched (`claude-sr2`, `claude`, `codex-acp`). */
   launcher?: string;
-  /** The autocompact window in tokens, or absent when the session runs with no cap. */
+  /** Whether the session compacts on its own (acpmux `autocompact`): `capped`, `none` (no
+   *  --autocompact or CLAUDE_CODE_AUTO_COMPACT_WINDOW), or `unknown` (also when acpmux sent none).
+   *  Only `none` is a session to warn about. */
+  autocompact: "capped" | "none" | "unknown";
+  /** The autocompact window in tokens, when acpmux read it. */
   autocompactCap?: number;
   /** Input and cache tokens of the last model call: what each call carries now. */
   contextTokens?: number;
   contextWindow?: number;
-  compactions24h: number;
-  subagentsLive: number;
-  subagents1h: number;
+  /** Each count is absent when acpmux did not send it: unknown, never a synthesized zero. */
+  compactions24h?: number;
+  subagentsLive?: number;
+  subagents1h?: number;
   /** Subagents spawned in the last 24 hours. */
-  subagents24h: number;
+  subagents24h?: number;
   /** Input, output, cache read and cache write tokens of the last 24 hours. */
-  tokens24h: number;
+  tokens24h?: number;
   costUsd24h?: number;
   updatedAt: number;
 };
@@ -41,15 +46,16 @@ export function usageStatsOf(value: unknown): SessionUsageStats | undefined {
     (v === undefined ? {} : { [key]: v }) as { [P in K]?: V };
   return {
     ...optional("launcher", label(raw.launcher)),
-    // A cap of 0 is no cap: acpmux never sends one, and a zero window would read as "capped".
+    autocompact: raw.autocompact === "capped" || raw.autocompact === "none" ? raw.autocompact : "unknown",
+    // A cap of 0 is no window: acpmux never sends one.
     ...optional("autocompactCap", count(raw.autocompactCap) || undefined),
     ...optional("contextTokens", count(raw.contextTokens)),
     ...optional("contextWindow", count(raw.contextWindow) || undefined),
-    compactions24h: count(raw.compactions24h) ?? 0,
-    subagentsLive: count(raw.subagentsLive) ?? 0,
-    subagents1h: count(raw.subagents1h) ?? 0,
-    subagents24h: count(raw.subagents24h) ?? 0,
-    tokens24h: count(raw.tokens24h) ?? 0,
+    ...optional("compactions24h", count(raw.compactions24h)),
+    ...optional("subagentsLive", count(raw.subagentsLive)),
+    ...optional("subagents1h", count(raw.subagents1h)),
+    ...optional("subagents24h", count(raw.subagents24h)),
+    ...optional("tokens24h", count(raw.tokens24h)),
     ...optional("costUsd24h", count(raw.costUsd24h)),
     updatedAt,
   };
@@ -74,6 +80,9 @@ export function usageCost(usd: number, locale?: string): string {
     minimumFractionDigits: usd >= 100 ? 0 : 2,
   }).format(usd);
 }
+
+/** What an unknown number shows: never a synthesized 0 or $0.00. */
+export const UNKNOWN = "—";
 
 /** "312K", "1.2M": the compact token count the Context section uses. */
 export function usageTokens(tokens: number, locale?: string): string {
