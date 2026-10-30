@@ -1,9 +1,0 @@
-{
-  "title": "Two terminal tabs follow their shell folders",
-  "launch_args": [],
-  "steps": [
-    {"title": "Open two terminal tabs in one workspace", "rpc": {"method": "workspace.new", "params": {}}, "wait": 1.0},
-    {"title": "Change the second terminal into the demo repo", "rpc": {"method": "terminal.write", "params": {"text": "cd ~/cmux-demo-board\\n"}}, "wait": 2.0},
-    {"title": "Show both terminal titles", "rpc": {"method": "debug.sidebar_rows", "params": {}}, "wait": 0.5}
-  ]
-}

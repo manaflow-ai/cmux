@@ -40,4 +40,10 @@ struct TerminalTitleTabItemTests {
         #expect(item.title == "/tmp/cmux-demo")
         #expect(item.subtitle == "/tmp/cmux-demo")
     }
+
+    @Test func aDefaultShellTitleUsesTheReportedFolder() throws {
+        let tab = try #require(store(title: "zsh").tab(surface: 1))
+        tab.setObservedCwd("/tmp/cmux-demo")
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").title == "/tmp/cmux-demo")
+    }
 }
