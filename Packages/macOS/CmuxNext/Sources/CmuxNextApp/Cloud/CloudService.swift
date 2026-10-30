@@ -89,6 +89,8 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
+    @ObservationIgnored private var machineNamesInFlight: [String] = []
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
@@ -557,13 +559,20 @@ final class CloudService {
         // The cmux-next backend stores no name and no slug for an unnamed machine, so it would be titled by
         // its raw id: give it a readable one, unique among this account's machines and creations in flight.
         // The classic `/api/vm` create names it itself (its slug).
-        if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true, configuration.linkSource == .appServer {
-            let picked = creation?.defaultMachineName ?? CloudMachine.defaultName(
-                taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.defaultMachineName),
-                base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
-            creation?.defaultMachineName = picked
-            name = picked
+        var reserved: String?
+        if configuration.linkSource == .appServer {
+            if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                let picked = creation?.defaultMachineName ?? CloudMachine.defaultName(
+                    taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.defaultMachineName) + machineNamesInFlight,
+                    base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
+                creation?.defaultMachineName = picked
+                name = picked
+            }
+            // Held until this create ends, typed names included, so a default picked meanwhile is another one.
+            reserved = name
+            if let name { machineNamesInFlight.append(name) }
         }
+        defer { if let reserved, let index = machineNamesInFlight.firstIndex(of: reserved) { machineNamesInFlight.remove(at: index) } }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
