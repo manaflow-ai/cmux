@@ -513,6 +513,10 @@ function ClearBrowsingData({ target }: { target: string }) {
       setError(reply.error);
       return;
     }
+    if (typeof reply.value === "object" && reply.value !== null && "ran" in reply.value && reply.value.ran === false) {
+      setError({ code: "cmux.app.action_refused", message: "action refused" });
+      return;
+    }
     setCleared(true);
   };
   return (
