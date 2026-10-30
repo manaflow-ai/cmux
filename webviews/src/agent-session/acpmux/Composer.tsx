@@ -563,7 +563,15 @@ export function Composer({
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
   const draftTransfer = useRef<
-    { source?: string; target: string; text: string; attachmentIds: string; committed: boolean } | undefined
+    | {
+        source?: string;
+        target: string;
+        text: string;
+        attachmentIds: string;
+        sourceChanged: boolean;
+        committed: boolean;
+      }
+    | undefined
   >(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
@@ -697,6 +705,7 @@ export function Composer({
           target,
           text,
           attachmentIds: JSON.stringify(chips.map((chip) => chip.id)),
+          sourceChanged: false,
           committed: false,
         };
         draftTransfer.current = transfer;
@@ -730,17 +739,16 @@ export function Composer({
           },
           commit: () => {
             transfer.committed = true;
+            if (persistedSession.current === source) {
+              transfer.sourceChanged ||=
+                (field.current?.value() ?? textRef.current) !== text ||
+                signature(attachmentsRef.current.filter((chip) => !chip.shellRun)) !== signature(chips);
+            }
+            // The source may have gained edits while the new session attached. Keep that draft
+            // whole; the destination holds only the snapshot the user chose to carry.
+            if (transfer.sourceChanged) return;
             if (source) {
-              // Edits made while select() attached the destination remain the source's draft.
-              const stillSource = persistedSession.current === source;
-              const sourceText = stillSource ? (field.current?.value() ?? textRef.current) : readPersistedDraft(source);
-              if (sourceText === text) writePersistedDraft(source, "");
-              if (
-                stillSource &&
-                signature(attachmentsRef.current.filter((chip) => !chip.shellRun)) !== signature(chips)
-              )
-                return;
-              // The destination write acknowledged every payload before the source is cleared.
+              writePersistedDraft(source, "");
               void keptAttachments?.write(source, []).catch(() => undefined);
             } else unsentDraft.current?.push("");
           },
@@ -853,17 +861,17 @@ export function Composer({
     const moving = !!draftTransfer.current && draftTransfer.current.target === sessionId;
     const carried = moving || carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
+    const transfer = moving ? draftTransfer.current : undefined;
+    if (transfer) {
+      transfer.sourceChanged ||=
+        (field.current?.value() ?? text) !== transfer.text ||
+        JSON.stringify(attachmentsRef.current.filter((chip) => !chip.shellRun).map((chip) => chip.id)) !==
+          transfer.attachmentIds;
+    }
     if (previous && hydratedSession.current === previous) {
-      const transfer = draftTransfer.current;
-      const changedDuringTransfer =
-        moving &&
-        transfer?.committed &&
-        ((field.current?.value() ?? text) !== transfer.text ||
-          JSON.stringify(attachmentsRef.current.filter((chip) => !chip.shellRun).map((chip) => chip.id)) !==
-            transfer.attachmentIds);
       writePersistedDraft(
         previous,
-        moving && transfer?.committed && !changedDuringTransfer ? "" : (field.current?.value() ?? text),
+        transfer?.committed && !transfer.sourceChanged ? "" : (field.current?.value() ?? text),
       );
     }
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.

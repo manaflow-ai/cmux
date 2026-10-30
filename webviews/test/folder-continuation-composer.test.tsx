@@ -195,3 +195,16 @@ test("edits while the destination save waits abort recovery and preserve the new
   expect(f.handle.current!.draftState().text).toBe("new edit held draft");
   expect(f.sent).toHaveLength(0);
 });
+
+test("commit before destination render keeps edits made during selection in the source", async () => {
+  const f = await fixture();
+  const transfer = f.handle.current!.prepareDraftTransfer("destination");
+  await transfer.ready;
+  await act(async () => f.handle.current!.prefill("edited "));
+  act(() => transfer.commit());
+  await f.draw("destination");
+  await f.finishRead();
+  expect(readPersistedDraft("source")).toBe("edited held draft");
+  expect(f.handle.current!.draftState().text).toBe("held draft");
+  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(false);
+});
