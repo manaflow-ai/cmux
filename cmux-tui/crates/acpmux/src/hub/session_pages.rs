@@ -95,6 +95,38 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     Ok(page(sessions, Some(next.map_or(Value::Null, Value::String))))
 }
 
+/// A page of `sorted` cut by bytes rather than by count, for a reply that has no `limit` to
+/// page by (ACP's `session/list`): the rows from `cursor` on (a `nextCursor` of this list)
+/// whose `size`s fit in `budget`, at least one, and the cursor after the last of them when
+/// rows are left.
+pub(crate) fn byte_page(
+    sorted: &[Value],
+    cursor: Option<&str>,
+    budget: usize,
+    size: impl Fn(&Value) -> usize,
+) -> Result<(std::ops::Range<usize>, Option<String>), RpcError> {
+    let start = match cursor {
+        None => 0,
+        Some(text) => SessionCursor::parse(text)
+            .ok_or_else(|| RpcError::invalid_params(format!("cursor {text:?} is not a cursor")))?
+            .start(sorted),
+    };
+    let (mut end, mut used) = (start, 0);
+    while let Some(row) = sorted.get(end) {
+        // One more byte for the comma between rows.
+        let bytes = size(row) + 1;
+        if end > start && used + bytes > budget {
+            break;
+        }
+        used += bytes;
+        end += 1;
+    }
+    let next = (end < sorted.len())
+        .then(|| sorted.get(end - 1).map(|last| SessionCursor::after(last).to_text()))
+        .flatten();
+    Ok((start..end, next))
+}
+
 /// IDs are immutable: an unread session updating between pages cannot be lost.
 fn session_id_page(
     mut rows: Vec<Value>,

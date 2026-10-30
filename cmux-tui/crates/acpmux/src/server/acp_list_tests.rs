@@ -56,7 +56,10 @@ async fn acp_pages(hub: &Arc<crate::hub::Hub>) -> Vec<(Value, usize)> {
     let mut pages = Vec::new();
     let mut params = json!({});
     for id in 2..100 {
-        input.send(Message::request(id, method::SESSION_LIST, params.clone()).to_line()).await.unwrap();
+        input
+            .send(Message::request(id, method::SESSION_LIST, params.clone()).to_line())
+            .await
+            .unwrap();
         let (reply, bytes) = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let line = outgoing.recv().await.unwrap();
