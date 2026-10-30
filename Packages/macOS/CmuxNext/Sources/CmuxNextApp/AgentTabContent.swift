@@ -81,7 +81,7 @@ struct AgentTabContent {
             guard let imageView else { return }
             paneView?.clearLaunchImage(ifShowing: imageView)
         }
-        view.page?.whenPainted { [weak paneView, weak imageView] in
+        view.whenPagePainted { [weak paneView, weak imageView] in
             guard let imageView else { return }
             paneView?.clearLaunchImage(ifShowing: imageView)
         }
