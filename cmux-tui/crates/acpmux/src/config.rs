@@ -612,6 +612,19 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
     name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase()
 }
 
+/// The harness store a profile's conversations live in, which adopt reads (`adopt::find`):
+/// its family when that names one, else `claude` for any Claude Code profile (`claude-sr2`,
+/// a router's), whatever family it declares. All of those run Claude Code on one store layout.
+pub fn store_family(name: &str, profile: &HarnessProfile) -> String {
+    let family = derive_family(name, profile);
+    if !matches!(family.as_str(), "claude" | "codex" | "opencode")
+        && profile.kind == HarnessKind::ClaudeStdio
+    {
+        return "claude".into();
+    }
+    family
+}
+
 /// Which agent store a fork through an earlier turn copies (`hub/fork_at.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnCut {
@@ -820,6 +833,43 @@ pub struct TitlesConfig {
     pub model: Option<String>,
 }
 
+/// Host-wide limits applied to every Linux session scope, and the CPU class
+/// of every macOS session's harness. These are daemon settings, rather than
+/// spawn environment, so a CLI can set them without crossing the app-only
+/// spawn-env gate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResourceConfig {
+    /// Per-session memory ceiling in MiB. Unset uses half of host memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u64>,
+    /// Per-session swap ceiling in MiB. Unset uses one quarter of host swap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swap_mb: Option<u64>,
+    /// `tasksMax`: each session scope's cap on processes and threads
+    /// together; 0 is no cap. Wins over `ACPMUX_SESSION_TASKS_MAX`. Unset:
+    /// that env, else 4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks_max: Option<u64>,
+    /// `sessionsTasksMax`: the cap on processes and threads of all sessions
+    /// together (`acpmuxsessions.slice`); 0 is no cap. Wins over
+    /// `ACPMUX_SESSIONS_TASKS_MAX`. Unset: that env, else a quarter of the
+    /// kernel's `threads-max`, between 16384 and 262144.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions_tasks_max: Option<u64>,
+    /// `cpuClass`: the CPU class a macOS session's harness starts at,
+    /// `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// overrides it, a profile's env overrides both. Unset: `background`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_class: Option<crate::cpu_class::CpuClass>,
+}
+
+impl SessionResourceConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Experimental transports. Labs switches are deliberately opt-in and keep
 /// the normal peer route unchanged until a caller explicitly enables them.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -863,6 +913,9 @@ pub struct Config {
     /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
+    /// Host-wide resource limits for new Linux session scopes.
+    #[serde(default, skip_serializing_if = "SessionResourceConfig::is_default")]
+    pub session: SessionResourceConfig,
     /// Named bundles for `-p NAME`: `{"deepseek": {"harness": "opencode",
     /// "model": "opencode-go/deepseek-v4-pro", "effort": "low"}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1051,6 +1104,60 @@ pub struct MachineWakeConfig {
 }
 
 impl Config {
+    /// Set a host-wide session resource setting from the CLI. `default`,
+    /// `none`, and `clear` remove an override and restore the computed default.
+    pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
+        let key = key.trim().replace('-', "_").to_ascii_lowercase();
+        if matches!(
+            key.as_str(),
+            "session.cpu_class" | "session.cpuclass" | "cpu_class" | "cpuclass"
+        ) {
+            let value = value.trim();
+            self.session.cpu_class = match value.to_ascii_lowercase().as_str() {
+                "" | "default" | "none" | "clear" => None,
+                _ => Some(crate::cpu_class::CpuClass::parse(value).ok_or_else(|| {
+                    anyhow::anyhow!("{key} must be `background`, `normal` or `default`")
+                })?),
+            };
+            return Ok(());
+        }
+        let slot = match key.as_str() {
+            "session.memory_mb" | "session.memorymb" | "memory_mb" | "memorymb" => {
+                &mut self.session.memory_mb
+            }
+            "session.swap_mb" | "session.swapmb" | "swap_mb" | "swapmb" => {
+                &mut self.session.swap_mb
+            }
+            "session.tasks_max" | "session.tasksmax" | "tasks_max" | "tasksmax" => {
+                &mut self.session.tasks_max
+            }
+            "session.sessions_tasks_max"
+            | "session.sessionstasksmax"
+            | "sessions_tasks_max"
+            | "sessionstasksmax" => &mut self.session.sessions_tasks_max,
+            _ => anyhow::bail!(
+                "unknown session resource setting `{key}` (use session.memory_mb, \
+                 session.swap_mb, session.tasks_max, session.sessions_tasks_max or \
+                 session.cpu_class)"
+            ),
+        };
+        let tasks = key.contains("tasks");
+        let value = value.trim();
+        *slot = match value.to_ascii_lowercase().as_str() {
+            "" | "default" | "none" | "clear" => None,
+            // A task cap of 0 is no cap; `infinity` says the same.
+            "infinity" if tasks => Some(0),
+            _ => Some(value.parse::<u64>().with_context(|| {
+                if tasks {
+                    format!("{key} must be a non-negative integer count, `infinity` or `default`")
+                } else {
+                    format!("{key} must be a non-negative integer MiB or `default`")
+                }
+            })?),
+        };
+        Ok(())
+    }
+
     /// `agentStartTimeoutMs`, or its 90 s default.
     pub fn agent_start_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))

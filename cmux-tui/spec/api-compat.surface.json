@@ -8180,6 +8180,13 @@
       }
     },
     "request:conversation-runs": {
+      "/answers": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/answers/*": {
+        "ty": "string"
+      },
       "/before_started_at": {
         "ty": "uint64",
         "nullable": true

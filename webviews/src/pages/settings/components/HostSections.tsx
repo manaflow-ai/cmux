@@ -7,6 +7,7 @@ import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
+import { graphemePrefix } from "../../../ui/initials";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -19,7 +20,7 @@ function IconMark({ icon, name }: { icon: string | null | undefined; name: strin
     return <img className="host-avatar-image" alt="" src={`icon/${encodeURIComponent(icon)}`} />;
   }
   if (icon && !/^[a-z0-9.]+$/.test(icon)) return <>{icon}</>;
-  return <>{name.slice(0, 1).toUpperCase() || "?"}</>;
+  return <>{graphemePrefix(name, 1).toUpperCase() || "?"}</>;
 }
 
 function ListRows({

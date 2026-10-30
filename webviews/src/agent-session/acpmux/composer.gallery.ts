@@ -96,6 +96,19 @@ async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
 }
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+const historyPageB = user("B: update the retry helper", 6);
+const historyPageC = user("C: add the 429 test", 3);
+const historyPageRows = [
+  historyPageB,
+  assistant("Updated the helper.", 5),
+  historyPageC,
+  assistant("Added the test.", 2),
+];
+const historyPageOlderRows = [
+  user("A: inspect the backoff path", 9),
+  assistant("Inspected the path.", 8),
+  ...historyPageRows,
+];
 // Three prompts waiting for the running turn.
 const waiting = [
   { id: "q1", prompt: "Then add a test for the 429 path" },
@@ -539,7 +552,7 @@ export default agentPaneEntry({
       }),
     },
     "side-session": {
-      note: "A side session (/btw): the empty prompt reads Reply in this session…, and /btw is not offered in it.",
+      note: "A side session (/btw) is available by default: the empty prompt reads Reply in this session…, and /btw is not offered in it.",
       snapshot: sideSession,
     },
     // Leo 2026-10-18: an idle new chat suggests the open PR another chat in this checkout made, Tab
@@ -1422,6 +1435,29 @@ export default agentPaneEntry({
         await ctx.waitFor(() => prompt() === "draft");
       },
     },
+    "history-recall-older-page": {
+      note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
+      snapshot: chat(historyPageRows),
+      play: async (ctx) => {
+        const prompt = () =>
+          ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ?? "";
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "C: add the 429 test");
+        // Model the transcript page arriving after the user has started browsing. Row ids for B and
+        // C are kept from the mounted snapshot; only the older A turn is prepended.
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
+          }
+        ).cmuxAcpmuxBridge;
+        if (!bridge) throw new Error("gallery pane bridge is unavailable");
+        bridge.receive(chat(historyPageOlderRows));
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "B: update the retry helper");
+      },
+    },
     "queued-steering": {
       note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
       snapshot: chat(working, {
@@ -2047,6 +2083,26 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           Array.from(ctx.document.querySelectorAll(".acpmux-slash-name")).some((node) => node.textContent === "/fork"),
         );
+      },
+    },
+    "slash-menu-cmux-descriptions": {
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        await ctx.waitFor(() => !!row("import") && !!row("fork"));
+        if (
+          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
+          "Start a new chat with this transcript as its first prompt"
+        )
+          throw new Error("/import description does not explain the transcript's first prompt");
+        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+          throw new Error("/fork description does not describe its new chat");
       },
     },
     "reasoning-claude": {

@@ -274,3 +274,12 @@ export const stackServer = (
  */
 export const stackReadPace = (env: Env): Promise<boolean> =>
   env.STACK_READ_LIMIT ? env.STACK_READ_LIMIT.limit({ key: `stack-reads:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)
+
+/**
+ * The low lane of the shared Stack read pace (STACK_READ_LOW_LIMIT, 2 a minute in production): a sync of a team
+ * cmux never mirrored that no person waits on (in production mostly cmux.com visitors' anonymous sign-up teams,
+ * about 7 a minute) takes a token here as well as one of stackReadPace, so such syncs use at most half the pace
+ * and a join in a known team is never starved (prod 2026-10-29: a join waited 70 s). No binding: no low cap.
+ */
+export const stackLowReadPace = (env: Env): Promise<boolean> =>
+  env.STACK_READ_LOW_LIMIT ? env.STACK_READ_LOW_LIMIT.limit({ key: `stack-reads-low:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)
