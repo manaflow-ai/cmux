@@ -3,8 +3,9 @@
 
 The dialog message comes from the page, so an escape sequence or a line break
 in it must not reach the terminal. The printed command has to name the surface,
-because `browser dialog accept` parses `dialog` as the surface. Each case runs
-the real CLI against a fake socket.
+because `browser dialog accept` parses `dialog` as the surface, and each command
+is whole, since `accept|dismiss` pasted into a shell would run `accept`. Each case
+runs the real CLI against a fake socket.
 """
 
 from __future__ import annotations
@@ -22,9 +23,15 @@ from fake_socket_env import cli_environment, unwrap_capability
 
 
 SURFACE = "11111111-1111-4111-8111-111111111111"
-HOSTILE = "ok?\x1b]0;retitled\x07\r\nforged line "
-CLEAN = "ok?]0;retitledforged line"
-EXPECTED = f'dialog: confirm "{CLEAN}" (cmux browser {SURFACE} dialog accept|dismiss)'
+# A quote can't close the message and forge a command after it, and a line break
+# becomes a space so the words on either side of it stay apart. A combining mark
+# after either one can't hide it from the escaping.
+HOSTILE = 'ok?\x1b]0;retitled\x07\r\nnext\\ "\u0301 [cmux browser surface:9 dialog accept]\n\u0301end\u2028'
+CLEAN = 'ok?]0;retitled next\\\\ \\"\u0301 [cmux browser surface:9 dialog accept] \u0301end'
+EXPECTED = (
+    f'dialog: confirm "{CLEAN}" '
+    f'[cmux browser {SURFACE} dialog accept] [cmux browser {SURFACE} dialog dismiss]'
+)
 DIALOG = {"type": "confirm", "message": HOSTILE, "default_text": None}
 
 

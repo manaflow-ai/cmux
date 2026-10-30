@@ -11,6 +11,11 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct BrowserCLIDialogTests {
+    /// The app's own window can gain focus during a long wait and become the
+    /// controller's active manager, so each request points it back at the test's.
+    private final class ActiveManager { var manager: TabManager? }
+    private let activeManager = ActiveManager()
+
     @Test(arguments: [true, false])
     func confirmCompletesWithCLIAnswer(accept: Bool) async throws {
         try await withPanel { panel, params in
@@ -299,6 +304,7 @@ struct BrowserCLIDialogTests {
         let workspace = try #require(manager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
         let panel = try #require(workspace.newBrowserSurface(inPane: pane, focus: false, creationPolicy: .restoration))
+        activeManager.manager = manager
         TerminalController.shared.setActiveTabManager(manager)
         _ = panel.webViewForAutomationCommand()
         try await body(panel, ["workspace_id": workspace.id.uuidString, "surface_id": panel.id.uuidString])
@@ -330,6 +336,7 @@ struct BrowserCLIDialogTests {
         let data = try JSONSerialization.data(withJSONObject: ["id": 1, "method": method, "params": params])
         let line = String(decoding: data, as: UTF8.self)
         let controller = TerminalController.shared
+        if let manager = activeManager.manager { controller.setActiveTabManager(manager) }
         let response = await Task.detached {
             controller.handleSocketLine(line)
         }.value

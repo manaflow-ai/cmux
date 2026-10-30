@@ -18667,11 +18667,18 @@ struct CMUXCLI {
         let subArgs = Array(args.dropFirst())
         let browserValueTextFormatter = BrowserValueTextFormatter()
 
-        // The page writes the dialog's message, so it stays on one printable line.
+        // The page writes the dialog's message, so it stays on one printable line
+        // and its quotes are escaped: it can't pass for one of the commands after it.
+        // Literal matching, because a combining mark would hide a quote or a newline.
         func browserDialogLine(type: String, message: String) -> String {
             let surface = CLITerminalText.printable(surfaceRaw ?? "<surface>")
-            return "dialog: \(CLITerminalText.printable(type)) \"\(CLITerminalText.printable(message))\""
-                + " (cmux browser \(surface) dialog accept|dismiss)"
+            let shownMessage = CLITerminalText.printable(message, keepingLineBreaks: true)
+                .replacingOccurrences(of: "\\", with: "\\\\", options: .literal)
+                .replacingOccurrences(of: "\"", with: "\\\"", options: .literal)
+                .replacingOccurrences(of: "\n", with: " ", options: .literal)
+                .replacingOccurrences(of: "\t", with: " ", options: .literal)
+            return "dialog: \(CLITerminalText.printable(type)) \"\(shownMessage)\""
+                + " [cmux browser \(surface) dialog accept] [cmux browser \(surface) dialog dismiss]"
         }
 
         // A committed navigation can spend up to 15s waiting for its delegate callback.
