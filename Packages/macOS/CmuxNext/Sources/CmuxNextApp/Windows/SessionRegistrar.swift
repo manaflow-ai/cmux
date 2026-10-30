@@ -30,7 +30,7 @@ final class SessionRegistrar {
 
     init(machines: MachineRegistry, notice: @escaping @MainActor (String) -> Void) {
         self.machines = machines
-        registration = SessionRegistration(notice: notice)
+        registration = SessionRegistration(policy: .sessionRegistration, notice: notice)
         registration.onRetryDue = { [weak self] in self?.sync() }
     }
 
