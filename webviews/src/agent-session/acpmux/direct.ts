@@ -4409,7 +4409,9 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "turnSummary",
-            seq: event.seq,
+            // A turn paged in from the transcript (`fetchNativeOlder`) is in no log: nothing forks or
+            // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
+            ...(event.seq >= 1 ? { seq: event.seq } : {}),
             ...this.turnTotals(event.at),
             ...(event.kind === "turn_result" && resultTokenSplit(msg) ? { tokens: resultTokenSplit(msg) } : {}),
             status,
@@ -6962,10 +6964,16 @@ export class AcpmuxDirectClient {
       try {
         result = await this.request("_acpmux/native_history", { sessionId, before }, 15_000);
       } catch (error) {
-        // An older daemon (a peer's) serves no pages, and an older host relays none: the chat stops
-        // paging, as at its first turn.
-        const code = (error as { code?: unknown } | undefined)?.code;
-        if (code !== METHOD_NOT_FOUND && code !== "transport.method_refused") throw error;
+        // An older daemon serves no pages, an older host relays none, a peer that serves none is
+        // never asked, and a Web client may not read the transcript: the chat stops paging, as at
+        // its first turn.
+        const { code, reason } = (error ?? {}) as { code?: unknown; reason?: unknown };
+        const unserved =
+          code === METHOD_NOT_FOUND ||
+          code === "transport.method_refused" ||
+          reason === "transcriptRead.unsupported" ||
+          reason === "transcriptRead.remote";
+        if (!unserved) throw error;
         result = { events: [], before: 0 };
       }
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
