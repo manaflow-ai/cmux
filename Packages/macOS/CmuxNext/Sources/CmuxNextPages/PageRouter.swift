@@ -62,11 +62,17 @@ public final class PageRouter {
 
     // MARK: Page to host
 
+    /// A page's call or subscription id. The page posts any JSON number (`Infinity` and `1e30` are
+    /// valid script values), and `UInt64(_:)` traps outside 0 ..< 2^64; those ids name nothing.
+    nonisolated static func wireID(_ value: Double) -> UInt64 {
+        value >= 1 && value < 0x1p64 ? UInt64(value) : 0
+    }
+
     /// Handles one envelope the page posted and returns the reply envelope (or `null` for
     /// messages that need none: `unsub`, and replies to host calls).
     public func handle(_ message: JSONValue) async -> JSONValue {
         guard let type = message["t"]?.stringValue else { return Self.error(id: 0, .invalidParams("missing t")) }
-        let id = message["id"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
+        let id = message["id"]?.doubleValue.map(Self.wireID) ?? 0
         switch type {
         case "call":
             guard let op = message["op"]?.stringValue else { return Self.error(id: id, .invalidParams("missing op")) }
@@ -101,7 +107,7 @@ public final class PageRouter {
             inFlight[id]?.cancel()
             return .null
         case "unsub":
-            if let sub = message["sub"]?.doubleValue { unsubscribe(UInt64(max(0, sub))) }
+            if let sub = message["sub"]?.doubleValue { unsubscribe(Self.wireID(sub)) }
             return .null
         case "ok", "err":
             resolve(id: id, message)
