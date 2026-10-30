@@ -158,10 +158,16 @@ def stall_sites(stalls):
     return sorted(sites.values(), key=lambda s: -s["total_ms"])
 
 
+# Every chat that got no answer is ranked last, at one value above any possible answer: the 150 s a wave
+# waits for its chats (driver.py waves(), thread.join(timeout=150); a chat still running then is recorded as
+# unanswered). Then p50 and p95 over all chats are exact
+# order statistics: no-answer is "slower than every answer", whatever way the chat failed (review of
+# bcbeee46824: a time-to-failure bound differed by failure path and could flip the sign of an A/B).
+NO_ANSWER_MS = 150_000.0
+
+
 def first_answers_all_chats(waves):
-    """Every chat attempt (review of d965fcf4b76: answered chats alone are survivor-biased when the arms'
-    answered counts differ): an answered chat at its first-answer time; a chat that got no answer at the time
-    it failed or gave up (its slowest recorded step, or the 120 s client time-out when none), a lower bound."""
+    """Every chat attempt: an answered chat at its first-answer time, every other chat at NO_ANSWER_MS."""
     out = []
     for w in waves:
         chats = w.get("chats")
@@ -171,11 +177,7 @@ def first_answers_all_chats(waves):
             if not isinstance(chat, list):
                 continue
             answered = first_answers([{"chats": [chat]}])
-            if answered:
-                out.append(answered[0])
-                continue
-            spent = sum(a["ms"] for a in chat if isinstance(a.get("ms"), (int, float)))
-            out.append(spent if spent > 0 else 120_000.0)
+            out.append(min(answered[0], NO_ANSWER_MS) if answered else NO_ANSWER_MS)
     return out
 
 
@@ -708,9 +710,9 @@ REQUESTED = [
     ("acpmux first answer median ms (answered chats only)", ("acpmux_first_answer_ms", "p50")),
     ("acpmux first answer p95 ms (answered chats only)", ("acpmux_first_answer_ms", "p95")),
     ("acpmux answered chats", ("acpmux_answered_chats",)),
-    ("acpmux first answer median ms (all chats; unanswered = time to failure, a lower bound)",
+    ("acpmux first answer median ms (all chats; no answer ranked last at 150 s)",
      ("acpmux_first_answer_all_chats_ms", "p50")),
-    ("acpmux first answer p95 ms (all chats; unanswered = time to failure, a lower bound)",
+    ("acpmux first answer p95 ms (all chats; no answer ranked last at 150 s)",
      ("acpmux_first_answer_all_chats_ms", "p95")),
 ] + [(f"{lock} lock {suffix} {what}", ("lock_sites", f"{lock}:{suffix}", key))
      for lock in ("registry",) for suffix in NAMED_LOCK_SITES

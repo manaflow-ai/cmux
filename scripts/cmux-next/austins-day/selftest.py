@@ -580,7 +580,12 @@ class FirstAnswer(unittest.TestCase):
                 [{"method": "session/new", "ms": 4000.0, "error": None},
                  {"method": "session/prompt", "ms": 4900.0, "first_chunk_ms": 700.0, "error": None}],
                 # A chat whose agent never started: no answer, not in the distribution.
-                [{"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}]]}]
+                [{"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}],
+                # acpmux restarted after session/new: the prompt is lost (review of bcbeee46824).
+                [{"method": "session/new", "ms": 2000.0, "error": None},
+                 {"method": "connection", "ms": None, "error": "OSError: closed"}],
+                # A refused connect.
+                [{"method": "connection", "ms": None, "error": "ConnectionRefusedError: [Errno 61]"}]]}]
             d = os.path.join(tmp, "run-1")
             os.makedirs(d)
             with open(os.path.join(d, "run.json"), "w") as f:
@@ -589,9 +594,10 @@ class FirstAnswer(unittest.TestCase):
         self.assertEqual(m["acpmux_answered_chats"], 2)
         self.assertEqual(m["acpmux_first_answer_ms"]["p50"], 2300.0)
         self.assertEqual(m["acpmux_first_answer_ms"]["max"], 4700.0)
-        # All chats: the unanswered one counts at its 90 s failure (a lower bound).
-        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["n"], 3)
-        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["max"], 90000.0)
+        # All chats: every unanswered chat ranks last at 150 s, however it failed.
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["n"], 5)
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["p50"], 150000.0)
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["max"], 150000.0)
 
     def test_the_driver_times_the_first_answer_chunk(self):
         """The driver's own acpmux_call against a tiny ACP server that streams one chunk, then answers."""

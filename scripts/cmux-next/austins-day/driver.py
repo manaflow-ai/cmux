@@ -589,9 +589,17 @@ def waves(deadline):
             thread.start()
         for thread in threads:
             thread.join(timeout=150)
-        flat = [a for chat in results for a in chat]
+        # A chat still running when the wave stops waiting is recorded as such (it got no answer in 150 s);
+        # before, it was left out (review of bcbeee46824: survivor bias for the slowest chats).
+        # Snapshot the finished chats first, then count the threads still alive: a late chat appends to
+        # `results` after this point, which this wave's record never reads again (it is a copy).
+        finished = [list(chat) for chat in list(results)]
+        still_running = opts.wave_size - len(finished)
+        chats = finished + [[{"method": "connection", "ms": None, "error": "still running at the 150 s wave limit",
+                              "result": None}] for _ in range(still_running)]
+        flat = [a for chat in chats for a in chat]
         # `chats`: one list per chat attempt (its first entry is its session/new, or the failed connection).
-        record("waves", {"t": round(start - T0, 2), "wave": wave, "chats": [list(chat) for chat in results], "answers": flat,
+        record("waves", {"t": round(start - T0, 2), "wave": wave, "chats": chats, "answers": flat,
                          "took_s": round(time.time() - start, 2)})
         errors = [a["error"] for a in flat if a.get("error")]
         say(f"wave {wave}: {len(flat)} answers, {len(errors)} errors in {time.time() - start:.1f}s")
