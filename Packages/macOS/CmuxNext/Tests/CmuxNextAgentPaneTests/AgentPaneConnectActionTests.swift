@@ -160,4 +160,33 @@ struct AgentPaneConnectActionTests {
         #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool != true)
         #expect(moved.isEmpty)
     }
+
+    /// The title menu's Bring Back Local names its chat: the app runs it only while the tab still
+    /// shows that chat, so a switch before the request is handled brings nothing back.
+    @Test func sessionBoundActionRunsOnlyForTheShownChat() async {
+        let model = AgentPaneModel(host: NoHost())
+        var shown = "chat-a"
+        var ran: [String] = []
+        model.onRunAction = { id, _ in ran.append(id); return true }
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
+                                            showsChat: { $0 == shown })
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("cloudBringBack", session: "chat-a"))["ok"] as? Bool == true)
+        #expect(ran == ["cloudBringBack"])
+        shown = "chat-b"
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("cloudBringBack", session: "chat-a"))["ok"] as? Bool != true)
+        #expect(ran == ["cloudBringBack"], "the newly shown chat is not brought back")
+    }
+
+    @Test func sessionBoundActionDecodesItsChat() {
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "cloudBringBack", "session": "chat-a"]])
+            == .runAction("cloudBringBack", session: "chat-a"))
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "cloudBringBack"]])
+            == .runAction("cloudBringBack"))
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "cloudBringBack", "session": ""]])
+            == .unsupported("action.run"))
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "cloudBringBack", "session": 7]])
+            == .unsupported("action.run"))
+    }
 }

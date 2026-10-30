@@ -79,6 +79,8 @@ public struct AgentPaneHeaderHooks {
     /// Dispatches an existing CloudMove operation to one validated target machine, for the chat
     /// `session` names; false (nothing moved) when the tab no longer shows that chat.
     public var moveToMachine: @MainActor (_ machine: String, _ session: String) -> Bool
+    /// Whether the chat's tab still shows acpmux session `session` (a session-bound `action.run`).
+    public var showsChat: @MainActor (String) -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -97,7 +99,8 @@ public struct AgentPaneHeaderHooks {
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
-                moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false }) {
+                moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false },
+                showsChat: @escaping @MainActor (String) -> Bool = { _ in false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -116,6 +119,7 @@ public struct AgentPaneHeaderHooks {
         self.isFamily = isFamily
         self.moveTargets = moveTargets
         self.moveToMachine = moveToMachine
+        self.showsChat = showsChat
     }
 
     /// The header's state (`pane.tabState`); `refresh` first asks for the pull request again.

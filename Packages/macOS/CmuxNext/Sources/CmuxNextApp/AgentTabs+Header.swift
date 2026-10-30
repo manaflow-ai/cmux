@@ -59,6 +59,9 @@ extension AgentTabStore {
             let tab = self.resolve(provisional)
             guard Self.tabStillShows(self.session(of: tab), requested: session) else { return false }
             return self.moveAgentToMachine(tab, machine)
+        }, showsChat: { [weak self] session in
+            guard let self else { return false }
+            return Self.tabStillShows(self.session(of: self.resolve(provisional)), requested: session)
         }) // a chat streams in one tab: an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown; a chat opens only its family (startedBy)
         // Changes with the chat's turn (D1, D2): the diff beside the chat offers it as Last turn.
         model.header?.diffTurn = { [weak self] cwd, turn, toggle in

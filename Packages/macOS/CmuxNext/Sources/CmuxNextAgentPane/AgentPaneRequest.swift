@@ -85,8 +85,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page asked the app to run a user facing action.
-    case runAction(String)
+    /// The new tab page asked the app to run a user facing action. `session`, when the page names
+    /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
+    /// tab still shows it.
+    case runAction(String, session: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
