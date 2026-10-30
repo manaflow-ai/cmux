@@ -38,6 +38,13 @@ expect_fail tipwindow hover-window 'final class TooltipPanel: NSPanel {
     let blur = NSVisualEffectView()
 }'
 expect_fail previewwindow hover-window 'final class LinkHoverPreviewWindow: NSWindow {}'
+# A SurfaceRole's glass (Glass.makeSurface) is the shared glass too.
+expect_pass tipwindow-role 'final class TooltipPanel: NSPanel {
+    let glass = Glass.makeSurface(.tooltip, cornerRadius: 5, interactive: false)
+}'
+expect_pass menu-panel-role 'final class DemoMenuPanel: NSPanel {
+    let card = Glass.makeSurface(.menu, content: rows)
+}'
 
 expect_fail menu-panel popup-host 'final class DemoMenuPanel: NSPanel {
     let card = NSVisualEffectView()

@@ -1650,6 +1650,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-motion-scale.py --check
 
+      # The overlay surface roles (schemas/surface-roles/surface-roles.json): their Swift and CSS
+      # copies match it (Glass, never opaque: one token set for every popover, menu, card, toast and sheet).
+      - name: Surface roles
+        id: surface-roles
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-surface-roles.py
+
       # The one menu row grid (schemas/menu-metrics/menu-metrics.json): its Swift and CSS copies, and no
       # menu with its own paddings (Leo 2026-10-21: one left alignment across every menu).
       - name: Menu metrics
@@ -2143,6 +2150,7 @@ jobs:
             Overlays are glass, never solid
             Type scale
             Menu metrics
+            Surface roles
             Protected-folder copies
             Settings source copies
             Backdrop art export
@@ -2180,6 +2188,7 @@ jobs:
             ${{ steps.leo-bans.outcome }}|Leo's bans (Inter UI font and tracking)
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.menu-metrics.outcome }}|Menu metrics
+            ${{ steps.surface-roles.outcome }}|Surface roles
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist

@@ -24,13 +24,15 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
                    bubble, not the shared glass.
   hover-window     a tooltip, hover card or hover preview window (a class named *Tooltip*,
                    *HoverCard*, *HoverPreview*, *Preview* or *Peek* that subclasses NSPanel or
-                   NSWindow) whose file never makes the shared glass (`Glass.makeOverlayPanel`).
+                   NSWindow) whose file never makes the shared glass (`Glass.makeOverlayPanel`, or
+                   `Glass.makeSurface(role)`, a SurfaceRole's).
                    Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and
                    hover previews."
   popup-host       a native host of a menu, picker, popover or web popup that is not on the shared
                    glass: a panel or window class named for a menu, picker, popover, popup or the
                    palette, a NativePopupHost(panel:), an adoptPopupStyle(card:) or an NSPopover(),
-                   whose own body builds no Glass.makeOverlayPanel(...) (or Glass.makeMenuPanel(...)).
+                   whose own body builds no Glass.makeOverlayPanel(...) (or Glass.makeMenuPanel(...),
+                   Glass.makeSurface(...)).
                    A host's own body is the panel class's braces (and its extensions in the file);
                    for a call, the braces of the type it sits in (and the panel class it hands
                    NativePopupHost(panel:), when the file declares it); glass elsewhere in the file,
@@ -90,7 +92,7 @@ RULES: dict[str, re.Pattern[str]] = {
 HOVER_WINDOW = re.compile(
     r"\bclass\s+\w*(Tooltip|ToolTip|HoverCard|HoverPreview|Preview|Peek)\w*\s*:\s*(NSPanel|NSWindow)\b"
 )
-SHARED_GLASS = re.compile(r"\bGlass\.makeOverlayPanel\(")
+SHARED_GLASS = re.compile(r"\bGlass\.make(OverlayPanel|Surface)\(")
 
 # Hover card bodies (see the docstring), and the files that host them rather than draw one.
 HOVER_BODY = re.compile(r"\bHoverCardBody\(|\bHoverCardTextReporting\b")
@@ -170,7 +172,7 @@ POPUP_HOST = re.compile(
     r"\bclass\s+\w*(Menu|Picker|Popover|Popup|Palette)\w*\s*:\s*\w*(Panel|Window)\b"
     r"|\bNativePopupHost\(\s*panel:|\badoptPopupStyle\(\s*card:|\bNSPopover\(\s*\)"
 )
-GLASS_SURFACE = re.compile(r"\bGlass\.make(Overlay|Menu)Panel\(")
+GLASS_SURFACE = re.compile(r"\bGlass\.make(OverlayPanel|MenuPanel|Surface)\(")
 
 # (path, host type) -> (the file and the type in it whose own body builds its glass, why it lives
 # there). That type must build it: glass elsewhere in the file does not count. The host type is the
@@ -538,7 +540,8 @@ def main() -> int:
     findings = scan(root)
     if findings:
         print("check-overlay-glass: a floating surface is solid instead of the shared glass (Leo 2026-10-21:")
-        print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeOverlayPanel, the')
+        print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeSurface(role) or')
+        print("  Glass.makeOverlayPanel, the")
         print("  tooltip glass or CardSurfaceView, or say why it stays solid: `// glass-opaque-allow: <reason>`.")
         print("  [popup-host]: a menu, picker, popover or web popup host builds its surface with")
         print("  Glass.makeOverlayPanel in its own body, or names the file that does in GLASS_FROM.")
