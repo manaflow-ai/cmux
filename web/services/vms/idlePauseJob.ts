@@ -3,6 +3,7 @@ import { VmDatabaseError } from "./errors";
 import {
   decideVmIdlePause,
   parseVmIdleProbe,
+  vmIdleAutoPauseEnabled,
   vmIdleObservationFromRow,
   vmIdlePauseMinutesFromRow,
   vmIdlePrivateAddressesFromRow,
@@ -40,22 +41,24 @@ type Outcome = "paused" | "idle" | "active" | "unknown" | "off" | "error";
  * The `vm-idle-pause` cron body (services/vms/idlePause.ts): probe each running
  * Freestyle machine, decide, and pause the idle ones through the same pause
  * path the Pause Machine action uses. A machine set to Off, or without a
- * private address, is not probed.
+ * private address, is not probed; with the kill switch off
+ * ({@link vmIdleAutoPauseEnabled}, the default) no machine is.
  */
 export function enforceVmIdlePause(input: { readonly now?: () => number; readonly limit?: number } = {}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const candidates = repo.idlePauseCandidates;
-    if (!candidates || !repo.recordIdleObservation || !providers.pause) {
+    if (!candidates || !repo.recordIdleObservation || !repo.recordIdleCheck || !providers.pause) {
       return yield* Effect.fail(new VmDatabaseError({ operation: "idle_pause_candidates", cause: new Error("idle pause is unavailable") }));
     }
     const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
     const startedAt = Date.now();
     const rows = yield* candidates({ limit });
+    const autoPause = vmIdleAutoPauseEnabled();
     const outcomes = yield* Effect.forEach(
       rows,
-      (vm) => checkMachine(vm, input.now ?? Date.now).pipe(
+      (vm) => checkMachine(vm, input.now ?? Date.now, autoPause).pipe(
         Effect.catchAll((error) => Effect.sync((): Outcome => {
           console.error("[VM] idle pause failed", { vmId: vm.id, error });
           return "error";
@@ -88,10 +91,10 @@ function warnIfSaturated(checked: number, limit: number, elapsedMs: number) {
   console.warn("[VM] idle pause run saturated", JSON.stringify({ checked, limit, elapsedMs }));
 }
 
-function checkMachine(vm: CloudVmRow, now: () => number) {
+function checkMachine(vm: CloudVmRow, now: () => number, autoPause: boolean) {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId || vm.status !== "running") return "off" as const;
+    if (!providerVmId || vm.status !== "running" || !autoPause) return "off" as const;
     const minutes = vmIdlePauseMinutesFromRow(vm);
     const addresses = vmIdlePrivateAddressesFromRow(vm);
     const probe = minutes > 0 && addresses.length > 0 ? yield* probeMachine(vm, providerVmId, addresses) : null;
@@ -111,11 +114,17 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, idleSince: decision.observation?.idleSince }));
       return "paused" as const;
     }
+    // A pause candidate that lost its row fence must keep the prior idle
+    // stretch. Writing a null observation here would restart the timeout on
+    // every run when unrelated metadata keeps changing updatedAt.
+    if (decision.pause) {
+      const repo = yield* VmRepository;
+      yield* repo.recordIdleCheck!({ id: vm.id, providerVmId, probedAt: checkedAt });
+      return "active" as const;
+    }
     // Every checked machine records when it was checked, so the next run starts with the others.
-    const observation = decision.pause ? null : decision.observation;
-    yield* recordObservation(vm.id, providerVmId, observation, checkedAt);
-    // A pause skipped because the row moved: something used the machine since the candidate read.
-    return decision.pause ? "active" as const : outcomeOf(decision);
+    yield* recordObservation(vm.id, providerVmId, decision.observation, checkedAt);
+    return outcomeOf(decision);
   });
 }
 
@@ -129,8 +138,14 @@ function stillUnchanged(vm: CloudVmRow, providerVmId: string) {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
+    // This branch predates the dedicated idle epoch fence. Keep updatedAt as
+    // its lifecycle fence until the complete claim protocol is ported.
     if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
-    return vmLastApiActivityFromRow(current) === vmLastApiActivityFromRow(vm) ? current : null;
+    if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
+    // Addresses are probe inputs; reject a change even if its writer did not
+    // advance the lifecycle timestamp.
+    if (vmIdlePrivateAddressesFromRow(current).join("\u0000") !== vmIdlePrivateAddressesFromRow(vm).join("\u0000")) return null;
+    return current;
   });
 }
 
@@ -148,6 +163,8 @@ function probeMachine(vm: CloudVmRow, providerVmId: string, addresses: readonly 
     const result = yield* providers.exec(vm.provider, providerVmId, vmIdleProbeCommand(addresses), {
       asRoot: true,
       timeoutMs: VM_IDLE_PROBE_TIMEOUT_MS,
+      // Effect.timeout only interrupts the fiber; this makes the gateway abort the provider request too.
+      cancelOnInterrupt: true,
     }).pipe(Effect.timeout(PROBE_EXEC_BUDGET_MS));
     return result.exitCode === 0 ? parseVmIdleProbe(result.stdout) : null;
   }).pipe(Effect.catchAll(() => Effect.succeed(null)));

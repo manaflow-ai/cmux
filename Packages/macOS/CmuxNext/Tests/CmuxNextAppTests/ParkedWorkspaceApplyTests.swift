@@ -52,19 +52,21 @@ import Testing
 
         content.contentView.isHidden = true
         content.park(serial: 1)
-        let applies = DebugLayoutCounters.workspaceApplies, topologies = DebugLayoutCounters.topologySends
+        // This controller's own counts: the process-wide ones also count the workspaces of tests that
+        // run while this one yields (`settle`).
+        let applies = content.debugApplies, topologies = content.debugTopologySends
         // A script splits the parked workspace three times.
         for panes in 2...4 {
             store.apply(snapshot: Self.tree(panes: panes))
             await Self.settle()
         }
-        #expect(DebugLayoutCounters.workspaceApplies - applies == 0, "a parked workspace laid out a change nobody sees")
-        #expect(DebugLayoutCounters.topologySends - topologies == 0, "a parked workspace sent a focus topology")
+        #expect(content.debugApplies - applies == 0, "a parked workspace laid out a change nobody sees")
+        #expect(content.debugTopologySends - topologies == 0, "a parked workspace sent a focus topology")
         #expect(content.layoutModel.screens.first?.layout.panes.count == 1, "the parked layout moved while off screen")
 
         content.unpark()
         content.contentView.isHidden = false
-        #expect(DebugLayoutCounters.workspaceApplies - applies == 1, "showing it did not apply its final tree in one step")
+        #expect(content.debugApplies - applies == 1, "showing it did not apply its final tree in one step")
         #expect(content.layoutModel.screens.first?.layout.panes.count == 4, "the shown workspace is not at its final tree")
     }
 }

@@ -81,8 +81,8 @@ final class AccountsService: AccountsServices {
     var client: CodeRouterClient? {
         let cloud = services.cloud
         let auth = cloud.auth, labels = labels
-        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
-                                teamID: { await auth.teamID }, labeler: { await labels.labeler() })
+        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, account: auth,
+                                labeler: { await labels.labeler() })
     }
 
     // MARK: AccountsServices
@@ -102,6 +102,8 @@ final class AccountsService: AccountsServices {
     }
 
     var activeTeam: ActiveTeam? { showcaseMock != nil ? showcaseMock?.activeTeam : services.cloud.isSignedIn ? services.cloud.auth.activeTeam : nil }
+
+    var teamBackend: (any AccountsTeamBackend)? { showcaseMock.map { $0 as any AccountsTeamBackend } ?? services.cloud.auth }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }

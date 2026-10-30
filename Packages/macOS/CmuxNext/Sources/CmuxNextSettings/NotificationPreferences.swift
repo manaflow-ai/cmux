@@ -4,9 +4,12 @@ public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.
 public nonisolated struct NotificationPreferences: Hashable, Sendable {
-    /// `click` (Austin, 2026-10-20): the ring stays until the person clicks into its pane or types
-    /// in it. `focus` (2026-10-19) also read a pane that merely took focus.
-    public var dismissal: NotificationDismissal = .click
+    /// `focus`, as in cmux classic: attention is one on/off state per pane, cleared when the pane is
+    /// selected, including by entering its workspace, and an event on the pane the person looks at
+    /// sets none (https://github.com/manaflow-ai/cmux/issues/25662). Under `click` (2026-10-20) a
+    /// selected pane kept its ring and every later event rang it again, so it came back several
+    /// times before a click cleared it; `click` stays a choice in Settings.
+    public var dismissal: NotificationDismissal = .focus
     public var timeoutSeconds: Double = 30
     public var desktop: DesktopNotificationMode = .unlessFocused
     /// `"default"`, a sound in /System/Library/Sounds (for example `"Glass"`), or `"none"`.

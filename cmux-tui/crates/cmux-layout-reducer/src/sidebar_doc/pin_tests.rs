@@ -218,7 +218,11 @@ fn an_empty_pinned_group_unpins_back_to_its_place() {
     run(&mut doc, vec![Op::Pin { items: vec!["g2".into()] }]);
     assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["g2"]);
     run(&mut doc, vec![Op::Unpin { items: vec!["g2".into()] }]);
-    assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5", "g2"], "back where it was pinned from");
+    assert_eq!(
+        list(&doc, &machine(), None),
+        ["w4", "g1", "w5", "g2"],
+        "back where it was pinned from"
+    );
     assert!(list(&doc, PINNED_SECTION_ID, None).is_empty());
 }
 

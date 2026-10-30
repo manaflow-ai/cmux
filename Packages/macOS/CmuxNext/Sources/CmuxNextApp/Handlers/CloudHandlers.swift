@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteView
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
 /// Stack sign-in, `/api/vm`, and each machine's daemon tree. A machine is
@@ -22,7 +24,7 @@ enum CloudHandlers {
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
-        bindCreation(into: registry, context: context, reason: signedInReason)
+        bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
         // Any catalog row added later without a handler stays covered.
@@ -38,6 +40,60 @@ enum CloudHandlers {
         assert(bound, "\(id) is not in the action catalog")
     }
 
+    static func bindMachineCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        let cloud = context.services.cloud
+        let signedOutCreation = cloud.signedOutCreation
+        let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
+            let request = try CloudHandlers.newMachineRequest(invocation)
+            let actionOrigin = CloudHandlers.origin(of: invocation)
+            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+            // The chat the person asked from, read now: sign-in may finish after focus moved.
+            let chat = CloudChatPick.chatTab(invocation, context.services)
+            let start: @MainActor () -> ActionWorkFailure? = {
+                guard cloud.isSignedIn else { return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst) }
+                if let reason = cloud.unavailableReason { return ActionWorkFailure(refusal: .unavailable, reason: reason) }
+                if let window, context.services.windows.controller(for: window.id) == nil {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
+                }
+                if request.isDefault, actionOrigin == .user, window != nil {
+                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
+                    return nil
+                }
+                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
+                                         askedBy: invocation.callerAgentSession)
+                guard request.isDefault else {
+                    CloudHandlers.createRequested(request, flow: flow, window: window, context)
+                    return nil
+                }
+                CloudHandlers.reportCreatedMachine(flow.start(in: window, existing: nil), context)
+                return nil
+            }
+            guard !cloud.isSignedIn else {
+                signedOutCreation.cancel()
+                return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), start: start)
+            }
+            guard actionOrigin == .user else {
+                return .refused(CloudStrings.signInFirst)
+            }
+            let expected = signedOutCreation.reserve()
+            return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), authorize: {
+                let authorized = await signedOutCreation.perform(expected: expected,
+                    signIn: { await cloud.auth.signIn() }, resume: {})
+                guard authorized, cloud.isSignedIn else {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst)
+                }
+                if let reason = cloud.unavailableReason {
+                    return ActionWorkFailure(refusal: .unavailable, reason: reason)
+                }
+                if let window, context.services.windows.controller(for: window.id) == nil {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
+                }
+                return nil
+            }, cancelAuthorization: { signedOutCreation.cancel(expected: expected) }, start: start)
+        }
+        assert(bound, "newCloudMachine is not in the action catalog")
+    }
+
     // MARK: Resolution
 
     /// The Cloud machine an invocation acts on.
@@ -50,7 +106,12 @@ enum CloudHandlers {
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext, fallsBack: Bool = false) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
-            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id)) }
+            // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
+            // resource id `cmux machine list` prints for a connected one.
+            guard let session = machines.session(target.id)
+                ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == target.id }) else {
+                throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id))
+            }
             return session
         }
         guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
@@ -159,6 +220,71 @@ enum CloudHandlers {
         guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
         return id
     }
+
+    /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
+    /// Chromium tab of a new workspace on this Mac at a URL that names the machine
+    /// (``RemoteLocalhostService/cloudDesktopURL(machine:)``). Remote localhost routes that page
+    /// by its URL through the peer-checked proxy and this Mac's own WireGuard tunnel to the
+    /// machine's noVNC (6901 on its loopback), with no TCP port opened on this Mac.
+    /// `viewer`: `web` (the default) shows the machine's noVNC page in a Chromium tab; `rd`
+    /// shows the remote view pane on the machine's `cmux-rd` host (H.264 over the Cloud tunnel);
+    /// `native` shows the remote view pane, the app's own VNC client over the same tunnel. The pane
+    /// viewers connect at once for a person and ask first for an agent or the CLI; the web viewer
+    /// opens for any local caller (who can already run `cloud exec` on the machine).
+    @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
+        let services = context.services, title = session.machine.title
+        guard session.machine.allows(.desktop), session.machine.address?.ipv4 != nil,
+              let url = RemoteLocalhostService.cloudDesktopURL(machine: session.machineID) else {
+            throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
+        }
+        if viewer == "native" || viewer == "rd" {
+            guard RemoteViewAvailability().isAvailable else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+            let rd = viewer == "rd"
+            guard let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
+                                                   cloudDesktop: true, cloudRd: rd) else {
+                throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
+            }
+            let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
+            let api = services.cloud.machineAPI, machineID = session.machineID, cloud = services.cloud
+            let unavailable = CloudStrings.desktopUnavailable(title)
+            // The person's mark goes on right before the tab appears (after the host start and token
+            // read), in the person's run scope captured here, so its window never runs out first.
+            let scope = ActionRunScope.current, pages = services.remoteViewPages
+            WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
+                guard let pane = terminal.pane else { return }
+                if rd {
+                    // The machine's `cmux-rd` host: started on its display :1 (loopback only), and its
+                    // session token fetched over the signed-in Cloud API into memory.
+                    let started = try await api.exec(machineID, command: Self.desktopRdStart)
+                    // A nonzero exit (127: no start script) means this machine has no cmux-rd host yet;
+                    // the host is not in the VM image (development-only today).
+                    guard started.exitCode == 0 else { throw ActionFailure(message: unavailable) }
+                    let file = try await api.readFile(machineID, path: Self.desktopRdTokenPath)
+                    let token = Data(base64Encoded: file.dataBase64).map { String(decoding: $0, as: UTF8.self) }?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    guard token.count == 64 else { throw ActionFailure(message: unavailable) }
+                    await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
+                }
+                await MainActor.run { pages.personOpens(record.url, scope: scope) }
+                _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                if let surface = terminal.surface { try await connection.closeTab(surface) }
+            }
+            return
+        }
+        if let reason = services.cache.browserTabs.cefUnavailableReason() { throw ActionFailure(message: reason) }
+        let name = CloudStrings.desktopWorkspaceName(title), address = url.absoluteString
+        // On this Mac's daemon: a Cloud machine's own daemon may predate browser tabs.
+        WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
+            guard let pane = terminal.pane else { return }
+            _ = try await connection.newFrontendBrowserTab(url: address, engine: .cef, in: pane, title: name)
+            if let surface = terminal.surface { try await connection.closeTab(surface) }
+        }
+    }
+
+    /// The machine's `cmux-rd` desktop host: its start script (a no-op while it runs) and its
+    /// session token file (0600), under the `cmux` user's cache.
+    static let desktopRdStart = "bash /home/cmux/.cache/cmux-rd/start-rd.sh"
+    static let desktopRdTokenPath = "/home/cmux/.cache/cmux-rd/token"
 
     /// The existing workspace and pane where a Cloud terminal should land.
     /// Keep the durable workspace key on the spawn request so terminals stay

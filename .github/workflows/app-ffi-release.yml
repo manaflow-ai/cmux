@@ -213,6 +213,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: CCmuxAppFFI.xcframework
+          retention-days: 7
           path: ${{ runner.temp }}/dist/*
           if-no-files-found: error
 
@@ -332,6 +333,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-cross-parity-app-ffi
+          retention-days: 3
           path: ${{ runner.temp }}/macos-cross/reports/
           if-no-files-found: warn
 
