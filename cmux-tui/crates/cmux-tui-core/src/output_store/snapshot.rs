@@ -224,7 +224,11 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         digests.push((log, Some(digest)));
     }
     if full {
-        super::segments::flush_logs(&store.full, directory, &digests, policy, quitting);
+        if super::segments::flush_logs(&store.full, directory, &digests, policy, quitting) {
+            // A failed segment write tries again at the next flush, output or
+            // not (a terminal gone idle still gets its bytes stored).
+            store.writer.mark_dirty(super::FULL_FLUSH_INTERVAL);
+        }
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));

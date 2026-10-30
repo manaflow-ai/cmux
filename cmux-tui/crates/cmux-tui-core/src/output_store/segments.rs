@@ -104,15 +104,18 @@ fn generation_files(terminal_directory: &Path, generation: &str) -> Vec<(u64, Pa
 }
 
 /// Append the pending bytes of each log as one frame (content-changed logs
-/// only, `digests` from the snapshot writer), then apply the caps.
+/// only, `digests` from the snapshot writer), then apply the caps. Returns
+/// whether a write failed (those logs are dirty again: the caller schedules
+/// another pass).
 pub(super) fn flush_logs(
     segments: &Segments,
     directory: &Path,
     logs: &[(Arc<TerminalLog>, Option<u64>)],
     policy: PersistencePolicy,
     quitting: bool,
-) {
+) -> bool {
     let mut wrote = false;
+    let mut failed = false;
     for (log, digest) in logs {
         let (generation, start, bytes) = {
             let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -163,6 +166,8 @@ pub(super) fn flush_logs(
             // again, changed content or not. Memory stays bounded: past
             // MAX_UNWRITTEN_BYTES the oldest go (a gap a read reports).
             state.segment_digest = None;
+            state.dirty = true;
+            failed = true;
             let excess = state.pending.len().saturating_sub(MAX_UNWRITTEN_BYTES);
             if excess > 0 {
                 state.pending.drain(..excess);
@@ -179,6 +184,7 @@ pub(super) fn flush_logs(
     if wrote {
         enforce_total_cap(directory, policy.max_total_bytes);
     }
+    failed
 }
 
 fn append_frame(

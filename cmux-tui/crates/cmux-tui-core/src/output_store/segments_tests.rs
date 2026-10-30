@@ -162,9 +162,12 @@ fn a_failed_write_keeps_the_bytes_for_the_next_flush() {
     fs::write(terminal_directory(&directory, &terminal()), b"").unwrap();
     let log = pending_log(b"abcd");
     let policy = PersistencePolicy::resolve(Some("full"), None, None);
-    flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+    let failed =
+        flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+    assert!(failed, "the caller schedules another pass");
     {
         let state = log.state.lock().unwrap();
+        assert!(state.dirty, "the next pass takes the log again, output or not");
         assert_eq!(state.pending, b"abcd", "unwritten bytes stay in memory");
         assert_eq!(state.pending_start, 0);
         assert_eq!(state.segment_digest, None, "the next pass writes them, changed or not");
