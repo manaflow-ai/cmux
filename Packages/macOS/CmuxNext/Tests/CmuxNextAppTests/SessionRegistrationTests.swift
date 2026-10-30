@@ -61,4 +61,18 @@ import Testing
         await registration.submit(session: "remote-2", record: "c", machine: "other", epoch: 1) {}?.value
         #expect(notices.shown.isEmpty, "a stale notice shows after the machine was recorded: \(notices.shown)")
     }
+
+    @Test func aNoticeFromBeforeTheFirstWindowShowsWhenAWindowAppears() async {
+        let notices = Notices()
+        notices.windowShows = false
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        #expect(notices.shown.isEmpty)
+        notices.windowShows = true
+        registration.showPendingNotices()
+        #expect(notices.shown.count == 1, "the notice from before the first window does not show when it appears")
+        registration.showPendingNotices()
+        #expect(notices.shown.count == 1, "the notice shows twice")
+    }
 }

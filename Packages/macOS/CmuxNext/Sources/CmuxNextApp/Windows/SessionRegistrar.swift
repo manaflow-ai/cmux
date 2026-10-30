@@ -54,6 +54,9 @@ final class SessionRegistrar {
         }
     }
 
+    /// Shows the refusal notices no window could show yet (a window became key).
+    func showPendingNotices() { registration.showPendingNotices() }
+
     func stop() {
         observation?.cancel()
         registration.stop()
