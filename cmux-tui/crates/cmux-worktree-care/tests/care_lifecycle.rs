@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cmux_worktree_care::inventory::{self, Facts, Repo};
+use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Repo};
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{Action, Pressure, Settings};
 use cmux_worktree_care::procs::{Open, Uses};
@@ -68,10 +68,15 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
     (base, main)
 }
 
+/// Scans with the finished-answer memo in this test's own state folder (as
+/// a daemon pass keeps it in its store), so the host-wide merge-tree lock is
+/// this test's, not the one every other scan on the machine takes.
 fn scan(main: &Path) -> Repo {
     let common =
         PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]));
-    inventory::scan(&common, &[]).unwrap()
+    let state = main.parent().unwrap().join("care-state");
+    let memo = FinishedMemo::load(state.join("finished-answers.json"));
+    inventory::scan_with_memo(&common, &[], std::sync::Arc::new(memo)).unwrap()
 }
 
 /// Holds the host-wide merge-tree lock, as another scan on this machine does
