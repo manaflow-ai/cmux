@@ -9,9 +9,6 @@
     {"title": "Type o", "rpc": {"method": "debug.key", "params": {"key": "o", "target": "palette"}}, "wait": 0.2, "shot": false},
     {"title": "Type v", "rpc": {"method": "debug.key", "params": {"key": "v", "target": "palette"}}, "wait": 1.5, "shot": false},
     {"title": "Palette: \"recov\" finds Open Recovered Draft…", "wait": 0.5},
-    {"title": "Close the palette", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 1, "shot": false},
-    {"title": "Open the page", "cmux": ["action", "run", "file.openRecoveredDraft"], "wait": 1.5, "shot": false},
-    {"title": "Open Recovered Draft…: the page lists the recovery drafts (none on a fresh home)", "wait": 0.5},
-    {"title": "Close the page", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 1, "shot": false}
+    {"title": "Close the palette", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 1, "shot": false}
   ]
 }
