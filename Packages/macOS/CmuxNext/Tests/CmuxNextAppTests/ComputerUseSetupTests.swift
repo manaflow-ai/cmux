@@ -83,11 +83,12 @@ struct ComputerUseSetupTests {
     @Test func anUnverifiedConsentHostShowsUnderTheLegacyDriver() async {
         let box = InputBox()
         box.value.consentHostUnverified = true
-        let setup = make(box, Reader())
+        let rig = MainDeadlineRig()
+        let setup = make(box, Reader(), rig: rig)
         setup.start()
         #expect(setup.pageJSON["host_unverified"] == .bool(true))
         box.value.driver = .upstream
-        for await value in ObservationStream({ setup.hostUnverified }) where !value { break }
+        await Self.run(rig) { !setup.hostUnverified }
         #expect(setup.pageJSON["host_unverified"] == .bool(false))
     }
 

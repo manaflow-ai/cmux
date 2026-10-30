@@ -355,6 +355,7 @@ private final class FlippedView: NSView {
     func start(_ sink: @escaping @MainActor (AgentActivityUpdate) -> Void) {}
     func follow(session: String, _ on: Bool) { follows[session] = on }
     func image(for frame: AgentActivityFrameRef) async -> NSImage? { nil }
+    func frame(_ frame: AgentActivityFrameRef, size: AgentActivityFrameSize, session: String?) async -> AgentActivityFrameData? { nil }
     func perform(_ op: AgentActivityUserOp) async throws {}
     func stop() { stopped = true }
 }

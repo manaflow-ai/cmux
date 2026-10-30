@@ -108,7 +108,7 @@ private typealias StripTab = CmuxNextTabs.TabID
         var points: [CGFloat] = []
         var ended = 0
         row.onDragged = { _, point in points.append(point.y); return true }
-        row.onDragEnded = { ended += 1 }
+        row.onDragEnded = { _ in ended += 1 }
         let start = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
         func at(_ dy: CGFloat) -> NSPoint { NSPoint(x: start.x, y: start.y + dy) }
 
