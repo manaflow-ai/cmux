@@ -62,7 +62,7 @@ public nonisolated enum ManagedPreferencesManifest {
             return Entry(name: d.id, title: d.title, help: help, type: .array, choices: choices.map(\.value), range: nil, defaultValue: d.defaultValue, members: [])
         case .timeRange:
             return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: ["start", "end"])
-        case .stringMap:
+        case .stringMap, .soundRules:
             return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
         }
     }

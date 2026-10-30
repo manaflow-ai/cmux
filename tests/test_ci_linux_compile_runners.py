@@ -1,7 +1,7 @@
 """Linux jobs that compile run on the 32 or 16 vCPU Blacksmith size.
 
 Leo, 2026-10-21: "MOVE STUFF TO BLACKSMITH 16 OR 32. IF WE HAVE 256 OF 32,
-JUST USE 32." Every Linux job below compiles (cargo, cross builds, zig, Go,
+JUST USE 32." Every Linux job below compiles (cargo, Swift, cross builds, zig, Go,
 C++, Gradle) or runs a web build or test suite, so its manaflow-ai runner is
 `blacksmith-32vcpu-ubuntu-2404`, or `blacksmith-16vcpu-ubuntu-2404` for the
 small ones.
@@ -10,12 +10,16 @@ The size must not come from `vars.LINUX_RUNNER` while it names a Blacksmith
 label: that shared variable names `blacksmith-4vcpu-ubuntu-2404` for every
 small Linux job (docs/ci-runners.md), so `vars.LINUX_RUNNER ||
 'blacksmith-32vcpu-ubuntu-2404'` would still run on 4 vCPU. But the Blacksmith
-outage switch (scripts/ci/cloud_overflow_switch.py) points `LINUX_RUNNER` at
-`ubuntu-24.04`, and these jobs must follow it there, or the switch's
-force-cancel and rerun sends them straight back to the stalled pool. So each
-trusted fallback ends in exactly
+outage switch (scripts/ci/cloud_overflow_switch.py) moves Linux overflow to
+another Blacksmith size while its CI_CLOUD_OVERFLOW_SAVED record exists, and
+these jobs move with it (16 and 32 vCPU swap), or the switch's force-cancel and
+rerun sends them straight back to the stalled pool; a non-Blacksmith
+`LINUX_RUNNER` an operator sets still wins. Never GitHub-hosted Ubuntu (Leo,
+2026-10-27: "just put it on blacksmith / 16vcpu blacksmiths do exist"). So
+each trusted fallback ends in exactly
 
-    !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'
+    !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER
+      || vars.CI_CLOUD_OVERFLOW_SAVED && '<other size>' || '<size>'
 
 Fork pull requests use the same sized Blacksmith lane as the trusted job for
 the compile and test suites below. Small routing/status jobs can keep the
@@ -56,6 +60,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER", BIG),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER", BIG),
     ("cmux-tui-headless-debug.yml", "build", "runs-on", BIG),
+    ("cmux-tui-spec.yml", "acpmux-protocol-ir", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "packages", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "consumers", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "conformance", "runs-on", BIG),
@@ -73,6 +78,10 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("sdk-publish-java.yml", "bindings-e2e-java", "runs-on", BIG),
     ("sdk-publish-npm.yml", "bindings-e2e-typescript", "runs-on", BIG),
     ("sdk-publish-python.yml", "bindings-e2e-python", "runs-on", BIG),
+    # Swift on Linux: swift build and swift test of the portable packages in the swift.org
+    # container (ask-d3f5804560: "WE CAN COMPILE SWIFT ON LINUX").
+    ("swift-packages-linux.yml", "packages", "runs-on", BIG),
+    ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on", BIG),
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),
@@ -109,8 +118,10 @@ SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
 def trusted_fallback(label: str) -> str:
-    """The size, unless the outage switch names a non-Blacksmith runner."""
-    return f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '{label}'"
+    """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
+    other = SMALL if label == BIG else BIG
+    return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+            f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
 
 
 # What comes before the trusted fallback: the fork and fork pull request
@@ -141,6 +152,9 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     # branch first (test_ci_fork_runner_routing.py).
     ("cmux-next-car-guards.yml", "linux", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
+    # A fork pull request keeps the 16 vCPU literal it took before the move.
+    ("swift-packages-linux.yml", "packages", "runs-on"): (
+        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
@@ -149,6 +163,7 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
         OWNER + "(inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
+    ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
     ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
     ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner"): ("", ""),
 }

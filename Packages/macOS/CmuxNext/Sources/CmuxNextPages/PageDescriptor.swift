@@ -171,7 +171,7 @@ public extension PageDescriptor {
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
                   // Agents > Computer Use card (ComputerUseSetup).
-                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
@@ -208,7 +208,7 @@ public extension PageDescriptor {
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
-        csp: PageCSP(media: [changelogReelSource]))
+        csp: PageCSP(media: ["data:", changelogReelSource]))
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.

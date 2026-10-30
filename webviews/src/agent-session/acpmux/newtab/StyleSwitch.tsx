@@ -1,7 +1,7 @@
 // The New Tab page's style switch (Leo 2026-10-14, after cx-txe89): one small round dot per page
 // style under the page, the current one in the accent (a dot that slides to a new pick) and the rest
 // dim. A pointer over a dot shows its name over it; a pick shows the picked name for a moment, then
-// fades it. Native radios carry the names (the browser owns arrows and focus) and fill each dot's
+// fades it. Keyboard focus keeps the name visible until blur. Native radios carry the names and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
 // composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
 // (DotSwitch) over other options.
@@ -76,10 +76,11 @@ export function DotSwitch<Option extends string>({
   const pressed = useRef(false);
   // The mark slides only after its first placement, so the page never opens with a slide.
   const [settled, setSettled] = useState(false);
-  // The dot whose name shows: the one pointed at, else the one just picked.
+  // The dot whose name shows: pointer hover, keyboard focus, then a recent pick.
   const [hovered, setHovered] = useState<Option | undefined>();
   const [picked, setPicked] = useState<Option | undefined>();
-  const named = hovered ?? picked;
+  const [focused, setFocused] = useState<Option | undefined>();
+  const named = hovered ?? focused ?? picked;
   // The last name shown stays in place while it fades.
   const [shown, setShown] = useState<Option | undefined>();
   if (named && named !== shown) setShown(named);
@@ -128,7 +129,10 @@ export function DotSwitch<Option extends string>({
             className="nt-style-option"
             data-style={style}
             onPointerOver={() => setHovered(style)}
-            onPointerDown={() => (pressed.current = true)}
+            onPointerDown={() => {
+              pressed.current = true;
+              setFocused(undefined);
+            }}
           >
             <input
               className="nt-style-input"
@@ -137,7 +141,18 @@ export function DotSwitch<Option extends string>({
               value={style}
               aria-label={name(style)}
               checked={style === current}
-              onKeyDown={() => (pressed.current = false)}
+              onFocus={(event) => {
+                if (event.currentTarget.matches(":focus-visible")) {
+                  setFocused(style);
+                  setHovered(undefined);
+                }
+              }}
+              onBlur={() => setFocused(undefined)}
+              onKeyDown={() => {
+                pressed.current = false;
+                setFocused(style);
+                setHovered(undefined);
+              }}
               onChange={(event) => {
                 // From the events, never a clock: a pointer's pick follows its press on a dot (a key
                 // since clears it) or is a click that counts its presses (detail 1 or more); the
@@ -149,7 +164,9 @@ export function DotSwitch<Option extends string>({
                 pressed.current = false;
                 const input = event.currentTarget;
                 onPick(style);
-                setPicked(style);
+                // Keyboard feedback belongs to focus; only a pointer pick gets timed feedback.
+                // Otherwise Tab away can reveal a stale pick after onBlur clears focused.
+                setPicked(fromKeys ? undefined : style);
                 // Picked by keys, the new dot's name shows, not the one a resting pointer is over.
                 if (fromKeys) setHovered(undefined);
                 // After the pick's commit, where a page that mounts for it (Classic, or a screen

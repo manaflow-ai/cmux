@@ -12,9 +12,10 @@ from pathlib import Path
 import plistlib
 import re
 import sys
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = (ROOT / ".github/workflows/nightly.yml").read_text()
+WORKFLOW = nightly_text()
 
 
 def identity_block() -> str:
@@ -147,9 +148,13 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert "const feeds = track === 'nightly-next'\n              ? ['appcast-arm64.xml']\n" in WORKFLOW
     upload = WORKFLOW[WORKFLOW.index("- name: Upload nightly-next appcasts to R2"):]
     upload = upload[:upload.index("\n      - name:", 10)]
-    assert 'for appcast in $NIGHTLY_FEEDS; do' in upload and 'key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"' in upload
-    assert upload.count("--key ") == 1 and '--key "$key"' in upload and len(re.findall(r"\bkey=", upload)) == 1
-    assert upload.count("--bucket ") == 1 and '--bucket "$NIGHTLY_NEXT_R2_BUCKET"' in upload
+    # publish-nightly-next-r2.py write-feed puts nightly-out/<feed> at NIGHTLY_NEXT_R2_PREFIX + <feed>
+    # in NIGHTLY_NEXT_R2_BUCKET (compare-and-swap).
+    assert 'for appcast in $NIGHTLY_FEEDS; do' in upload
+    assert 'publish-nightly-next-r2.py" write-feed --feed "nightly-out/$appcast"' in upload
+    writer = (ROOT / "scripts/ci/publish-nightly-next-r2.py").read_text()
+    assert 'key = env("NIGHTLY_NEXT_R2_PREFIX") + feed.name' in writer
+    assert '"--bucket", env("NIGHTLY_NEXT_R2_BUCKET"), "--key", key' in writer
     # ...and NIGHTLY_FEEDS in that job is decide's feed list, the one checked above.
     publisher = job_containing("- name: Upload nightly-next appcasts to R2")
     assert job_env(publisher, "NIGHTLY_FEEDS") == "${{ needs.decide.outputs.feeds }}"

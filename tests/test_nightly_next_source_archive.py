@@ -85,6 +85,12 @@ def test_source_archive_step_blocks() -> None:
         "a failed source archive step must say to pin the license in pinned-licenses/MANIFEST.json"
     )
     assert "::error" in build, "the pin instruction must be a workflow error annotation"
+    assert "CMUX_NEXT_SOURCE_ARCHIVE_TARBALL: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && '1' || '0' }}" in build, (
+        "the tarball is built exactly when the publish job may attach it"
+    )
+    script = (ROOT / "scripts/cmux-next/build-ghostty-source-archive.sh").read_text()
+    licenses, gate = script.index("verify-ghostty-license-bundle.py"), script.index('CMUX_NEXT_SOURCE_ARCHIVE_TARBALL:-1}" == 0')
+    assert licenses < gate < script.index('archive="$out/cmux-next-source-'), "the license trees come before the tarball gate"
 
 
 def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:

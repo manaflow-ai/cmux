@@ -21,6 +21,7 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .stats-private,
@@ -35,6 +36,7 @@
   margin: 2px 0 0;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .stats-ranges {
@@ -58,6 +60,7 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .stats-range.is-selected {
@@ -85,6 +88,7 @@
 .stats-tile-detail {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .stats-tile-value {
@@ -93,6 +97,7 @@
   line-height: var(--text-heading--line-height);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .stats-section {
@@ -104,6 +109,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 /* Seven rows, one per weekday; the grid flows down each week's column. */
@@ -148,6 +154,7 @@
   line-height: var(--text-caption--line-height);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .stats-heat.is-padding {
@@ -238,6 +245,7 @@
   color: var(--page-text-3);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .stats-outcome dd {

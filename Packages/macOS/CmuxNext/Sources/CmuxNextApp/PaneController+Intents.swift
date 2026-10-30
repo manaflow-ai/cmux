@@ -34,6 +34,9 @@ extension PaneController {
         case .toggleAudioMute(let id):
             _ = services.registry.perform(BrowserTabAudio.toggleActionID,
                                           invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue), origin: .user))
+        // A tab's double-click runs Toggle Pane Zoom on this pane, Cmd-Shift-Return's one path.
+        case .toggleZoom:
+            _ = services.registry.perform(PaneToolbar.zoom, invocation: Self.zoomInvocation(pane: paneKey))
         case .moveToNewSplit(let id, let direction):
             guard let tab = tab(id) else { return }
             TabMoves.toNewSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom, services: services)
@@ -45,6 +48,12 @@ extension PaneController {
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
         }
+    }
+
+    /// Toggle Pane Zoom for pane `pane` (a tab's double-click): the pane, not the tab, so a window's
+    /// own page or browser tab, which the store does not list, zooms its pane too.
+    static func zoomInvocation(pane: String) -> ActionInvocation {
+        ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), origin: .user)
     }
 
     /// A user selection (strip click, shortcut, palette, CLI): goes through
@@ -341,8 +350,9 @@ extension PaneController {
     /// the sidebar): a browser tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
-    static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil) -> NSMenu {
+    static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil, machineID: String? = nil) -> NSMenu {
         let menu = tabMenuEntries(id, tab: tab, keepsTab: keepsTab, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
+        if let machineID { registry.scopeMenuAction(menu, action: "palette.toggleTabUnread", toMachine: machineID) }
         // It sits in a submenu (More > New).
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
@@ -379,7 +389,7 @@ extension PaneController {
             // right-clicked tab, or on the selection it is one of (`AppActionContext.actionTabs`).
             return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
                                 sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
-                                registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)
+                                registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil, machineID: daemon.machineID).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
@@ -390,7 +400,8 @@ extension PaneController {
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
-            return registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: paneKey)).themeRows(in: view.themeScope.fullStrength)
+            return registry.makePaneCreationMenu(target: ActionTargetRef(kind: .pane, id: paneKey))
+                .themeRows(in: view.themeScope.fullStrength)
         }
     }
 }
