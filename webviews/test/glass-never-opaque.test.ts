@@ -247,6 +247,8 @@ test("glass tints, rows inside a menu, Reduce Transparency and a written reason 
     ":root { --surface-popup: var(--cmux-popup-surface); }",
     ".demo-popover { background: color-mix(in srgb, Canvas 60%, transparent); backdrop-filter: blur(20px); }",
     ".demo-card { background: color-mix(in srgb, CanvasText 13%, transparent); }",
+    // Two opaque colors whose shares add up to 88%: the rest is transparent.
+    ".demo-hovercard { background: color-mix(in srgb, Canvas 82%, CanvasText 6%); }",
     ".ui-menu-item[data-highlighted] { background: Canvas; }",
     ".demo-menu .demo-menu-row { background: Canvas; }",
     "@media (prefers-reduced-transparency: reduce) { .demo-popover { background: var(--surface-popup); } }",

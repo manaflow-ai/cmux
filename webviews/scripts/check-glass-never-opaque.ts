@@ -568,7 +568,9 @@ export function fillAlpha(raw: string, seen = new Set<string>()): number | null 
     }
     return known ? 1 - clear : null;
   }
-  if (classify(value, seen) === "opaque") return 1;
+  // classify calls a mix of two opaque colors opaque whatever their shares; shares under 100% leave
+  // the rest transparent, so a color-mix is measured below instead.
+  if (call(value)?.name !== "color-mix" && classify(value, seen) === "opaque") return 1;
   if (/^#[0-9a-f]{4}$/i.test(value)) return Number.parseInt(value.slice(4), 16) / 15;
   if (/^#[0-9a-f]{8}$/i.test(value)) return Number.parseInt(value.slice(7), 16) / 255;
   const fn = call(value);
