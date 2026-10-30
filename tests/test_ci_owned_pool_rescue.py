@@ -1698,8 +1698,7 @@ class IOSDispatch(unittest.TestCase):
     """test-ios.yml and ios-screenshots.yml dispatches are watched like an E2E run."""
 
     def test_ios_dispatches_are_targets(self):
-        for path in (".github/workflows/test-ios.yml", ".github/workflows/ios-screenshots.yml",
-                     ".github/workflows/cmux-next-ios-kit.yml"):
+        for path in (".github/workflows/test-ios.yml", ".github/workflows/ios-screenshots.yml"):
             target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
             self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path),
                              (0, True, "runner", path))
@@ -1710,8 +1709,6 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
         self.assertIsInstance(rescue.target_from_event(
             event(path=".github/workflows/ios-screenshots.yml"), "manaflow-ai/cmux"), str)
-        target = rescue.target_from_event(event(path=".github/workflows/cmux-next-ios-kit.yml"), "manaflow-ai/cmux")
-        self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
         # The Iroh release gate's runner job places its Tailscale job the same way.
         path = ".github/workflows/iroh-release-gate.yml"
         target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
@@ -1719,19 +1716,6 @@ class IOSDispatch(unittest.TestCase):
         # Signing and streamed validation never take an owned Mac, so they are never watched.
         for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
-
-    def test_kit_stall_is_rescued_without_queue_rounds(self):
-        def jobs(seconds):
-            return [e2e_runner()(seconds), job("CmuxMobileKit tests (macOS swift test, iOS simulator)",
-                                               labels=[MINI, IOS_SIM], created=0)]
-        clock = Clock()
-        api = FakeAPI(clock, jobs, marker=True)
-        target = rescue.target_from_event(e2e_event(path=rescue.IOS_KIT_WORKFLOW_PATH), "manaflow-ai/cmux")
-        messages = []
-        rescue.follow(api, target, seconds=600, queue_rounds="2", now=clock.now,
-                      sleep=clock.sleep, log=messages.append)
-        self.assertIn("budget 180s", messages[0])
-        self.assertIn("rerun-failed", api.calls)
 
     def test_a_job_waiting_for_the_simulator_label_moves_to_blacksmith(self):
         # No idle mini carries glaeda-ios-sim yet: the job queues on the owned
@@ -2141,7 +2125,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(triggers["workflow_run"]["types"], ["requested", "completed"])
         self.assertEqual(
             set(triggers["workflow_run"]["workflows"]),
-            {"iOS App Store screenshots", "Nightly macOS build", "CI", "iOS simulator tests", "cmux-next-ios kit tests", "Iroh release gate",
+            {"iOS App Store screenshots", "Nightly macOS build", "CI", "iOS simulator tests", "Iroh release gate",
              "Agent brand icons", "Auth and session lifecycle", "cmux-next base autofix", "cmux-next batch queue",
              "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix", "cmux-next CEF shim C++ tests",
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily",
