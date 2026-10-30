@@ -178,12 +178,14 @@ fn ask_bounded(client: &RpcClient, method: &str, params: Value) -> Result<Value,
         .map_err(|e| format!("{method}: {e}"))
 }
 
-/// `_acpmux/sessions`, bounded.
+/// `_acpmux/sessions`, every page, each bounded.
 fn sessions_bounded(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
-    Ok(
-        crate::acpmux::session_rows(&ask_bounded(client, "_acpmux/sessions", json!({}))?)
-            .unwrap_or_default(),
-    )
+    let list = crate::acpmux::whole_list(
+        |m, p| ask_bounded(client, m, p),
+        "_acpmux/sessions",
+        json!({}),
+    )?;
+    Ok(crate::acpmux::session_rows(&list).unwrap_or_default())
 }
 
 /// How long [`end_own_sessions`] waits for all its kills.
