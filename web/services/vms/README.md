@@ -681,8 +681,11 @@ are migrated when they are resumed: any finite legacy idle timeout is cleared be
 ### Idle auto-pause
 
 Freestyle's idle timer stays off (it counts only network and exec traffic, so it would pause
-a machine whose agent is mid-turn and quiet). The server pauses idle machines instead
-(`services/vms/idlePause.ts`, `idlePauseJob.ts`):
+a machine whose agent is mid-turn and quiet). The server can pause idle machines instead
+(`services/vms/idlePause.ts`, `idlePauseJob.ts`), but it is off: Leo, 2026-10-30, "we're
+saying no auto pausing of the freestyle vms for now". Unless the deployment sets
+`CMUX_VM_IDLE_AUTO_PAUSE=on`, the cron probes and pauses no machine, not even one that chose a
+timeout. Pause Machine and Resume are unchanged.
 
 - The `vm-idle-pause` cron runs every 5 minutes. On each running Freestyle machine it runs one
   read-only probe as root through the provider exec: the session daemon's `subscribe-activity`
@@ -728,7 +731,7 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   `idlePauseMinutes`, same values; `cmux cloud new-machine --persistent` sends `"off"`). It is
   stored by the row's insert, before any provider call, so a same-key retry keeps the first
   create's value; the answer carries it. A machine that never chose one gets
-  `VM_IDLE_PAUSE_DEFAULT_MINUTES` (30; 0 turns the default off).
+  `VM_IDLE_PAUSE_DEFAULT_MINUTES` (0, Off; it was 30 until 2026-10-30).
 - `pauseReason` is `"idle"` or `"user"` on a paused machine the control plane paused, else
   null. Opening a paused machine resumes it, as above.
 
