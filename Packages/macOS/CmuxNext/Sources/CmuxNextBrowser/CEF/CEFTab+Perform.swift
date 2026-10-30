@@ -9,15 +9,20 @@ extension CEFTab {
     /// - Parameters:
     ///   - script: The script.
     ///   - gesture: `.agent` runs it as the person's own command (a menu choice); `.cmux` without a gesture.
+    /// It goes in the browser's call order (``CEFDevToolsSendOrder``): after every earlier call to the page.
+    ///
     /// - Returns: False when the browser is gone or the call could not leave.
     public func perform(_ script: String, gesture: BrowserScriptGesture) -> Bool {
-        guard let browserID, !isClosed, let shim = runtime.shim else { return false }
+        guard let browserID, !isClosed, runtime.shim != nil else { return false }
         if runtime.forkFeatures.rendererPaths {
-            return runtime.perform(browserID, world: "", script: script, userGesture: gesture == .agent)
+            let runtime = runtime, agent = gesture == .agent
+            return runtime.devToolsOrder.post(browserID) { [weak runtime] in
+                runtime?.perform(browserID, world: "", script: script, userGesture: agent) ?? false
+            }
         }
         var params: [String: Any] = ["expression": script]
         if gesture == .agent { params["userGesture"] = true }
         // Its DEVTOOLS_RESULT finds no waiter and is dropped.
-        return shim.devToolsCall(browserID, "Runtime.evaluate", CEFDevToolsResult.params(params)) != 0
+        return runtime.postDevTools(browserID, method: "Runtime.evaluate", params: params)
     }
 }
