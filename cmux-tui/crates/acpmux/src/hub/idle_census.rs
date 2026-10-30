@@ -43,11 +43,13 @@ use std::path::{Path, PathBuf};
 /// relative path (`./mcp-server`), that path in the harness's folder, where the harness runs it.
 /// `interpreter`: for a script, the interpreter its `#!` line runs (`#!/usr/bin/env node`: the
 /// `node` the harness's `PATH` runs).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Sidecar {
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Sidecar {
     command: String,
     args: Vec<String>,
     resolved: Option<String>,
+    // A record written before servers carried an interpreter has none: none is known.
+    #[serde(default)]
     interpreter: Option<String>,
 }
 
@@ -143,6 +145,29 @@ impl Hub {
     }
 }
 
+/// The idle pass's census for an agent host whose daemon is gone (`agent_host/host/orphan.rs`,
+/// `agent_host::OrphanExit`): true when nothing but `pid`, the harness, and its MCP servers runs
+/// under it. Its servers are `exit`'s, read before it started, and the ACP `given` ones its
+/// sessions opened with. A census that fails or is not whole says false.
+#[cfg(unix)]
+pub(crate) async fn host_census(
+    pid: u32,
+    exit: crate::agent_host::OrphanExit,
+    given: Option<Value>,
+) -> bool {
+    let crate::agent_host::OrphanExit { mut servers, path, cwd, .. } = exit;
+    // Off the host's one runtime thread, within the budget: resolving a server's name stats
+    // each `PATH` folder, which a slow mount can hold.
+    let found = tokio::task::spawn_blocking(move || {
+        servers.extend(resolved(from_json(given.as_ref()), &path, &cwd));
+        let found = crate::agent_host::tree::under(pid)?;
+        let census =
+            classify(&found, pid, &servers, Some(&path), crate::agent_host::tree::identity);
+        Some(matches!(census, Census::Clear))
+    });
+    matches!(tokio::time::timeout(CENSUS_BUDGET, found).await, Ok(Ok(Some(true))))
+}
+
 /// What the idle census knows of a harness's MCP servers (`ChildAgent::launch`).
 #[derive(Debug, Clone)]
 pub(crate) enum LaunchServers {
@@ -153,6 +178,21 @@ pub(crate) enum LaunchServers {
 }
 
 impl LaunchServers {
+    /// `exit` (`Hub::orphan_exit`) with these servers: none when they are not known, since a
+    /// host whose servers are unknown can never tell its agent is idle.
+    pub(crate) fn orphan_exit(
+        &self,
+        exit: Option<crate::agent_host::OrphanExit>,
+    ) -> Option<crate::agent_host::OrphanExit> {
+        let Self::Known { servers, path, cwd } = self else { return None };
+        exit.map(|e| crate::agent_host::OrphanExit {
+            servers: servers.clone(),
+            path: path.clone(),
+            cwd: cwd.clone(),
+            ..e
+        })
+    }
+
     /// Reads, once and before the harness of `family` is started as `launch`, the MCP servers
     /// its configs name, bounded by [`CENSUS_BUDGET`]; each start site awaits it before its
     /// spawn, so the census judges by what the harness could read at its start, never by a

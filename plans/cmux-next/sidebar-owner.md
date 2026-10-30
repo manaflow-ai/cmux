@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: the "cmux Updated!" card is glass again. Leo: "I don't like the non-glassness". The card is a
+  React page over the sidebar whose own CSS glass could not see the sidebar (a flat fill; solid in an opaque
+  window through the theme bootstrap's html background). `SidebarUpdatedCardHost` now draws `CardSurfaceView`
+  under the page at the card's 12 pt corner (`Metrics.space5`), the same glass as the Update Ready, Now
+  Playing and notice cards; the page (`#/surface/updated`) paints only the words and sets `data-glass-native`
+  so the lens draws nothing over it. Reduce Transparency keeps the opaque elevated fill. Regression:
+  `UpdatedCardDismissPathTests`, webviews `updated-card-native-glass.test.ts` and `glass-lens.test.ts`.
+  This replaces only the card's fill from #22670 (already restyled to glass by #22734).
+
 - 2026-10-30: `sidebar.groupChromeShape` is an off-by-default band-header prototype. Leo's ask:
   "our group header is a plain rounded pill with a separate thin line; Chrome's colored header chip
   and vertical rail are one hot shape, with a clipped/notched join, thicker group-colored rail,
