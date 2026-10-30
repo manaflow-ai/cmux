@@ -115,6 +115,10 @@ public nonisolated struct SidebarPullRequestItem: Hashable, Sendable, Codable {
 public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     /// A child workspace to the workspace whose session started it.
     public var parents: [WorkspaceID: WorkspaceID]
+    /// Existing agent-tab hosts, used only by the enabled session tree's machine groups.
+    public var hosts: [WorkspaceID: String] = [:]
+    public var hostNames: [String: String] = [:]
+    public var collapsedHosts: Set<String> = []
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
     /// What each workspace's agents are doing, as acpmux decided it (the lanes); a workspace
     /// without a lane is read from its own row (`SidebarAgentState.of`).
@@ -143,7 +147,13 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     }
 
     /// What the order and the Command-numbers need: the parents and the folds.
-    public var shape: SidebarSessionTreeState { SidebarSessionTreeState(parents: parents, collapsed: collapsed) }
+    public var shape: SidebarSessionTreeState {
+        var shape = SidebarSessionTreeState(parents: parents, collapsed: collapsed)
+        shape.hosts = hosts
+        shape.hostNames = hostNames
+        shape.collapsedHosts = collapsedHosts
+        return shape
+    }
 }
 
 /// The session tree's live state; nil while `sidebar.sessionTree` is off, so the list draws as
@@ -157,11 +167,13 @@ public final class SidebarSessionTree {
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The parents the user folded (a chevron on the row), kept across launches.
     public private(set) var collapsed: Set<WorkspaceID>
+    public private(set) var collapsedHosts: Set<String>
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         collapsed = Set((defaults.stringArray(forKey: Self.collapsedKey) ?? []).map(WorkspaceID.init))
+        collapsedHosts = Set(defaults.stringArray(forKey: Self.collapsedHostsKey) ?? [])
     }
 
     /// What the list draws: the live state with the user's folds; nil while the tree is off.
@@ -169,8 +181,14 @@ public final class SidebarSessionTree {
         state.map { live in
             var drawn = live
             drawn.collapsed = collapsed
+            drawn.collapsedHosts = collapsedHosts
             return drawn
         }
+    }
+
+    public func toggleHost(_ host: String) {
+        if collapsedHosts.remove(host) == nil { collapsedHosts.insert(host) }
+        defaults.set(collapsedHosts.sorted(), forKey: Self.collapsedHostsKey)
     }
 
     /// Folds or opens the subtree under `id`.
@@ -186,6 +204,13 @@ public final class SidebarSessionTree {
         while let parent = state?.parents[current], seen.insert(parent).inserted {
             opened.remove(parent)
             current = parent
+        }
+        // A recorded ancestor may be in another window. Open every host on the path:
+        // this window may draw the child as a root under its own host instead.
+        let openedHosts = collapsedHosts.subtracting(seen.compactMap { state?.hosts[$0] })
+        if openedHosts != collapsedHosts {
+            collapsedHosts = openedHosts
+            defaults.set(collapsedHosts.sorted(), forKey: Self.collapsedHostsKey)
         }
         guard opened != collapsed else { return }
         collapsed = opened
@@ -206,4 +231,5 @@ public final class SidebarSessionTree {
     }
 
     static let collapsedKey = "sidebar.sessionTree.collapsed"
+    static let collapsedHostsKey = "sidebar.sessionTree.collapsedHosts"
 }

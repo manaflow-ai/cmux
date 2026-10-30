@@ -59,7 +59,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .sessionHost, .status:
             return
         }
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
