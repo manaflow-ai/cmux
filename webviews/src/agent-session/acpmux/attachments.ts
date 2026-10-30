@@ -283,7 +283,10 @@ export function withoutInlineTokens(text: string, known: InlineKnownIds = () => 
   return text.includes(INLINE_ATTACHMENT_MARK) ? wordsOf(inlineRuns(text, known)) : text;
 }
 
-export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
+/// `strip`: an attachment the person left in the strip, which goes after the text, not in it.
+export type OrderedDraftPart =
+  | { type: "text"; text: string }
+  | { type: "attachment"; attachment: ComposerAttachment; strip?: true };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -442,7 +445,8 @@ export function orderedDraftParts(
       placed.add(run.id);
       return { type: "attachment", attachment: byId.get(run.id)! };
     });
-    for (const attachment of chips) if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment });
+    for (const attachment of chips)
+      if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment, strip: true });
     return parts;
   }
   if (!legacyMarks(input, chips)) {
@@ -468,7 +472,7 @@ export function orderedDraftParts(
   const tail = input.slice(start);
   if (tail) parts.push({ type: "text", text: tail });
   // The attachments not placed in the text (the strip's) go after it, in their order.
-  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment });
+  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment, strip: true });
   return parts;
 }
 
