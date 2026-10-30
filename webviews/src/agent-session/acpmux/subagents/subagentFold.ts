@@ -426,11 +426,12 @@ export class SubagentFold {
     if (name && isDaemonRenamedName(name)) return undefined;
     const identity = { name, prompt: asked };
     if (this.retiredStarts.some((start) => identitiesOverlap(start, identity))) return undefined;
+    // The call's requested name in the daemon's spelling (`-n Alpha` claims `alpha`).
     const calls = [...this.parentCalls];
     const call =
-      calls.find(([, pending]) => name !== undefined && pending.run.session === name)?.[0] ??
+      calls.find(([, pending]) => name !== undefined && pending.identity.name === name)?.[0] ??
       calls.find(
-        ([, pending]) => !pending.run.session && asked !== undefined && promptKey(pending.run.prompt) === asked,
+        ([, pending]) => !pending.identity.name && asked !== undefined && pending.identity.prompt === asked,
       )?.[0];
     const pending = call !== undefined ? this.parentCalls.get(call) : undefined;
     if (call === undefined || !pending || pending.ambiguous) return undefined;
