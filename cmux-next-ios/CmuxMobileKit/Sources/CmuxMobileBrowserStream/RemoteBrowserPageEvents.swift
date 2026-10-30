@@ -161,6 +161,8 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         50180, 50181, 50182, // the Speech submenu: Start and Stop Speaking speak on the Mac
         35003, // IDC_PRINT
         35004, // IDC_SAVE_PAGE
+        35011, // IDC_ROUTE_MEDIA (Cast…: the Mac's cast dialog)
+        51034, // Create QR Code for this Page (a bubble on the Mac)
         112, 113, 114, // MENU_ID_CUT, MENU_ID_COPY, MENU_ID_PASTE
         131, // MENU_ID_PRINT
     ]
@@ -175,6 +177,7 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         50125, // IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB
         50191, // IDC_CONTENT_CONTEXT_SEARCHWEBFOR
         50192, // IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB
+        35002, // IDC_VIEW_SOURCE (a view-source: tab)
     ]
 
     /// Whether `choice` is one this menu offered (the viewer's own check of

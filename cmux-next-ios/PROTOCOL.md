@@ -660,9 +660,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   long press sends a secondary click at that spot (pointer `button` 2) and
   shows the host's `rb.menu.show` of kind `context` as the system menu; rows
   whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
-  Inspect, Look Up, Speech) are left out, and so are the rows Chromium opens
-  as a new tab through `OpenURLFromTab` (Open Link in New Tab or Window, Open
-  Image in New Tab, Search for): the browser host forwards only the page's
+  Inspect, Look Up, Speech, Cast, Create QR Code) are left out, and so are the
+  rows Chromium opens as a new tab through `OpenURLFromTab` (Open Link in New
+  Tab or Window, Open Image in New Tab, Search for, View Page Source): the browser host forwards only the page's
   own popups (`OnBeforePopup`) as `rb.open_tab`, so those would open nothing
   a viewer sees until it forwards them too. The pick goes back as `rb.menu.result
   {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
