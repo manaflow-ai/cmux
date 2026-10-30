@@ -60,8 +60,60 @@ async function startFixture(previous: boolean, remote = false) {
     () => socket as unknown as WebSocket,
   );
   if (!previous) client.leave();
-  return { client, requests, requested, resolveStart, rejectStart, answer, previousSession: mockHost.sessionId };
+  return {
+    client,
+    daemon,
+    requests,
+    requested,
+    resolveStart,
+    rejectStart,
+    answer,
+    previousSession: mockHost.sessionId,
+  };
 }
+
+test("a canceled start's late Trust refusal cannot replace the newer start's retry", async () => {
+  const fixture = await startFixture(false);
+  const { client, daemon } = fixture;
+  const answer = daemon.answer.bind(daemon);
+  let trusted = false;
+  const refusal = (cwd: string) =>
+    Object.assign(new Error("Trust pending"), {
+      data: { reason: "trust.pending", cwd },
+    });
+  daemon.answer = async (method, params) => {
+    if (method === "session/new" && params.cwd === "/tmp/newer-start" && !trusted) throw refusal("/tmp/newer-start");
+    return answer(method, params);
+  };
+  const routed: string[] = [];
+  let retry: (() => void) | undefined;
+  let asked!: () => void;
+  const newerAsked = new Promise<void>((resolve) => (asked = resolve));
+  client.onTrustRefused = (error, again) => {
+    routed.push(error.cwd ?? "");
+    retry = again;
+    asked();
+  };
+  try {
+    const oldStart = client.create("claude", "/tmp/older-start", undefined, false, undefined, true);
+    await fixture.requested;
+    const newStart = client.create("claude", "/tmp/newer-start", undefined, false, undefined, true);
+    await newerAsked;
+    expect(await oldStart).toBeUndefined();
+    fixture.rejectStart(refusal("/tmp/older-start"));
+    // Mock replies and the client's rejection chain use microtasks; drain them for one turn.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(routed).toEqual(["/tmp/newer-start"]);
+    trusted = true;
+    retry!();
+    const started = await newStart;
+    expect(started).toBeDefined();
+    expect(client.shownSession()?.sessionId).toBe(started);
+    expect(client.shownSession()?.cwd).toBe("/tmp/newer-start");
+  } finally {
+    client.close();
+  }
+});
 
 test("a retained New Tab start rejects Trust refusal when this remote origin cannot answer it", async () => {
   const fixture = await startFixture(false, true);
