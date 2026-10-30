@@ -234,21 +234,40 @@ export class CloudDO extends CloudIdle {
    * on someone else's machine). No answer carries a provider error; stdout and stderr go back to
    * the run only.
    */
-  async automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+  automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+    // Only the machine's creator, while still a member: a teammate's automation never runs on it.
+    return this.guestExec(entity, machine, (row) => (user !== null && row.creator === user ? this.mayUseMachines(entity, user) : Promise.resolve(false)), command, stdin, timeoutMs, { action: "automation.exec", who: `automation:${entity}` })
+  }
+
+  /**
+   * The platform Worker's machine exec and file routes (PlatformMachines.ownerExec, cmux-platform's
+   * /v1/vm/{id}/exec and /v1/vm/{id}/fs): one command on a machine of this team, for a person who may
+   * use the team's machines now (as classic /api/vm and the link's owner answer: any member, not only
+   * the creator). NOT an op. Another team's machine is not found; a member who left is forbidden.
+   */
+  ownerExec(entity: string, user: string, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+    return this.guestExec(entity, machine, () => this.mayUseMachines(entity, user), command, stdin, timeoutMs, { action: "owner.exec", who: `platform:${user}` })
+  }
+
+  /** The personal team, or a member with team.resources now and no departure heard during the read. */
+  private async mayUseMachines(entity: string, user: string): Promise<boolean> {
+    if (entity === personalTeamIdFor(user)) return true
+    const started = Date.now()
+    const member = await this.creatorIsMember(entity, user).catch(() => false)
+    return member && (this.leftAt.get(user) ?? -1) < started
+  }
+
+  private async guestExec(entity: string, machine: string, allowed: (row: MachineRow) => Promise<boolean>, command: string, stdin: Uint8Array | null, timeoutMs: number, audit: { action: string; who: string }): Promise<MachineExecReply> {
     if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
     const row = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
     if (!row) return { ok: false, refusal: "not_found" }
-    if (!user || row.creator !== user) return { ok: false, refusal: "forbidden" }
-    if (entity !== personalTeamIdFor(user)) {
-      const started = Date.now()
-      const member = await this.creatorIsMember(entity, user).catch(() => false)
-      if (!member || (this.leftAt.get(user) ?? -1) >= started) return { ok: false, refusal: "forbidden" }
-    }
+    if (!(await allowed(row))) return { ok: false, refusal: "forbidden" }
     if (row.status !== "running") return { ok: false, refusal: "not_running" }
     const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
     if (!driver) return { ok: false, refusal: "provider_failed" }
     const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
-    this.audit.record({ action: "automation.exec", machine, who: `automation:${entity}`, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
+    // Never the command or its stdin (a credential or a file's content may be on it).
+    this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
     return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
   }
 
