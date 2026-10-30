@@ -90,12 +90,22 @@ pub struct Under {
 /// group even after its parent exited (a group member reparented to init). Zombies are skipped:
 /// they run nothing. `None` when `ps` fails, prints a line it cannot read or bytes that are not
 /// UTF-8, or lists no `leader`:
-/// a census that is not whole never says nothing runs.
-pub fn under(leader: u32) -> Option<Vec<Under>> {
+/// a census that is not whole never says nothing runs. With them, the leader's own command line
+/// (the idle census tells a launcher's relay from other work by it).
+pub fn under(leader: u32) -> Option<(String, Vec<Under>)> {
     let (ok, out) = ps("pid=,ppid=,pgid=,stat=,args=")?;
     // Output that is not text is not read as a whole census either.
     let out = String::from_utf8(out).ok().filter(|_| ok)?;
-    under_in(&out, leader, own_group())
+    let found = under_in(&out, leader, own_group())?;
+    Some((leader_args_in(&out, leader)?, found))
+}
+
+/// The command line of `leader` in `ps` output `table` (as [`under_in`] reads it).
+pub fn leader_args_in(table: &str, leader: u32) -> Option<String> {
+    table.lines().find_map(|line| {
+        let mut f = line.split_whitespace();
+        (f.next()?.parse::<u32>().ok()? == leader).then(|| f.skip(3).collect::<Vec<_>>().join(" "))
+    })
 }
 
 fn own_group() -> u32 {
@@ -158,6 +168,13 @@ mod census_tests {
         assert!(under_in(TABLE, 300, 1).is_none(), "a missing leader");
         assert!(under_in("100 1 100 S claude\nbad line\n", 100, 1).is_none(), "an unreadable line");
         assert!(under_in("104 1 104 Z claude\n", 104, 1).is_none(), "a zombie leader");
+    }
+
+    #[test]
+    fn the_leaders_own_command_line_is_read() {
+        assert_eq!(super::leader_args_in(TABLE, 100).as_deref(), Some("claude --print"));
+        assert_eq!(super::leader_args_in(TABLE, 105).as_deref(), Some("python3 -m http.server"));
+        assert!(super::leader_args_in(TABLE, 300).is_none());
     }
 
     #[test]
