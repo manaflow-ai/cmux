@@ -709,6 +709,14 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(Set(prompt.attachments.map(\.id)).count == 2)
     }
 
+    @Test func unsupportedImageTypesAreNormalizedToJpegAttachments() throws {
+        let image = ConversationComposeImage(data: Self.jpeg, width: 2, height: 2, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.name.hasSuffix(".jpg"))
+        #expect(attachment.imageMIMEType == "image/jpeg")
+        #expect(attachment.data == Self.jpeg)
+    }
+
     @Test func anImageOnlyMessageStillSends() throws {
         let prompts = route(ConversationComposeMessage(text: "", images: [
             ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/png"),
