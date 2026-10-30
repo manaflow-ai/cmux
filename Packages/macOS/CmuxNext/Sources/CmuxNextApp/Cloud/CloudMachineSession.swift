@@ -30,6 +30,8 @@ final class CloudMachineSession {
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
     private(set) var linkEnded: String?
+    /// The ended link went down or was revoked, not refused (``CloudAppLinks/isDrop(_:)``).
+    private(set) var linkDropped = false
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
@@ -177,6 +179,7 @@ final class CloudMachineSession {
         appTicket = nil
         daemon.shutdownConnection()
         linkEnded = nil
+        linkDropped = false
         resumeFailure = nil
         noteLinkStarting()
         let suspendsBefore = suspends
@@ -235,6 +238,7 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message
+        linkDropped = CloudAppLinks.isDrop(error)
         linkPhase = .failed(message)
         if let refresher {
             // task-owner: one throttled list read; the reconcile it runs updates this record
@@ -288,7 +292,8 @@ final class CloudMachineSession {
         if case .connected = daemon.store.connectionState { connected = daemon.connection != nil }
         return CloudMachineStageInput(creation: nil, machineStatus: machine.status, link: linkPhase, daemonConnected: connected,
                                       daemonLoaded: daemon.store.isLoaded, daemonFailure: daemonFailure, linkEnded: linkEnded,
-                                      pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure)
+                                      pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure,
+                                      linkDropped: linkDropped)
     }
 
     /// Where the machine is on its way to a usable daemon.
