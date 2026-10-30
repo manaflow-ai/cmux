@@ -866,6 +866,10 @@ class GitHub:
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
 
+    def rerun_job(self, job_id: int) -> None:
+        """Re-run one queued job and its dependents without cancelling its run."""
+        self.request("POST", f"/actions/jobs/{job_id}/rerun")
+
 @dataclasses.dataclass
 class Target:
     run_id: int
@@ -1245,6 +1249,27 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
         return f"not rescued: {moved}"
+
+    # Keep an open pull-request run intact. Re-running one stuck job and its
+    # dependents lets Actions re-evaluate the current placement while healthy
+    # siblings continue producing their checks.
+    # Older test doubles do not expose this endpoint; production GitHub does.
+    if target.pr_number and target.event == "pull_request" and not refusal:
+        rerun_job = getattr(api, "rerun_job", None)
+        if rerun_job is not None:
+            jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+            include_blacksmith = target.side and not target.nightly
+            candidates = [job for job in jobs
+                          if job_pool(job)
+                          and queued_pool(job, include_blacksmith_macos=include_blacksmith)
+                          and waiting_for_runner(job)
+                          and job.get("id")]
+            if candidates:
+                candidate = max(candidates, key=lambda job: queued_seconds(job, now(), None))
+                rerun_job(int(candidate["id"]))
+                return (f"re-dispatched job {candidate.get('name') or candidate['id']} of run "
+                        f"{target.run_id}; {next_attempt(target)}")
+
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"

@@ -697,6 +697,21 @@ def pool_rounds(value):
 
 
 class Rescuing(unittest.TestCase):
+    def test_an_open_pr_redispatches_only_the_stuck_job(self):
+        clock = Clock()
+
+        def jobs(seconds):
+            queued = job("cmux-next fast tier", labels=[MINI], created=0)
+            queued["id"] = 901
+            return [changes(done_at=0)(seconds), queued]
+
+        api = FakeAPI(clock, jobs, marker=True)
+        api.rerun_job = lambda job_id: api.calls.append(f"rerun-job:{job_id}")
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": "0"})
+        self.assertIn("rerun-job:901", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("re-dispatched job cmux-next fast tier", summary)
+
     def test_a_job_waiting_past_the_budget_reruns_the_run(self):
         clock = Clock()
         api = FakeAPI(clock, persistent_run(), marker=True)
