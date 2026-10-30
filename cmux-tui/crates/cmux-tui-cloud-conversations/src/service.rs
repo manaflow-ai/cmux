@@ -628,7 +628,7 @@ impl CloudConversations {
         let mut info = json!({"kind": "selfhost", "user_id": user});
         for field in ["login", "display_name", "server_name"] {
             if let Some(value) = text(field) {
-                info.insert(field, json!(value));
+                info.set(field, json!(value));
             }
         }
         let changed = {
