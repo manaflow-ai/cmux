@@ -125,6 +125,48 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # Warm start (.github/warm-sources.json: actions-cache). The build keeps what it made in
+      # CI_SHARED_CACHE_DIR: the tip's app (split-spring-apps/<sha>), the GhosttyKit archive
+      # (ghosttykit-archives/<sha256>, checked against the pinned checksum on use), optchat-chief by
+      # its inputs and cmux-mobile-host by its source trees. A Blacksmith Mac starts empty, so the
+      # directory goes through actions/cache, which Blacksmith serves next to the runner. Every
+      # entry inside is keyed by its own inputs; the cache key adds the toolchain (Xcode, macOS,
+      # arch, Rust) and the Cargo lockfiles, and the restore-keys fall back to the newest entry of
+      # the same toolchain, so a new tip reuses the archive and the helpers and a re-measured tip
+      # builds nothing. The fade proof builds nothing here, so it takes no cache.
+      - name: Name the warm cache
+        id: warm-key
+        if: inputs.parts != 'pane-overflow-fade'
+        env:
+          TIP_SHA: ${{ inputs.tip_sha }}
+          LOCKS: ${{ hashFiles('Native/OptChat/optchat-chief/Cargo.lock', 'cmux-next-ios/rust/Cargo.lock', 'cmux-tui/Cargo.lock') }}
+        run: |
+          set -euo pipefail
+          [[ "$TIP_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "tip_sha must be a full lowercase commit SHA" >&2; exit 2; }
+          toolchain="$(printf '%s\n%s\n%s\n' "$(xcodebuild -version)" "$(xcrun --show-sdk-build-version)" "$(sw_vers -productVersion)" | shasum -a 256 | cut -c1-16)"
+          rust="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
+          ghostty="$(git rev-parse HEAD:ghostty)"
+          prefix="perf-blacksmith-mac-v1-${RUNNER_OS}-${RUNNER_ARCH}-xcode-${toolchain}-rust-${rust}-"
+          {
+            echo "prefix=$prefix"
+            echo "locks=${prefix}${LOCKS:0:16}-"
+            echo "ghostty=${prefix}${LOCKS:0:16}-${ghostty:0:12}-"
+            echo "key=${prefix}${LOCKS:0:16}-${ghostty:0:12}-${TIP_SHA}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Restore the warm cache
+        id: warm-restore
+        if: inputs.parts != 'pane-overflow-fade'
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          path: ${{ runner.temp }}/tipguard-cache
+          key: ${{ steps.warm-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.warm-key.outputs.ghostty }}
+            ${{ steps.warm-key.outputs.locks }}
+            ${{ steps.warm-key.outputs.prefix }}
+
       - name: Run the exact tip's GUI parts
         env:
           TIP_SHA: ${{ inputs.tip_sha }}
@@ -132,6 +174,12 @@ jobs:
           PRODUCT_SHA: ${{ inputs.product_sha }}
           RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
+          # The Rust helpers' caches live in the kept directory too; optchat-chief is keyed by its
+          # inputs (a tip that changes none of them reuses the binary) and checked on reuse.
+          CMUX_NEXT_OPTCHAT_CHIEF_CACHE: ${{ runner.temp }}/tipguard-cache/optchat-chief
+          CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED: "1"
+          CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY: "1"
+          CMUX_NEXT_MOBILE_HOST_CACHE: ${{ runner.temp }}/tipguard-cache/cmux-mobile-host
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/tipguard-blacksmith"
@@ -204,6 +252,36 @@ jobs:
           echo "SHA: $TIP_SHA" >>"$GITHUB_STEP_SUMMARY"
           echo "runner class: $RUNNER_CLASS" >>"$GITHUB_STEP_SUMMARY"
           cat "$out/receipt.json" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Trim the warm cache to this tip
+        # Save once the tip's app is built, even when a measured part failed after it: the build is
+        # the cold part. Only this tip's app goes into the entry (the GhosttyKit archives and the
+        # helpers keep their own small LRU), so an entry is one app plus helpers. Only this trusted
+        # job saves: a manual dispatch in manaflow-ai/cmux by a writer, for a tip already on
+        # feat-cmux-next (checked above); no pull request or fork ever runs it.
+        id: warm-trim
+        if: ${{ !cancelled() && inputs.parts != 'pane-overflow-fade' && github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && steps.warm-restore.outputs.cache-hit != 'true' }}
+        env:
+          TIP_SHA: ${{ inputs.tip_sha }}
+          CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
+        run: |
+          set -euo pipefail
+          apps="$CI_SHARED_CACHE_DIR/split-spring-apps"
+          if [ ! -f "$apps/$TIP_SHA/ok" ]; then
+            echo "no built app for $TIP_SHA; nothing to keep"
+            exit 0
+          fi
+          find "$apps" -mindepth 1 -maxdepth 1 ! -name "$TIP_SHA" -exec rm -rf {} +
+          du -sh "$CI_SHARED_CACHE_DIR"/* 2>/dev/null || true
+          echo "save=true" >>"$GITHUB_OUTPUT"
+
+      - name: Save the warm cache
+        if: ${{ !cancelled() && steps.warm-trim.outputs.save == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/tipguard-cache
+          key: ${{ steps.warm-key.outputs.key }}
 
       - name: Keep exact receipts and rows
         if: always()
