@@ -18,7 +18,7 @@ import Testing
                                                                               source: UnreachableChief()))
         defer {
             popover.close()
-            window.closeAfterTest()
+            window.closeWithHomePopovers()
         }
         #expect(popover.show(relativeTo: pill, toggles: [pill]), "the popover did not show")
         let anchor = window.convertToScreen(pill.convert(pill.bounds, to: nil))

@@ -22,7 +22,7 @@ import CmuxNextTestSupport
         let box: NSView
         let home: HomeHostView
         let list: NSView?
-        func close() { window.closeAfterTest() }
+        func close() { window.closeWithHomePopovers() }
     }
 
     private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {

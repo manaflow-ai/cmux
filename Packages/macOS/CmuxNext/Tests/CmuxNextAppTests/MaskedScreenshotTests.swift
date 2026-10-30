@@ -7,6 +7,7 @@ import CmuxNextHome
 import CmuxNextPages
 import CmuxNextScreenshots
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -17,7 +18,7 @@ import WebKit
 /// The window here shows a green native view beside a browser pane whose page area is red (a
 /// stand-in for the page's pixels): the person's raw capture shows the red, the agent's shows
 /// the mask over the whole page area, no red pixel anywhere, and the green untouched.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct MaskedScreenshotTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct MaskedScreenshotTests {
     static let green = NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1).cgColor
     static let red = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor
 

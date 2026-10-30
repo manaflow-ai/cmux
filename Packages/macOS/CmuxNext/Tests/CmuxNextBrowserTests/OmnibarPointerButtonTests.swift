@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The browser toolbar's buttons show the pointing hand like the rest of the chrome (Leo
@@ -8,6 +9,7 @@ import Testing
 /// toolbar row sets the cursor on every pointer move (`ArrowCursorView`), so its rule
 /// (`OmnibarPointer.cursor(atWindowPoint:in:)`) must give the hand over an enabled button instead
 /// of the row's arrow, and the arrow over a disabled one.
+@Suite(.closesItsWindows)
 @MainActor
 struct OmnibarPointerButtonTests {
     private func row(with button: NSView) -> (window: NSWindow, row: ArrowCursorView) {

@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
 /// Before explicitly timed animations begin, the compositor must still show the starting
 /// opacity AND frame. Holding only opacity exposes the destination frame over the workspace title.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct SidebarTabTuckPresentationTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"), arguments: [false, true])
     func foldingPresentationStartsAtTheVisibleFrame(resizing: Bool) async throws {

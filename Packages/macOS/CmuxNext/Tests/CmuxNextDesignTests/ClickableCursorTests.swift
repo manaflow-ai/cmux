@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,6 +8,7 @@ import Testing
 /// CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR
 /// INDICATOR TO CLICKABLE"). One shared button class registers the cursor rect; the shared
 /// buttons and SwiftUI button styles adopt it.
+@Suite(.closesItsWindows)
 @MainActor
 struct ClickableCursorTests {
     /// Records the cursor rects a button registers instead of handing them to a window.
