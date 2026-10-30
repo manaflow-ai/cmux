@@ -110,6 +110,11 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, ef
 const tomlString = (value) => JSON.stringify(String(value));
 
 /** A clean CODEX_HOME: the model route and login of this machine's config, nothing else. */
+/** One shell word, single-quoted. */
+function shellQuote(text) {
+  return `'${String(text).replaceAll("'", "'\\''")}'`;
+}
+
 export function codexHome(home) {
   mkdirSync(home, { recursive: true });
   const config = readFileSync(join(homedir(), ".codex/config.toml"), "utf8");
@@ -136,6 +141,13 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   // A scratch HOME too: Codex reads ~/.agents/skills, which holds this machine's own skills.
   const scratchHome = join(home, "home");
   mkdirSync(scratchHome, { recursive: true });
+  // Codex runs each command as `zsh -lc`: a login shell, whose /etc/zprofile (path_helper)
+  // puts /opt/homebrew/bin, and this Mac's own `cmux`, before the sample's bin. The scratch
+  // home's .zprofile, read after it, puts the sample's PATH back (r5a: 66 of 68 GPT 6 Astra
+  // samples ran the installed cmux, not the build under test).
+  const profile = `export PATH=${shellQuote(env.PATH ?? "")}\n`;
+  writeFileSync(join(scratchHome, ".zprofile"), profile);
+  writeFileSync(join(scratchHome, ".bash_profile"), profile);
   const child = spawn(...guarded(home, own, "codex", ["app-server", ...mcpConfig]), {
     cwd, env: { ...env, HOME: scratchHome, CODEX_HOME: home }, stdio: ["pipe", "pipe", "pipe"],
   });
