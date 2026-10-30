@@ -131,7 +131,19 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     // `current` into the focused object).
     const agentEnv = { ...env, CMUX_TUI_SOCKET: socket, CMUX_TUI_TERMINAL_ID: origin.terminal_id };
     agentEnvRef.CMUX_TUI_TERMINAL_ID = origin.terminal_id;
-    if (remote) await ssh([`echo '{"mcp":{"enabled":true}}' > ${JSON.stringify(env.CMUX_NEXT_CONFIG_FILE)}`]);
+    // The MCP server reads this file on the daemon's host. Write it there and read it
+    // back before the server starts: a missing file serves "the MCP server is off", and
+    // the agent then falls back to the shell (h4 panel: 15 samples, Opus 33 -> 25).
+    if (remote) {
+      const config = JSON.stringify(env.CMUX_NEXT_CONFIG_FILE);
+      let written = false;
+      for (let attempt = 0; attempt < 5 && !written; attempt++) {
+        const { stdout } = await ssh([`mkdir -p ${JSON.stringify(dir)} && echo '{"mcp":{"enabled":true}}' > ${config} && cat ${config}`]).catch(() => ({ stdout: "" }));
+        written = stdout.includes('"enabled":true');
+        if (!written) await sleep(1000 * (attempt + 1));
+      }
+      if (!written) throw new Error(`could not write the MCP settings file on ${remote.host}`);
+    }
     const start = async (args) => {
       const { command, args: argv } = mcpCommand(args);
       const client = new McpClient(command, argv, agentEnv, work);
