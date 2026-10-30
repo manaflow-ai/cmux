@@ -4083,8 +4083,9 @@ export class AcpmuxDirectClient {
       event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
     if (event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
       const terminalTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+      // Behind the fence, only an end that names the running turn is that turn's (turn_end included).
       const ambiguous =
-        this.compactionFenceSeq !== undefined && (resultTurnId === undefined || resultTurnId !== this.runningTurnId);
+        this.compactionFenceSeq !== undefined && (terminalTurnId === undefined || terminalTurnId !== this.runningTurnId);
       const stale =
         terminalTurnId !== undefined && this.runningTurnId !== undefined && terminalTurnId !== this.runningTurnId;
       if (ambiguous || stale) {
