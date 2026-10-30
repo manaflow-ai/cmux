@@ -133,10 +133,20 @@ inner="$(field "${prefix}dir")"; inner="${inner:-$version}"
 [[ "$inner" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail "manifest $MANIFEST names no valid folder for $arch"
 
 refuse() { echo "error: $*" >&2; exit 1; }  # not softened by --optional
+# A shipped build (Release) embeds only a released pin. The one exception is reload.sh's bench build (Release plus
+# -DCMUX_BENCH_HOOKS: --config bench, and --release of a dogfood tag), which never ships: reload.sh sets the build
+# setting CMUX_BENCH_HOOKS_RELOAD=1 only with that flag and checks after the build that the app carries the bench
+# marker (check-no-bench-hooks.sh --expect), which the release and nightly pipelines refuse. Both must hold here: the
+# flag text alone could be one Swift never compiles (-Xcc -D...), leaving an app with a staging pin and no marker.
+ships_release() {
+  [[ "${CONFIGURATION:-}" == "Release" ]] || return 1
+  [[ "${CMUX_BENCH_HOOKS_RELOAD:-}" == 1 && " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]] && return 1
+  return 0
+}
 staging=0
 if [[ -n "$(field staging)" ]]; then
   staging=1
-  [[ "${CONFIGURATION:-}" != "Release" ]] ||
+  ! ships_release ||
     refuse "the CEF pin $version is a staging pin (scripts/cmux-next/cef-pin-staging.sh): a Release build embeds only a released pin (publish-cef-r2.sh)"
   expires="$(field staging.store_expires)"
   days_left="$(python3 -c 'import datetime as d, sys; print((d.date.fromisoformat(sys.argv[1]) - d.date.fromisoformat(sys.argv[2])).days)' \
