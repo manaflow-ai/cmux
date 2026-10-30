@@ -314,7 +314,9 @@ def pr_description(body, fallback=""):
     if changelog_parts:
         candidates.append(" ".join(changelog_parts))
     if summary_parts:
-        candidates.insert(0, " ".join(summary_parts))
+        # An explicit Changelog is the documented release-copy source. Summary is
+        # only the fallback when no usable Changelog prose exists.
+        candidates.append(" ".join(summary_parts))
     for candidate in candidates:
         text = _candidate_description(candidate)
         if text and _safe_description(text) and not text.lower().startswith(("none", "generated with", "agent session")):

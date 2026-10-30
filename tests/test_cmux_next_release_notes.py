@@ -23,6 +23,14 @@ class ReleaseNotesTests(unittest.TestCase):
         spec.loader.exec_module(notes)
         body = """## Summary\n\nInternal implementation details.\n\n## Changelog\n\nFixed: [Tabs](https://cmux.com/tabs) keep their position after restart\n\n## Testing\n\n- not user copy\n"""
         self.assertEqual(notes.pr_description(body), "Tabs keep their position after restart.")
+        self.assertEqual(
+            notes.pr_description(
+                "## Summary\n\nInternal implementation details that must stay hidden.\n"
+                "\n## Changelog\n\nFixed: Tabs keep their position after a restart,\n"
+                "across every workspace window."
+            ),
+            "Tabs keep their position after a restart, across every workspace window.",
+        )
         self.assertEqual(notes.pr_description("## Changelog\n\nnone\n"), "")
         for placeholder in ("Fixed: none", "Fixed: N/A", "Fixed:", "N/A"):
             with self.subTest(placeholder=placeholder):
