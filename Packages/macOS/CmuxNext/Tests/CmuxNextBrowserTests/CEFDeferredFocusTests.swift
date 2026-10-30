@@ -80,6 +80,29 @@ import Testing
         #expect(FocusSpyShim.granted == [10])
     }
 
+    /// The same ask from inside the page's own view (where Chromium's view sits), whichever order
+    /// AppKit tells a view and its subviews that an ancestor hid.
+    @Test func focusAskedFromInsideThePageWhileAnAncestorHidesIsGrantedWhenItShowsAgain() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 11)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        try #require(window.contentView).addSubview(workspace)
+        workspace.addSubview(tab.contentView)
+        let chromium = HideSpyView(frame: tab.contentView.bounds)
+        tab.contentView.addSubview(chromium)
+        FocusSpyShim.granted = []
+        chromium.onHide = { tab.setFocused(true) }
+
+        workspace.isHidden = true
+        #expect(FocusSpyShim.granted.isEmpty, "a page under a hidden ancestor was given focus: \(FocusSpyShim.granted)")
+
+        chromium.onHide = nil
+        workspace.isHidden = false
+        #expect(FocusSpyShim.granted == [11])
+    }
+
     /// A tab whose browser Chromium made (`afterCreated`), its view in no window yet.
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
