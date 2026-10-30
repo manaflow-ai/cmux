@@ -75,12 +75,21 @@ pub(super) async fn handle(
             .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
     }
     // A peer-qualified session whose link is down fails over to the durable mesh relay even when
-    // its stale cache row is still present. Without the relay, the local outbox keeps its retry path.
+    // its stale cache row is still present, when the relay can carry the send as asked. Anything
+    // else (attachments, `--supersede`, a class, a refusal, a hub that does not answer, no relay)
+    // stays in the local outbox, which retries it when the direct link is back.
     if hub.peer_down_for(&target).is_some() {
         if let Some(mesh) = hub.mesh.get()
             && hub.mesh_may_route(&target)
+            && super::mesh_send::carries(&request)
+            && let Some(relayed) = relay_name(hub, &target)
         {
-            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+            match super::mesh_send::send(hub, conn, mesh, &request, &relayed).await {
+                Ok(queued) => return Ok(queued),
+                Err(e) => {
+                    tracing::info!(%target, "the mesh relay did not take it ({}); kept in the outbox", e.message)
+                }
+            }
         }
     } else if hub.resolve(&target).is_err() && hub.resolve_remote(&target).is_none() {
         // With the mesh relay on, the team hub may know a name nothing here or on a peer matches,
@@ -375,6 +384,23 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+/// The relay addresses a session as `HOST/NAME`: a down peer's session named by its id is sent
+/// by the name its cached row has, and one no row names (or several do) as written, unless it is
+/// ambiguous. None: the target cannot be named to the relay; it stays in the outbox.
+fn relay_name(hub: &Hub, target: &str) -> Option<String> {
+    let (peer, _) = target.split_once('/')?;
+    match hub.resolve_remote(target) {
+        Some((_, _, summary)) => {
+            let name = summary.get("name").and_then(Value::as_str)?;
+            let qualified = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
+            let relayed = format!("{peer}/{qualified}");
+            // A name another row on that peer shares would make the relay pick one.
+            (hub.remote_matches(&relayed) <= 1).then_some(relayed)
+        }
+        None => (hub.remote_matches(target) == 0).then(|| target.to_owned()),
     }
 }
 
