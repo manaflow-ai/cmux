@@ -136,8 +136,7 @@ final class SettingsPageProvider: PageProvider {
         } else {
             confirm = nil
         }
-        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { on, permit in
-            guard permit.valid else { return nil }
+        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { on, _ in
             return await write(id, on)
         }
     }
