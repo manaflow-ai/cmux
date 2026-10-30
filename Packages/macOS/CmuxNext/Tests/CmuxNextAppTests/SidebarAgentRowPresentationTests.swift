@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextBridge
+@testable import CmuxNextSidebar
 
 /// Agent rows prefer a readable chat title and never manufacture a raw prompt subtitle.
 struct SidebarAgentRowPresentationTests {
