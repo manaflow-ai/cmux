@@ -622,6 +622,7 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
+    #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
