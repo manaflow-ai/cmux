@@ -339,7 +339,7 @@ export function QuickModelMenu({
     placement === "symbols" ? (
       <span className="acpmux-quick-label acpmux-quick-legacy">
         <span className="acpmux-menu-label">{t("picker.legacyModels")}</span>
-        <span className="acpmux-quick-value">{t("picker.modelCount", { count })}</span>
+        <span className="acpmux-quick-value">{t("picker.modelCount", { n: count })}</span>
       </span>
     ) : (
       <span className="acpmux-menu-label">{t("picker.moreModels")}</span>

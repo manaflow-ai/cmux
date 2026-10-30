@@ -38424,129 +38424,429 @@
       "extractionState": "manual",
       "localizations": {
         "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} نماذج"
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نماذج"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "نموذج واحد"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "نموذجان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نماذج"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نموذجًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نموذج"
+                }
+              }
+            }
           }
         },
         "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modela: {count}"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modela"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modela"
+                }
+              }
+            }
           }
         },
         "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} modeller"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modeller"
+                }
+              }
+            }
           }
         },
         "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} Modelle"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} Modell"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} Modelle"
+                }
+              }
+            }
           }
         },
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} models"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} models"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} modelos"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelo"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              }
+            }
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} modèles"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modèle"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modèles"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modèles"
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} modelli"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modello"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelli"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelli"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} 個のモデル"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} 個のモデル"
+                }
+              }
+            }
           }
         },
         "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ូដែល {count}"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ម៉ូដែល {n}"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델 {count}개"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "모델 {n}개"
+                }
+              }
+            }
           }
         },
         "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} modeller"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modell"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modeller"
+                }
+              }
+            }
           }
         },
         "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modele: {count}"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modele"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modeli"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelu"
+                }
+              }
+            }
           }
         },
         "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} modelos"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelo"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              }
+            }
           }
         },
         "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Моделей: {count}"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модель"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модели"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделей"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модели"
+                }
+              }
+            }
           }
         },
         "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} โมเดล"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} โมเดล"
+                }
+              }
+            }
           }
         },
         "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} model"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              }
+            }
           }
         },
         "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Моделей: {count}"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модель"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделі"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделей"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделі"
+                }
+              }
+            }
           }
         },
         "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} mô hình"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} mô hình"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} 个模型"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} 个模型"
+                }
+              }
+            }
           }
         },
         "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} 個模型"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} 個模型"
+                }
+              }
+            }
           }
         }
       }
