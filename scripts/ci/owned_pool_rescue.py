@@ -767,6 +767,21 @@ class GitHub:
     def pull(self, number: int) -> Mapping[str, Any]:
         return self.request("GET", f"/pulls/{number}")
 
+    def pull_requests_for_commit(self, sha: str) -> list[Mapping[str, Any]]:
+        """Find pull requests for a workflow run whose event payload lost its PR list.
+
+        GitHub's ``workflow_runs`` and ``actions/runs/{id}`` responses can omit
+        ``pull_requests`` after a PR is closed.  cmux-next is a PR workflow that
+        still needs the normal head check before the owned-pool rescue may
+        re-dispatch it, so recover the association from the run's exact commit.
+        This uses the existing pull-requests read grant; no new token scope is
+        needed.
+        """
+        if not sha:
+            return []
+        data = self.request("GET", f"/commits/{sha}/pulls")
+        return [pull for pull in (data or []) if isinstance(pull, Mapping) and pull.get("number")]
+
     def newer_unfinished_runs(self, path: str, run_id: int, branch: str) -> list[int]:
         """Ids of `path`'s runs on `branch` newer than `run_id` that wait behind it (one request).
 
@@ -1262,7 +1277,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if not run_id.isdigit():
             return finish(f"not watched: run id {run_id!r} is not a number")
         try:
-            event = {"workflow_run": read(lambda: client.run(int(run_id)), sleep, log)}
+            run = read(lambda: client.run(int(run_id)), sleep, log)
+            # The Actions API may return an empty pull_requests array for a
+            # cmux-next PR run after the PR closes. Recover it by commit so a
+            # queued owned-label job can still be handed to the ordinary
+            # head-checked rescue path.
+            if (run.get("path") == CMUX_NEXT_WORKFLOW_PATH and run.get("event") == "pull_request"
+                    and len(run.get("pull_requests") or []) != 1):
+                pulls = read(lambda: client.pull_requests_for_commit(str(run.get("head_sha") or "")), sleep, log)
+                if pulls:
+                    run = {**run, "pull_requests": pulls}
+            event = {"workflow_run": run}
         except READ_ERRORS as error:
             finish(f"gave up: could not read run {run_id}: {error}")
             return 1

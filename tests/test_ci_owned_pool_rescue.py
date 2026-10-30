@@ -104,6 +104,10 @@ class FakeAPI:
         self.calls.append("pull")
         return {"state": self.state, "head": {"sha": self.head}}
 
+    def pull_requests_for_commit(self, sha):
+        self.calls.append("commit-pulls")
+        return [{"number": 42}]
+
     def branch_head(self, branch):
         self.calls.append(f"branch:{branch}")
         return self.head
@@ -341,6 +345,20 @@ class Refusal(unittest.TestCase):
             self.assertEqual(code, 0, why)
             self.assertEqual(api.calls, ["run"], why)
             self.assertIn("not watched:", summary, why)
+
+    def test_a_dispatched_cmux_next_run_recovers_a_missing_pull_request(self):
+        """GitHub can omit pull_requests after a PR closes; recover it by commit."""
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        live_run = api.run
+        api.run = lambda run_id: {
+            **event(path=rescue.CMUX_NEXT_WORKFLOW_PATH, pull_requests=[]) ["workflow_run"],
+            **live_run(run_id),
+        }
+        code, summary = run_main(api, clock, env_extra={"WATCH_RUN_ID": str(RUN_ID)})
+        self.assertEqual(code, 0)
+        self.assertIn("commit-pulls", api.calls)
+        self.assertIn("pull request #42", summary)
 
     def test_a_dispatch_with_a_bad_run_id_makes_no_request(self):
         clock = Clock()

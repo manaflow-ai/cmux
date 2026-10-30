@@ -1357,14 +1357,15 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
+                expected_without_retry = LARGE if name == "fast-tier" else SIDE
                 # The bot's attempt 2, placed afresh, takes its retry label; an earlier reading never.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), SIDE)
-                # No free slot (an empty label), or no placement output: the owned side label, never
-                # vars.MACOS_RUNNER_26, a Blacksmith label with no free-slot check.
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), expected_without_retry)
+                # No free slot (an empty label), or no placement output: the owned side label for other
+                # cascade jobs. fast-tier deliberately falls through to the Blacksmith pool instead.
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
 
     def test_gui_jobs_keep_their_route(self):
         for name in GUI_JOBS:
