@@ -279,7 +279,6 @@ public struct AgentChatScreen: View {
             .background(Color.cmuxMobileBackground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
-            .toolbar(.hidden, for: .tabBar)
     }
 
     // MARK: Toolbar

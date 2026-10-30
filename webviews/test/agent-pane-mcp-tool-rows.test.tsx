@@ -166,7 +166,7 @@ test("a non-MCP call's output also drops injected internal context", async () =>
     },
   ]);
   await click(toggles()[0]!);
-  expect(host.querySelector(".cv-tool-output")?.textContent).toBe("page text");
+  expect(host.querySelector(".cv-tool-output__markdown")?.textContent).toBe("page text");
 });
 
 test("output that only names an internal tag keeps the text after it", async () => {
@@ -175,7 +175,7 @@ test("output that only names an internal tag keeps the text after it", async () 
     {
       kind: "tool",
       text: "Read",
-      tool: { id: "f2", title: "Read tags.ts", kind: "fetch", status: "completed", output: source },
+      tool: { id: "f2", title: "Read tags.ts", kind: "read", status: "completed", output: source },
     },
   ]);
   await click(toggles()[0]!);
