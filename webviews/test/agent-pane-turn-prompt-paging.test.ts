@@ -97,9 +97,11 @@ const settle = async () => {
 
 test("paging older history keeps the running turn's prompt", async () => {
   // Five finished turns, then turn 6 still running.
-  const history = records(
-    [1, 2, 3, 4, 5].flatMap(turn).concat([...ask(6), ["in", "agent_message_chunk", say("Working")]]),
-  );
+  const history = records([
+    ...[1, 2, 3, 4, 5].flatMap(turn),
+    ...ask(6),
+    ["in", "agent_message_chunk", say("Working")] satisfies Step,
+  ]);
   type Shown = { isWorking: boolean; turnPrompt?: string; canLoadOlder: boolean };
   let shown: Shown = { isWorking: false, canLoadOlder: false };
   const client = await AcpmuxDirectClient.connect(

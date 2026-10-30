@@ -202,6 +202,12 @@ test("the snapshot names the running turn's prompt, its continuation's as the cu
     daemon.emit(id, { mux: "turn_started", msg: { promptId: "p1~resume-1", turnId: "t2" } });
     await until(() => view.shown.isWorking);
     expect(view.shown.turnPrompt).toBe("p1");
+    // A turn that ends takes its prompt along, and one that opens without naming its prompt is no
+    // known one's, never the turn before's (Codex re-review of #27804 at da4dc25, P1).
+    daemon.emit(id, { mux: "turn_end", msg: { stopReason: "cancelled", turnId: "t2" } });
+    daemon.emit(id, { mux: "turn_started", msg: { turnId: "t3" } });
+    await until(() => view.shown.isWorking);
+    expect(view.shown.turnPrompt).toBeUndefined();
   } finally {
     client.close?.();
   }
