@@ -40478,6 +40478,91 @@
       ],
       "section" : "appearance",
       "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.rail.side"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
       "title" : {
         "key" : "settings.agentPane.display.rail.side",
         "text" : "Prompt Rail Side"
