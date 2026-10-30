@@ -1835,9 +1835,8 @@ fn a_record_works_where_its_id_goes() {
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
 }
 
-/// A terminal named by its tab, through `terminal` itself: a `tab_…` id or the tab's name
-/// with no scope above it (tests/tool-evals m1: `terminal_wait({terminal: "eval-cmd"})`,
-/// `terminal_screen_read({terminal: tab.tab_id})`).
+/// A wait for text the command just typed also shows (`cmd; echo DONE`, then `DONE`) waits
+/// for an output line, not the typed line (tests/tool-evals r3j: GLM said "done" early).
 #[test]
 fn a_wait_for_text_the_command_echoes_waits_for_the_output_line() {
     let fake = Fake { resource_result: Some(json!({"matched": true})), ..Fake::default() };
@@ -1867,6 +1866,9 @@ fn a_wait_for_text_the_command_echoes_waits_for_the_output_line() {
     );
 }
 
+/// A terminal named by its tab, through `terminal` itself: a `tab_…` id or the tab's name
+/// with no scope above it (tests/tool-evals m1: `terminal_wait({terminal: "eval-cmd"})`,
+/// `terminal_screen_read({terminal: tab.tab_id})`).
 #[test]
 fn a_terminal_named_by_its_tab_through_terminal() {
     // tab_get answers the record; tab_list (a name lookup) the same record as one item.

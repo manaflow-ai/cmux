@@ -473,7 +473,6 @@ fn list_tools(global: GlobalArgs) -> i32 {
     i32::from(written.is_err()) * 3
 }
 
-/// The stdio JSON-RPC server: one request per line, answered in order.
 /// The session and terminal a planned terminal call names: where
 /// [`Server::wait_past_typed`] remembers what was typed.
 fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
@@ -481,6 +480,7 @@ fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
     Some((call.session.clone(), terminal.to_owned()))
 }
 
+/// The stdio JSON-RPC server: one request per line, answered in order.
 pub(super) struct Server<B> {
     backend: B,
     /// The settings file to check before every call; `None` lists only.
