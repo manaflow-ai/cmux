@@ -26,6 +26,14 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// Ask a Side Question… focuses this chat's composer and prefills `/btw `.
+    /// The session id travels with the event so a palette run cannot land in a replacement chat.
+    public func askSideQuestion() {
+        guard let sessionId = model.sessionId else { return }
+        focusChat()
+        let json = JSONValue.string(sessionId).compactText
+        deliver([.sideQuestion(sessionId)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"sideQuestion\",\(json));"])
+    }
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }

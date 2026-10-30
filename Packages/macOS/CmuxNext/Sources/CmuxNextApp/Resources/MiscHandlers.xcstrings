@@ -19149,6 +19149,268 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.sideQuestionNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a Side Question… opens the chat's composer, so it needs focus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح «اطرح سؤالًا جانبيًا…» محرّر الدردشة، لذا يحتاج إلى التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi sporedno pitanje… otvara polje za pisanje u razgovoru, pa mu treba fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil et sidespørgsmål… åbner chattens skrivefelt, så det kræver fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebenfrage stellen… öffnet das Eingabefeld des Chats und braucht daher den Fokus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer una pregunta aparte… abre el editor del chat, así que necesita el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poser une question annexe… ouvre la zone de saisie de la conversation : elle a besoin du focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai una domanda a parte… apre il campo di scrittura della chat, quindi richiede il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドで質問… はチャットの入力欄を開くため、フォーカスが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរសំណួរចំហៀង… បើកប្រអប់សរសេររបស់ការជជែក ដូច្នេះវាត្រូវការការផ្ដោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "곁가지 질문하기…는 채팅 입력창을 열기 때문에 포커스가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Still et sidespørsmål… åpner chattens skrivefelt, så det trenger fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadaj pytanie poboczne… otwiera pole wiadomości czatu, więc wymaga fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fazer uma pergunta paralela… abre o campo de mensagem do chat, então precisa de foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать побочный вопрос… открывает поле ввода чата, поэтому нужен фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามคำถามข้างเคียง… จะเปิดช่องพิมพ์ของแชต จึงต้องมีโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan soru sor… sohbetin yazma alanını açar, bu yüzden odak gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставити побічне запитання… відкриває поле введення чату, тому потрібен фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi câu hỏi bên lề… mở ô soạn tin của cuộc trò chuyện nên cần tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支问题… 会打开聊天输入框，因此需要焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支問題… 會開啟聊天輸入框，因此需要焦點。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.sideQuestionNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a Side Question… works in agent chats. Focus one first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل «اطرح سؤالًا جانبيًا…» في دردشات الوكلاء. ركّز على إحداها أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi sporedno pitanje… radi u razgovorima s agentom. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil et sidespørgsmål… virker i agentchats. Fokusér en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebenfrage stellen… funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer una pregunta aparte… funciona en los chats de agentes. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poser une question annexe… fonctionne dans les conversations d'agent. Placez d'abord le focus sur l'une d'elles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai una domanda a parte… funziona nelle chat con gli agenti. Metti prima a fuoco una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドで質問… はエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរសំណួរចំហៀង… ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "곁가지 질문하기…는 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Still et sidespørsmål… virker i agentchatter. Fokuser en først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadaj pytanie poboczne… działa w czatach z agentem. Najpierw ustaw fokus na jednym z nich."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fazer uma pergunta paralela… funciona em chats com agentes. Foque um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать побочный вопрос… работает в чатах с агентами. Сначала переведите фокус на чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามคำถามข้างเคียง… ใช้ได้ในแชตกับเอเจนต์ โปรดโฟกัสแชตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan soru sor… ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставити побічне запитання… працює в чатах з агентами. Спершу перейдіть до одного з них."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi câu hỏi bên lề… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支问题… 适用于代理聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支問題… 適用於代理程式聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
