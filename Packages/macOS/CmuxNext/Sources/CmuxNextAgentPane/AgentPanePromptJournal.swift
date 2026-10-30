@@ -138,10 +138,6 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         state.withLock { !$0.sent.insert(Self.key(daemon, promptId)).inserted }
     }
 
-    func undoSend(daemon: String, promptId: String) {
-        state.withLock { $0.sent.remove(Self.key(daemon, promptId)) }
-    }
-
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk
     /// before it returns, so a record of the same promptId after it is never undone; call off the
     /// main thread.

@@ -60,10 +60,7 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         guard let paramsText = AcpmuxRequestIds.encode(params) else { return .notJournaled }
         let result = journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
                                                                 params: paramsText, at: journal.now()), owner: owner)
-        guard case .recorded = result else {
-            if case .writeFailed = result { journal.undoSend(daemon: daemon, promptId: promptId) }
-            return result
-        }
+        guard case .recorded = result else { return result }
         let forget = forget
         if let relayID { ids.whenAnswered(relayID) { forget(promptId) } }
         return .recorded(promptId)

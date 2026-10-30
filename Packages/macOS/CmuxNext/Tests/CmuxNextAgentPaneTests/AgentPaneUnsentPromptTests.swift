@@ -100,8 +100,7 @@ struct AgentPaneUnsentPromptTests {
         pane.transport.gestures.record()
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "write-fails")]) == nil)
         try #require(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 })
-        await pane.transport.promptJournal?.settle()
-        #expect(pane.transport.promptJournal?.entries().count == 1,
+        #expect(AgentPanePromptJournal(url: url).entries().count == 1,
                 "Retry should be able to journal and send the previously unsent prompt")
     }
 
