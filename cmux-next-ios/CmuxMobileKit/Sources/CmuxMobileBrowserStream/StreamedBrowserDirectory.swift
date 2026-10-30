@@ -43,6 +43,11 @@ public final class StreamedBrowserDirectory {
 
     public var isLive: Bool { opener != nil || macOpener != nil }
 
+    /// Hears the tabs the Macs list (``retain(tabs:)``) and placeholder tabs that
+    /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
+    public var tabsRetained: (@MainActor (Set<String>) -> Void)?
+    public var tabRenamed: (@MainActor (_ old: String, _ new: String) -> Void)?
+
     /// The streamed model of a tab (`tab`: its key on the Mac, `url`: its
     /// first page), or nil when not linked.
     public func model(tab: String, url: URL?, macID: String? = nil) -> StreamedBrowserModel? {
@@ -120,6 +125,7 @@ public final class StreamedBrowserDirectory {
     /// key (the placeholder's), so a redial reopens this page, history and
     /// all, not a new blank host for the real id.
     public func rename(tab old: String, to new: String) {
+        tabRenamed?(old, new)
         let renamed = models.keys.filter { Self.parts($0).tab == old }
         guard old != new, !renamed.isEmpty else {
             log.notice("browser rename \(old, privacy: .public) -> \(new, privacy: .public): no model")
@@ -146,6 +152,7 @@ public final class StreamedBrowserDirectory {
     /// pending ones): a tab whose workspace closed on the Mac is dropped, so
     /// a redial never opens it again (transport-verify-20261019.md defect 7).
     public func retain(tabs: Set<String>) {
+        tabsRetained?(tabs)
         for key in models.keys where !tabs.contains(Self.parts(key).tab) {
             log.notice("browser drop \(key, privacy: .public)")
             models.removeValue(forKey: key)?.close()
