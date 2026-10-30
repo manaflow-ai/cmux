@@ -172,8 +172,9 @@ pub struct Peer {
     upload_resume: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
-    /// The peer lists `sessionResume` (`server/requests/session_open.rs`).
-    session_resume: AtomicBool,
+    /// One more than the link epoch whose handshake listed `sessionResume`
+    /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
+    session_resume_link: AtomicU64,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -254,7 +255,7 @@ impl Peer {
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
-            session_resume: AtomicBool::new(false),
+            session_resume_link: AtomicU64::new(0),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -1086,7 +1087,8 @@ impl Peer {
             me.upload_resume.store(resume, Ordering::SeqCst);
             let auth = lists(crate::hub::session_auth::FEATURE);
             me.session_auth.store(auth, Ordering::SeqCst);
-            me.session_resume.store(lists(crate::server::SESSION_RESUME_FEATURE), Ordering::SeqCst);
+            let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
+            me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.link_request_on(
                 method::MUX_WATCH,

@@ -51,9 +51,39 @@ impl Peer {
         self.session_auth.load(Ordering::SeqCst)
     }
 
-    /// Whether the peer said at its last handshake that its `session/resume` replays no
-    /// history (`server/requests/session_open.rs`); an older one replays it, as for a load.
-    pub fn supports_session_resume(&self) -> bool {
-        self.session_resume.load(Ordering::SeqCst)
+    /// The link is up and its handshake finished: a caller's request may go out on it, as
+    /// `request_on` checks.
+    pub fn ready(&self) -> bool {
+        self.connected.load(Ordering::SeqCst) && !self.admitting.load(Ordering::SeqCst)
+    }
+
+    /// The link on which the peer said at its handshake that its `session/resume` replays no
+    /// history (`server/requests/session_open.rs`), while that link is still the current one.
+    /// A resume goes on that link alone (`request_on`): a reconnect to an older build, which
+    /// replays the chat as for a load, fails it as not sent rather than taking it.
+    pub fn session_resume_link(&self) -> Option<u64> {
+        let listed = self.session_resume_link.load(Ordering::SeqCst).checked_sub(1)?;
+        (listed == self.link_epoch()).then_some(listed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Codex review of #27795: a peer that listed `sessionResume` on a link that has since
+    /// ended has not said it of the next one, which may be an older build.
+    #[tokio::test]
+    async fn a_resume_link_is_only_the_current_link_that_listed_it() {
+        let (tx, _notices) = tokio::sync::mpsc::channel(4);
+        let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+        assert_eq!(peer.session_resume_link(), None);
+        let link = peer.link_epoch();
+        peer.session_resume_link.store(link + 1, Ordering::SeqCst);
+        assert_eq!(peer.session_resume_link(), Some(link));
+        peer.link_ended();
+        assert_eq!(peer.session_resume_link(), None);
+        // A peer that is not up is not ready, whatever it listed.
+        assert!(!peer.ready());
     }
 }
