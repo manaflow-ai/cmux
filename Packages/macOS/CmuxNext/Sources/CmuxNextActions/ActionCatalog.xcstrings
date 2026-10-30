@@ -28303,127 +28303,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Mac Screen Tab"
+            "value": "Screen Sharing"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "علامة تبويب جديدة لشاشة Mac"
+            "value": "مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova kartica Mac ekrana"
+            "value": "Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny Mac-skærm-fane"
+            "value": "Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer Mac-Bildschirm-Tab"
+            "value": "Bildschirmfreigabe"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva pestaña de pantalla de Mac"
+            "value": "Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvel onglet Écran Mac"
+            "value": "Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuovo pannello Schermo Mac"
+            "value": "Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新規Macの画面タブ"
+            "value": "画面共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងអេក្រង់ Mac ថ្មី"
+            "value": "ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새로운 Mac 화면 탭"
+            "value": "화면 공유"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny Mac-skjerm-fane"
+            "value": "Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowa karta ekranu Maca"
+            "value": "Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Aba de Tela do Mac"
+            "value": "Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая вкладка «Экран Mac»"
+            "value": "Общий экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แถบหน้าจอ Mac ใหม่"
+            "value": "การแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni Mac Ekranı Sekmesi"
+            "value": "Ekran Paylaşma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова вкладка «Екран Mac»"
+            "value": "Спільний екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab màn hình Mac mới"
+            "value": "Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建 Mac 屏幕标签页"
+            "value": "屏幕共享"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增 Mac 螢幕標籤頁"
+            "value": "螢幕共享"
           }
         }
       }

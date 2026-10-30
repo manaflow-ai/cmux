@@ -1591,6 +1591,13 @@ impl Hub {
         let codex_bridge = command_line.is_none()
             && translator.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv);
+        // Host launches receive a complete environment snapshot. It must be
+        // current when that snapshot is made, including on credential revocation.
+        if !crate::login_env::machine_env_fresh_before_spawn().await {
+            return Err(RpcError::internal(
+                "machine environment changed; login env refresh failed",
+            ));
+        }
         let cmd = crate::agent::harness_command(
             &meta.harness,
             profile,

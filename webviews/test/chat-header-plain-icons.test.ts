@@ -1,8 +1,9 @@
 // The chat header's top-right icons are plain glyphs (Leo 2026-10-25: "why do the icons have their own
 // background border situation instead of just being, you know, good"): no rule for a header tool draws
-// a fill, a border or a shadow behind it, at rest, on hover, while its menu is open or while its panel
-// is open. The open panel's toggle still reads as on through its ink: the text color over the muted
-// rest, and the keyboard focus ring stays. Start Agent's floating chat is plain too; its rules are
+// a fill, a border or a shadow behind it, at rest, on hover or while its menu is open. The one fill is an
+// open panel's toggle: the App's toolbar selection fill on its own square, with the text's ink, so it
+// reads as on (Leo, 2026-10-29: "i literally meant the ui depicting it as toggled or not"); the keyboard
+// focus ring stays. Start Agent's floating chat is plain too; its rules are
 // scoped to its header and bar and checked in a real browser by chat-header-tab-row-surface.test.ts.
 // A declaration's `!important` only raises its priority: `background:none !important` is no fill.
 import { expect, test } from "bun:test";
@@ -15,6 +16,9 @@ const HEADER_TOOL = /\.acpmux-header-(?:tool|panel-toggle)(?![\w-])/;
 // The floating chat's header and folded bar (FloatingChat.tsx), not the chat header.
 const FLOATING = /^\.acpmux-floating-(header|bar) /;
 const NO_FILL = /^(none|transparent)$/;
+// The pressed toggle's fill: the App's selection fill (`--cmux-selection`, Palette.selectionFill).
+const SELECTION_FILL = /^var\(--cmux-selection[,)]/;
+const PRESSED = /\[aria-pressed=true\]/;
 
 function cssFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -48,7 +52,9 @@ test("no header tool draws a fill, border or shadow of its own in any state", ()
   for (const { file, selector, body } of rules()) {
     if (!selector.split(",").some((part) => HEADER_TOOL.test(part) && !FLOATING.test(part.trim()))) continue;
     for (const [property, value] of body) {
-      const fill = (property === "background" || property === "background-color") && !NO_FILL.test(value);
+      const pressedFill = selector.split(",").every((part) => PRESSED.test(part)) && SELECTION_FILL.test(value);
+      const fill =
+        (property === "background" || property === "background-color") && !NO_FILL.test(value) && !pressedFill;
       const border =
         /^border(-(top|right|bottom|left|width|style|color))?$/.test(property) && !/^(0|none)$/.test(value);
       const shadow = property === "box-shadow" && value !== "none";
@@ -70,13 +76,17 @@ test("the header tools' focus rule clears the shared focus gradient without draw
   expect(focus?.body.get("outline")).toMatch(/solid/);
 });
 
-test("an open panel's toggle reads as on by its ink, and focus keeps its ring", () => {
+test("an open panel's toggle reads as on by its selection fill and ink, and focus keeps its ring", () => {
   const all = rules().filter(({ file }) => file === "header/header.css");
   const color = (selector: string) => all.find((rule) => rule.selector === selector)?.body.get("color");
   const rest = color(".acpmux-header-tools .acpmux-header-tool");
   const pressed = color(".acpmux-header-tools .acpmux-header-tool[aria-pressed=true]");
   expect(rest).toBe("var(--agent-muted)");
   expect(pressed).toBe("var(--agent-text)");
+  const fill = all
+    .find((rule) => rule.selector === ".acpmux-header-tools .acpmux-header-tool[aria-pressed=true]")
+    ?.body.get("background");
+  expect(fill).toMatch(SELECTION_FILL);
   const focus = all.find(({ selector }) => selector === ".acpmux-header-tool:focus-visible")?.body.get("outline");
   expect(focus).toMatch(/solid/);
 });

@@ -7,6 +7,7 @@ BAD), installs the hooks with scripts/install-git-hooks.sh, and pushes to a
 bare `origin` through the real `git push`, so the installed trusted hook copy is
 what runs.
 """
+import json
 import os
 from pathlib import Path
 import shutil
@@ -633,6 +634,48 @@ class TuiBindingsTests(unittest.TestCase):
 
                 self.assertEqual(plan.script_packages, [])
                 self.assertEqual(plan.untrusted, [("cmux-tui/frontends/web", [path])])
+
+
+class CheckPiecesTests(unittest.TestCase):
+    """`bun run check` runs every piece and fails at the end: a red text-focus guard (2026-10-22) stopped the
+    `&&` chain before fmt, lint and the type check, so they never reported."""
+
+    RUNNER = SOURCE / "scripts/cmux-next/run-check-pieces.py"
+
+    def run_pieces(self, chain):
+        with tempfile.TemporaryDirectory(prefix="cmux-check-pieces-") as temporary:
+            package = Path(temporary)
+            (package / "package.json").write_text(json.dumps({"scripts": {"check:pieces": chain}}))
+            return subprocess.run([sys.executable, "-I", str(self.RUNNER)], cwd=package, text=True,
+                                  capture_output=True)
+
+    def test_a_red_piece_does_not_stop_the_ones_after_it(self):
+        result = self.run_pieces("echo first && false && echo after-the-red && sh -c 'exit 3' && echo last")
+        self.assertEqual(result.returncode, 1)
+        for line in ("first", "after-the-red", "last"):
+            self.assertIn(line, result.stdout)
+        self.assertIn("2 red:", result.stderr)
+        self.assertIn("  false", result.stderr)
+        self.assertIn("  sh -c 'exit 3'", result.stderr)
+
+    def test_all_green_passes(self):
+        result = self.run_pieces("true && echo ok")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_webviews_check_runs_its_pieces_and_the_list_keeps_fmt_lint_and_types(self):
+        scripts = json.loads((SOURCE / "webviews/package.json").read_text())["scripts"]
+        self.assertEqual(scripts["check"], "python3 ../scripts/cmux-next/run-check-pieces.py")
+        pieces = [piece.strip() for piece in scripts["check:pieces"].split("&&")]
+        for piece in ("bun run check:text-focus", "vp fmt --check", "vp lint", "vp check --no-fmt --no-lint"):
+            self.assertIn(piece, pieces)
+
+    def test_the_prepush_lint_reads_the_pieces_list(self):
+        lint = load_lint(SOURCE)
+        package = lint.ScriptPackage(directory="webviews", triggers=("webviews/",), executed=())
+        manifest = json.dumps({"scripts": {"check": "python3 run.py", "check:pieces": "a && b"}})
+        self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
+        manifest = json.dumps({"scripts": {"check": "a && b"}})
+        self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
 
 
 if __name__ == "__main__":
