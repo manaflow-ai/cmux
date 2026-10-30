@@ -360,3 +360,23 @@ test("an intentional clear while loading rejects the old saved generation", asyn
   expect(prompt()).toBe("");
   await until(() => !acpmux.held.has("generation-clear"), "clear tombstone to persist");
 });
+
+
+test("a remounted composer reads again before reconciling a newer same-generation daemon draft", async () => {
+  const acpmux = daemon({ "remount-external": "saved" }, 4);
+  await acpmux.connect();
+  await render("remount-external");
+  await until(() => prompt() === "saved", "the initial draft");
+  await type(" locally");
+  await until(() => acpmux.held.get("remount-external") === "saved locally", "the local edit to land");
+  await act(async () => root!.unmount());
+  root = undefined;
+  // Another client extends this generation while this composer is absent.
+  acpmux.held.set("remount-external", "saved locally and externally");
+  acpmux.writes.length = 0;
+  await render("remount-external");
+  await settle();
+  expect(prompt()).toBe("saved locally and externally");
+  expect(acpmux.held.get("remount-external")).toBe("saved locally and externally");
+  expect(acpmux.writes.some(({ text }) => text === "saved locally")).toBe(false);
+});
