@@ -218,6 +218,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// place left or right in one commit. Without it only a one-pane column
     /// moves, through `swap-pane`.
     case columnMove = "column-move-v1"
+    case columnLeft = "column-left-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
@@ -258,6 +259,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case chiefLive = "chief-live-v1"
     case cloudChiefLive = "cloud-chief-live-v1"
     case conversationRuns = "conversation-runs-v1"
+    case conversationRunAnswers = "conversation-run-answers-v1"
     case cloudConversationRuns = "cloud-conversation-runs-v1"
     /// `cloud-conversation-typing` command and event: typing in Cloud DMs and groups.
     case cloudConversationTyping = "cloud-conversation-typing-v1"
@@ -296,10 +298,14 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent_session.needs_keyed_start` (cx-0w0jj): that machine's daemon says whether a keyed
     /// restart of its acpmux can lose nothing, so the app no longer reads the acpmux status.
     case agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
+    case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
+    case agentSessionStartModel = "agent-session-start-model-v1"
+    case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
+    case agentSessionPresence = "agent-session-presence-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -497,13 +503,14 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
-             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove,
+             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
-             .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
+             .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionChildren, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind,
+             .agentSessionChildren, .agentSessionPresence, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
