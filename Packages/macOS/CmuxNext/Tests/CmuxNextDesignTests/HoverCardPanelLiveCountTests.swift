@@ -2,12 +2,13 @@ import AppKit
 import CmuxNextCompat
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextTestGUI
 
 /// `HoverCardPanel.liveInstances` feeds the single-card check (`debug.desync`, `card_windows`): it
 /// counts every card window from its init to its deinit, wherever the deinit runs. Each test counts
 /// its panel on its own `WindowCount`, so cards that other suites make or free meanwhile do not
 /// move it.
-@MainActor @Suite struct HoverCardPanelLiveCountTests {
+@MainActor @Suite(.guiApp) struct HoverCardPanelLiveCountTests {
     @Test func aCardWindowCountsFromItsInitUntilItIsReleased() {
         let count = WindowCount()
         autoreleasepool {

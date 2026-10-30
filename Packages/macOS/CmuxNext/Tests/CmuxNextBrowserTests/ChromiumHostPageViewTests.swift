@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextBrowser
 import Testing
+import CmuxNextTestGUI
 
 /// The one view every hosted Chromium page shows in: in-process layer hosting
 /// and the Chromium host app use the same type; only who takes the page's input differs.
 @MainActor
-@Suite struct ChromiumHostPageViewTests {
+@Suite(.guiApp) struct ChromiumHostPageViewTests {
     let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
     /// The pages' own center for the window's screen notices: no other test hears this one's.
     let center = NotificationCenter()

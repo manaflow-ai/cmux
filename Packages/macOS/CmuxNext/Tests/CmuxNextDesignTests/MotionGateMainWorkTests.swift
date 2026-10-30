@@ -4,6 +4,7 @@ import CmuxNextDesignTokens
 import QuartzCore
 import Testing
 import CmuxNextTestSupport
+import CmuxNextTestGUI
 
 /// The main-thread writes a gate's view motion makes per frame.
 ///
@@ -13,7 +14,7 @@ import CmuxNextTestSupport
 /// (`animate(.hover, in:) { view.animator()... }`, a SwiftUI-animation `NSAnimationContext` on 15 and
 /// later, a timed group on 14) is the before: its counts are printed as `motion-gate-main-work` lines
 /// for the commit and the plan. The layer path (`animate(_:in:frame:alpha:completion:)`) must write 0.
-@MainActor @Suite(.serialized, .renderHooks) struct MotionGateMainWorkTests {
+@MainActor @Suite(.serialized, .renderHooks, .guiApp) struct MotionGateMainWorkTests {
     /// A layer whose geometry and opacity writes are counted.
     nonisolated final class CountingLayer: CALayer {
         var geometryWrites = 0

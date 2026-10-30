@@ -1,10 +1,11 @@
 import AppKit
 import CmuxNextDesign
 import Testing
+import CmuxNextTestGUI
 
 /// `NSEvent.screenLocation` reads the window server's point of an event that has a window, so the
 /// point holds while that window moves under the pointer (a panel dragged by its own handler).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .guiApp)
 struct NSEventScreenLocationTests {
     @Test func aWindowedEventKeepsItsScreenPointWhileItsWindowMoves() throws {
         _ = NSApplication.shared

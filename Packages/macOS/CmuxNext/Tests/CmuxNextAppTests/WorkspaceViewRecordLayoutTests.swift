@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxNextLayout
 import CmuxNextWakeups
 import Testing
+import CmuxNextTestGUI
 
 /// The layout half of a remount record: `LayoutRootView.scrollRecords` records
 /// only cameras a person could have seen, and `restoreScroll`, given before the root is in its
 /// window (a remount's order), puts an overflowing row column back at its offset in the first
 /// layout pass.
 @MainActor
-struct WorkspaceViewRecordLayoutTests {
+@Suite(.guiApp) struct WorkspaceViewRecordLayoutTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }

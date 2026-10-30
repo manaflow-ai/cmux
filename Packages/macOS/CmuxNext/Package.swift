@@ -483,7 +483,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFloatingTests",
             // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on.
             // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
-            dependencies: ["CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextTestGUI", "CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
@@ -1934,6 +1934,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextDesignTests",
             dependencies: [
+                "CmuxNextTestGUI",
                 // LoopHost (LoopVisibilityTests).
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 "CmuxNextCompat",
@@ -2189,7 +2190,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextBrowserTests",
             // Signposts: CEFTabSwitchShowTests' switch.tab interval.
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+            dependencies: ["CmuxNextTestGUI", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            "CmuxNextTestSupport",
                            // CmuxSafeConcurrency: OnceContinuation (CEFPasswordTests, as PasswordRevealBox takes it).
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
@@ -2305,6 +2306,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             path: "Tests/Support/CmuxNextTestGUIHost",
             linkerSettings: [.linkedFramework("AppKit")]
         ),
+        // Test-only: `.guiApp`, the suite trait that runs each test as the active app (activates, waits for AppKit's
+        // notice) or skips it with the reason when the run asks for no GUI (GUIAppTrait.swift).
+        .target(
+            name: "CmuxNextTestGUI",
+            dependencies: ["CmuxNextTestGUIHost", "CmuxNextWakeups"],
+            path: "Tests/CmuxNextTestGUI",
+            swiftSettings: daemonSwiftSettings
+        ),
         // Test-only: the in-process benches' cmux-perf-result/v1 writer (PerfResultWriter, read when
         // CMUX_PERF_RESULT_DIR is set; scripts/perf-lab/stories/swift_benches.py).
         // Foundation only, so the Linux tier's bench targets keep building.
@@ -2389,6 +2398,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
+                "CmuxNextTestGUI",
                 "CmuxNextTestGUIHost",
                 "CmuxNextTestSupport",
                 "CmuxNextTrace",

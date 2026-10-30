@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextBrowser
 import Testing
+import CmuxNextTestGUI
 
 /// A pane's tabs on Chromium's own attached view (Track B), through the fork seam: the fake
 /// attach call adds a stand-in for the tab's `WebContentsViewCocoa` below the host view's subviews and answers
 /// 1 or 0, as the fork's `cmux_browser_attach_view` does. No Chromium.
 @MainActor
-@Suite struct CEFAttachedPagesTests {
+@Suite(.guiApp) struct CEFAttachedPagesTests {
     /// Chromium's page view: it takes the first click and makes itself first responder on a mouse down, as
     /// `RenderWidgetHostViewCocoa` does (`content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`).
     final class FakeChromiumView: NSView {

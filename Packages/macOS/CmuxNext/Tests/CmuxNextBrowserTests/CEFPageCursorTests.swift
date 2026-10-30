@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextBrowser
 import Testing
+import CmuxNextTestGUI
 
 /// Task 045 of plans/cmux-next/chrome-parity/p01-process.md: a page's cursor reaches cmux as
 /// CURSOR (the type, or a CSS cursor image as PNG with its scale and hotspot) and the page view
 /// shows it as an NSCursor over the page.
 @MainActor
-@Suite struct CEFPageCursorTests {
+@Suite(.guiApp) struct CEFPageCursorTests {
     /// A CURSOR event's fields, as the shim emits them (CEFShim/src/cursor_event.h).
     func event(browser: Int32 = 7, type: Int64, scaleMilli: Int32 = 0, hotspot: Int64 = 0, png: String = "") -> CEFShimEvent {
         CEFShimEvent(kind: 54, browser: browser, request: scaleMilli, a: type, b: hotspot, s1: png, s2: "")

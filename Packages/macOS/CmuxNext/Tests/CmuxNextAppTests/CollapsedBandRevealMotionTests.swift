@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import QuartzCore
 import Testing
+import CmuxNextTestGUI
 
 /// With `motion.renderServer` on, the collapsed toolbar band's open and close
 /// set its share once and lay the top row out once, at rest; additive render-server springs show the band, and
@@ -13,7 +14,7 @@ import Testing
 ///
 /// The row's layer has `speed` 0, so the springs' clock is its `timeOffset`: each read sets it and
 /// samples the presentation layer at exactly that time (as `RenderSpringParityTests` do).
-@MainActor @Suite(.serialized) struct CollapsedBandRevealMotionTests {
+@MainActor @Suite(.serialized, .guiApp) struct CollapsedBandRevealMotionTests {
     /// A top row like the window root's: the real toolbar band as wide as the larger of the sidebar's share
     /// and the reveal's, faded with it, and an accessory after it. It counts its layouts.
     final class Row: NSView {

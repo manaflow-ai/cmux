@@ -3,13 +3,14 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
+import CmuxNextTestGUI
 
 /// Zoom and unzoom (Leo 2026-10-13, Lawrence 2026-10-18): the zooming pane owns the motion and is
 /// laid out live at its spring rect on every frame ("content must move while it animates"); it
 /// covers the other panes, which never fade or move and are let go once it lands. Frames step at a
 /// fixed 120 Hz dt, so every assertion is about frame N, not wall time.
 @MainActor
-struct PaneZoomMotionTests {
+@Suite(.guiApp) struct PaneZoomMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }

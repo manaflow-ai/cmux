@@ -12,6 +12,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
+import CmuxNextTestGUI
 
 /// Each source of the key router's cached key facts, through the real router under an equal
 /// focus: an input the lookups are built from rebuilds them once and names itself; a flag of an object a build
@@ -19,7 +20,7 @@ import WebKit
 /// for a build to find, so the copy mode, suggestion list, readiness and Chromium page window tests put those
 /// objects in the cache as a build would (``KeyContextCacheTests/Harness/seed(_:)``) and read them through the
 /// router's own live reads.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .guiApp)
 struct KeyFactsSourcesTests {
     // MARK: Inputs the lookups are built from
 

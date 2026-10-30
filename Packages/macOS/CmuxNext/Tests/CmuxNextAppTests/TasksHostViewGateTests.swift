@@ -3,11 +3,12 @@ import CmuxNextDesign
 import CmuxNextTasks
 import CmuxNextWakeups
 import Testing
+import CmuxNextTestGUI
 
 /// A hidden Tasks tab does no SwiftUI work: 100 model changes while its node is
 /// hidden run 0 bodies, and showing it runs 1.
 @MainActor
-struct TasksHostViewGateTests {
+@Suite(.guiApp) struct TasksHostViewGateTests {
     @Test func aHiddenTasksPageRunsNoBodyForModelChanges() throws {
         let source = MockTasksSource()
         let model = TasksModel(source: source)

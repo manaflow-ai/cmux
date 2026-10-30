@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextTestGUI
 
 /// A hover card's fades run on its content layer's opacity, on the
 /// render server. The window's `alphaValue` is never written: an `animator().alphaValue` fade set
 /// the window's alpha in the window server once per frame from the main thread (and a glass card
 /// ignores window alpha).
-@MainActor @Suite(.serialized) struct HoverCardWindowAlphaTests {
+@MainActor @Suite(.serialized, .guiApp) struct HoverCardWindowAlphaTests {
     /// A card window that counts every write of its alpha, the animator's per-frame steps included.
     final class AlphaCountingPanel: NSPanel {
         var alphaWrites = 0

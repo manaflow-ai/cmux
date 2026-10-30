@@ -7,7 +7,8 @@
 // frontmost. Linked into the test bundle only: when the bundle loads, this queues one setup on the main
 // queue that dispatches NSApp's pending events on every main run-loop turn, as NSApplication.run would (harmless
 // on any Mac). Only a run that asks for a GUI (`CMUX_CI_CONSOLE_SESSION=1`, which the fleet worker sets on every
-// gui-session-v1 step, or `CMUX_TEST_REQUIRE_GUI=1`) also finishes launching as a regular app and activates: a person running `swift test` on their own Mac
+// gui-session-v1 step, or `CMUX_TEST_REQUIRE_GUI=1`) also finishes launching as a regular app; a suite that needs
+// an active app activates it per test (`.guiApp`, CmuxNextTestGUI). A person running `swift test` on their own Mac
 // keeps their focus. A listing run (`swift test list`) does nothing.
 #import <AppKit/AppKit.h>
 #include <crt_externs.h>
@@ -17,7 +18,7 @@
 #include "CmuxNextTestGUIHost.h"
 
 static int running;
-static int activated;
+static int launched;
 
 static int env_is_one(const char *name) {
     const char *value = getenv(name);
@@ -55,8 +56,11 @@ static void start_gui_host(void) {
     [NSApplication sharedApplication];
     int gui = requires_gui();
     if (gui) {
+        // A regular app that has finished launching, so a test can activate it (`.guiApp`, CmuxNextTestGUI). No
+        // activate here: one made at bundle load did not hold until any test ran (pump probe bcb9ab15).
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         [NSApp finishLaunching];
+        launched = 1;
     }
     // Before each wait of the main run loop: dispatch what NSApp has queued (activation, key and mouse changes).
     CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(
@@ -67,10 +71,6 @@ static void start_gui_host(void) {
         });
     CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
     CFRelease(observer);
-    if (gui) {
-        [NSApp activateIgnoringOtherApps:YES];
-        activated = 1;
-    }
     dispatch_pending_events();
     running = 1;
 }
@@ -85,6 +85,6 @@ int cmux_next_test_gui_host_running(void) {
     return running;
 }
 
-int cmux_next_test_gui_host_activated(void) {
-    return activated;
+int cmux_next_test_gui_host_launched(void) {
+    return launched;
 }
