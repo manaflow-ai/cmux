@@ -1,3 +1,4 @@
+import type { Customer } from "../customers.js";
 import type { FirewallSpec } from "../firewall.js";
 import type { TlsSpec } from "../tls.js";
 export type VmState = "starting" | "running" | "pausing" | "paused" | "stopped";
@@ -73,6 +74,8 @@ export interface VmNetwork {
 }
 /** A VM as its owning account sees it. */
 export interface VmData {
+    /** The account-scoped customer associated with this VM. */
+    customerId?: string;
     id: string;
     state: VmState;
     /** URL-safe identifier, unique within the account; usable anywhere an id is. */
@@ -211,6 +214,10 @@ export interface AttachNetwork {
     routes?: NetworkRoute[];
 }
 export interface CreateVmOptions {
+    /** Inline partial customer upsert; mutually exclusive with customerId. */
+    customer?: Customer;
+    /** Reference an existing customer in your Freestyle account. */
+    customerId?: string;
     /** Boot from this snapshot: its id, your slug for it, or a public `{owner}/{slug}`. Omit for the platform default. */
     snapshotId?: SnapshotIdOrSlug | null;
     /**
@@ -326,6 +333,10 @@ export interface CreateVmOptions {
     tls?: TlsSpec;
 }
 export interface UpdateVmOptions {
+    /** Upsert and assign a customer; mutually exclusive with customerId. */
+    customer?: Customer;
+    /** Reassign an existing customer; null detaches. Omit to leave unchanged. */
+    customerId?: string | null;
     /** Change the slug; an empty string clears it. */
     slug?: string;
     /** Take `slug` from whichever VM currently holds it. */
@@ -381,7 +392,7 @@ export interface ExecOptions {
      * when an identity grant restricts users.
      */
     linuxUser?: string;
-    /** Wall-clock limit, milliseconds. 1–300000; defaults to the guest's own. */
+    /** Wall-clock limit in ms; defaults to 30000. Up to 86400000 with native-agent support, otherwise 300000. */
     timeoutMs?: number;
     /** Extra environment variables. Keys must be valid POSIX names. */
     env?: Record<string, string>;

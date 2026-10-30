@@ -411,7 +411,13 @@ impl Hub {
             self.hold_retry_start(session, &prompt_id).await;
         }
         if session.cancels.load(Ordering::SeqCst) != cancels {
-            let e = stopped_before_prompt();
+            // A continuation or retry of a cut turn is refused as one Stop overtook
+            // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.
+            let e = if after_turn.is_some() {
+                super::auto_resume::stopped()
+            } else {
+                stopped_before_prompt()
+            };
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
