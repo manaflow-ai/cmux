@@ -17,6 +17,7 @@ export default agentPaneEntry({
   variants: {
     "large-inline-recording": {
       note: "An older host's 5 MiB inline recording is uploaded in chunks and retained as a file chip.",
+      ready: { cwd: "/Users/dev/src/atlas-web" },
       snapshot,
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md"));
