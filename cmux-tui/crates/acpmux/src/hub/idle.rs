@@ -375,12 +375,18 @@ impl Hub {
     }
 
     /// What keeps this daemon in use with no client (`daemon/unused_exit.rs`), or None: its
-    /// startup or adoption still running, a peer link, a listener another machine reaches it by
+    /// startup, store and chat-log load or adoption still running, a peer link, a listener another machine reaches it by
     /// (the mesh relay, WireGuard, the tailnet, a WebSocket listener off loopback), an
     /// undelivered message or a watch, a running agent or agent host (adopted or not), a turn or
     /// anything one waits on, or a background task.
     pub(crate) async fn in_use(&self) -> Option<&'static str> {
-        if !*self.startup_ready.borrow() || !*self.adoption_ready.borrow() {
+        // Still loading: queued prompts and cut turns the last daemon left resume from the chat
+        // logs, and adoption reattaches running agents.
+        if !self.store_loaded()
+            || !*self.startup_ready.borrow()
+            || !*self.adoption_ready.borrow()
+            || !*self.logs_ready.borrow()
+        {
             return Some("its startup");
         }
         // A link this daemon keeps to a peer may carry work for that peer's agents (the GitHub
