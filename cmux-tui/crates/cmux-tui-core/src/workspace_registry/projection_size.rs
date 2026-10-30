@@ -6,16 +6,24 @@
 //! grows with the session. A fixed 1 MiB cap refused a large session's save,
 //! and the next launch restored an older layout.
 
-/// Largest stored projection, in bytes of canonical JSON. Every native
+/// Largest stored native projection, in bytes of canonical JSON. Every native
 /// projection also goes into the launch snapshot, which the app reads before
-/// it connects to draw the last layout at once; a snapshot over its bound
-/// drops all projections and the first frame shows the connecting state. So
-/// the bound comes from the snapshot's: half of it, which leaves the other
-/// half for the workspace tree, the personal state and the sidebar document.
-/// It is far below the transport's message bound, so one request carries
-/// any projection the daemon stores. A larger projection is refused with an
+/// it connects to draw the last layout at once; a projection larger than the
+/// snapshot's whole bound can never be drawn from it, and one at half of it
+/// still leaves the other half for the tree and personal state. When the
+/// snapshot is still over its bound, its writer drops the largest
+/// projections first and reports which (`launch_snapshot`), so the first
+/// frame's loss is seen; the registry row stays and the app reads it after
+/// it connects. The Unix socket and the app's line transport carry a request
+/// of this size (16 MiB and 64 MiB). A larger projection is refused with an
 /// error that names its size; nothing is cut.
 pub(super) const MAX_PROJECTION_BYTES: usize = crate::server::MAX_LAUNCH_SNAPSHOT_BYTES / 2;
+
+/// Largest resource-API projection, in bytes: the bound older daemons check
+/// when they read these rows at start (`public_projections`), so a larger row
+/// written here would stop an older daemon after a rollback or handoff. Its
+/// writers (the resource API, 4 MiB messages) keep it.
+pub(super) const MAX_RESOURCE_API_PROJECTION_BYTES: usize = 1024 * 1024;
 
 /// Logs when a projection's size passes half of [`MAX_PROJECTION_BYTES`]
 /// (from below, so a document that stays large logs once, not on each
@@ -34,6 +42,14 @@ pub(super) fn note_projection_size(
              over half of the {MAX_PROJECTION_BYTES}-byte limit"
         );
     }
+}
+
+/// The ledger's fingerprint of a projection request: `sha256:` and the hex
+/// digest of its canonical text, so a replay check does not keep a copy of
+/// the body.
+pub(super) fn fingerprint_digest(fingerprint: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("sha256:{}", super::hex_sha256(Sha256::digest(fingerprint.as_bytes()).into()))
 }
 
 fn crosses_half_of_the_bound(previous_bytes: Option<usize>, bytes: usize) -> bool {

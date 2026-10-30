@@ -52,7 +52,9 @@ pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
 mod projection_size;
-use projection_size::{MAX_PROJECTION_BYTES, note_projection_size};
+use projection_size::{
+    MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
+};
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -3506,6 +3508,10 @@ impl WorkspaceRegistry {
         }))?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
+        // The ledger keeps a digest of the request and its result without the body: a replay is
+        // proven to carry the same body (the digest matches), so the body is not stored twice more
+        // per save (`projection_size`). Rows written before hold the full text and body.
+        let fingerprint_digest = projection_size::fingerprint_digest(&fingerprint);
         if let Some((stored_fingerprint, result_json)) = tx
             .query_row(
                 "SELECT fingerprint, result_json FROM projection_mutations
@@ -3515,19 +3521,20 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
-            if stored_fingerprint != fingerprint {
+            if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
                     mutation.id,
                     mutation.origin
                 );
             }
-            let stored: FrontendProjection = serde_json::from_str(&result_json)?;
+            let mut stored: FrontendProjection = serde_json::from_str(&result_json)?;
+            stored.projection = projection.clone();
             return Ok(ProjectionCommit { projection: stored, replayed: true });
         }
         let stored_now = tx
             .query_row(
-                "SELECT projection_revision, length(CAST(payload AS BLOB)) FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
                 params![frontend, scope, subject_key],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
@@ -3580,8 +3587,11 @@ impl WorkspaceRegistry {
             params![
                 mutation.origin,
                 mutation.id,
-                fingerprint,
-                canonical_json(&serde_json::to_value(&stored)?)?,
+                fingerprint_digest,
+                canonical_json(&serde_json::to_value(FrontendProjection {
+                    projection: Value::Null,
+                    ..stored.clone()
+                })?)?,
                 mutation.actor.wire(),
             ],
         )?;
@@ -3789,8 +3799,8 @@ fn migrate_resource_api_frontend_projection_envelopes(
         });
         let payload = canonical_json(&envelope)?;
         anyhow::ensure!(
-            payload.len() <= MAX_PROJECTION_BYTES,
-            "migrated resource API frontend projection exceeds {MAX_PROJECTION_BYTES} bytes"
+            payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+            "migrated resource API frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
         );
         transaction.execute(
             "UPDATE frontend_projections

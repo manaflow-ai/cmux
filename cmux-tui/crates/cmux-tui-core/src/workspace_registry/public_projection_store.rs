@@ -675,8 +675,8 @@ impl WorkspaceRegistry {
                     "frontend projection {subject_key} has invalid revision {projection_revision}"
                 );
                 anyhow::ensure!(
-                    payload.len() <= MAX_PROJECTION_BYTES,
-                    "frontend projection {subject_key} exceeds {MAX_PROJECTION_BYTES} bytes"
+                    payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+                    "frontend projection {subject_key} exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
                 );
                 let projection = serde_json::from_str(&payload).with_context(|| {
                     format!("frontend projection {subject_key} contains invalid JSON")
