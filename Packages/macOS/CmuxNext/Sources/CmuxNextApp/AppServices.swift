@@ -494,7 +494,7 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
         self.work = work
-        (self.launchImages, self.relaunchWake, self.keyWindowSource) = (launchImages, relaunchWake, keyWindowSource)
+        (self.launchImages, self.relaunchWake, self.keyWindowSource) = (launchImages, relaunchWake, { NSApp.keyWindow })
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
