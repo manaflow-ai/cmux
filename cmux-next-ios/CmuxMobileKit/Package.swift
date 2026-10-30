@@ -47,7 +47,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxChiefVoiceCore"),
     ],
     targets: [
-        .target(name: "CmuxMobileDesign"),
+        .target(name: "CmuxMobileDesign", resources: [.process("Resources")]),
         // Push payloads, notification buttons, the App Group outbox and chat
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
@@ -185,6 +185,7 @@ let package = Package(
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+            .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),
     ],
     swiftLanguageModes: [.v6]
