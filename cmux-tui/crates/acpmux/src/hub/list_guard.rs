@@ -164,10 +164,16 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
         let rows = picked["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
         let at = |key: &Value| key["at"].as_u64().unwrap_or_default() as usize;
-        let row = |key: &Value| spans.get(at(key)).and_then(|span| text.get(span.clone()));
-        let (page, next) = super::session_pages::byte_page(rows, cursor, budget, |key| {
-            row(key).map_or(4, str::len)
-        })?;
+        let row = |key: &Value| -> std::borrow::Cow<'_, str> {
+            let text = spans.get(at(key)).and_then(|span| text.get(span.clone()));
+            match text {
+                Some(text) if text.len() <= budget => text.into(),
+                Some(text) => too_large_stub(key, text.len()).into(),
+                None => "null".into(),
+            }
+        };
+        let (page, next) =
+            super::session_pages::byte_page(rows, cursor, budget, |key| row(key).len())?;
         let mut out = String::from("{");
         if let Some(next) = next {
             out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));
@@ -177,7 +183,7 @@ impl Snapshot {
             if n > 0 {
                 out.push(',');
             }
-            out.push_str(row(key).unwrap_or("null"));
+            out.push_str(&row(key));
         }
         out.push_str("]}");
         Ok(out)
@@ -235,6 +241,25 @@ impl Snapshot {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
         made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
     }
+}
+
+/// A row larger than a page alone goes as this stub, with its size, as a record too large for a
+/// reply goes (`hub/paging.rs`): a page holds at least one row, and one that large would be
+/// refused, page and all. It keeps the row's paging keys (an id longer than 4 KiB as null), so
+/// a client still sees the chat and can read it alone (`_acpmux/info`).
+fn too_large_stub(key: &Value, bytes: usize) -> String {
+    let id = key.get("sessionId").filter(|v| v.as_str().is_some_and(|t| t.len() <= 4 << 10));
+    let mut stub = json!({
+        "sessionId": id.cloned().unwrap_or(Value::Null),
+        "updatedAt": key.get("updatedAt").cloned().unwrap_or(Value::Null),
+        "omitted": {"bytes": bytes, "reason": "too_large"},
+    });
+    for k in ["peer", "status"] {
+        if let Some(v) = key.get(k).filter(|v| !v.is_null()) {
+            stub[k] = v.clone();
+        }
+    }
+    stub.to_string()
 }
 
 /// A byte arena and small keys, rather than all the summaries' nested allocations.
@@ -454,6 +479,18 @@ impl Pacer {
 mod tests {
     use super::*;
 
+    impl Snapshot {
+        /// [`Snapshot::bounded`] without tools, which needs no hub.
+        fn bounded_text(&self, params: &Value, budget: usize) -> String {
+            let hub = crate::hub::Hub::new(crate::config::Config::default(), {
+                let mut config = crate::config::Config::default();
+                config.store.mode = crate::config::StoreMode::Memory;
+                crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap()
+            });
+            self.bounded(&hub, params, false, budget).unwrap()
+        }
+    }
+
     #[test]
     fn the_text_and_every_page_are_the_bytes_the_summaries_write() {
         let mut rows: Vec<Value> = (0..5)
@@ -482,6 +519,27 @@ mod tests {
             );
         }
         assert!(list.page(&json!({"cursor": 3})).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_row_larger_than_its_page_goes_as_a_stub_with_its_keys() {
+        let mut rows = vec![
+            json!({"sessionId": "big", "updatedAt": 9, "peer": "box", "status": "idle",
+                "preview": "x".repeat(5000)}),
+            json!({"sessionId": "small", "updatedAt": 5, "status": "idle"}),
+        ];
+        super::super::session_pages::sort_session_summaries(&mut rows);
+        let list =
+            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let first: Value = serde_json::from_str(&list.bounded_text(&json!({}), 1000)).unwrap();
+        let stub = &first["sessions"][0];
+        assert_eq!((stub["sessionId"].as_str(), stub["peer"].as_str()), (Some("big"), Some("box")));
+        assert_eq!(stub["omitted"]["reason"], "too_large");
+        assert!(stub["omitted"]["bytes"].as_u64().unwrap() > 5000, "{stub}");
+        assert!(stub.get("preview").is_none(), "{stub}");
+        // The stub is small, so the next row goes on its page.
+        assert_eq!(first["sessions"][1], rows[1], "{first}");
+        assert!(first.get("nextCursor").is_none(), "{first}");
     }
 
     #[test]
