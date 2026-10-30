@@ -756,8 +756,10 @@ impl Peer {
     /// re-attached after a reconnect. True when it was not marked yet; a mark already there is
     /// renewed, since this caller now relies on it.
     pub fn mark_attached(&self, session_id: &str) -> bool {
+        // The ticket is taken under the lock, so a later mark always holds a newer one.
+        let mut marks = self.attached.lock_or_recover();
         let ticket = self.marks.fetch_add(1, Ordering::SeqCst) + 1;
-        self.attached.lock_or_recover().insert(session_id.to_owned(), ticket).is_none()
+        marks.insert(session_id.to_owned(), ticket).is_none()
     }
 
     /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. Its
