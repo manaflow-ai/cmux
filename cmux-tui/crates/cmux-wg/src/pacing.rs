@@ -629,3 +629,64 @@ impl Pacer {
         Some(packet)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ACK: u8 = 0x10;
+
+    /// An IPv4 TCP packet of `payload` bytes from `source_port` to `destination_port`.
+    fn tcp(
+        source_port: u16,
+        destination_port: u16,
+        seq: u32,
+        ack: u32,
+        flags: u8,
+        payload: usize,
+    ) -> Vec<u8> {
+        let total = u16::try_from(40 + payload).unwrap();
+        let mut packet = vec![0x45, 0];
+        packet.extend(total.to_be_bytes());
+        packet.extend([0, 0, 0, 0, 64, TCP, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2]);
+        packet.extend(source_port.to_be_bytes());
+        packet.extend(destination_port.to_be_bytes());
+        packet.extend(seq.to_be_bytes());
+        packet.extend(ack.to_be_bytes());
+        packet.extend([0x50, flags, 0xFF, 0xFF, 0, 0, 0, 0]);
+        packet.resize(packet.len() + payload, 0);
+        packet
+    }
+
+    #[test]
+    fn a_bulk_departure_keeps_the_bulk_pace_when_its_queue_turns_short() {
+        let start = Instant::now();
+        let srtt = Duration::from_secs(1);
+        let mut pacer = Pacer::default();
+        pacer.push(tcp(4000, 4100, 0, 0, ACK, 1200), start);
+        assert!(pacer.pop(start).unwrap().is_some(), "unpaced before the first RTT sample");
+        let now = start + srtt;
+        // The ACK reflects the reverse flow: swap the address bytes too.
+        let mut answer = tcp(4100, 4000, 0, 1200, ACK, 0);
+        answer[12..20].rotate_left(4);
+        pacer.received(&answer, now);
+        // Five queued packets with little in flight: a bulk queue.
+        for index in 1..=u32::try_from(INTERACTIVE_QUEUE).unwrap() + 1 {
+            pacer.push(tcp(4000, 4100, index * 1200, 0, ACK, 1200), now);
+        }
+        let (_, priority) = pacer.pop_classified(now).unwrap().unwrap();
+        assert_eq!(priority, Priority::Bulk);
+        // The packet left a bulk queue, so it is paced from the bulk floor
+        // even though the four left behind now look interactive.
+        let bulk_gap = Duration::from_secs_f64(
+            1240.0 * srtt.as_secs_f64() / (GAIN * f64::from(BULK_MIN_FLIGHT)),
+        );
+        let next = pacer.pop(now).expect_err("the connection waits for its pace");
+        assert!(
+            next <= now - MAX_CREDIT + bulk_gap + Duration::from_micros(1),
+            "next departure {:?} after now, the bulk floor allows {:?}",
+            next.duration_since(now),
+            bulk_gap.saturating_sub(MAX_CREDIT),
+        );
+    }
+}
