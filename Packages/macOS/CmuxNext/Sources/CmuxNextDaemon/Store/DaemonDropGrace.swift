@@ -3,8 +3,8 @@ public import Observation
 
 /// A drop's grace (`DaemonStore.dropGrace`): active for `duration` after a connection that was up
 /// ends, until one is up again. A restart or a version handoff reconnects within it, so surfaces
-/// keep saying connecting (the Chief row, a remote terminal tab) instead of flashing "Unreachable"
-/// or "offline"; a drop that lasts shows once it ends. Only a drop starts it: a first connect that
+/// keep saying connecting (the Chief row) instead of flashing "Unreachable"; a drop that lasts
+/// shows once it ends. Only a drop starts it: a first connect that
 /// has not succeeded is `.connecting` until the startup deadline (`DaemonStartupState.showsFailure`).
 /// Stop condition: one `DemandTimer` per drop, cancelled by a reconnect or the next drop.
 @Observable @MainActor
