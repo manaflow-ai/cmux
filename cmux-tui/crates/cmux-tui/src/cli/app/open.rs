@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{AppCommand, UsageError, WAITING_RUN_TIMEOUT, action_origin, caller_path};
+use cmux_json::JsonSet as _;
 
 #[derive(Debug, PartialEq)]
 pub(in crate::cli) struct OpenRequest {
@@ -172,10 +173,10 @@ pub(super) fn parse_open_with(
     let url_params = |url: &str| {
         let mut params = json!({"url": url, "focus": focus, "origin": action_origin()});
         if let Some(workspace) = &workspace {
-            params["workspace_id"] = json!(workspace);
+            params.set("workspace_id", json!(workspace));
         }
         if let Some(terminal) = &terminal {
-            params["terminal_id"] = json!(terminal);
+            params.set("terminal_id", json!(terminal));
         }
         params
     };
@@ -202,10 +203,10 @@ pub(super) fn parse_open_with(
                     "origin": action_origin(),
                 });
                 if let Some(terminal) = &terminal {
-                    params["terminal_id"] = json!(terminal);
+                    params.set("terminal_id", json!(terminal));
                 }
                 if let Some(target) = &forced_target {
-                    params["target"] = json!(target);
+                    params.set("target", json!(target));
                 }
                 OpenRequest { method: "browser.open_link", params }
             })
@@ -230,7 +231,7 @@ pub(super) fn parse_open_with(
         // caller's terminal pane through the `file.open` action.
         let mut params = json!({"paths": paths, "focus": focus, "origin": action_origin()});
         if let Some(terminal) = &terminal {
-            params["terminal_id"] = json!(terminal);
+            params.set("terminal_id", json!(terminal));
         }
         requests.push(OpenRequest { method: "file.open", params });
     };

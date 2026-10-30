@@ -197,7 +197,7 @@ public final class DaemonTerminalSession: TerminalSession {
         // again) shows its last screen too.
         if attached || ended { return .attached }
         if macOffline { return .offline(mac: macName) }
-        if gaveUp { return .attached }
+        if gaveUp { return .failed(message: lastError ?? "Can't attach to this terminal") }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
     }
 
@@ -388,6 +388,7 @@ public final class DaemonTerminalSession: TerminalSession {
             gaveUp = false
             attachRetries = 0
         }
+        handler?(.connection(connectionState))
         Task { await attach() }
     }
 
@@ -643,19 +644,24 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
                 return
             }
+            // The failed attach's channel closes now, not at the next reconnect.
+            // This applies to the first attach too: Retry must not retain a daemon
+            // client or event reader from the failed attempt.
+            if let client = self.client { self.client = nil; Task { await client.close() } }
+            eventTask?.cancel()
+            eventTask = nil
+            inbox?.close()
+            inbox = nil
             if everAttached {
-                // Retries ran out: say what happened and how to go on. The failed
-                // attach's channel closes now, not at the next reconnect (PR #22555 review).
-                if let client = self.client { self.client = nil; Task { await client.close() } }
-                eventTask?.cancel()
-                eventTask = nil
-                inbox?.close()
-                inbox = nil
+                // Retries ran out: say what happened and how to go on.
                 gaveUp = true
                 emitText("\r\n\u{1B}[2m[Can't reattach: \(lastError ?? "no answer from the Mac"). Type to try again.]\u{1B}[0m\r\n")
             } else {
+                gaveUp = true
                 emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
             }
+            // Diagnostic bytes preserve the last frame, but do not mean attach succeeded.
+            handler?(.connection(connectionState))
         }
     }
 

@@ -215,6 +215,11 @@
       "group": "partial"
     },
     {
+      "query": "new agent chat on",
+      "expect": ["action:palette.newAgentChatOn"],
+      "group": "exact"
+    },
+    {
       "query": "agent",
       "expect": ["action:palette.newAgentChat", "action:palette.quickAgentChat"],
       "group": "partial"
