@@ -1,7 +1,6 @@
 // Capture the real transcript gallery entry with a coarse pointer.
 // Usage: bun capture-transcript-hover-gallery.mjs OUT_DIR [dark|light]
 import fs from "node:fs";
-import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
@@ -10,35 +9,24 @@ const out = path.resolve(process.argv[2] ?? "transcript-hover-gallery-captures")
 const scheme = process.argv[3] === "light" ? "light" : "dark";
 fs.mkdirSync(out, { recursive: true });
 const root = path.resolve(import.meta.dir, "../..");
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.once("error", reject);
-  probe.listen(0, "127.0.0.1", () => {
-    const address = probe.address();
-    if (!address || typeof address === "string") {
-      reject(new Error("could not allocate a free capture port"));
-      return;
-    }
-    probe.close((error) => (error ? reject(error) : resolve(address.port)));
-  });
-});
 const build = spawn("bun", ["run", "gallery:build"], { cwd: root, stdio: "inherit" });
 await new Promise((resolve, reject) => {
   build.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`gallery build exited ${code}`))));
 });
 const server = spawn(
   "bun",
-  ["x", "vite", "preview", "--config", "vite.config.gallery.ts", "--host", "127.0.0.1", "--port", String(port)],
+  ["x", "vp", "preview", "--config", "vite.config.gallery.ts", "--host", "127.0.0.1", "--port", "0"],
   { cwd: root, stdio: ["ignore", "pipe", "pipe"] },
 );
 const stop = () => server.kill("SIGTERM");
 process.on("exit", stop);
 try {
-  await new Promise((resolve, reject) => {
+  const baseUrl = await new Promise((resolve, reject) => {
     const onData = (chunk) => {
-      if (chunk.toString().includes("Local:")) {
+      const match = chunk.toString().match(/Local:\s+(https?:\/\/\S+)/);
+      if (match) {
         server.stdout.off("data", onData);
-        resolve();
+        resolve(match[1].replace(/\/$/, ""));
       }
     };
     server.stdout.on("data", onData);
@@ -54,7 +42,7 @@ try {
       colorScheme: scheme,
     });
     const page = await context.newPage();
-    const url = `http://127.0.0.1:${port}/frame.html?entry=agent-pane.transcript&variant=footer-actions-left&colorScheme=${scheme}&width=normal&frame=component`;
+    const url = `${baseUrl}/frame.html?entry=agent-pane.transcript&variant=footer-actions-left&colorScheme=${scheme}&width=normal&frame=component`;
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 60_000,
