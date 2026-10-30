@@ -4399,8 +4399,7 @@ export class AcpmuxDirectClient {
         if (endsCurrentTurn) {
           this.turnId = undefined;
           this.turnStartedAtMs = undefined;
-          if (this.summary && !this.summary.turn?.turnId)
-            this.summary = { ...this.summary, status: "idle" };
+          if (this.summary && !this.summary.turn?.turnId) this.summary = { ...this.summary, status: "idle" };
           this.turnOpen = false;
           this.turnPrompt = undefined;
           this.silentTurn = false;
