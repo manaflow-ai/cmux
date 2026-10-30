@@ -9,8 +9,8 @@ import { subagentsIn } from "../src/agent-session/acpmux/subagents/subagentRows"
 
 const AT = Date.UTC(2026, 9, 28, 9);
 
-const tray = (step: number, agents?: number) => {
-  const rows = subagentTrayRows(step, AT, agents);
+const tray = (step: number, count?: number) => {
+  const rows = subagentTrayRows(step, AT, count);
   const agents = [...subagentsIn(rows).values()];
   return {
     rows,
