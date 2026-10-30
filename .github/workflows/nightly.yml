@@ -1714,13 +1714,10 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # Reuse the exact source-key bundles published by feat-cmux-next pushes.
-      # Clear a reused workspace before restoring; an incomplete restore builds.
+      # Reuse the source-key bundles feat-cmux-next pushes publish (nightly-steps/inputs-web-bundles.sh).
       - name: Source key of the web bundles
         id: web-bundle-key
-        run: |
-          scripts/ci/clear-dirs.sh web-bundles-out
-          echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+        run: scripts/ci/nightly-steps/inputs-web-bundles.sh key
 
       - name: Restore the published web bundles
         id: web-bundle-r2
@@ -1738,12 +1735,7 @@ jobs:
         env:
           SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
           RESTORED: ${{ steps.web-bundle-r2.outputs.cache-hit }}
-        run: |
-          set -euo pipefail
-          if [ "$RESTORED" != true ] || ! scripts/cmux-next/build-web-bundles.sh --from web-bundles-out; then
-            scripts/cmux-next/build-web-bundles.sh --force
-          fi
-          python3 scripts/ci/nightly_inputs.py pack-web "$RUNNER_TEMP/nightly-inputs/web" --source-key "$SOURCE_KEY"
+        run: scripts/ci/nightly-steps/inputs-web-bundles.sh build "$SOURCE_KEY" "$RESTORED"
 
       - name: Upload the web bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1757,11 +1749,7 @@ jobs:
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
           CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
-        run: |
-          set -euo pipefail
-          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
-            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
-          python3 scripts/ci/nightly_inputs.py pack-notices "$RUNNER_TEMP/nightly-inputs/notices"
+        run: scripts/ci/nightly-steps/inputs-web-bundles.sh notices
 
       - name: Upload the third-party notices
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
