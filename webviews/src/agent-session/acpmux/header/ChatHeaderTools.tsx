@@ -15,6 +15,7 @@ import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools } from "./headerQuickTools";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou } from "./nativeRowTools";
+import { onOpenNeedsYou } from "../needsYou/links";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
@@ -162,6 +163,7 @@ export function ChatHeaderTools({
       ? withShown(quick, "preview", true)
       : quick;
   const worktree = useWorktree(folder, readStatus, statusKey);
+  const [nativeRemoveUnsaved, setNativeRemoveUnsaved] = useState(false);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -279,13 +281,40 @@ export function ChatHeaderTools({
     nativeRowTools,
     tools,
     {
-      worktree: worktree ? { value: worktree, onApply: onApplyWorktree, onRemove: onRemoveWorktree } : undefined,
+      worktree: worktree
+        ? {
+            value: worktree,
+            onApply: onApplyWorktree,
+            onRemove: onRemoveWorktree
+              ? async (key, discard) => {
+                  try {
+                    const result = await onRemoveWorktree(key, discard);
+                    setNativeRemoveUnsaved(false);
+                    return result;
+                  } catch (error) {
+                    const reason = (error as { details?: { reason?: unknown } } | null)?.details?.reason;
+                    if (reason === "uncommitted_changes" || reason === "unpushed_commits") setNativeRemoveUnsaved(true);
+                    throw error;
+                  }
+                }
+              : undefined,
+            removeUnsaved: nativeRemoveUnsaved,
+            onRemoveKeep: () => setNativeRemoveUnsaved(false),
+          }
+        : undefined,
       pullRequest:
         pullRequest && pullRequestChip !== false ? { value: pullRequest, onMerge: onMergePullRequest } : undefined,
       needsYou: nativeNeedsYou,
     },
     t,
   );
+  useEffect(() => {
+    if (!native || !nativeNeedsYou || nativeNeedsYou.mode === "off") return;
+    return onOpenNeedsYou((itemId) => {
+      const item = nativeNeedsYou.items.find((candidate) => candidate.id === itemId);
+      if (item) nativeNeedsYou.actions.goTo(item);
+    });
+  }, [native, nativeNeedsYou]);
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
     splitDown: splitDownKey,

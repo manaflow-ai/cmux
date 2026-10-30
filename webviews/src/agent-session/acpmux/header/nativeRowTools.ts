@@ -40,6 +40,8 @@ export interface NativeRowExtras {
     value: HeaderWorktree;
     onApply?: (key: string) => Promise<unknown>;
     onRemove?: (key: string, discard: boolean) => Promise<unknown>;
+    removeUnsaved?: boolean;
+    onRemoveKeep?: () => void;
   };
   pullRequest?: {
     value: HeaderPullRequest;
@@ -63,6 +65,14 @@ const boundedLabel = (label: string) =>
         .join("");
 const actionKey = () => globalThis.crypto?.randomUUID?.() ?? `native-${Date.now()}-${Math.random()}`;
 const menuLabel = (label: string) => boundedLabel(label);
+const stableMenuKey = (value: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+};
 
 function boundedMenu(items: readonly NativeRowMenuItem[]): NativeRowMenuItem[] {
   return items.slice(0, 32).map((item) => ({
@@ -83,13 +93,29 @@ function worktreeBinding(extra: NonNullable<NativeRowExtras["worktree"]>, t?: Tr
     });
     runs.set("worktree.apply", () => void extra.onApply!(actionKey()));
   }
-  if (extra.onRemove) {
+  if (extra.onRemove && !extra.removeUnsaved) {
     menu.push({
       id: "worktree.remove",
       label: menuLabel(t?.("header.worktreeRemove") ?? "Remove worktree"),
       enabled: true,
     });
     runs.set("worktree.remove", () => void extra.onRemove!(actionKey(), false));
+  }
+  if (extra.onRemove && extra.removeUnsaved) {
+    menu.push({
+      id: "worktree.removeAnyway",
+      label: menuLabel(t?.("header.worktreeRemoveAnyway") ?? "Remove anyway"),
+      enabled: true,
+    });
+    runs.set("worktree.removeAnyway", () => void extra.onRemove!(actionKey(), true));
+    if (extra.onRemoveKeep) {
+      menu.push({
+        id: "worktree.removeKeep",
+        label: menuLabel(t?.("header.worktreeRemoveKeep") ?? "Keep"),
+        enabled: true,
+      });
+      runs.set("worktree.removeKeep", extra.onRemoveKeep);
+    }
   }
   return {
     tool: {
@@ -107,6 +133,25 @@ function worktreeBinding(extra: NonNullable<NativeRowExtras["worktree"]>, t?: Tr
 function pullRequestBinding(extra: NonNullable<NativeRowExtras["pullRequest"]>, t?: Translate): RowToolBinding {
   const { value } = extra;
   const mergeable = extra.onMerge !== undefined && readyToMerge(value);
+  const menu: NativeRowMenuItem[] = [{ id: "pullRequest.open", label: "Open pull request", enabled: true }];
+  const runs = new Map<string, () => void>([
+    [
+      "pullRequest.open",
+      () => {
+        if (typeof window !== "undefined") window.open(value.url, "_blank", "noopener,noreferrer");
+      },
+    ],
+  ]);
+  for (const check of value.checkList.slice(0, 29)) {
+    if (!check.url) continue;
+    const id = `pullRequest.check:${stableMenuKey(`${check.name}\u0000${check.url}`)}`;
+    menu.push({ id, label: menuLabel(check.name), enabled: true });
+    runs.set(id, () => {
+      if (typeof window !== "undefined") window.open(check.url, "_blank", "noopener,noreferrer");
+    });
+  }
+  menu.push({ id: "pullRequest.merge", label: menuLabel(t?.("header.prMerge") ?? "Merge"), enabled: mergeable });
+  if (mergeable) runs.set("pullRequest.merge", () => void extra.onMerge!({ number: value.number, url: value.url }));
   return {
     tool: {
       id: "pullRequest",
@@ -116,11 +161,9 @@ function pullRequestBinding(extra: NonNullable<NativeRowExtras["pullRequest"]>, 
       enabled: true,
       toggled: value.state === "open",
       badge: `#${value.number}`,
-      menu: [{ id: "pullRequest.merge", label: menuLabel(t?.("header.prMerge") ?? "Merge"), enabled: mergeable }],
+      menu,
     },
-    menuRuns: mergeable
-      ? new Map([["pullRequest.merge", () => void extra.onMerge!({ number: value.number, url: value.url })]])
-      : new Map(),
+    menuRuns: runs,
   };
 }
 
@@ -130,7 +173,7 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
   const menu = extra.items.slice(0, 32).map((item) => {
     const children: NativeRowMenuItem[] = [];
     for (const choice of item.answers) {
-      const id = `needsYou:${item.id}:answer:${choice.id}`;
+      const id = `needsYou:${stableMenuKey(item.id)}:answer:${stableMenuKey(choice.id)}`;
       children.push({
         id,
         label: menuLabel(
@@ -140,10 +183,10 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
       });
       runs.set(id, () => void extra.actions.answer(item, choice).catch(() => undefined));
     }
-    const goId = `needsYou:${item.id}:goToSource`;
+    const goId = `needsYou:${stableMenuKey(item.id)}:goToSource`;
     children.push({ id: goId, label: menuLabel(t?.("needsYou.goToSource") ?? "Go to source"), enabled: true });
     runs.set(goId, () => extra.actions.goTo(item));
-    const askId = `needsYou:${item.id}:askAbout`;
+    const askId = `needsYou:${stableMenuKey(item.id)}:askAbout`;
     children.push({ id: askId, label: menuLabel(t?.("needsYou.askAbout") ?? "Ask about this"), enabled: true });
     runs.set(
       askId,
@@ -153,7 +196,7 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
           .catch(() => undefined),
     );
     return {
-      id: `needsYou:${item.id}`,
+      id: `needsYou:${stableMenuKey(item.id)}`,
       label: menuLabel(askText(item, t ?? ((key) => key))),
       enabled: true,
       children,

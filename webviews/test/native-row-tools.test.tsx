@@ -171,20 +171,19 @@ test("native bindings describe worktree, pull request and Needs You menus", asyn
   expect(bindings.map(({ tool }) => tool.id)).toEqual(["worktree", "pullRequest", "needsYou"]);
   expect(bindings[0]!.tool.menu?.map(({ id }) => id)).toEqual(["worktree.apply", "worktree.remove"]);
   expect(bindings[1]!.tool).toMatchObject({ badge: "#42", toggled: true });
-  expect(bindings[1]!.tool.menu).toEqual([{ id: "pullRequest.merge", label: "Merge", enabled: true }]);
-  expect(bindings[2]!.tool.badge).toBe("1");
-  expect(bindings[2]!.tool.menu?.[0]?.children?.map(({ id }) => id)).toEqual([
-    "needsYou:acpmux:permission-1:answer:allow",
-    "needsYou:acpmux:permission-1:goToSource",
-    "needsYou:acpmux:permission-1:askAbout",
+  expect(bindings[1]!.tool.menu).toEqual([
+    { id: "pullRequest.open", label: "Open pull request", enabled: true },
+    { id: "pullRequest.merge", label: "Merge", enabled: true },
   ]);
+  expect(bindings[2]!.tool.badge).toBe("1");
+  const needsChildren = bindings[2]!.tool.menu?.[0]?.children ?? [];
+  expect(needsChildren).toHaveLength(3);
+  expect(needsChildren.every(({ id }) => id.length <= 64)).toBe(true);
 
   dispatchNativeRowTool({ id: "worktree", menuItemId: "worktree.apply" }, bindings);
   dispatchNativeRowTool({ id: "worktree", menuItemId: "worktree.remove" }, bindings);
   dispatchNativeRowTool({ id: "pullRequest", menuItemId: "pullRequest.merge" }, bindings);
-  dispatchNativeRowTool({ id: "needsYou", menuItemId: "needsYou:acpmux:permission-1:answer:allow" }, bindings);
-  dispatchNativeRowTool({ id: "needsYou", menuItemId: "needsYou:acpmux:permission-1:goToSource" }, bindings);
-  dispatchNativeRowTool({ id: "needsYou", menuItemId: "needsYou:acpmux:permission-1:askAbout" }, bindings);
+  for (const child of needsChildren) dispatchNativeRowTool({ id: "needsYou", menuItemId: child.id }, bindings);
   await Promise.resolve();
   expect(calls).toContain("remove:false");
   expect(calls).toContain("merge:42");
