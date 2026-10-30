@@ -46,10 +46,10 @@ struct PageLeaveCaptureTests {
         cache.applyLifecycle(cache.lifecycle.send(.show(key)))
         cache.applyLifecycle(cache.lifecycle.send(.hide(key)))
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while cache.pageCaptureRefusals == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        while cache.pageThumbnails.refusedCaptures == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(tab.thumbnailCount == 1)
-        #expect(cache.pageCaptureRefusals == 1, "the refused picture was not counted")
-        #expect(cache.pageCaptureFailures == 0)
+        #expect(cache.pageThumbnails.refusedCaptures == 1, "the refused picture was not counted")
+        #expect(cache.pageThumbnails.failedCaptures == 0)
         #expect(cache.pageThumbnails.image(for: key) == nil, "the card keeps its placeholder")
     }
 }
