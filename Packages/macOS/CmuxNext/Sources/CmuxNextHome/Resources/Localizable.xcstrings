@@ -12463,7 +12463,7 @@
         "de": {"stringUnit": {"state": "translated", "value": "Nachrichten"}},
         "en": {"stringUnit": {"state": "translated", "value": "Messages"}},
         "es": {"stringUnit": {"state": "translated", "value": "Mensajes"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Messages"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Messages trouvés"}},
         "it": {"stringUnit": {"state": "translated", "value": "Messaggi"}},
         "ja": {"stringUnit": {"state": "translated", "value": "メッセージ"}},
         "km": {"stringUnit": {"state": "translated", "value": "សារ"}},
