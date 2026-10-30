@@ -69,7 +69,7 @@ public final class BackdropCatalogStore {
             // wakeup-allow: each pass is one folder change event, never a poll; the watch rearms only when a
             // build changes the folders it lists
             watch: while !Task.isCancelled {
-                let changes = FolderChanges(folders: Array(watched)).events()
+                let changes = await FolderChanges(folders: Array(watched)).events()
                 let first = build()
                 mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(first) }
                 let next = BackdropCatalogStore.watchFolders(folders, catalog: first)

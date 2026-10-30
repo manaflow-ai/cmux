@@ -49,4 +49,8 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     func enable() {
         setup.enable()
     }
+
+    func recheck() {
+        setup.recheck()
+    }
 }

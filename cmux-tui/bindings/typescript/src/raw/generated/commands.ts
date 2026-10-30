@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a. */
+/* cmux-tui mux protocol 12, IR be5ba4057e499583a0ba0d5cad919ee93c2bb53f8ee062342163e0947347f53d. */
 
 
 import type * as T from "./types.js";
@@ -1474,6 +1474,7 @@ export type ConversationRunAppendResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ConversationRunsRequest extends CmuxRequestBase {
   cmd: "conversation-runs";
+  "answers"?: (Array<string>) | null;
   "before_started_at"?: (bigint) | null;
   "conversation": string;
   "limit"?: (number) | null;
@@ -2500,6 +2501,7 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "side"?: (T.ColumnSide) | null;
   "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;

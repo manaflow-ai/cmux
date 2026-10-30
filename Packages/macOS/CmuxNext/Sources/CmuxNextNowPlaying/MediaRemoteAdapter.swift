@@ -174,9 +174,11 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         // launch are background tasks, so a run's last lines apply before its exit.
         let mainWork = mainWork
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            let data: Data
+            switch handle.readReady() {
+            case .bytes(let ready): data = ready
+            case .retry: return
+            case .end:
                 handle.readabilityHandler = nil
                 return
             }

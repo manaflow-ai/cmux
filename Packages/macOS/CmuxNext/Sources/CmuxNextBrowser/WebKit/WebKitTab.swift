@@ -150,6 +150,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
         #if DEBUG || CMUX_BENCH_HOOKS
         engine.pageInputTiming?.install(into: controller)
         #endif
+        WebKitScrollReportHandler.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)

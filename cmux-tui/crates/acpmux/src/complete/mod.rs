@@ -31,13 +31,14 @@
 //! The prompt is never logged; the daemon logs the harness, the model and
 //! how long it took.
 
+use cmux_json::JsonSet as _;
+
 pub mod codex_config;
 pub mod model_pick;
 pub mod places;
 pub mod recipes;
 pub mod run;
 
-use crate::no_panic::JsonExt;
 use crate::no_panic::StrExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};

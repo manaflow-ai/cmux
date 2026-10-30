@@ -41,6 +41,7 @@ use super::provider::{
 };
 use super::supervisor::{Inner, Out, Supervisor};
 use crate::panic_free::JsonFields;
+use cmux_json::JsonSet as _;
 
 /// The server scope that allows relay lines.
 pub(super) const RELAY_SCOPE_OP: &str = "cmux.credential.relay";
@@ -103,7 +104,7 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
     match line.get("idempotency_key") {
         None | Some(Value::Null) => {}
         Some(Value::String(key)) if !key.is_empty() && key.len() <= MAX_KEY => {
-            forwarded.insert("idempotency_key", json!(key));
+            forwarded.set("idempotency_key", json!(key));
         }
         Some(_) => {
             return Err(invalid("relay.op idempotency_key must be a string of 1 to 256 bytes"));
@@ -112,7 +113,7 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
     match line.get("origin") {
         None | Some(Value::Null) => {}
         Some(Value::String(origin)) if ORIGINS.contains(&origin.as_str()) => {
-            forwarded.insert("origin", json!(origin));
+            forwarded.set("origin", json!(origin));
         }
         Some(_) => return Err(invalid("relay.op origin is not a known origin")),
     }
@@ -150,10 +151,10 @@ pub(super) fn relay_reply(id: &Value, session: bool, ending: Ending) -> Value {
                 "value": body.get("value").cloned().unwrap_or(Value::Null),
             });
             if let Some(revision) = body.get("revision").filter(|r| r.is_string()) {
-                reply.insert("revision", revision.clone());
+                reply.set("revision", revision.clone());
             }
             if let Some(replayed) = body.get("replayed").filter(|r| r.is_boolean()) {
-                reply.insert("replayed", replayed.clone());
+                reply.set("replayed", replayed.clone());
             }
             reply
         }
@@ -262,7 +263,7 @@ impl Supervisor {
         // Only a relay.op that carries an origin has one (relay.session and
         // reads have none).
         if let Some(origin) = event.field("params").get("origin").cloned() {
-            event.insert("origin", origin);
+            event.set("origin", origin);
         }
         Ok(vec![Out::Provider(client, request_id, event)])
     }

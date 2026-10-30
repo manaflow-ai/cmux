@@ -25,6 +25,7 @@ use super::store::{state_delete, state_upsert};
 use crate::panic_free::JsonFields;
 use crate::workspace_registry::resource_store::{ResourceChange, ResourcePatch};
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
+use cmux_json::JsonSet as _;
 
 pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -231,7 +232,7 @@ pub(crate) fn drain_pending_changes(
                     super::placement_shift::merge(&mut shift, marker);
                     continue;
                 }
-                change.insert("sequence", json!(array.len()));
+                change.set("sequence", json!(array.len()));
                 array.push(change);
             }
         }
@@ -289,12 +290,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         // works after the terminal's row is gone.
         let relaunch =
             crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
-        record.insert(
+        record.set(
             "cwd",
             relaunch.as_ref().map_or(Value::Null, |fields| fields.field("cwd").clone()),
         );
-        record.insert("relaunch", relaunch.unwrap_or(Value::Null));
-        record.insert("terminal_id", json!(content_id));
+        record.set("relaunch", relaunch.unwrap_or(Value::Null));
+        record.set("terminal_id", json!(content_id));
     } else {
         let url = connection
             .query_row(
@@ -318,12 +319,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             .optional()?;
         match frontend {
             Some((url, profile, engine)) => {
-                record.insert("url", json!(privacy::strip_url(&url)));
-                record.insert("browser_profile_id", json!(profile));
-                record.insert("engine", json!(engine));
+                record.set("url", json!(privacy::strip_url(&url)));
+                record.set("browser_profile_id", json!(profile));
+                record.set("engine", json!(engine));
                 // Back/forward entries and scroll come back on reopen
                 // (cx-d0d.11); `closed.list` never shows them.
-                record.insert(
+                record.set(
                     "browser_history",
                     connection
                         .query_row(
@@ -335,19 +336,21 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
                         .map_or(Value::Null, |history| privacy::strip_history(&history)),
                 );
             }
-            None => record.insert("url", json!(url.map(|url| privacy::strip_url(&url)))),
+            None => {
+                record.set("url", json!(url.map(|url| privacy::strip_url(&url))));
+            }
         }
         // A conversation tab reopens as one, from this record.
         if let Some(conversation) =
             super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
         {
-            record.insert("conversation", conversation);
+            record.set("conversation", conversation);
         }
         // A remote-terminal tab reopens as one (`remote-terminal-tabs-v1`).
         if let Some(remote) =
             super::remote_terminal_tabs_store::tab_remote_wire(connection, tab_id)?
         {
-            record.insert("remote", remote);
+            record.set("remote", remote);
         }
     }
     Ok(Some(record))
@@ -479,7 +482,7 @@ fn insert_record(
         // workspace-level group: reopening it restores the space. An
         // ungrouped tab or screen group stays a tab- or screen-level one.
         if record.field("members").as_array().is_some_and(Vec::is_empty) {
-            record.insert(
+            record.set(
                 "kind",
                 json!(if record.get("tab_group").is_some() {
                     "tab"
@@ -929,7 +932,7 @@ pub(crate) fn tab_member(
         && let Some(split) =
             super::closed_pane_split::pane_placement(transaction, &screen_id, &pane_id)?
     {
-        member.insert("split", split);
+        member.set("split", split);
     }
     Ok(Some(member))
 }

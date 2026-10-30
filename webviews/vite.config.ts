@@ -1,3 +1,4 @@
+import { artifactRuntimeVite } from "./scripts/agent-pane/artifactRuntimePlugin.mjs";
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite-plus";
@@ -53,6 +54,7 @@ export default defineConfig({
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
+    artifactRuntimeVite(),
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
     // React from the one shared copy every shipped tree imports (cmux-page://cmux.shared/, built by

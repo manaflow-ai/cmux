@@ -19,7 +19,8 @@
 //! (https://github.com/pingdotgg/t3code; see THIRD_PARTY_LICENSES.md).
 
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
+use cmux_json::JsonSet as _;
 use serde_json::Map;
 
 /// Which x.ai request a method is.

@@ -9,6 +9,8 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+use cmux_json::JsonSet as _;
+
 mod activity;
 pub(crate) mod brand;
 mod open;
@@ -21,7 +23,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::no_panic::JsonExt;
 use cmux_chat_index::{
     AdapterKind, ChatChange, ChatIndex, ChatKey, Discovery, DiscoveryInput, IndexedChat,
     RecordedRoots, RefusedRoot, RootSource, RootSpec, discover,

@@ -61,14 +61,14 @@ import Testing
     }
 
     /// The System Settings drag panel floats over that app with cmux in the background: its tile and
-    /// close button keep hovering there (`.activeAlways`, bounded by the panel showing).
+    /// back button keep hovering there (`.activeAlways`, bounded by the panel showing).
     @Test func theHelperDragPanelHoversOverSystemSettings() {
         let tile = HelperAppTile(appURL: URL(fileURLWithPath: "/Applications/cmux.app"), icon: nil)
         tile.updateTrackingAreas()
         #expect(activity(of: tile).contains(.activeAlways))
 
-        let close = HelperPanelCloseButton(target: nil, action: nil)
-        close.updateTrackingAreas()
-        #expect(activity(of: close).contains(.activeAlways))
+        let back = HelperPanelBackButton(target: nil, action: nil)
+        back.updateTrackingAreas()
+        #expect(activity(of: back).contains(.activeAlways))
     }
 }

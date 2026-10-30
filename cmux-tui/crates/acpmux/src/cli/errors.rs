@@ -7,7 +7,7 @@
 //! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
 
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,7 +180,7 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if lower.contains("connection closed") {
+    if e.is::<crate::client::TransportClosed>() {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
     }
     if lower.contains("no session matches")

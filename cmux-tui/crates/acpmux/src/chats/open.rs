@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 
 use crate::adopt::HarnessHomes;
 use crate::config::{Config, HarnessKind, derive_family};
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 
 /// A configured profile and the harness stores it resumes from.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -23,7 +23,7 @@
 
 use super::subsessions::RECORD_KIND;
 use super::*;
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 
 /// Longest prompt a `started` record quotes, in characters.
 const MAX_PROMPT_CHARS: usize = 500;

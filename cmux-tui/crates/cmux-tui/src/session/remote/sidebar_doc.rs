@@ -13,7 +13,6 @@
 //! with an anchor item. A daemon without the capability keeps the old path
 //! (the control protocol's `move-workspace`, no pin).
 
-use crate::json_fields::JsonFields;
 use serde_json::Map;
 
 use cmux_tui_core::resource::{PROTOCOL, StreamPublicId};
@@ -23,6 +22,7 @@ use crate::session::sidebar_doc::{
     BatchOutcome, ItemRow, PINNED_SECTION_ID, SIDEBAR_DOC_CAPABILITY, SidebarDocModel,
 };
 use crate::session::tree::TreeView;
+use cmux_json::JsonSet as _;
 
 /// The neighbors of a workspace's drop slot in the drawn order, by
 /// workspace public id. The daemon places the item right before `before`
@@ -40,9 +40,9 @@ pub(crate) struct SidebarDropAnchors {
 /// in the anchor's section and group.
 fn drop_target(anchor: ItemRow, side: &str) -> Value {
     let mut to = json!({"section": anchor.section});
-    to.insert(side, Value::String(anchor.id));
+    to.set(side, Value::String(anchor.id));
     if let Some(parent) = anchor.parent {
-        to.insert("parent", Value::String(parent));
+        to.set("parent", Value::String(parent));
     }
     to
 }
@@ -400,7 +400,7 @@ impl RemoteSession {
             let key = StreamPublicId::random().map_err(|error| {
                 anyhow::anyhow!("cannot allocate an idempotency key: {error:?}")
             })?;
-            request.insert("idempotency_key", json!(format!("tui-{}", key.as_str())));
+            request.set("idempotency_key", json!(format!("tui-{}", key.as_str())));
         }
         let message = serde_json::to_string(&request)?;
         let (tx, rx) = channel();

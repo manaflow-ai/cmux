@@ -26,6 +26,7 @@
 //! as the create's refusal, with the app's text.
 
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 mod state;
 
@@ -71,7 +72,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         return forget(report, dry_run);
     }
     if !applies(global) {
-        report.insert("state", json!("not_applicable"));
+        report.set("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     if let Err(action) = signed_in(global) {
@@ -88,7 +89,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
     let look = look(&listing, &saved);
     if let Some(id) = &look.gone {
         // Killed, or gone from cmux: setup no longer has a machine.
-        report.insert("before", json!({"id": id, "status": "gone"}));
+        report.set("before", json!({"id": id, "status": "gone"}));
         if !dry_run {
             Saved::default().save()?;
         }
@@ -103,14 +104,14 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         }
         Step::Machine { row, made, inferred } => {
             let id = row.field("id").as_str().unwrap_or_default().to_owned();
-            report.insert("after", row.clone());
-            report.insert("machine", row.clone());
+            report.set("after", row.clone());
+            report.set("machine", row.clone());
             if let Some(note) = paused_note(&row) {
-                report.insert("note", json!(note));
+                report.set("note", json!(note));
             }
             let ours = (made && !inferred) || saved.machine_id.as_deref() == Some(id.as_str());
             let action = machine_step(&row, ours);
-            report.insert(
+            report.set(
                 "state",
                 json!(match (&action, made, dry_run) {
                     (Some(_), _, _) => "needs_user",
@@ -119,14 +120,14 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
                     (None, false, _) => "ok",
                 }),
             );
-            report.insert("user_action", action.unwrap_or(Value::Null));
+            report.set("user_action", action.unwrap_or(Value::Null));
             if inferred {
-                report.insert("inferred", json!(true));
+                report.set("inferred", json!(true));
             }
             if made {
-                report.insert("undo", json!(undo(&id)));
+                report.set("undo", json!(undo(&id)));
                 if inferred {
-                    report.insert("undo_note", json!(inferred_note(&id)));
+                    report.set("undo_note", json!(inferred_note(&id)));
                 }
                 if !dry_run {
                     keep(&mut report, &Saved { machine_id: Some(id), ..Saved::default() });
@@ -135,11 +136,11 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
             Ok(Outcome { report, failed: false })
         }
         Step::Ask { key, .. } if dry_run => {
-            report.insert("state", json!("planned"));
-            report.insert("undo", json!(undo("MACHINE_ID")));
-            report.insert("cost", json!(COST));
+            report.set("state", json!("planned"));
+            report.set("undo", json!(undo("MACHINE_ID")));
+            report.set("cost", json!(COST));
             if key.is_some() {
-                report.insert(
+                report.set(
                     "note",
                     json!(
                         "A create setup sent earlier has no answer and cmux shows nothing new; the \
@@ -200,15 +201,15 @@ fn forget(mut report: Value, dry_run: bool) -> Result<Outcome, Refusal> {
     let _lock = if dry_run { None } else { Some(Saved::lock()?) };
     let saved = Saved::load();
     if saved.is_empty() {
-        report.insert("state", json!("ok"));
+        report.set("state", json!("ok"));
         return Ok(Outcome { report, failed: false });
     }
-    report.insert("before", saved.to_json());
+    report.set("before", saved.to_json());
     if dry_run {
-        report.insert("state", json!("planned"));
+        report.set("state", json!("planned"));
     } else {
         Saved::default().save()?;
-        report.insert("state", json!("changed"));
+        report.set("state", json!("changed"));
     }
     Ok(Outcome { report, failed: false })
 }
@@ -373,7 +374,7 @@ fn create(
         }
     };
     eprintln!("cmux: setup cloud-machine: waiting for the person to allow a new Cloud machine");
-    report.insert("cost", json!(COST));
+    report.set("cost", json!(COST));
     let params = Value::Object(super::super::app::action_run_params(
         CREATE,
         super::super::app::ActionName::Any,
@@ -409,7 +410,7 @@ fn create(
                     app_problem(&error)
                 } else {
                     let mut action = app_problem(&error);
-                    action.insert("text", json!(format!(
+                    action.set("text", json!(format!(
                     "{}. Setup keeps the request, so a rerun makes no second machine; once the \
                      cause is fixed (a plan with room, say), `{FORGET}` lets setup ask again",
                     action.field("text").as_str().unwrap_or_default()
@@ -421,17 +422,17 @@ fn create(
     };
     if let Some(id) = result.field("machine_id").as_str() {
         let row = view(&result);
-        report.insert("after", row.clone());
-        report.insert("machine", row);
-        report.insert("undo", json!(undo(id)));
-        report.insert("state", json!("changed"));
+        report.set("after", row.clone());
+        report.set("machine", row);
+        report.set("undo", json!(undo(id)));
+        report.set("state", json!("changed"));
         keep(&mut report, &Saved { machine_id: Some(id.to_owned()), ..Saved::default() });
         return Ok(Outcome { report, failed: false });
     }
     // Pending, or an app that answers no machine: the key stays, and with a
     // creation id the rerun follows that creation.
     if let Some(creation) = result.field("creation_id").as_str().filter(|id| !id.is_empty()) {
-        report.insert("after", json!({"creation_id": creation}));
+        report.set("after", json!({"creation_id": creation}));
         let saved = Saved {
             creation_id: Some(creation.to_owned()),
             key: Some(key),
@@ -456,8 +457,8 @@ fn keep(report: &mut Value, saved: &Saved) {
 
 /// The result when the person must do `action` first.
 fn needs_user(mut report: Value, action: Value) -> Result<Outcome, Refusal> {
-    report.insert("state", json!("needs_user"));
-    report.insert("user_action", action);
+    report.set("state", json!("needs_user"));
+    report.set("user_action", action);
     Ok(Outcome { report, failed: false })
 }
 

@@ -42,6 +42,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
 use super::WorkspaceRegistry;
+use cmux_json::JsonSet as _;
 
 mod agent_launch;
 pub(crate) use agent_launch::{
@@ -51,9 +52,11 @@ pub(crate) use agent_launch::{
 
 /// The environment keys a relaunch record keeps, by exact name.
 ///
-/// - `TERM`, `TERMINFO`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`:
+/// - `TERM`, `TERMINFO`, `COLORTERM`, `TERM_PROGRAM`:
 ///   the terminal identity the app gave the shell, so programs see the same
 ///   terminal after reopen (`TERM` is replayed only with a usable `TERMINFO`).
+///   `TERM_PROGRAM_VERSION` is deliberately excluded: cmux forwards TUI mouse
+///   reports instead of providing Ghostty's native selection path.
 /// - `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, `CMUX_TAG`: which app owns the
 ///   terminal, so the `cmux` CLI in the reopened shell talks to that app.
 ///
@@ -66,7 +69,6 @@ pub(crate) const ENV_KEYS: &[&str] = &[
     "TERMINFO",
     "COLORTERM",
     "TERM_PROGRAM",
-    "TERM_PROGRAM_VERSION",
     "CMUX_SOCKET_PATH",
     "CMUX_BUNDLE_ID",
     "CMUX_TAG",
@@ -460,9 +462,9 @@ impl WorkspaceRegistry {
                 if non_interactive {
                     record.insert(NON_INTERACTIVE.into(), json!(true));
                 } else if let Some(launch) = kept {
-                    record.insert("args".into(), json!(launch.args));
-                    record.insert(
-                        "env".into(),
+                    record.set("args", json!(launch.args));
+                    record.set(
+                        "env",
                         Value::Object(
                             launch
                                 .env

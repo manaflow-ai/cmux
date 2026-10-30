@@ -48,8 +48,18 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
     private let list: ListFn
     private let invokeFn: InvokeFn
     private let release: ReleaseFn
+    private let targetResolver = MacCuaTargetResolver()
+    // Fixed at launch by the cmux app. A socket request cannot replace it.
+    private let allowedTargetBundleIDs: String
+    private let hostBundleID: String?
+    /// Machine-join consent, checked last before every call executes.
+    private let gate: ConsentGate
 
-    public init(libraryPath: String) throws {
+    public init(libraryPath: String, allowedTargetBundleIDs: String = "", hostBundleID: String? = nil,
+                gate: ConsentGate) throws {
+        self.allowedTargetBundleIDs = allowedTargetBundleIDs
+        self.hostBundleID = hostBundleID
+        self.gate = gate
         // SAFETY: dlopen reads the NUL-terminated copy of `libraryPath` Swift makes for the
         // call. dlerror's text is copied into a String at once, before any other dl call
         // on this thread can replace it; a nil message (none pending) reads nothing.
@@ -111,6 +121,14 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
     }
 
     public func invoke(name: String, arguments: Data) async throws -> Data {
+        let arguments = try await CuaTargetGuard(
+            policy: CuaTargetPolicy(allowedBundleIDs: allowedTargetBundleIDs, hostBundleID: hostBundleID),
+            resolver: targetResolver
+        ).check(name: name, arguments: arguments)
+        // Consent is the last await before the driver runs: a revoke during
+        // the target check or an earlier preflight still refuses this call.
+        let requirement = await gate.requirement(for: name) { try await self.listTools() }
+        try await gate.admit(name, requirement: requirement)
         let free = unsafe self.free
         let release = unsafe self.release
         return try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data, any Error>) in

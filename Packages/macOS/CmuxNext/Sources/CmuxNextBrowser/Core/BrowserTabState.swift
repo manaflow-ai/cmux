@@ -70,6 +70,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     /// reload of the same address too, and never on a same-document navigation (pushState, a
     /// fragment). Chrome's primary-page change (`WebContentsObserver::PrimaryPageChanged`).
     public var documentGeneration: UInt64 = 0
+    /// Where the shown page last said its scrolling settled (``BrowserScrollReport``); nil until it scrolls.
+    public var scrollReport: BrowserScrollReport?
 
     public init(
         url: URL? = nil,

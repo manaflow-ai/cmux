@@ -658,3 +658,16 @@ run that has not happened yet. That run is named in the last column, and its own
 | 20 | kill -9 app, relaunch (`survivesAppCrash`): screens within 300 ms, pages not reloaded, CDP alive, children running | an app crash ends every page, and the app-spawned long-lived children (shell-mode runs, remote-browser hosts, VS Code serve-web) die with it: 35 app files spawn processes | not measured (150-152 not landed) | open | the kill -9 row on a DEV build with 150 |
 | 21 | acpmux stress.tree 27 chats: <= 3 processes, <= 12 threads per chat | 5-8 processes and 40-80 threads per chat (acpmux-audit.md finding 10). Stand-in agent: 54 processes, 108 threads for 27 chats | not measured | open | acpmux `stress.tree` with real harnesses |
 | 22 | every new thread label in threading-model.md with its QoS; census QoS matches | 2 of 11 labels in the doc (`chromium-host.exit`, `holder-link`) | 5 of 11: `com.cmuxterm.chromium-host.control`, `.input` (doorbell reader), `.exit`, the hang watcher (`mux-hang-watch`, `mux-request-watchdog`), `holder-link`. Not there: `vt-pool-v-N`, `vt-pool-h-N`, `child-exit`, `pty-writer`, `mux-io` (no code yet), and `browser-runtime-events` (in code, `browser/runtime.rs:442`, not in the doc). QoS column: not measured | red: 6 labels missing | `process-model-census.py --check-thread-doc` on a live heavy session |
+
+## Notice to PL-daemon: JSON writes use cmux-json JsonSet (2026-10-29)
+
+Landed f6dd9d4d2afc..2ab17f8e245d (panic-free JSON writes; lint (linux) green, run 40937358124).
+- New leaf crate `cmux-tui/crates/cmux-json`: `JsonSet::set(key, Value) -> bool`, `set_path`,
+  `object_mut`. A null value becomes an object; any other non-object stays unchanged and `set`
+  returns `false`.
+- About 1,010 `v["key"] = x` writes in 17 crates moved to `v.set("key", x)`: cmux-tui-core 207
+  (`state/closed_history_store.rs`, `stash_store.rs` page title via `pointer_mut`,
+  `workspace_registry/*`), cmux-tui 309, cmux-browser-host 69, cmux-tui-cloud-conversations 29.
+- The panic ratchet has no slack: `indexing_slicing` cmux-tui-core 1058 -> 853, cmux-tui
+  1141 -> 833. A new `v["k"] = x` or slice index turns lint (linux) red. Use `v.set("k", x)` or
+  `get_mut` in new code.

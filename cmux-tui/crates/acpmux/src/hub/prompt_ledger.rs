@@ -1,7 +1,7 @@
 //! Pending prompt identities remain owned by the session until they settle.
 
 use super::{Hub, PromptOutcome, Session};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 

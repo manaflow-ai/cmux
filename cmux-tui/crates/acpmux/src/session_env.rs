@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
-use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 
 /// The keys a session's env may set. Every key added here needs a comment
 /// with its reason; never a variable that changes what runs or where it

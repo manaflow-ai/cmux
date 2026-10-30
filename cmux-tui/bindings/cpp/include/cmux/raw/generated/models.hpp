@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a";
+inline constexpr std::string_view kProtocolIrSha256 = "be5ba4057e499583a0ba0d5cad919ee93c2bb53f8ee062342163e0947347f53d";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -101,6 +101,7 @@ struct CloudConversationPresenceParticipant;
 struct ColorHex;
 enum class ColumnMoveDirection;
 struct ColumnPin;
+enum class ColumnSide;
 struct ConversationChange;
 struct ConversationImportMessage;
 struct ConversationMessage;
@@ -3152,6 +3153,11 @@ struct ColumnPin {
     friend bool operator==(const ColumnPin&, const ColumnPin&) = default;
 };
 
+enum class ColumnSide {
+    left,
+    right,
+};
+
 struct ConfigReloadRequestedEvent {
     std::optional<EventCause> cause{};
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
@@ -3604,6 +3610,7 @@ struct ConversationRunResult {
 };
 
 struct ConversationRunsRequest {
+    Field<std::vector<std::string>> answers{};
     Field<std::uint64_t> before_started_at{};
     std::string conversation{};
     Field<std::uint32_t> limit{};
@@ -5539,6 +5546,7 @@ struct NewPaneRightRequest {
     Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<ColumnSide> side{};
     Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
@@ -8439,6 +8447,12 @@ template <>
 struct Codec<ColumnPin> {
     static Result<Json> encode(const ColumnPin& value);
     static Result<ColumnPin> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnSide> {
+    static Result<Json> encode(const ColumnSide& value);
+    static Result<ColumnSide> decode(const Json& value);
 };
 
 template <>

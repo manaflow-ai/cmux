@@ -19,7 +19,7 @@ struct LocalPTYTerminalEnvironmentTests {
         #expect(table.sites.isEmpty, "the identity checked the disk on the main thread: \(table.sites)")
         #expect(env["TERM"] == "xterm-256color")
         #expect(env["COLORTERM"] == "truecolor")
-        #expect(env["TERM_PROGRAM_VERSION"] == "1.0")
+        #expect(env["TERM_PROGRAM_VERSION"] == nil, "no Ghostty version: Codex keeps its copy-on-select fallback")
         #expect(env["TERMINFO"] == nil)
     }
 

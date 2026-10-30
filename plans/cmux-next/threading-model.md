@@ -692,6 +692,10 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.next.onboarding.classic-migration` (user-initiated; the `ClassicMigrationRepository` actor's
   executor), `com.cmuxterm.next.agent-pane.saved-environments` (user-initiated; the `SavedEnvironments` actor's
   executor); each actor's file calls block its own queue, never a pool thread (p02-threads-141..144)
+- Dictation: `com.cmuxterm.dictation.recording` (utility, serial; one dictation session's recording file: its
+  file writes block this queue, never the audio tap or main; one write per second of audio heard, each
+  one second of 16 kHz PCM, so it keeps up by orders of magnitude; the finish's header patch and read of a
+  recording within 4 MiB run here too)
 - Design: `com.cmuxterm.next.desktop-picture` (utility, serial; the desktop wallpaper watch's reads: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)

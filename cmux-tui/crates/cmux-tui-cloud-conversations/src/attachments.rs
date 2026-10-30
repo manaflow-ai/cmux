@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use super::CloudError;
 use super::contract::{mutation_data, require_conversation};
 use super::service::{CloudConversations, PutBody, RangeReply, TransportError};
-use crate::panic_free::JsonFields as _;
+use cmux_json::JsonSet as _;
 
 /// Largest ranged read in one call (the local owner's read cap).
 pub const MAX_RANGE_BYTES: u64 = 4 * 1024 * 1024;
@@ -59,11 +59,12 @@ impl CloudConversations {
     ) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         let mut body = declaration.clone();
-        body.as_object_mut()
-            .ok_or_else(|| {
-                CloudError::BadRequest("an attachment declaration is a JSON object".into())
-            })?
-            .insert("conversation".into(), json!(conversation));
+        if !body.is_object() {
+            return Err(CloudError::BadRequest(
+                "an attachment declaration is a JSON object".into(),
+            ));
+        }
+        body.set("conversation", json!(conversation));
         route_value(self.post("/v1/home/attachments/intent", &body)?)
     }
 
@@ -86,7 +87,7 @@ impl CloudConversations {
         require_conversation(conversation)?;
         let mut body = json!({"conversation": conversation, "hash": hash});
         if let Some(variant) = variant {
-            body.insert("variant", json!(variant));
+            body.set("variant", json!(variant));
         }
         let value = route_value(self.post("/v1/home/attachments/url", &body)?)?;
         let url = value

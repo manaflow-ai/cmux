@@ -14,6 +14,7 @@ use super::super::GlobalArgs;
 use super::super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
 use super::super::{app, resolve, wire};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 /// How a request that did not succeed ended: the owner rejected it, it
 /// never reached the owner, or it may have reached the owner and its
@@ -149,7 +150,7 @@ pub(super) fn resource(
             })?;
             params.insert(prefix.field.clone(), Value::String(id));
         }
-        request.insert("params", plan.params.clone());
+        request.set("params", plan.params.clone());
     }
     // A browser tab in a session a cmux app owns is the app's to render
     // (frontend_browser.rs), as the CLI's `tab create browser` does.
@@ -218,7 +219,7 @@ pub(super) fn session_events(
         view: ResponseView::Full,
     };
     if let Some(cursor) = cursor {
-        plan.params.insert("cursor", cursor.clone());
+        plan.params.set("cursor", cursor.clone());
     }
     resolve::apply_global_route(global, &mut plan)
         .map_err(|error| local("usage.invalid", error.into()))?;

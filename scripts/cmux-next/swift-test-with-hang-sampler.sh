@@ -12,7 +12,9 @@
 # After the run it names every red Swift Testing test in one ::error line and
 # in the step summary, so a red stays visible when a log viewer truncates the
 # step's output. A run that printed Swift Testing output but no "Test run
-# with" summary line fails and names the tests that started and never
+# with" summary line is reported as incomplete (an ::error titled "cmux-next
+# swift test incomplete" and an "Incomplete:" step summary heading, never a
+# pass or a plain red), fails, and names the tests that started and never
 # finished (a crashed or killed test process) and the status `swift test`
 # exited with: SwiftPM prints no line when the helper ends on SIGINT, SIGTERM
 # or SIGKILL, or exits by itself. On macOS it then prints the system log's
@@ -24,6 +26,17 @@
 # CMUX_NEXT_CRASH_OUT (default $RUNNER_TEMP/swift-test-crash-reports) for the
 # job to upload.
 set -uo pipefail
+# The log holds whatever bytes the tests print, and one invalid UTF-8 sequence (a test printing a
+# string cut mid-character) made macOS awk die on every read in a UTF-8 locale ("towc: multibyte
+# conversion failure") and sed with it ("illegal byte sequence"): the stall watchdog went blind for
+# the rest of the run and the report printed nothing, so a slow run ended at the whole-run limit
+# with no test named (cmux#25978's job 123476714112, cmux#26558, cmux#24073). Every reader of the
+# log runs in the C locale: bytes in, bytes out. The reporter markers are matched as anchored
+# alternations of whole byte strings, which read the same there. `swift test` keeps the caller's
+# locale.
+awk() { LC_ALL=C command awk "$@"; }
+sed() { LC_ALL=C command sed "$@"; }
+grep() { LC_ALL=C command grep "$@"; }
 limit="${CMUX_NEXT_TEST_HANG_SECONDS:-1200}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 started_at=$(date +%s)
@@ -208,7 +221,9 @@ sample_and_kill() {
     done
     if (( now - started_at >= limit )); then
       : > "$fired"
-      echo "::error title=cmux-next swift test hang::swift test still running after ${limit}s; sampling the test processes"
+      # Its own line: the test output this shares stdout with may stop mid-line, and an
+      # annotation glued to the end of a test line is not read as one.
+      printf '\n::error title=cmux-next swift test hang::swift test still running after %ss; sampling the test processes\n' "$limit"
       sample_and_kill
       exit 0
     fi
@@ -260,6 +275,7 @@ sample_and_kill() {
       : > "$fired"
       list="$(awk '{ printf "%s%s", (NR > 1 ? "; " : ""), $0 }' "$stuck")"
       count=$(grep -c ' ([0-9]* s)$' "$stuck" || true)
+      printf '\n'
       echo "::error title=cmux-next swift test stuck::no test finished in ${stuck_limit}s (CMUX_NEXT_TEST_STUCK_SECONDS); $count test$([ "$count" = 1 ] || echo s) open at least that long: $list; sampling the test processes"
       if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
         printf '### No Swift test finished in %ss; these were open at least that long\n\n' "$stuck_limit" >> "$GITHUB_STEP_SUMMARY"
@@ -349,9 +365,9 @@ report() {
           open_tests[++open_list] = run_label(run_key(names[i], k))
         }
       if (start_count > 0 && !has_summary) {
-        printf "::error title=cmux-next swift test ended early::no \"Test run with\" summary line (crash, kill or truncation); swift test exited %s, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL or exits by itself; %d tests started and never finished: %s\n", status, open_count, join(open_tests, open_list)
+        printf "::error title=cmux-next swift test incomplete::no \"Test run with\" summary line (crash, kill or truncation); swift test exited %s, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL or exits by itself; %d tests started and never finished: %s\n", status, open_count, join(open_tests, open_list)
         if (summary_file != "") {
-          printf "### No Swift Testing summary line: %d unfinished tests\n\n", open_count >> summary_file
+          printf "### Incomplete: no Swift Testing summary line, %d unfinished tests\n\n", open_count >> summary_file
           for (i = 1; i <= open_list; i++) printf "- `%s`\n", open_tests[i] >> summary_file
         }
         exit 3
@@ -362,11 +378,11 @@ report() {
       if (has_summary && start_count > 0) {
         if (open_count > 0 || summary_tests < start_count) {
           if (open_count > 0)
-            printf "::error title=cmux-next swift test reported fewer tests than it ran::the summaries count %d tests in total but %d started and %d of those never finished; swift test exited %s. A summary line does not make a truncated run a result: %s\n", summary_tests, start_count, open_count, status, join(open_tests, open_list)
+            printf "::error title=cmux-next swift test incomplete::reported fewer tests than it ran: the summaries count %d tests in total but %d started and %d of those never finished; swift test exited %s. A summary line does not make a truncated run a result: %s\n", summary_tests, start_count, open_count, status, join(open_tests, open_list)
           else
-            printf "::error title=cmux-next swift test reported fewer tests than it ran::the summaries count %d tests in total but the log shows %d starting, and every one of those finished; swift test exited %s. A summary that undercounts the log is not a result.\n", summary_tests, start_count, status
+            printf "::error title=cmux-next swift test incomplete::reported fewer tests than it ran: the summaries count %d tests in total but the log shows %d starting, and every one of those finished; swift test exited %s. A summary that undercounts the log is not a result.\n", summary_tests, start_count, status
           if (summary_file != "") {
-            printf "### The run reported %d of %d tests (%d unfinished)\n\n", summary_tests, start_count, open_count >> summary_file
+            printf "### Incomplete: the run reported %d of %d tests (%d unfinished)\n\n", summary_tests, start_count, open_count >> summary_file
             for (i = 1; i <= open_list; i++) printf "- `%s`\n", open_tests[i] >> summary_file
           }
           exit 3
@@ -380,9 +396,9 @@ report() {
         }
       }
       if (bad_count > 0) {
-        printf "::error title=cmux-next swift test ended early::%d of %d test runs in this log are not whole (crash, kill or truncation of one test process); swift test exited %s: %s\n", bad_count, count_block, status, join(bad_blocks, bad_count)
+        printf "::error title=cmux-next swift test incomplete::%d of %d test runs in this log are not whole (crash, kill or truncation of one test process); swift test exited %s: %s\n", bad_count, count_block, status, join(bad_blocks, bad_count)
         if (summary_file != "") {
-          printf "### %d of %d Swift Testing runs are not whole\n\n", bad_count, count_block >> summary_file
+          printf "### Incomplete: %d of %d Swift Testing runs are not whole\n\n", bad_count, count_block >> summary_file
           for (i = 1; i <= bad_count; i++) printf "- %s\n", bad_blocks[i] >> summary_file
         }
         exit 3

@@ -7,6 +7,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "./workflow";
@@ -59,6 +60,7 @@ const localizedState = (t: ReturnType<typeof useT>, state: WorkflowAgent["state"
       return t("plan.status.pending");
   }
 };
+const ROW_ICON = rowIconSize(12);
 const compactTokens = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const latestAgentLine = (node: Subagent, agent: WorkflowAgent | undefined): string | undefined => {
@@ -113,7 +115,7 @@ export function WorkflowCard({
       >
         <span className="acpmux-workflow-card__head">
           <span className="acpmux-workflow-card__name">{workflow.title}</span>
-          <Icon name="disclosure.collapsed" size={11} />
+          <Icon name="disclosure.collapsed" size={ROW_ICON} row />
         </span>
         <span className="acpmux-workflow-card__meta">
           <span>{localizedState(t, workflow.state)}</span>

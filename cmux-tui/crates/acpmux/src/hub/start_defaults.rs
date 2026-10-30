@@ -29,9 +29,9 @@
 //! runs the harness's own default and is never refused for it.
 
 use super::*;
-use crate::no_panic::JsonExt;
 
 use crate::catalog::CatalogHarness;
+use cmux_json::JsonSet as _;
 
 /// Longest model id or effort a pick saves (the pane's own limits).
 const MAX_VALUE: usize = 256;

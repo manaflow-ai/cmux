@@ -91,6 +91,9 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// The first contentful paint report (its own world, main frame); the page-channel path only:
     /// the DevTools path reads Page.lifecycleEvent instead (`CEFFirstPaintBridge`).
     var firstPaint: [Script]
+    /// The settled scroll report (its own world, main frame); the page-channel path only: a fork
+    /// without it keeps the position measured when the person leaves the app and at quit.
+    var scrollReport: [Script]
     /// The page host relay of a cmux page's main frame; the page-channel path only. A cmux page's
     /// calls then reach the host as `cmuxPost` messages, with no DevTools binding event and no
     /// sender probe, as `chrome.send` reaches `WebUIImpl::OnWebUISend` in one renderer-to-browser
@@ -140,10 +143,16 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
                       body: Self.pageHostRelay(post: post.send(Self.pageHostChannel, "stamped"), ready: post.ready(Self.pageHostChannel)),
                       allFrames: false, scope: .cmuxPages)]
             : []
+        let scrollChannel = BrowserScrollReportScript.channel
+        scrollReport = post == .pageChannel
+            ? [Script(world: BrowserScrollReportScript.world,
+                      body: BrowserScrollReportScript.source(post: post.send(scrollChannel, "String(y)"), ready: post.ready(scrollChannel)),
+                      allFrames: false, scope: .browserTabs)]
+            : []
     }
 
     /// Every script, in install order.
-    var all: [Script] { media + verification + firstPaint + pageHost + hostPage }
+    var all: [Script] { media + verification + firstPaint + scrollReport + pageHost + hostPage }
 
     /// The longest text the relay posts, in UTF-16 units: at most 3 UTF-8 bytes each, so every post
     /// it sends fits ``CEFPageMessage/maxPageHostPayloadBytes`` and none is dropped on arrival.

@@ -1,3 +1,5 @@
+use cmux_json::JsonSet as _;
+
 mod creation_lookup;
 use super::resource_store::{
     apply_resource_patch, apply_resource_patch_timed, complete_terminal_close_patch,
@@ -492,15 +494,15 @@ impl WorkspaceRegistry {
                             anyhow::anyhow!("created resource omitted its revision")
                         })?)
                         .context("stored creation revision is negative")?;
-                    result.insert("created_path".into(), created_path);
-                    result.insert("generation".into(), json!(generation));
-                    result.insert("revision".into(), json!(revision.to_string()));
+                    result.set("created_path", created_path);
+                    result.set("generation", json!(generation));
+                    result.set("revision", json!(revision.to_string()));
                     ("created", "none")
                 }
                 other => anyhow::bail!("invalid resource creation state {other:?}"),
             };
-        result.insert("state".into(), json!(state));
-        result.insert("recovery".into(), json!(recovery));
+        result.set("state", json!(state));
+        result.set("recovery", json!(recovery));
         Ok(Value::Object(result))
     }
 

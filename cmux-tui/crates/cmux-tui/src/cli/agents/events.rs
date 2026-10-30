@@ -25,6 +25,7 @@ use super::super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::super::{UsageError, app};
 use super::{AgentFailure, compose_snapshot, snapshot_plan};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 pub(in crate::cli) const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 /// One request at a time per MCP connection: a long-poll holds the others.
@@ -501,8 +502,8 @@ impl<'a> Poll<'a> {
                     "terminal_id": value["terminal_id"],
                 });
                 if title_cut || subtitle_cut || body_cut {
-                    fields.insert("truncated", json!(true));
-                    fields.insert("hint", json!("notification_list has the full text"));
+                    fields.set("truncated", json!(true));
+                    fields.set("hint", json!("notification_list has the full text"));
                 }
                 self.push("notification", millis(&value["created_at_ms"]), fields)
             }
@@ -617,14 +618,14 @@ impl<'a> Poll<'a> {
             let mut fields = json!({"change": "opened", "id": id});
             for field in DIALOG_FIELDS {
                 if let Some(text) = item.field(field).as_str() {
-                    fields.insert(field, json!(short_str(text, TITLE_CHARS).0));
+                    fields.set(field, json!(short_str(text, TITLE_CHARS).0));
                 }
             }
             if let Some(kind) = item["kind"].as_str() {
-                fields.insert("dialog_kind", json!(short_str(kind, TITLE_CHARS).0));
+                fields.set("dialog_kind", json!(short_str(kind, TITLE_CHARS).0));
             }
             if let Some(title) = item["title"].as_str() {
-                fields.insert("title", json!(short_str(title, TITLE_CHARS).0));
+                fields.set("title", json!(short_str(title, TITLE_CHARS).0));
             }
             if !self.push("dialog", None, fields) {
                 self.cursor.dialogs = Some(known);

@@ -62,12 +62,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         hangs: (any HangWatchScoping)? = nil,
         outputBound: Int = LocalPTYTerminalIO.outputBound
     ) throws {
-        var environment = ProcessInfo.processInfo.environment
-        for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
-            environment.removeValue(forKey: key)
-        }
-        environment.merge(Self.terminalEnvironment(installedTerminfo: installedTerminfo)) { _, new in new }
-        environment.merge(extra) { _, new in new }
+        let environment = Self.childEnvironment(extra: extra, installedTerminfo: installedTerminfo)
 
         // Everything the child touches is allocated before fork: after fork
         // only async-signal-safe calls are allowed.
@@ -180,6 +175,25 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         }
     }
 
+    /// Builds the local shell environment from the app's inherited values and
+    /// per-launch overrides. The final sanitization keeps child PTYs from
+    /// retaining host terminal capability claims. `installedTerminfo`: as the
+    /// init's (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``); it reads no file.
+    static func childEnvironment(
+        inherited: [String: String] = ProcessInfo.processInfo.environment,
+        extra: [String: String] = [:],
+        installedTerminfo: Bool = false
+    ) -> [String: String] {
+        var environment = inherited
+        for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
+            environment.removeValue(forKey: key)
+        }
+        environment.merge(Self.terminalEnvironment(installedTerminfo: installedTerminfo)) { _, new in new }
+        environment.merge(extra) { _, new in new }
+        environment.removeValue(forKey: "TERM_PROGRAM_VERSION")
+        return environment
+    }
+
     deinit {
         terminate()
         finish()
@@ -271,16 +285,17 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-256color`
     /// unless `installedTerminfo` (the caller's lane read of
     /// ``GhosttyLaunchProbe/terminfoInstalled``) says `xterm-ghostty` is
-    /// installed in a system terminfo directory; `COLORTERM`, `TERM_PROGRAM=ghostty`
-    /// and its version. `TERMINFO` is not set. It reads no file, so a shell can be
-    /// spawned from the main thread.
+    /// installed in a system terminfo directory; `COLORTERM` and `TERM_PROGRAM=ghostty`.
+    /// `TERMINFO` is not set. The version stays unset because cmux forwards TUI mouse
+    /// reports instead of providing Ghostty's native selection path; advertising a
+    /// Ghostty version makes Codex disable its copy-on-select fallback. It reads no
+    /// file, so a shell can be spawned from the main thread.
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
-        version: String? = GhosttyRuntime.version,
+        version _: String? = GhosttyRuntime.version,
         installedTerminfo: Bool = false
     ) -> [String: String] {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
-        if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
         if installedTerminfo { result["TERM"] = "xterm-ghostty" }
         return result

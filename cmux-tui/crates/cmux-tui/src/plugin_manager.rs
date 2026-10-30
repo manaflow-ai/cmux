@@ -1,3 +1,4 @@
+use cmux_json::JsonSet as _;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
@@ -99,10 +100,13 @@ impl ManagerError {
     pub(crate) fn details(&self) -> Value {
         match self {
             Self::Usage(reason) => json!({"reason": reason}),
-            Self::Validation { field, reason } => match field {
-                Some(field) => json!({"reason": reason, "field": field}),
-                None => json!({"reason": reason}),
-            },
+            Self::Validation { field, reason } => {
+                let mut details = json!({"reason": reason});
+                if let Some(field) = field {
+                    details.set("field", Value::String((*field).to_string()));
+                }
+                details
+            }
             Self::Failure(error) => json!({"reason": error.to_string()}),
         }
     }
@@ -444,8 +448,8 @@ fn remove_command(
     }
     cmux_blocking::fs::remove_dir_all(&installed.dir)?;
     remove_registry_metadata(&install_root(kind)?, &installed.name, kind)?;
-    plugin.insert("active".into(), Value::Bool(false));
-    plugin.insert("enabled".into(), Value::Bool(false));
+    plugin.set("active", Value::Bool(false));
+    plugin.set("enabled", Value::Bool(false));
     Ok(json!({"plugin": plugin}))
 }
 
@@ -1149,7 +1153,7 @@ fn plugin_snapshot(plugin: &InstalledPlugin) -> serde_json::Map<String, Value> {
     snapshot.insert("enabled".into(), Value::Bool(enabled));
     snapshot.insert("extra".into(), Value::Object(extra));
     if let Some(revision) = revision {
-        snapshot.insert("revision".into(), Value::String(revision));
+        snapshot.set("revision", Value::String(revision));
     }
     snapshot
 }

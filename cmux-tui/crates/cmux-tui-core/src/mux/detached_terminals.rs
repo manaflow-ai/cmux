@@ -7,6 +7,7 @@ use std::sync::PoisonError;
 use super::*;
 use crate::panic_free::JsonFields;
 use crate::workspace_registry::DETACHED_TERMINAL_WORKSPACE_KEY;
+use cmux_json::JsonSet as _;
 
 /// Whether a durable `workspace_key` is a detached terminal's sentinel.
 pub(super) fn is_detached_key(workspace_key: &str) -> bool {
@@ -86,10 +87,7 @@ impl Mux {
             None,
         )?;
         // Marks a detached receipt explicitly, beyond its sentinel key.
-        fingerprint
-            .as_object_mut()
-            .context("terminal create fingerprint is not an object")?
-            .insert("detached".to_owned(), Value::Bool(true));
+        fingerprint.set("detached", Value::Bool(true));
         let replay = {
             self.workspace_registry
                 .lock()

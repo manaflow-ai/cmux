@@ -29,6 +29,7 @@ use crate::Mux;
 use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.remove";
 /// The uncommitted paths a refusal lists.
@@ -79,7 +80,7 @@ pub(super) fn dispatch(
             "branch_deleted": branch_deleted,
         });
         if let Some(branch) = &attempt.branch {
-            value.insert("branch", json!(branch));
+            value.set("branch", json!(branch));
         }
         ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
     })

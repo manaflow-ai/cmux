@@ -221,7 +221,12 @@ pub(crate) fn spawn(
         process.env_clear();
     }
     process.envs(&command.environment);
+    // `SHELL` first, so a removal still wins over this backend's own override
+    // (`PtyCommand::env_remove` promises the child never sees the key).
     process.env("SHELL", shell);
+    for key in &command.removed_environment {
+        process.env_remove(key);
+    }
     // The child leads a new session and opens the slave by path as its 0 (1
     // and 2 are copies), which becomes its controlling terminal (TIOCSCTTY),
     // so Ctrl-C's 0x03 reaches its foreground group as SIGINT. On macOS
@@ -442,6 +447,13 @@ impl Drop for MacOsMasterWriter {
 }
 
 fn resolved_shell(command: &PtyCommand) -> OsString {
+    // A removed `SHELL` is not recovered from this process's environment: the
+    // caller asked for the key gone, so the account shell is used instead.
+    if command.removed_environment.contains("SHELL") {
+        // SAFETY: getuid takes no arguments, cannot fail, and touches no memory.
+        return account_shell(unsafe { libc::getuid() })
+            .unwrap_or_else(|| OsString::from("/bin/sh"));
+    }
     let configured = command
         .environment
         .get("SHELL")

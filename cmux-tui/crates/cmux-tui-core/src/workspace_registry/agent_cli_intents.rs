@@ -12,6 +12,7 @@ use super::{
     Actor, MachinePublicId, PanePublicId, ScreenPublicId, SessionPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId, WorkspaceRegistry,
 };
+use cmux_json::JsonSet as _;
 
 pub(crate) fn create_schema(tx: &Transaction<'_>) -> anyhow::Result<()> {
     tx.execute_batch(
@@ -278,10 +279,7 @@ fn row_value(intent: &AgentCLIIntent, receipt: Option<Value>) -> anyhow::Result<
 }
 
 fn set_field(object: &mut Value, field: &str, value: Value) -> anyhow::Result<()> {
-    object
-        .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("agent CLI intent value is not an object"))?
-        .insert(field.into(), value);
+    anyhow::ensure!(object.set(field, value), "agent CLI intent value is not an object");
     Ok(())
 }
 

@@ -15,6 +15,7 @@ use super::dock_columns::reduce_column_dock;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnDock, DockEdge, LayoutColumn, LayoutUndoTabRestore};
+use cmux_json::JsonSet as _;
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 use std::sync::PoisonError;
 
@@ -197,10 +198,10 @@ impl TabDragDestination {
                 ]);
                 // Only when set, so keys recorded before the field stay equal.
                 if keep_focus {
-                    fingerprint.insert("keep_focus".to_string(), Value::Bool(true));
+                    fingerprint.set("keep_focus", Value::Bool(true));
                 }
                 if let Some(around) = around {
-                    fingerprint.insert("around".to_string(), serde_json::json!(around));
+                    fingerprint.set("around", serde_json::json!(around));
                 }
                 Value::Object(fingerprint)
             }
@@ -213,7 +214,7 @@ impl TabDragDestination {
                     ("dock".to_string(), serde_json::json!(dock)),
                 ]);
                 if keep_focus {
-                    fingerprint.insert("keep_focus".to_string(), Value::Bool(true));
+                    fingerprint.set("keep_focus", Value::Bool(true));
                 }
                 Value::Object(fingerprint)
             }

@@ -1,9 +1,10 @@
 //! Part of `Hub`; see `hub/mod.rs`. The `_acpmux/harnesses` reply.
 
 use super::*;
-use crate::no_panic::{JsonExt, LockExt};
+use crate::no_panic::LockExt;
 
 use crate::config::folder_profiles::{self, FolderProfile};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness: its profile, family, defaults, launcher and
@@ -37,6 +38,9 @@ impl Hub {
                     Err(reason) => json!({"startable": false, "reason": reason}),
                 };
                 o.insert("remote".into(), remote);
+                if super::models_view::picker_hidden(&cfg, name) {
+                    o.insert("pickerHidden".into(), json!(true));
+                }
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
                 }

@@ -64,6 +64,9 @@ extension TerminalAttachment {
         NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
         let transport = carrier.transport
         let identity = carrier.identity
+        // A target from before the daemon restarted attaches by its id (``currentTarget(_:identity:)``); the
+        // attachment below then starts with no surface until the daemon's first `vt-state` names it.
+        let target = currentTarget(target, identity: identity)
         let request = try attachRequest(target, identity: identity, size: size, snapshotVersion: snapshotVersion,
                                         localHistory: localHistory, images: images, stream: nil)
         let handle = try transport.reserveAttachStream()

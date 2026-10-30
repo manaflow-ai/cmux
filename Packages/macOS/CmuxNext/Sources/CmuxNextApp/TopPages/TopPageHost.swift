@@ -126,8 +126,8 @@ final class TopPageHost {
                       }
                   },
                   available: { [weak services] route in
-                      // App Store and What's New are hidden unless `labs.previewFeatures` is on (#26138).
-                      guard case .page(let id) = route, id == .appStore || id == .changelog else { return true }
+                      // The App Store is hidden unless `labs.previewFeatures` is on (#26138); What's New is not (``InternalPageTabStore/isPreviewPage(_:)``).
+                      guard case .page(let id) = route, InternalPageTabStore.isPreviewPage(id) else { return true }
                       return services?.settings?.snapshot.previewFeatures == true
                   },
                   discards: services.features.isEnabled(.topPageDiscard),

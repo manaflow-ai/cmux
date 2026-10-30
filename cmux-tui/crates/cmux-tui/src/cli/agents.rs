@@ -16,6 +16,7 @@ use super::command::{CommandPlan, RequestPlan, Resolve, ResponseView, WireOperat
 use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
@@ -506,7 +507,7 @@ fn receipt<B: Backend>(
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
-        receipt.insert("idempotency_key", Value::String(key));
+        receipt.set("idempotency_key", Value::String(key));
     }
     receipt
 }
@@ -576,7 +577,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
     // right of it, where the app opens the caller's new tabs.
     for key in ["caller", "beside"] {
         if let Some(value) = app_value.as_ref().and_then(|value| value.get(key)) {
-            snapshot.insert(key, value.clone());
+            snapshot.set(key, value.clone());
         }
     }
     if let Some(shown) = topology
@@ -644,12 +645,12 @@ fn scoped_windows(topology: Option<&Value>, workspace_ids: Option<&HashSet<Strin
                     return None;
                 }
                 let mut window = window.clone();
-                window.insert("workspaces", Value::Array(selected));
+                window.set("workspaces", Value::Array(selected));
                 if let Some(workspace) = window.get("workspace").cloned() {
                     let workspace_id =
                         workspace.as_str().or_else(|| workspace.get("id").and_then(Value::as_str));
                     if workspace_id.is_none_or(|id| !workspace_ids.contains(id)) {
-                        window.insert("workspace", window.field("workspaces").element(0).clone());
+                        window.set("workspace", window.field("workspaces").element(0).clone());
                     }
                 }
                 Some(window)
@@ -779,13 +780,13 @@ pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) ->
     }
     let returned = items.len();
     let next = offset.saturating_add(returned);
-    snapshot.insert("items", Value::Array(items));
-    snapshot.insert("offset", json!(offset));
-    snapshot.insert("limit", json!(limit));
-    snapshot.insert("total", json!(total));
-    snapshot.insert("returned", json!(returned));
-    snapshot.insert("next_offset", if next < total { json!(next) } else { Value::Null });
-    snapshot.insert("truncated", json!(offset > 0 || next < total));
+    snapshot.set("items", Value::Array(items));
+    snapshot.set("offset", json!(offset));
+    snapshot.set("limit", json!(limit));
+    snapshot.set("total", json!(total));
+    snapshot.set("returned", json!(returned));
+    snapshot.set("next_offset", if next < total { json!(next) } else { Value::Null });
+    snapshot.set("truncated", json!(offset > 0 || next < total));
     snapshot
 }
 

@@ -71,9 +71,37 @@ public final class SidebarMirror {
         }
     }
 
-    // SAFETY (the five calls below): each entry returns the reply type its reader takes, and each reader copies
+    /// The JSON load (`{ok, revision, dropped:[key]}`): the typed reply has no `dropped`. A load is rare.
+    private func load(raw: Data) -> [String]? {
+        // SAFETY: the JSON load entry returns a reply string `json` reads and frees.
+        guard let reply = unsafe json("load", cmux_sidebar_mirror_load, raw), reply.ok == true else { return nil }
+        return reply.dropped ?? []
+    }
+
+    /// The JSON batch (its reply's `dropped`), for a caller that follows some pending intents.
+    private func applyBatchDropping(raw: Data) -> JSONReply? {
+        // SAFETY: the JSON batch entry returns a reply string `json` reads and frees.
+        unsafe json("batch", cmux_sidebar_mirror_apply_batch, raw)
+    }
+
+    /// One JSON call: JSON in, a reply string the caller frees, decoded at once. The caller vouches that `entry` is
+    /// a JSON entry returning a NUL-terminated string the mirror allocated (or NULL).
+    @unsafe
+    private func json(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
+                      _ request: Data) -> JSONReply? {
+        Self.calls[name, default: 0] += 1
+        // SAFETY: `input` views the request's request.count bytes, valid for the closure; the handle is live (see
+        // Handle). The reply string is copied here and freed once, before any other call on the handle.
+        guard let text = unsafe request.withUnsafeBytes({ input in
+            unsafe entry(handle, input.bindMemory(to: UInt8.self).baseAddress, request.count)
+        }) else { return nil }
+        defer { unsafe cmux_sidebar_mirror_string_free(text) }
+        let body = unsafe Data(bytes: text, count: strlen(text))
+        return try? JSONDecoder().blockingDecode(JSONReply.self, from: body)
+    }
+
+    // SAFETY (the four calls below): each entry returns the reply type its reader takes, and each reader copies
     // the reply's buffers before it returns.
-    private func load(raw: Data) -> Reply? { unsafe call("load", cmux_sidebar_mirror_load_typed, raw, Reply.init) }
     private func applyBatch(raw: Data) -> Reply? { unsafe call("batch", cmux_sidebar_mirror_apply_batch_typed, raw, Reply.init) }
     private func applyIntent(raw: Data) -> Reply? { unsafe call("intent", cmux_sidebar_mirror_apply_intent_typed, raw, Reply.init) }
     private func view(raw: Data) -> [SidebarDocRow]? { unsafe call("view", cmux_sidebar_mirror_view_typed, raw, Self.rows) }
@@ -154,7 +182,8 @@ public final class SidebarMirror {
     public static let isLinked = false
     public static func make() -> SidebarMirror? { nil }
 
-    private func load(raw: Data) -> Reply? { nil }
+    private func load(raw: Data) -> [String]? { nil }
+    private func applyBatchDropping(raw: Data) -> JSONReply? { nil }
     private func applyBatch(raw: Data) -> Reply? { nil }
     private func applyIntent(raw: Data) -> Reply? { nil }
     private func view(raw: Data) -> [SidebarDocRow]? { nil }
@@ -164,9 +193,10 @@ public final class SidebarMirror {
     // MARK: Calls
 
     /// Replaces the confirmed document with a `sidebar.get` reply; pending
-    /// intents the new document refuses are dropped.
+    /// intents the new document refuses are dropped. Their keys; nil when the
+    /// document was not loaded.
     @discardableResult
-    public func load(_ document: Data) -> Bool { load(raw: document)?.ok ?? false }
+    public func load(_ document: Data) -> [String]? { load(raw: document) }
 
     /// What a batch did to the mirror.
     public enum BatchOutcome: Hashable, Sendable {
@@ -184,10 +214,21 @@ public final class SidebarMirror {
         return reply.stale ? .stale : .applied(revision: reply.revision)
     }
 
-    /// Drops the pending intent `key` (the daemon refused it; no batch will echo it).
-    public func reject(_ key: String) {
-        guard let body = try? JSONEncoder().encode(Rejected(idempotencyKey: key)) else { return }
-        _ = applyBatch(raw: body)
+    /// `apply(batch:)`, with the keys of the pending intents it settled or dropped (they no longer apply). The JSON
+    /// call: only while a caller follows a pending intent of its own (a Chief change).
+    public func applyDropping(batch: Data) -> (outcome: BatchOutcome, dropped: [String]) {
+        guard let reply = applyBatchDropping(raw: batch) else { return (.refetch, []) }
+        let dropped = reply.dropped ?? []
+        guard reply.ok == true, reply.refetch != true else { return (.refetch, dropped) }
+        return (reply.stale == true ? .stale : .applied(revision: reply.revision.flatMap { UInt64($0) }), dropped)
+    }
+
+    /// Drops the pending intent `key` (the daemon refused it; no batch will echo it). Returns the keys of the later
+    /// pending intents its replay dropped with it (a Chief add over the Chief the refusal put back).
+    @discardableResult
+    public func reject(_ key: String) -> [String] {
+        guard let body = try? JSONEncoder().encode(Rejected(idempotencyKey: key)) else { return [] }
+        return applyBatchDropping(raw: body)?.dropped ?? []
     }
 
     /// Applies an intent optimistically (the daemon's reply or batch
@@ -242,6 +283,13 @@ public final class SidebarMirror {
             if !opsBytes.isEmpty { ops = Data(opsBytes) }
         }
         #endif
+    }
+
+    /// A JSON reply's fields the typed one lacks a use for: `dropped`, the keys of the pending intents that went.
+    private struct JSONReply: Decodable {
+        var ok: Bool?, stale: Bool?, refetch: Bool?
+        var revision: String?
+        var dropped: [String]?
     }
 
     private struct Rejected: Encodable {

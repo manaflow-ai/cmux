@@ -7,6 +7,8 @@
 //! both into its own ghostty terminal. Rendering, key encoding, and mode
 //! queries then work identically in both cases.
 
+use cmux_json::JsonSet as _;
+
 mod cursor_provenance;
 mod frontend_projection;
 mod remote;
@@ -393,8 +395,8 @@ fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
 /// Attach optional cols/rows fields to a remote command.
 fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
-        cmd.insert("cols", json!(cols));
-        cmd.insert("rows", json!(rows));
+        cmd.set("cols", json!(cols));
+        cmd.set("rows", json!(rows));
     }
     cmd
 }
@@ -913,9 +915,11 @@ impl Session {
                                 });
                                 match target.field("key").as_str() {
                                     Some(key) if !key.is_empty() => {
-                                        request.insert("key", json!(key));
+                                        request.set("key", json!(key));
                                     }
-                                    _ => request.insert("workspace", target.field("id").clone()),
+                                    _ => {
+                                        request.set("workspace", target.field("id").clone());
+                                    }
                                 }
                                 Some(remote.request(with_size(request, size)).map(|_| ()))
                             }

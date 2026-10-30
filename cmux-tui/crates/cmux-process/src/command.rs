@@ -55,6 +55,9 @@ pub struct Command {
     /// [`Command::open_file_limit`].
     #[cfg(unix)]
     pub(crate) open_file_limit: Option<u64>,
+    /// [`Command::address_space_limit`].
+    #[cfg(target_os = "linux")]
+    pub(crate) address_space_limit: Option<u64>,
     /// [`Command::creation_flags`].
     #[cfg(windows)]
     pub(crate) creation_flags: u32,
@@ -91,6 +94,8 @@ impl Command {
             process_group_fence: false,
             #[cfg(unix)]
             open_file_limit: None,
+            #[cfg(target_os = "linux")]
+            address_space_limit: None,
             #[cfg(windows)]
             creation_flags: 0,
             qos_ceiling: None,
@@ -280,6 +285,16 @@ impl Command {
     #[cfg(unix)]
     pub fn open_file_limit(&mut self, soft: u64) -> &mut Self {
         self.open_file_limit = Some(soft);
+        self
+    }
+
+    /// The child's `RLIMIT_AS`, soft and hard, at most `bytes` and never above
+    /// what it inherits, set between fork and exec (a bounded read: a git that
+    /// would grow past it fails its allocation instead of the host's memory).
+    /// Linux.
+    #[cfg(target_os = "linux")]
+    pub fn address_space_limit(&mut self, bytes: u64) -> &mut Self {
+        self.address_space_limit = Some(bytes);
         self
     }
 
@@ -516,6 +531,10 @@ impl Command {
             let fence = self.process_group_fence;
             #[cfg(not(target_os = "linux"))]
             let fence = false;
+            #[cfg(target_os = "linux")]
+            let address_space_limit = self.address_space_limit;
+            #[cfg(not(target_os = "linux"))]
+            let address_space_limit: Option<u64> = None;
             if self.new_session
                 || !self.inherit.is_empty()
                 || self.stdin_path.is_some()
@@ -523,6 +542,7 @@ impl Command {
                 || self.isolates()
                 || fence
                 || self.open_file_limit.is_some()
+                || address_space_limit.is_some()
             {
                 // The std path has no posix_spawn file actions: what the
                 // child needs beyond std goes in one pre_exec hook (only
@@ -555,6 +575,7 @@ impl Command {
                         .collect(),
                     process_group_fence: fence,
                     open_file_limit: self.open_file_limit,
+                    address_space_limit,
                     controlling_terminal: self.wants_controlling_terminal(),
                     // A posix_spawn child starts at Default, or at its
                     // ceiling (`posix_spawnattr_set_qos_class_np`).

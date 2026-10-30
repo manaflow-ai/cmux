@@ -10,7 +10,23 @@
      }
  
      func draw(_ layer: CALayer, in ctx: CGContext) {
-@@ -238,15 +239,13 @@
+@@ -202,12 +203,13 @@
+         // Static drawing code reads Fixture.renderScale: the layer's own scale here (its window view's, cx-3cb
+         // view-scale; two views can draw at two scales).
+         guard DisplayTiming.commitOpen else {
+-            ContextScope.run(ctx) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } }
++            // cmux: and its window view's palette (a chat's Chat Colors, PaletteScope).
++            ContextScope.run(ctx) { PaletteScope.with(PaletteScope.palette(of: self)) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } } }
+             return
+         }
+         // The commit after a display change (cx-3cb display-budget evidence): each class's drawing time.
+         let t0 = CACurrentMediaTime()
+-        ContextScope.run(ctx) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } }
++        ContextScope.run(ctx) { PaletteScope.with(PaletteScope.palette(of: self)) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } } }
+         DisplayTiming.noteCommit("draw.\(type(of: self))", (CACurrentMediaTime() - t0) * 1000)
+     }
+ 
+@@ -238,15 +240,13 @@
  /// The header's live material: a real NSVisualEffectView that the window
  /// places at this view's frame, above the transcript (Host.swift). It has no
  /// pixels in the layer tree, so captures use the fitted blur instead.

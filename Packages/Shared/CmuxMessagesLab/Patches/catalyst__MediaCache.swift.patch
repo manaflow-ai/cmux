@@ -124,11 +124,9 @@
 +                    if s.bytes <= s.budget * 4 / 5 { break }
 +                    s.map.removeValue(forKey: k); s.bytes -= e.bytes; freed.append(e.image); s.evicted += 1
 +                }
-             }
++            }
 +            return freed
-         }
--        lock.unlock()
--        if !freed.isEmpty { Reclaimer.release(freed) }
++        }
 +        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
 +    }
 +
@@ -143,9 +141,11 @@
 +                guard let e = s.map.removeValue(forKey: ref + at) else { continue }
 +                s.bytes -= e.bytes
 +                freed.append(e.image)
-+            }
+             }
 +            return freed
-+        }
+         }
+-        lock.unlock()
+-        if !freed.isEmpty { Reclaimer.release(freed) }
 +        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
      }
  
@@ -283,12 +283,15 @@
              }
          }
      }
-@@ -266,7 +332,7 @@
+@@ -266,7 +332,10 @@
      static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
      static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
      func update(_ r: RowRecycler) {
 -        guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
 +        guard ScrollPrefetcher.enabled else { return } // cmux: no RowBitmaps.prerenderEnabled
++        PaletteScope.with(PaletteScope.palette(of: r)) { updateScoped(r) } // cmux: in its view's palette
++    }
++    private func updateScoped(_ r: RowRecycler) {
          let y = r.bounds.minY, t = r.clock()
          if t < r.pageJumpUntil {
              // A track-click page: the jump is no velocity, and the page code prepares its rows.

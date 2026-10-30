@@ -21,6 +21,7 @@
 // std's Mutex, RwLock and Condvar wait untimed; cmux_threads::sync times
 // them (cmux-tui/clippy.toml, p02-threads.md task 227).
 #![cfg_attr(not(test), deny(clippy::disallowed_types))]
+use cmux_json::JsonSet as _;
 
 #[cfg(test)]
 use crate::mux::DaemonHandoffRequest;
@@ -77,7 +78,6 @@ use crate::browser::BrowserPointerOwner;
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
 use crate::mux::ClientSizingIdentity;
-use crate::panic_free::JsonFields;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
@@ -143,9 +143,9 @@ mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -511,6 +511,8 @@ pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// (`{reason, at_ms}`). Viewing the tab keeps it; the agent's clear, a browser
 /// tab's navigation to another page, or the tab's close clears it.
 pub const TAB_ATTENTION_CAPABILITY: &str = "tab-attention-v1";
+/// Persisted request identities and compare-and-clear for tab attention.
+pub const TAB_ATTENTION_REQUEST_ID_CAPABILITY: &str = "tab-attention-request-id-v1";
 /// A workspace's description: `description` on `workspace.update` (null
 /// clears it) and the workspace snapshot's `extra.description` while set.
 pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
@@ -2554,7 +2556,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value.insert("split_id", json!(public_id));
+                value.set("split_id", json!(public_id));
             }
             value
         }
@@ -2666,9 +2668,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces.insert("registry_id", json!(registry_id));
-    workspaces.insert("generation", json!(generation));
-    workspaces.insert("terminal_revision", json!(mux.terminal_registry_revision()?));
+    workspaces.set("registry_id", json!(registry_id));
+    workspaces.set("generation", json!(generation));
+    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 
@@ -2730,6 +2732,9 @@ mod pinned_columns_tests;
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
 
+#[cfg(test)]
+#[path = "server/column_left_tests.rs"]
+mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;

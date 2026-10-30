@@ -283,7 +283,8 @@ extension SidebarDocStore {
         guard isActive else { return nil }
         if let cached = projectionCache, cached.answers(version: version, live: live) { return cached.projection }
         guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
-        let projection = SidebarDocProjection(rows: rows, records: records, revision: records.revision)
+        let projection = SidebarDocProjection(rows: rows, records: records.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add)),
+                                              revision: records.revision)
         projectionCache = SidebarDocProjectionCache(version: version, live: live, projection: projection)
         return projection
     }
@@ -308,7 +309,9 @@ extension SidebarDocStore {
 
     /// Shows `next`, the projection of the document at `version` over `live` (`show(live:connectedRemotes:then:)`).
     func showProjection(_ next: SidebarDocProjection?, at version: UInt64, live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String>) {
-        let previous = shown
+        // The projection paired with `lastLive`, not `shown`: a presentation-only `reshow` may have taken a departed
+        // remote's item out of `shown` before this show sends its close.
+        let previous = lastLiveProjection
         shownVersion = version
         if next != shown { shown = next }
         if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
@@ -320,6 +323,7 @@ extension SidebarDocStore {
             stillConnected.contains($0.sessionID) && (previous?.items[$0] != nil || records.item(for: $0) != nil)
         }
         (lastLive, lastLiveOrder, lastConnectedRemotes) = (now, live, connectedRemotes)
+        lastLiveProjection = next
         guard isActive, !closed.isEmpty else { return }
         let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
             .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }

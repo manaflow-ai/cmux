@@ -6,6 +6,7 @@ use super::client_ids::{
 };
 use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
+use cmux_json::JsonSet as _;
 use std::sync::PoisonError;
 
 impl Mux {
@@ -70,7 +71,7 @@ impl Mux {
                 None => requested_reopen_tab_id(fields, state, registry)?,
             };
             if let Some(tab_id) = tab_id {
-                reservation.insert("tab_id".to_string(), json!(tab_id));
+                reservation.set("tab_id", json!(tab_id));
             }
             intent.insert("terminal_reservation".to_string(), Value::Object(reservation));
         }
@@ -81,7 +82,7 @@ impl Mux {
                 Some(pane_id) => pane_id,
                 None => PanePublicId::random()?,
             };
-            intent.insert("pane_reservation".to_string(), json!({ "pane_id": pane_id }));
+            intent.set("pane_reservation", json!({ "pane_id": pane_id }));
         }
         if operation == ResourceOperation::PaneSplit {
             // The new split's public id is fixed here too: the caller's
@@ -92,7 +93,7 @@ impl Mux {
                 Some(split_id) => split_id,
                 None => SplitPublicId::random()?,
             };
-            intent.insert("split_reservation".to_string(), json!({ "split_id": split_id }));
+            intent.set("split_reservation", json!({ "split_id": split_id }));
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -102,8 +103,8 @@ impl Mux {
                 .map(str::to_string)
                 .map(Ok)
                 .unwrap_or_else(Self::new_workspace_key)?;
-            intent.insert(
-                "workspace_reservation".to_string(),
+            intent.set(
+                "workspace_reservation",
                 json!({
                     "workspace_key":workspace_key,
                     "workspace_public_id":WorkspacePublicId::random()?,
@@ -124,8 +125,8 @@ impl Mux {
                 Some(tab_id) => tab_id,
                 None => TabPublicId::random()?,
             };
-            intent.insert(
-                "browser_reservation".to_string(),
+            intent.set(
+                "browser_reservation",
                 json!({
                     "tab_id":tab_id,
                     "browser_id":browser_id,
@@ -196,7 +197,7 @@ impl Mux {
                     )));
                 }
             }
-            intent.insert("layout_revision".to_string(), json!(entry.after_revision));
+            intent.set("layout_revision", json!(entry.after_revision));
         }
         Ok(Value::Object(intent))
     }
@@ -978,8 +979,10 @@ impl Mux {
                 let column_id = split_id.context("viewport column reserved no column id")?;
                 let column = LayoutColumn::single(column_id, width, pane_id);
                 let base = base_column_id.context("viewport column reserved no base id")?;
+                // `direction: "left"` (`column-left-v1`) opens the column before the target's.
+                let before = split_direction.is_some_and(|(_, before_target)| before_target);
                 anyhow::ensure!(
-                    screen.insert_layout_column_after(target, base, column),
+                    screen.insert_layout_column_beside(target, base, column, before),
                     "target pane disappeared from its layout"
                 );
             } else if let Some((dir, before_target)) = split_direction {

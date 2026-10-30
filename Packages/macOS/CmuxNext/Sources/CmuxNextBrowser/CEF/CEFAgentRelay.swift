@@ -194,6 +194,8 @@ public final class CEFAgentRelay {
         case .pageHost:
             guard let post = CEFDocumentScripts.pageHostPost(message.payload) else { return }
             onPageHostPost?(post.text, post.sender)
+        case .scrollReport:
+            if let y = BrowserScrollReport.y(fromPayload: message.payload) { tab?.machine.apply(.pageScrolled(y)) }
         }
     }
 

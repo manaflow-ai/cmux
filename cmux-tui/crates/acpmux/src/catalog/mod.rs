@@ -14,6 +14,8 @@
 //! `catalog.refresh` fetches now. A body that is too big, not valid, or of a
 //! newer major schema version never replaces the current copy. Every change is announced to every connection as `catalog.changed`.
 
+use cmux_json::JsonSet as _;
+
 pub mod fetch;
 pub mod schema;
 
@@ -26,7 +28,6 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use crate::maintenance::{JobSpec, Maintenance, MaintenanceError, Start};
-use crate::no_panic::JsonExt;
 
 pub use fetch::{FetchOutcome, Fetcher, HttpsFetcher};
 pub use schema::{Catalog, CatalogError, CatalogHarness, HarnessModel, ModelInfo};

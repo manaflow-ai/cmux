@@ -30,6 +30,7 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod server_ensure;
+mod settings;
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -152,9 +153,12 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
     flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
-    let (scope, words) =
-        tokens.words.split_first().ok_or_else(|| UsageError::new("missing resource scope"))?;
-    let scope = scope.as_str();
+    let scope = tokens
+        .words
+        .first()
+        .map(String::as_str)
+        .ok_or_else(|| UsageError::new("missing resource scope"))?;
+    let words = tokens.words.get(1..).unwrap_or_default();
     if tokens.argv.is_some() && !takes_argv(scope, &strs(words)) {
         return Err(UsageError::new(format!(
             "`{}` runs no command: drop the words after --",
@@ -169,6 +173,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
         "workspace" => parse_workspace(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
         "screen" => parse_screen(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "settings" | "config" => settings::parse(words, &mut tokens.flags, tokens.argv.as_deref())?,
         "pane" => parse_pane(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
         "tab" => parse_tab(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
         "terminal" => parse_terminal(words, &mut selectors, &mut tokens.flags)?,
@@ -292,7 +297,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
-        } else if value.starts_with('-') && value != "-" {
+        } else if value.starts_with('-') && value != "-" && value.parse::<f64>().is_err() {
             // A lone `-` is a word: standard input, for commands that read it.
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
@@ -336,6 +341,9 @@ fn takes_argv(scope: &str, words: &[&str]) -> bool {
         "pane" => pane(words),
         "tab" => tab(words),
         "agent" => matches!(words, ["message", ..]),
+        "settings" | "config" => {
+            matches!(words, ["get", ..] | ["set", ..] | ["reset", ..] | ["unset", ..])
+        }
         _ => false,
     }
 }
@@ -3312,6 +3320,44 @@ mod tests {
             CommandPlan::Protocol(plan) => *plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn settings_crud_routes_to_daemon_operations() {
+        let get = protocol(&["settings", "get", "appearance.theme"]);
+        assert_eq!(operation(&get), "settings.get");
+        assert_eq!(
+            get.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let set = protocol(&["settings", "set", "appearance.theme", "dark"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "appearance.theme", "value": "dark", "machine": "current", "session": "current"})
+        );
+
+        let reset = protocol(&["settings", "reset", "appearance.theme"]);
+        assert_eq!(operation(&reset), "settings.reset");
+        assert_eq!(
+            reset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let unset = protocol(&["settings", "unset", "appearance.theme"]);
+        assert_eq!(operation(&unset), "settings.reset");
+        assert_eq!(
+            unset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let negative = protocol(&["settings", "set", "custom.counter", "-1"]);
+        assert_eq!(negative.params["value"], -1);
+
+        let literal = protocol(&["settings", "set", "--", "custom.label", "--literal"]);
+        assert_eq!(literal.params["key"], "custom.label");
+        assert_eq!(literal.params["value"], "--literal");
     }
 
     #[test]

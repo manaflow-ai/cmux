@@ -76,9 +76,14 @@ final class InternalPageTabStore {
         self.mainWork = mainWork
     }
 
+    /// The pages only Labs (`labs.previewFeatures`) shows: the App Store. What's New
+    /// (`.changelog`) is not one: an update's "See What's New" opens it with Labs off
+    /// (user 13935, Leo 2026-10-29: "why does See What's New not open the What's New tab").
     static func isPreviewPage(_ page: String?) -> Bool {
-        page == InternalPageID.appStore.rawValue || page == InternalPageID.changelog.rawValue
+        page == InternalPageID.appStore.rawValue
     }
+
+    static func isPreviewPage(_ page: InternalPageID) -> Bool { isPreviewPage(page.rawValue) }
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -197,8 +202,8 @@ final class InternalPageTabStore {
     /// The tab's view, whose content waits for the tab's first show: an open or a show that does not
     /// show the tab (automation, a parked workspace) makes no page.
     func tabView(for key: String) -> InternalPageView? {
-        // App Store and What's New are Labs pages: hidden while `labs.previewFeatures` is off.
-        if let page = LocalPageTab.page(of: key), page == .appStore || page == .changelog,
+        // The App Store is a Labs page: hidden while `labs.previewFeatures` is off (What's New is not, ``isPreviewPage(_:)``).
+        if let page = LocalPageTab.page(of: key), Self.isPreviewPage(page),
            windows[key]?.controller?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
@@ -285,7 +290,7 @@ final class InternalPageTabStore {
     func tabView(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
                  window: WindowController?) -> InternalPageView? {
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)) else { return nil }
-        if page == .appStore || page == .changelog,
+        if Self.isPreviewPage(page),
            window?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let key = storeKeys[tab.id], let view = views[key] {
             // The tab moved to another window: the same view shows there, and its window follows.

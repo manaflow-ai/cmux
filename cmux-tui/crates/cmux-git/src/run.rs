@@ -77,7 +77,7 @@ pub fn run_git_within(
     max_stdout: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_stdout, deadline, None, &[])
+    run(directory, overrides, arguments, max_stdout, deadline, None, &[], None)
 }
 
 /// [`run_git_within`] whose new objects go to `scratch`, an empty folder the
@@ -96,12 +96,30 @@ pub fn run_git_scratch_objects_within(
     objects: &Path,
     scratch: &Path,
 ) -> Result<GitOutput, GitFailure> {
+    run_git_scratch_objects_within_limited(
+        directory, overrides, arguments, max_stdout, deadline, objects, scratch, None,
+    )
+}
+
+/// [`run_git_scratch_objects_within`] with an optional address-space limit for
+/// the child on Linux. Other platforms keep the deadline without this limit.
+#[allow(clippy::too_many_arguments)]
+pub fn run_git_scratch_objects_within_limited(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    max_stdout: usize,
+    deadline: Duration,
+    objects: &Path,
+    scratch: &Path,
+    address_space_limit: Option<u64>,
+) -> Result<GitOutput, GitFailure> {
     let alternate = alternate_entry(objects);
     let env = [
         ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
         ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
     ];
-    run(directory, overrides, arguments, max_stdout, deadline, None, &env)
+    run(directory, overrides, arguments, max_stdout, deadline, None, &env, address_space_limit)
 }
 
 /// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
@@ -145,7 +163,7 @@ pub fn run_git_records_within(
     deadline: Duration,
     keep: fn(&[u8]) -> bool,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[])
+    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[], None)
 }
 
 thread_local! {
@@ -209,6 +227,7 @@ fn lower(pid: u32) {
 #[cfg(not(unix))]
 fn lower(_pid: u32) {}
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     directory: &Path,
     overrides: &[Override],
@@ -217,14 +236,23 @@ fn run(
     deadline: Duration,
     keep: Option<fn(&[u8]) -> bool>,
     env: &[(&str, &OsStr)],
+    address_space_limit: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = address_space_limit;
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
     }
-    let mut child = read_command(directory, overrides, arguments, env)
-        .spawn()
-        .map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+    let mut command = read_command(directory, overrides, arguments, env);
+    // A bounded read (worktree care's squash checks): the child's address space
+    // (`RLIMIT_AS`, soft and hard, never above what it inherits), set between
+    // fork and exec.
+    #[cfg(target_os = "linux")]
+    if let Some(limit) = address_space_limit {
+        command.address_space_limit(limit);
+    }
+    let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
     lower_if_background(child.id());
     // Both are piped above; a missing one is a spawn failure, not a panic.
     let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
@@ -256,6 +284,9 @@ fn run(
     let (stdout, truncated) = stdout.join().unwrap_or_default();
     let (stderr, _) = stderr.join().unwrap_or_default();
     if !status.success() {
+        if status.code() != Some(1) && address_space_limit.is_some() {
+            return Err(GitFailure::Unavailable(format!("bounded git exited with {status}")));
+        }
         return Err(GitFailure::Exit(explained(String::from_utf8_lossy(&stderr).trim())));
     }
     Ok(GitOutput { stdout, truncated })

@@ -13,8 +13,8 @@ use serde_json::{Value, json};
 
 use super::key_text;
 use crate::hub::{Hub, Session};
-use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
+use cmux_json::JsonSet as _;
 
 /// The longest preview sent, in characters: one sidebar line and some.
 const PREVIEW_CHARS: usize = 160;

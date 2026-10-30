@@ -28,7 +28,8 @@
 //!   walk reads that answer.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
+use cmux_json::JsonSet as _;
 use std::path::{Path, PathBuf};
 
 /// How much a session's harness runs without asking.

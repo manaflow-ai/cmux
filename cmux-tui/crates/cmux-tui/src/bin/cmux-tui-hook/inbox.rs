@@ -9,6 +9,7 @@
 //! fails, so on success the helper prints exactly one JSON object itself.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Queued messages one hook asks the daemon for, oldest first.
 const PAGE: u64 = 50;
@@ -167,11 +168,10 @@ fn request(
     deadline: Instant,
 ) -> anyhow::Result<Value> {
     let (request_id, idempotency_key) = random_identifiers()?;
-    let Some(fields) = params.as_object_mut() else {
+    if !params.set("machine", json!("current")) {
         bail!("{operation} params are not a JSON object");
-    };
-    fields.insert("machine".into(), json!("current"));
-    fields.insert("session".into(), json!("current"));
+    }
+    params.set("session", json!("current"));
     let mut request = json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
@@ -179,8 +179,8 @@ fn request(
         "operation": operation,
         "params": params,
     });
-    if mutation && let Some(fields) = request.as_object_mut() {
-        fields.insert("idempotency_key".into(), Value::String(idempotency_key));
+    if mutation {
+        request.set("idempotency_key", Value::String(idempotency_key));
     }
     let mut encoded = serde_json::to_vec(&request)?;
     encoded.push(b'\n');

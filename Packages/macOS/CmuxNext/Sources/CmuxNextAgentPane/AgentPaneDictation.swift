@@ -59,6 +59,11 @@ final class AgentPaneDictation {
     /// The chat's harness takes voice input (``AgentPaneDictationCommand/recordAudio(_:)``), so
     /// every start, from the mic, its shortcut, the palette or the CLI, keeps the session's audio.
     private var recordsAudio = false
+    /// A fresh folder for a long recording (``AgentPaneModel/onDictationFolder``); nil: temporary.
+    var recordingFolder: () -> URL? = { nil }
+    /// Capture the chat at start: closing the recording may outlive a pane navigation.
+    var chatSession: () -> String? = { nil }
+    private var recordingChat = ""
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
     /// A session started (`true`: starting, listening or finalizing) or ended (`false`), once per
@@ -221,6 +226,7 @@ final class AgentPaneDictation {
         microphone.claims?.claim(self) { [weak self] in self?.session?.stop() }
         let session = activeSession()
         session.recordsAudio = recordsAudio
+        if session.phase.isStartable { recordingChat = chatSession() ?? "" }
         session.start()
         noteRunning(!phase.isStartable)
         if !phase.isStartable, sleepObserver == nil {
@@ -238,12 +244,15 @@ final class AgentPaneDictation {
         if let session { return session }
         let made = makeSession()
         made.onUpdate = { [weak self] update in self?.deliver(update) }
+        made.recordingFolder = { [weak self] in self?.recordingFolder() }
         session = made
         return made
     }
 
     private func deliver(_ update: DictationUpdate) {
         noteRunning(!update.phase.isStartable)
+        var update = update
+        update.chat = recordingChat
         if update.phase.isStartable {
             endHold()
             endSleepWatch()
@@ -263,6 +272,7 @@ final class AgentPaneDictation {
             "level": (Double(update.level) * 1000).rounded() / 1000,
             "cancelled": update.cancelled,
         ]
+        if let chat = update.chat { value["session"] = chat }
         switch update.phase {
         case .denied(let permission):
             value["permission"] = permission.rawValue
@@ -273,8 +283,13 @@ final class AgentPaneDictation {
         default:
             break
         }
+        // A recording that fits a prompt goes as its bytes (an audio block); a longer one as the
+        // file it was written to, which the composer attaches as a saved original.
         if let audio = update.audio {
-            value["audio"] = ["mimeType": "audio/wav", "data": audio.base64EncodedString()] as [String: any Sendable]
+            var sent: [String: any Sendable] = ["mimeType": "audio/wav", "byteCount": audio.byteCount]
+            if let data = audio.data { sent["data"] = data.base64EncodedString() }
+            if let file = audio.file { sent["path"] = file.path }
+            value["audio"] = sent
         }
         if let omitted = update.audioOmitted {
             value["audioOmitted"] = omitted.rawValue

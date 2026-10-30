@@ -16,7 +16,7 @@ use serde_json::json;
 use crate::config::folder_profiles::{self, FolderGate, FolderProfile, FolderState};
 use crate::config::profiles::Severity;
 use crate::config::{Config, HarnessProfile};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 
 fn gate(cfg: &Config) -> Result<&FolderGate> {
     cfg.folder_gate.as_ref().ok_or_else(|| anyhow!("no home folder: folder profiles are off"))

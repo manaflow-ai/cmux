@@ -17,6 +17,7 @@ dependencies = [
  "cmux-features",
  "cmux-git",
  "cmux-hang-watch",
+ "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "cmux-memory",
@@ -28,6 +29,7 @@ dependencies = [
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-wake",
+ "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
  "dirs",
@@ -63,6 +65,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -626,6 +629,7 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-json",
  "cmux-threads",
  "cmux-trace",
  "libc",
@@ -687,6 +691,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-blocking",
+ "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
@@ -728,6 +733,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "cmux-threads",
  "core-foundation",
  "core-foundation-sys",
@@ -824,6 +830,7 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "cmux-blocking",
+ "cmux-json",
  "cmux-panic-log",
  "cmux-server",
  "cmux-server-core",
@@ -843,6 +850,13 @@ dependencies = [
  "memchr",
  "phf",
  "phf_codegen",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -962,6 +976,7 @@ dependencies = [
  "bytes",
  "cmux-blocking",
  "cmux-ipc",
+ "cmux-json",
  "cmux-link",
  "cmux-panic-log",
  "cmux-pty",
@@ -1024,6 +1039,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-blocking",
+ "cmux-json",
  "cmux-panic-log",
  "cmux-server-core",
  "cmux-threads",
@@ -1049,6 +1065,7 @@ name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "hmac",
  "ring",
  "serde",
@@ -1103,12 +1120,14 @@ dependencies = [
  "cmux-api-compat",
  "cmux-blocking",
  "cmux-build-identity",
+ "cmux-chat-index",
  "cmux-config",
  "cmux-features",
  "cmux-hang-watch",
  "cmux-holder",
  "cmux-host",
  "cmux-ipc",
+ "cmux-json",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
@@ -1166,6 +1185,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-json",
  "cmux-threads",
  "serde_json",
  "tungstenite",
@@ -1177,6 +1197,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-wire",
+ "cmux-json",
  "cmux-threads",
  "serde",
  "serde_json",
@@ -1206,6 +1227,7 @@ dependencies = [
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",
+ "cmux-json",
  "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
@@ -1291,6 +1313,7 @@ name = "cmux-tui-hooks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-json",
  "cmux-process",
  "cmux-threads",
  "cmux-tui-platform",

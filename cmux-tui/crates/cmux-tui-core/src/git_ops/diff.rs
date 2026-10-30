@@ -12,8 +12,8 @@ use cmux_git::run::GitOutput;
 use serde_json::{Map, Value, json};
 
 use super::{Repository, clamp, git_failed, parse};
-use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.diff";
 const MAX_LISTING_BYTES: usize = 8 * 1024 * 1024;
@@ -71,19 +71,19 @@ impl ChangedFile {
             "deletions":clamp(self.deletions),
         });
         if let Some(previous_path) = &self.previous_path {
-            value.insert("previous_path", json!(previous_path));
+            value.set("previous_path", json!(previous_path));
         }
         if self.binary {
-            value.insert("binary", json!(true));
+            value.set("binary", json!(true));
         }
         if let Some(patch) = &self.patch {
-            value.insert("patch", json!(patch));
+            value.set("patch", json!(patch));
         }
         if let Some(fingerprint) = &self.blob_fingerprint {
-            value["blob_fingerprint"] = json!(fingerprint);
+            value.set("blob_fingerprint", json!(fingerprint));
         }
         if self.patch_truncated {
-            value.insert("patch_truncated", json!(true));
+            value.set("patch_truncated", json!(true));
         }
         value
     }
@@ -99,7 +99,7 @@ pub(super) fn read(
     pathspecs(fields)?;
     let comparison = comparison(repository, scope)?;
     let mut value = report(repository, &comparison, OPERATION, fields)?;
-    value.insert("scope", json!(scope));
+    value.set("scope", json!(scope));
     Ok(value)
 }
 
@@ -180,13 +180,13 @@ fn report(
         "files_omitted":clamp(files_omitted as u64),
     });
     if let Some(head) = &comparison.head {
-        value.insert("head", json!(head));
+        value.set("head", json!(head));
     }
     if let Some(base) = &comparison.base {
-        value.insert("base", json!(base));
+        value.set("base", json!(base));
     }
     if untracked_skipped > 0 {
-        value.insert("untracked_skipped", json!(clamp(untracked_skipped as u64)));
+        value.set("untracked_skipped", json!(clamp(untracked_skipped as u64)));
     }
     Ok(value)
 }

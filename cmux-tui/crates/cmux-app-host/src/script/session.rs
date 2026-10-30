@@ -21,6 +21,7 @@ use crate::protocol::{
     AppInfo, FatalReason, FromHost, MAX_LINE_BYTES, PANIC_LOG_FLAG, SCRIPT_MEMORY_BYTES,
     SCRIPT_PROFILE, SCRIPT_STEP_MS, ToHost,
 };
+use cmux_json::JsonSet as _;
 
 /// A script session is automation (`cmux script run`, `cmux script repl`):
 /// its reader and call threads run at Utility.
@@ -94,7 +95,7 @@ impl ScriptError {
     pub fn to_json(&self) -> Value {
         let mut value = json!({ "code": self.code, "message": self.message });
         if !self.details.is_null() {
-            value["details"] = self.details.clone();
+            value.set("details", self.details.clone());
         }
         value
     }

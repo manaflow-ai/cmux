@@ -7,8 +7,9 @@
 //! names it.
 
 use super::{EventFilter, Hub, Session};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -81,8 +82,7 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
     if size < header + 8 || size > bytes.len() || (size - header - 8) % 4 != 0 {
         return None;
     }
-    let major = bytes.get(header..header + 4)?;
-    let compatible = bytes.get(header + 8..size)?;
+    let (major, compatible) = (bytes.get(header..header + 4)?, bytes.get(header + 8..size)?);
     let brands: Vec<&[u8]> = std::iter::once(major).chain(compatible.chunks_exact(4)).collect();
     let has =
         |names: &[&[u8; 4]]| brands.iter().any(|brand| names.iter().any(|name| *brand == *name));
@@ -421,7 +421,7 @@ pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
                 "data": base64::engine::general_purpose::STANDARD.encode(bytes),
             });
             if let Some(name) = named.get("name") {
-                block["name"] = name.clone();
+                block.set("name", name.clone());
             }
             Some(block)
         })
@@ -454,7 +454,7 @@ impl Hub {
         super::session::mark_pasted(&mut msg, blocks);
         // Not recorded, so a retry knows it cannot send the prompt again whole (`retry_turn.rs`).
         if blocks.iter().any(crate::prompt_context::is_context) {
-            msg["hiddenContext"] = Value::Bool(true);
+            msg.set("hiddenContext", Value::Bool(true));
         }
         self.append(session, "mux", "user_message", msg);
     }

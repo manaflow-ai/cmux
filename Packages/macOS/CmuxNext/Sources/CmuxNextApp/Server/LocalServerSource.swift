@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextServer
 import CmuxNextSettings
@@ -82,7 +83,7 @@ final class LocalServerSource: ServerSource {
         // copied string is bridged with its +1.
         LocalServerSource(
             binary: bundledCLI(),
-            hostName: (unsafe SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
+            hostName: MacName.captureOverride ?? (unsafe SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
             fix: { await fixer.fix($0) },

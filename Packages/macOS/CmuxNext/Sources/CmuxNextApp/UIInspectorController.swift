@@ -246,7 +246,7 @@ final class UIInspectorController {
     /// Captures `view` in `window` and finishes the selection, unless a newer one started.
     private func captureNative(_ window: NSWindow?, _ view: NSView?, generation: Int, action: SelectionAction, name: String, text: String) async {
         guard let window, let view, selectionGeneration == generation, let services else { return }
-        let image = try? await AppWindowImage(services: services).capture(window, masked: false)
+        let image = try? await AppWindowImage(services: services).capture(window)
         guard selectionGeneration == generation else { return }
         let png = image.flatMap { Self.crop($0, rect: view.convert(view.bounds, to: nil), window: window) }
         finish(action: action, name: "UI: \(name)", text: text, png: png, preferred: nil)

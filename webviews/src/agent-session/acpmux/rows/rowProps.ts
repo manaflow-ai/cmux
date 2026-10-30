@@ -12,6 +12,8 @@ export type NativeRegistry = Record<string, MeasurableRenderer>;
 export type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 export type RowProps = {
   row: AcpmuxRow;
+  /// Whether a reply draws its own action row (model.ts `hasReplyActions`, from the row after it).
+  replyActions?: boolean;
   sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;

@@ -27,6 +27,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Where a request goes.
     nonisolated enum Route: Equatable {
+        case artifact
         case file(URL)
         case dynamic(PageResourceRequest)
     }
@@ -277,6 +278,10 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         guard let start else { return nil }
         let served = start.served
+        // The offline artifact document (`PageArtifactFrame`): its own sandboxed policy, never a dev server's copy.
+        if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
+            return Self.artifactReply(url: url)
+        }
         if let server = start.server, let remote = start.remote {
             if let (body, response) = await fetchDevServer(remote) {
                 let answer = step(page) { () -> Reply? in
@@ -299,6 +304,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         switch destination {
         case nil:
             return nil
+        case .artifact:
+            return Self.artifactReply(url: url)
         case .file(let file):
             guard let data = await Self.read(file) else { return nil }
             return step(page) {
@@ -373,6 +380,13 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         reply(url: url, policy: csp.header, status: status, mimeType: mimeType, body: body)
     }
 
+    /// The offline artifact document (``PageArtifactFrame/document``) under its own sandboxed policy
+    /// (``PageArtifactFrame/csp``), never cached and sending no referrer.
+    nonisolated static func artifactReply(url: URL) -> Reply {
+        reply(url: url, policy: PageArtifactFrame.csp, status: 200, mimeType: "text/html; charset=utf-8",
+              body: PageArtifactFrame.document, extra: ["Referrer-Policy": "no-referrer"])
+    }
+
     /// A response with the Content Security Policy header `policy`, the other headers every page
     /// response carries, and `extra` (a media range's `Content-Range` and `Accept-Ranges`).
     nonisolated static func reply(url: URL, policy: String, status: Int, mimeType: String, body: Data,
@@ -401,6 +415,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// `root`. An empty path is the page's ``PageDescriptor/entry``.
     nonisolated static func route(for url: URL, page: PageDescriptor, root: URL) -> Route? {
         guard page.owns(url) else { return nil }
+        if page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isArtifactURL(url) {
+            return PageArtifactFrame.isFrame(url) ? .artifact : nil
+        }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         if components.isEmpty { components = [page.entry] }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }

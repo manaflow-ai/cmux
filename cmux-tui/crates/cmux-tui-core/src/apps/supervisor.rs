@@ -24,6 +24,7 @@ use super::storage::Storage;
 use super::timer::{TimerId, Timers};
 use crate::backoff::Backoff;
 use crate::panic_free::{JsonFields, RecoverPoison};
+use cmux_json::JsonSet as _;
 
 /// Writes one event or response to a control client; false when it is gone.
 pub type Sink = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
@@ -393,7 +394,7 @@ impl Supervisor {
                 let mut record =
                     entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
                 // Lets a client drop list replies older than this commit.
-                record.insert("revision", json!(inner.mirror.revision));
+                record.set("revision", json!(inner.mirror.revision));
                 record
             });
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));

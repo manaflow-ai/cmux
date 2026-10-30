@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a. */
+/* cmux-tui mux protocol 12, IR be5ba4057e499583a0ba0d5cad919ee93c2bb53f8ee062342163e0947347f53d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a" as const;
+export const SDK_IR_SHA256 = "be5ba4057e499583a0ba0d5cad919ee93c2bb53f8ee062342163e0947347f53d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1705,10 +1705,15 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "conversation-runs-v1",
-    "fields": {},
+    "fields": {
+      "answers": {
+        "since": null,
+        "capability": "conversation-run-answers-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; else the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
+      "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; answers (at most 200 message keys), when conversation-run-answers-v1 is advertised, selects runs answering those messages; otherwise the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
     ]
   },
   "conversation-search": {
@@ -2972,6 +2977,10 @@ export const COMMAND_METADATA = {
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
+      },
+      "side": {
+        "since": 12,
+        "capability": "column-left-v1"
       },
       "tab_id": {
         "since": 12,
@@ -8343,6 +8352,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "ColumnSide": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
   },
   "ConversationChange": {
     "additional_properties": true,
@@ -25397,6 +25413,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "answers": {
+          "capability": "conversation-run-answers-v1",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "before_started_at": {
           "nullable": true,
           "presence": "optional",
@@ -30346,6 +30374,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "side": {
+          "capability": "column-left-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ColumnSide"
           }
         },
         "tab_id": {

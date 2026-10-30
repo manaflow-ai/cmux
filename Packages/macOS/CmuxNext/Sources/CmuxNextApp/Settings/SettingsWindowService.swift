@@ -84,6 +84,8 @@ final class SettingsWindowService: InternalPageProvider {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         // task-owner: one read of the device list per opening (Settings > Devices); the directory's runs go off main.
         services.work.task(.userVisible) { [devices = services.devices] in await devices.refresh() }
+        // task-owner: one read of this Mac's join status per opening (its consent switches); its read runs off main.
+        services.work.task(.userVisible) { [join = services.joinConsent] in await join.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
             // A row the page leaves out now (its feature off) is refused like an unknown one.

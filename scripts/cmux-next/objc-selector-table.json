@@ -116,6 +116,9 @@
   "NSButton call:cursorUpdate/1": {
    "27.0": true
   },
+  "NSButton call:didCloseMenu/2:with": {
+   "27.0.1": true
+  },
   "NSButton call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -148,6 +151,9 @@
   },
   "NSButton call:performKeyEquivalent/1": {
    "27.0.1": true,
+   "27.0": true
+  },
+  "NSButton call:resetCursorRects/0": {
    "27.0": true
   },
   "NSButton call:resignFirstResponder/0": {
@@ -200,6 +206,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSButton call:willOpenMenu/2:with": {
    "27.0.1": true
   },
   "NSButton get:acceptsFirstResponder/0": {
@@ -300,6 +309,9 @@
   "NSControl call:layout/0": {
    "27.0.1": true,
    "27.0": true
+  },
+  "NSControl call:viewDidChangeEffectiveAppearance/0": {
+   "27.0.1": true
   },
   "NSGlassEffectView call:layout/0": {
    "27.0.1": true
@@ -801,6 +813,9 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSView call:addCursorRect/2:cursor": {
+   "27.0": true
   },
   "NSView call:addSubview/3:positioned,relativeTo": {
    "26.5.2": true,

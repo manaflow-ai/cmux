@@ -13,6 +13,7 @@ use super::state::{AGENT_WORLD, FollowUp, State, TabState};
 use crate::driver::{Driver, EventSink};
 use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
@@ -258,7 +259,7 @@ impl CdpDriver {
     ) -> Result<String, DriverError> {
         let mut params = json!({"proxyServer": server});
         if let Some(bypass) = bypass {
-            params.insert("proxyBypassList", json!(bypass));
+            params.set("proxyBypassList", json!(bypass));
         }
         super::cookies::new_context(&self.inner, params)
     }
@@ -767,7 +768,7 @@ impl Inner {
                     "windowId": 1,
                 });
                 if let Some(opener) = &tab.opener {
-                    entry.insert("openerTargetId", json!(opener));
+                    entry.set("openerTargetId", json!(opener));
                 }
                 entry
             })
@@ -789,7 +790,7 @@ impl Inner {
         let background = params.get("background").and_then(Value::as_bool).unwrap_or(false);
         let mut create = json!({"url": "about:blank", "background": true});
         if let Some(context) = context {
-            create.insert("browserContextId", json!(context));
+            create.set("browserContextId", json!(context));
         }
         let created = self.conn.call(None, "Target.createTarget", create, INTERNAL_TIMEOUT)?;
         let target_id = created
@@ -890,7 +891,7 @@ impl Inner {
         let accept = params.get("accept").and_then(Value::as_bool).unwrap_or(false);
         let mut args = json!({"accept": accept});
         if let Some(text) = params.get("promptText").and_then(Value::as_str) {
-            args.insert("promptText", json!(text));
+            args.set("promptText", json!(text));
         }
         let deadline = Instant::now() + timeout_of(params);
         self.send_on(&session_id, "Page.handleJavaScriptDialog", args, deadline)?;

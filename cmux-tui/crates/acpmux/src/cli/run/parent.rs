@@ -8,8 +8,9 @@
 
 use super::launch::Launch;
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::no_panic::StrExt;
+use cmux_json::JsonSet as _;
 use std::sync::Arc;
 
 /// Flags a sub-session start takes no part of, and why.
@@ -48,7 +49,7 @@ fn start_params(args: &NewArgs, parent: &str, prompt: &str) -> Result<Value> {
         p.set("name", json!(n));
     }
     if args.force_admit {
-        p["_meta"] = json!({"acpmux": {"forceAdmit": true}});
+        p.set("_meta", json!({"acpmux": {"forceAdmit": true}}));
     }
     // No --cwd: the parent's folder, not this shell's.
     if let Some(cwd) = &args.cwd {

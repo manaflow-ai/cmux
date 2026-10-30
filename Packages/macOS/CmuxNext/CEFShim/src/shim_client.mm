@@ -12,6 +12,7 @@
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_task.h"
 #include "command_line_switches.h"
+#include "artifact_page.h"
 #include "cursor_event.h"
 #include "external_url.h"
 #include "host_key_seqs.h"
@@ -285,6 +286,17 @@ void EmitSubframeRenderer(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> fra
   if (client > 0) Emit(CMUX_SHIM_SUBFRAME_RENDERER, browser->GetIdentifier(), client, attached, 0, identifier);
 }
 
+// Inspect the whole ancestry: blank/srcdoc children cannot shed the offline
+// document's restrictions by inheriting an ancestor's ordinary page URL.
+bool RestrictedArtifactFrame(CefRefPtr<CefFrame> frame) {
+  while (frame) {
+    CefRefPtr<CefFrame> parent = frame->GetParent();
+    if (ArtifactContextRestricted(frame->GetURL().ToString(), parent ? parent->GetURL().ToString() : "")) return true;
+    frame = parent;
+  }
+  return false;
+}
+
 class Client : public CefClient,
                public CefDisplayHandler,
                public CefLoadHandler,
@@ -421,6 +433,10 @@ class Client : public CefClient,
   // tab in the other store with the same URL.
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
                       bool user_gesture, bool is_redirect) override {
+    CefRefPtr<CefFrame> parent = frame->GetParent();
+    if (RestrictedArtifactFrame(frame) ||
+        ArtifactNavigationRefused(frame->IsMain(), frame->GetURL().ToString(),
+                                  parent ? parent->GetURL().ToString() : "", request->GetURL().ToString())) return true;
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
@@ -450,6 +466,12 @@ class Client : public CefClient,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     const std::string url = request->GetURL().ToString();
+    const auto type = request->GetResourceType();
+    if (RestrictedArtifactFrame(frame) &&
+        !ArtifactResourceAllowed(url, type == RT_IMAGE || type == RT_MEDIA || type == RT_FONT_RESOURCE)) {
+      static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
+      return refusal;
+    }
     // A request with no frame (a worker, a CefURLRequest) has no folder to
     // judge it by: its file: loads are refused.
     if (LocalFileSchemeURL(url) && request->GetResourceType() != RT_MAIN_FRAME &&

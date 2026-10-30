@@ -20,8 +20,9 @@
 //! as `Control::Web`.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::web_modes::WebModeTable;
+use cmux_json::JsonSet as _;
 
 /// What the table was built from (`webAskingModes` and the refused
 /// families, which follow the profiles), and the table.

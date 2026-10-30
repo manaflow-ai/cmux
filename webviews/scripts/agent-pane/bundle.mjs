@@ -26,6 +26,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
+import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
@@ -80,9 +81,12 @@ export function reactCompilerPass() {
   return { plugin, finish };
 }
 
-/** The loaders that run after the React Compiler: Tailwind entries, large JSON, KaTeX's stylesheet. */
+/**
+ * The loaders that run after the React Compiler: the artifact frame's runtime (as inert text),
+ * Tailwind entries, large JSON, KaTeX's stylesheet.
+ */
 export function sourcePlugins({ split }) {
-  return [tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })];
+  return [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })];
 }
 
 /** esbuild's `alias` that resolves `shiki` to `dir` (the agent pane's trimmed copy); none for `-`. */

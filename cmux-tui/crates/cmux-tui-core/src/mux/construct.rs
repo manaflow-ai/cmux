@@ -207,6 +207,8 @@ impl Mux {
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
         memory_setup: crate::memory::MemorySetup,
     ) -> anyhow::Result<Arc<Self>> {
+        // Continues the registry open's laps: the owner logs them (startup_timings).
+        let mut timings = registry.take_open_timings();
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
@@ -252,6 +254,7 @@ impl Mux {
             scrollback_pressure,
         );
         Self::rebuild_split_screen_index(&mut state);
+        timings.lap("restore.snapshot");
         let resource_projection_stats = registry.resource_projection_stats().clone();
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
@@ -445,6 +448,7 @@ impl Mux {
             startup_adoptions: Mutex::default(),
             terminal_replays: mux_work::Permits::new(terminal_adoption::ADOPTION_REPLAYS),
             restored_tab_names: Mutex::new(HashMap::new()),
+            startup_timings: Mutex::new(None),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -539,8 +543,10 @@ impl Mux {
         mux.journal_plugin.set_reaper(Arc::clone(&mux.reaper));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
+        timings.lap("mux.build");
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
+        timings.lap("restore.browsers");
         // Set before adoption: a host that adopts on its own thread names its
         // surfaces from here (finish_terminal_adoption).
         mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
@@ -548,6 +554,7 @@ impl Mux {
         );
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
+        timings.lap("terminal.adopt_hosts");
         {
             let mut state = mux.state.lock().recover_poison();
             state.rebuild_resource_indexes();
@@ -579,15 +586,21 @@ impl Mux {
             }
             crate::request_path::sleep(Duration::from_millis(25));
         }
+        timings.lap("restore.reconcile");
         mux.close_ephemeral_workspaces()?;
+        timings.lap("workspace.close_ephemeral");
         // cx-6so.49: host losses whose respawn an earlier owner never ran
         // (it shut down first, or a session shutdown ended the shell).
         #[cfg(any(unix, windows))]
         mux.respawn_lost_terminals_at_start();
+        timings.lap("terminal.respawn_lost");
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        timings.lap("agent.hooks");
         mux.start_journal_maintenance()?;
         crate::state::project_watch::start(&mux);
+        timings.lap("journal.maintenance_start");
+        *mux.startup_timings.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
         mux.warm_git_heads();
         Ok(mux)
     }

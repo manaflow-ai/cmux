@@ -34,6 +34,7 @@ use super::closed_history_privacy as privacy;
 use super::closed_history_store::{member_tab, tab_member};
 use crate::panic_free::JsonFields;
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
+use cmux_json::JsonSet as _;
 
 /// `stash.create|list|restore|delete|import`.
 pub const CAPABILITY: &str = "stash-v1";
@@ -219,7 +220,7 @@ pub(crate) fn stash_member(
     let Some(tab) = member.pointer_mut("/screens/0/tabs/0") else {
         return Ok(Err(Refusal::NotPage));
     };
-    tab.insert("title", json!(title));
+    tab.set("title", json!(title));
     Ok(Ok(member))
 }
 
@@ -389,7 +390,7 @@ pub(crate) fn keep_stash_members(
         transaction.execute("DELETE FROM stashed_groups WHERE stash_id = ?1", [stash_id])?;
         return Ok((super::store::state_delete(RESOURCE, stash_id), 0));
     }
-    record.insert("members", Value::Array(keep));
+    record.set("members", Value::Array(keep));
     transaction.execute(
         "UPDATE stashed_groups SET record_json = ?2 WHERE stash_id = ?1",
         params![stash_id, serde_json::to_string(&record)?],

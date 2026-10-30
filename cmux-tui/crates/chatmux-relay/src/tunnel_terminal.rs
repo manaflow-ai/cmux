@@ -55,6 +55,7 @@ use crate::panic_free::{alphabet_symbol, filled};
 use crate::pty::{
     FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
 };
+use cmux_json::JsonSet as _;
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
 /// mirrors this value in apps/backend/src/tunnel/terminal-ticket-route.ts —
@@ -330,10 +331,8 @@ impl Connection {
                     "cols": frame.get("cols").cloned().unwrap_or(Value::Null),
                     "rows": frame.get("rows").cloned().unwrap_or(Value::Null),
                 });
-                if let Some(surface) = frame.get("surface").and_then(Value::as_str)
-                    && let Some(fields) = opened.as_object_mut()
-                {
-                    fields.insert("surface".to_owned(), Value::from(surface));
+                if let Some(surface) = frame.get("surface").and_then(Value::as_str) {
+                    opened.set("surface", Value::from(surface));
                 }
                 self.send_control(&opened);
             }
@@ -365,10 +364,8 @@ impl Connection {
                 let code =
                     wire_error_code(frame.get("code").and_then(Value::as_str).unwrap_or("failed"));
                 let mut error = json!({ "t": "error", "code": code });
-                if let Some(message) = frame.get("message").and_then(Value::as_str)
-                    && let Some(fields) = error.as_object_mut()
-                {
-                    fields.insert("message".to_owned(), Value::from(message));
+                if let Some(message) = frame.get("message").and_then(Value::as_str) {
+                    error.set("message", Value::from(message));
                 }
                 self.send_control(&error);
                 // Non-fatal errors (an oversized input frame) keep the
@@ -437,10 +434,8 @@ async fn handle_client_frame(
                 "cols": cols,
                 "rows": rows,
             });
-            if let Some(surface) = surface
-                && let Some(fields) = open.as_object_mut()
-            {
-                fields.insert("surface".to_owned(), Value::from(surface));
+            if let Some(surface) = surface {
+                open.set("surface", Value::from(surface));
             }
             connection.manager.handle_frame(&open, context).await;
         }

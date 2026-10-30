@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 use super::super::GlobalArgs;
 use super::{Outcome, Refusal};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "notifications";
 
@@ -48,27 +49,27 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "user_action": Value::Null,
     });
     if !applies(global) {
-        report.insert("state", json!("not_applicable"));
+        report.set("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     let before = match read(global) {
         Ok(status) => status,
         Err(action) => {
-            report.insert("state", json!("needs_user"));
-            report.insert("user_action", action);
+            report.set("state", json!("needs_user"));
+            report.set("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
     };
-    report.insert("before", before.clone());
+    report.set("before", before.clone());
     if before.field("authorization") != "not_determined" {
         let action = next_step(&before);
-        report.insert("state", json!(if action.is_some() { "needs_user" } else { "ok" }));
-        report.insert("after", before);
-        report.insert("user_action", action.unwrap_or(Value::Null));
+        report.set("state", json!(if action.is_some() { "needs_user" } else { "ok" }));
+        report.set("after", before);
+        report.set("user_action", action.unwrap_or(Value::Null));
         return Ok(Outcome { report, failed: false });
     }
     if dry_run {
-        report.insert("state", json!("planned"));
+        report.set("state", json!("planned"));
         set_undo(&mut report, &before);
         return Ok(Outcome { report, failed: false });
     }
@@ -84,8 +85,8 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
             Ok(status) => status,
             // The app bounds the prompt (600 s): left unanswered, it ends `timeout`.
             Err(error) if error.field("code") == "timeout" => {
-                report.insert("state", json!("needs_user"));
-                report.insert("user_action", json!({
+                report.set("state", json!("needs_user"));
+                report.set("user_action", json!({
                 "kind": "declined",
                 "text": "Notifications were not allowed: the person did not answer the macOS \
                          prompt in time; ask the person before running `cmux setup \
@@ -97,31 +98,31 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
             }
             // macOS failed the request itself: nothing for the person to do.
             Err(error) if error.field("code") == "internal_error" => {
-                report.insert("state", json!("failed"));
-                report.insert("error", error);
+                report.set("state", json!("failed"));
+                report.set("error", error);
                 return Ok(Outcome { report, failed: true });
             }
             Err(error) => {
-                report.insert("state", json!("needs_user"));
-                report.insert("user_action", app_problem(&error));
+                report.set("state", json!("needs_user"));
+                report.set("user_action", app_problem(&error));
                 return Ok(Outcome { report, failed: false });
             }
         };
-    report.insert("after", after.clone());
+    report.set("after", after.clone());
     match after.field("authorization").as_str().unwrap_or_default() {
         // Allowed, with banners off: the grant still has its undo.
         "authorized" | "provisional" if next_step(&after).is_some() => {
-            report.insert("state", json!("needs_user"));
-            report.insert("user_action", next_step(&after).unwrap_or(Value::Null));
+            report.set("state", json!("needs_user"));
+            report.set("user_action", next_step(&after).unwrap_or(Value::Null));
             set_undo(&mut report, &before);
         }
         "authorized" | "provisional" => {
-            report.insert("state", json!("changed"));
+            report.set("state", json!("changed"));
             set_undo(&mut report, &before);
         }
         "denied" => {
-            report.insert("state", json!("needs_user"));
-            report.insert(
+            report.set("state", json!("needs_user"));
+            report.set(
                 "user_action",
                 json!({
                     "kind": "declined",
@@ -134,8 +135,8 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
             );
         }
         _ => {
-            report.insert("state", json!("needs_user"));
-            report.insert("user_action", next_step(&after).unwrap_or(Value::Null));
+            report.set("state", json!("needs_user"));
+            report.set("user_action", next_step(&after).unwrap_or(Value::Null));
         }
     }
     Ok(Outcome { report, failed: false })

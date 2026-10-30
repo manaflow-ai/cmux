@@ -308,14 +308,14 @@ import Testing
         content.addSubview(dim)
         content.addSubview(ring)
         let size = CGSize(width: 800, height: 500)
-        let base = try #require(ScreenshotPrivacyMaskTests.image(width: 800, height: 500, white: true))
-        let pageImage = try #require(ScreenshotPrivacyMaskTests.image(width: 300, height: 300, white: false))
+        let base = try #require(Self.image(width: 800, height: 500, white: true))
+        let pageImage = try #require(Self.image(width: 300, height: 300, white: false))
         let pages: [WindowImageLayer] = [.page(pageImage, CGRect(x: 50, y: 50, width: 300, height: 300))]
 
         let planes = try #require(WindowImageLayer.views([dim, ring], overPagesOf: pages, windowSize: size, scale: 1))
         let image = try #require(WindowImageLayer.composite(base: base, windowSize: size, layers: pages + [planes]))
 
-        let pixels = try #require(ScreenshotPrivacyMaskTests.rgba(image))
+        let pixels = try #require(Self.rgba(image))
         // Bitmap rows run top-down; window y counts from the bottom.
         func pixel(_ x: Int, _ y: Int) -> [UInt8] {
             let offset = ((image.height - 1 - y) * image.width + x) * 4
@@ -325,5 +325,26 @@ import Testing
         #expect((120...135).contains(pixel(300, 300)[0]), "the dim is missing over the page")
         #expect(pixel(700, 450) == [255, 255, 255, 255], "the dim was painted twice outside the page")
         #expect(WindowImageLayer.views([dim, ring], overPagesOf: [], windowSize: size, scale: 1) == nil, "no page: nothing to repaint")
+    }
+
+    /// A solid white or black sRGB image `width` by `height` pixels.
+    private static func image(width: Int, height: Int, white: Bool) -> CGImage? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.setFillColor(white ? CGColor(red: 1, green: 1, blue: 1, alpha: 1) : CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
+    }
+
+    /// `image`'s pixels as sRGB RGBA bytes, rows top-down.
+    private static func rgba(_ image: CGImage) -> [UInt8]? {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8,
+                                      bytesPerRow: image.width * 4, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return bytes
     }
 }

@@ -5,9 +5,9 @@
 //! stays. Idle: now. A running turn: after it ends, or now after a cancel.
 
 use super::*;
-use crate::no_panic::JsonExt;
 
 use crate::{route_account, routes};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// A new chat's named route exists and serves its harness family.

@@ -1400,6 +1400,9 @@ impl ProcessManager {
             command.env(key, value);
         }
         command.env("TERM", &term);
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+            command.env_remove(*key);
+        }
         #[cfg(unix)]
         let mut child_events =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())

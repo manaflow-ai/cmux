@@ -24,10 +24,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::mux::*;
-use crate::panic_free::JsonFields;
 use crate::state::prelude::*;
 use crate::state::store::StateCommit;
 use crate::workspace_registry::PresentationSnapshot;
+use cmux_json::JsonSet as _;
 
 /// The daemon serves `layout.bulk`.
 pub(crate) const CAPABILITY: &str = "layout-bulk-v1";
@@ -347,7 +347,7 @@ impl Mux {
         });
         if surfaces.is_empty() {
             let mut result = result;
-            result.insert("closed_ids", json!([]));
+            result.set("closed_ids", json!([]));
             return Ok(StateCommit { revision, result, replayed: false, personal_revision: None });
         }
         let outcome = self.close_tabs_for_bulk(

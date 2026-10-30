@@ -43,6 +43,8 @@
 //!    that needs nothing, or `{"ok":false,"error":..,"error_code":..}` (exit 1;
 //!    bad usage exits 64).
 
+use cmux_json::JsonSet as _;
+
 pub(crate) mod apply;
 
 use crate::json_fields::JsonFields;
@@ -102,14 +104,14 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     match update(&request) {
         Ok(mut line) => {
-            line.insert("ok", json!(true));
+            line.set("ok", json!(true));
             println!("{line}");
             0
         }
         Err(failed) => {
             let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
             if let Some(build) = failed.build {
-                line["build"] = json!(build);
+                line.set("build", json!(build));
             }
             println!("{line}");
             1

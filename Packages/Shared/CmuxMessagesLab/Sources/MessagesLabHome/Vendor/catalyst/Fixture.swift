@@ -29,29 +29,30 @@ enum Fixture {
         set { state.withLock { $0.fallbackMetrics = newValue } }
     }
 
-    /// cmux: the colours' inputs as one immutable value (p10-stability-040): the theme, the light
-    /// appearance, the measured gradients and the generation they make. A change replaces the
-    /// whole palette under the lock, so a theme and its generation are never seen apart; a draw
-    /// off the main thread reads the palette it started with (`withRenderScale`), as a Chromium
-    /// raster task paints with one cc::PaintFlags/ColorProvider snapshot.
-    // crash-allow: every stored property is a let of an immutable value (NSColor, CGGradient); the SDK does not mark them Sendable
+    /// cmux: the colours' inputs as one immutable value (p10-stability-040): the light appearance,
+    /// the measured gradients and the generation they make. A change replaces the whole palette
+    /// under the lock, so an appearance and its generation are never seen apart; a draw off the
+    /// main thread reads the palette it started with (`withRenderScale`), as a Chromium raster
+    /// task paints with one cc::PaintFlags/ColorProvider snapshot. The theme is not here: it is
+    /// each window view's own (`PaletteScope`), and its box goes with the view's work.
+    // crash-allow: every stored property is a let of an immutable value (Bool, Int, CGGradient); the SDK does not mark CGGradient Sendable
     final class Palette: @unchecked Sendable {
-        let theme: FixtureTheme?
         let light: Bool
-        /// Bumped by every change: bitmaps cached under an older one are stale.
+        /// The base generation, bumped by an appearance or a colour space change: bitmaps cached
+        /// under an older one are stale (`paletteGeneration` adds the theme's box).
         let generation: Int
         fileprivate let darkGradient: CGGradient?
         fileprivate let lightGradient: CGGradient?
 
-        fileprivate init(theme: FixtureTheme?, light: Bool, generation: Int, darkGradient: CGGradient?, lightGradient: CGGradient?) {
-            self.theme = theme; self.light = light; self.generation = generation
+        fileprivate init(light: Bool, generation: Int, darkGradient: CGGradient?, lightGradient: CGGradient?) {
+            self.light = light; self.generation = generation
             self.darkGradient = darkGradient; self.lightGradient = lightGradient
         }
-        /// This palette with `theme` and `light`, one generation on; nil when neither changes.
+        /// This palette with `light`, one generation on; nil when it does not change.
         /// `redraw`: one generation on even then (a colour space change).
-        func next(theme: FixtureTheme?, light: Bool, redraw: Bool = false) -> Palette? {
-            guard redraw || theme != self.theme || light != self.light else { return nil }
-            return Palette(theme: theme, light: light, generation: generation &+ 1,
+        func next(light: Bool, redraw: Bool = false) -> Palette? {
+            guard redraw || light != self.light else { return nil }
+            return Palette(light: light, generation: generation &+ 1,
                            darkGradient: darkGradient, lightGradient: lightGradient)
         }
     }
@@ -62,7 +63,7 @@ enum Fixture {
     }
     // Lock carve-out: renderers read these synchronously on their own threads; each access is one load or store.
     private static let state = OSAllocatedUnfairLock(initialState: State(palette: Palette(
-        theme: nil, light: false, generation: 0, darkGradient: gradient { p3($0, $1, 247) }, lightGradient: gradient(lightGradientColor))))
+        light: false, generation: 0, darkGradient: gradient { p3($0, $1, 247) }, lightGradient: gradient(lightGradientColor))))
 
     /// The palette drawing reads now: inside an off-main `withRenderScale` the one its draw started
     /// with, else the current one.
@@ -70,7 +71,7 @@ enum Fixture {
     /// The palette set last.
     static var currentPalette: Palette { state.withLock { $0.palette } }
     /// Replaces the palette with `change`'s (nil: no change). The palette is compared and swapped
-    /// under the lock, so a concurrent change is never lost (`change` runs outside it: a theme is not Sendable).
+    /// under the lock, so a concurrent change is never lost (`change` runs outside it).
     private static func updatePalette(_ change: (Palette) -> Palette?) {
         // wakeup-allow: bounded compare-and-swap; it runs again only when another thread changed the palette meanwhile
         while true {
@@ -124,13 +125,23 @@ enum Fixture {
     /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
     static var lightAppearance: Bool { // cmux: in `palette`
         get { palette.light }
-        set { updatePalette { $0.next(theme: $0.theme, light: newValue) } }
+        set { updatePalette { $0.next(light: newValue) } }
     }
     /// Bumped by an appearance or a colour space change: cached bitmaps are stale (not by a window's key state).
-    static var paletteGeneration: Int { palette.generation } // cmux: in `palette`
+    /// cmux: the base generation, in `palette` (an off-main draw keeps the one it started with).
+    static var baseGeneration: Int { palette.generation }
+    /// cmux: the palette generation of the drawing that runs now: the base generation and the palette's id (the
+    /// scope's, a window view's own Chat Colors, else the process palette, PaletteScope). Every palette-dependent
+    /// cache is keyed by it, so two chats with different colours keep separate bitmaps and tiles.
+    static var paletteGeneration: Int { generation(of: PaletteScope.current) }
+    /// cmux: the generation drawing in a scope of `box` has now (nil: the process palette's).
+    static func generation(of box: PaletteBox?) -> Int { baseGeneration &* 1_000_003 &+ ((box ?? PaletteScope.process)?.id ?? 0) }
+    /// cmux: `generation` was made since the last appearance or colour space change (its palette may be another
+    /// view's): a result drawn for it is still good under its own key.
+    static func generationIsLive(_ generation: Int) -> Bool { generation / 1_000_003 == baseGeneration }
     /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
     /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
-    static func colorSpaceChanged() { updatePalette { $0.next(theme: $0.theme, light: $0.light, redraw: true) } }
+    static func colorSpaceChanged() { updatePalette { $0.next(light: $0.light, redraw: true) } }
 
     /// Palette, measured with `screencapture -l` on macOS 27 Messages
     /// (cmux-lawrence-2, 2026-10-05): key and non-key windows are identical
@@ -144,12 +155,14 @@ enum Fixture {
         UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
     }
     /// cmux: the app theme's colours (the cmux-next Ghostty theme and the
-    /// user's accent), set by the Home host; a change bumps
+    /// user's accent, and a chat's Chat Colors), set by the Home host: the
+    /// scope's window view's palette, else the process palette (PaletteScope);
+    /// setting it sets the process palette. Another palette has another
     /// `paletteGeneration`. nil keeps the measured Messages palette below
     /// (fixtures, the differential harness), light or dark (`lightAppearance`).
-    static var theme: FixtureTheme? { // cmux: in `palette`
-        get { palette.theme }
-        set { updatePalette { $0.next(theme: newValue, light: $0.light) } }
+    static var theme: FixtureTheme? {
+        get { PaletteScope.effective?.theme }
+        set { PaletteScope.setProcess(newValue) }
     }
     private static func themed(_ pick: (FixtureTheme.Colors) -> UIColor) -> UIColor? {
         theme.map { pick($0.active) }
@@ -272,6 +285,24 @@ enum Fixture {
     private static var themedLink: UIColor? { themedAccent ? themed(\.caret) : nil }
     static var incomingLink: UIColor { themedLink ?? UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1) }
     static var labelLink: UIColor { themedLink ?? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) }
+    /// cmux: the outline and text of my quoted root above a reply (macOS 27 Messages, dark, the user's 2x reference of
+    /// 2026-10-28: outline sRGB 56/96/139, text 60/124/212 on the dark background). Light mode and a themed accent mix the
+    /// outgoing blue into the background instead: UNVERIFIED against a light Messages reference.
+    static var quoteOutline: UIColor {
+        if !themedAccent, !lightAppearance { return UIColor(srgbRed: 56 / 255, green: 96 / 255, blue: 139 / 255, alpha: 1) }
+        return mix(outgoing, into: background, 0.45)
+    }
+    static var quoteText: UIColor {
+        if !themedAccent, !lightAppearance { return UIColor(srgbRed: 60 / 255, green: 124 / 255, blue: 212 / 255, alpha: 1) }
+        return mix(outgoing, into: background, 0.85)
+    }
+    /// `c` at `amount` over `base`, in sRGB.
+    private static func mix(_ c: UIColor, into base: UIColor, _ amount: CGFloat) -> UIColor {
+        guard let a = c.usingColorSpace(.sRGB), let b = base.usingColorSpace(.sRGB) else { return c }
+        func m(_ x: CGFloat, _ y: CGFloat) -> CGFloat { y + (x - y) * amount }
+        return UIColor(srgbRed: m(a.redComponent, b.redComponent), green: m(a.greenComponent, b.greenComponent),
+                       blue: m(a.blueComponent, b.blueComponent), alpha: 1)
+    }
     static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
     static var outgoingGradient: CGGradient? {
         if let t = theme, themedAccent { return t.active.outgoingGradient }

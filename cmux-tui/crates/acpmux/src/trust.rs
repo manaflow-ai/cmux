@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use serde_json::{Value, json};
 
 /// A folder's trust: what the pane shows and asks about.

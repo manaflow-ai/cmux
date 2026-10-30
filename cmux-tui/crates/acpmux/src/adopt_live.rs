@@ -18,7 +18,7 @@
 //! Adopting a chat that is open elsewhere runs two harnesses on one
 //! conversation, which forks it.
 
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

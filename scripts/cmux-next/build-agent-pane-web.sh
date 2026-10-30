@@ -153,7 +153,7 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 # web pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render
 # frame (a render card; AgentPaneRenderFrame.swift). The page host sends the same script-src as a
 # header (PageDescriptor.agent, test/fixtures/agent-page-csp.txt); a meta policy can only narrow it.
-CSP="default-src 'none'; script-src 'self' cmux-page://cmux.shared 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-page://cmux.agent/__render/frame http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self' cmux-page://cmux.shared 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-page://cmux.agent/__render/frame cmux-page://cmux.agent/__artifact http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'

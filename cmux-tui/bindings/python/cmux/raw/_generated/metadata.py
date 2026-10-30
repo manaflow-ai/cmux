@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a'
+IR_SHA256 = 'be5ba4057e499583a0ba0d5cad919ee93c2bb53f8ee062342163e0947347f53d'
 
 
 @dataclass(frozen=True)
@@ -1804,6 +1804,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'answers': CommandFieldMetadata(None, 'conversation-run-answers-v1'),
             'before_started_at': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
@@ -3212,6 +3213,7 @@ COMMANDS = {
             'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'side': CommandFieldMetadata(12, 'column-left-v1'),
             'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),

@@ -14,6 +14,7 @@
 //! printed as usual. The CLI never sends an `origin`: it runs as `cli`.
 
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 mod messages;
 
@@ -108,7 +109,7 @@ where
         "args": request.args,
     });
     if let Some(key) = &request.idempotency_key {
-        run.insert("idempotency_key", json!(key));
+        run.set("idempotency_key", json!(key));
     }
     if send(&mut writer, &run).await.is_err() {
         return Outcome::Closed;

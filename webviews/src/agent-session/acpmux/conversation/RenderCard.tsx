@@ -8,7 +8,7 @@
 // freeze the pane. Only the page host's WebKit serves the frame its own policy
 // (`data-engine="webkit"`); in Chromium and outside the page host the call stays a plain tool row.
 // Open hands the page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
-import { useContext, useEffect, useRef, useState } from "react";
+import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
 import { Expand } from "./icons";
@@ -61,7 +61,7 @@ export function useRenderFrame(html: string) {
 }
 
 /// `card` is a render tool call's card key (renderCall.ts `renderPages`): Open hands it with the page.
-export function RenderCard({ call, card }: { call: RenderCall; card?: string }) {
+export function RenderCard({ call, card, actions }: { call: RenderCall; card?: string; actions?: ReactNode }) {
   const t = useT();
   const open = useContext(ArtifactContext);
   const { frame, height } = useRenderFrame(call.html);
@@ -103,6 +103,7 @@ export function RenderCard({ call, card }: { call: RenderCall; card?: string }) 
             <Expand />
           </button>
         )}
+        {actions}
       </div>
       {running && (
         <iframe

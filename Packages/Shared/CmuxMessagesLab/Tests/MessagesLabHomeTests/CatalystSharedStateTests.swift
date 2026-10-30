@@ -27,12 +27,12 @@ import Testing
     /// A palette moves one generation per real change, and none for a set of the same value.
     @Test func paletteGenerationMovesOncePerRealChange() {
         let p = Fixture.currentPalette
-        #expect(p.next(theme: p.theme, light: p.light) == nil, "the same theme and appearance")
-        let flipped = p.next(theme: p.theme, light: !p.light)
+        #expect(p.next(light: p.light) == nil, "the same appearance")
+        let flipped = p.next(light: !p.light)
         #expect(flipped?.generation == p.generation &+ 1)
         #expect(flipped?.light == !p.light)
-        #expect(flipped?.next(theme: p.theme, light: !p.light) == nil, "set again: no second bump")
-        #expect(p.next(theme: p.theme, light: p.light, redraw: true)?.generation == p.generation &+ 1, "a colour space change")
+        #expect(flipped?.next(light: !p.light) == nil, "set again: no second bump")
+        #expect(p.next(light: p.light, redraw: true)?.generation == p.generation &+ 1, "a colour space change")
     }
 
     /// A draw off the main thread reads the palette it started with: a change during it (here a colour

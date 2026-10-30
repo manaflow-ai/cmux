@@ -7,6 +7,7 @@
 
 use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
+use cmux_json::JsonSet as _;
 use rquickjs::{Context, Ctx, Function, Object, Persistent, Promise, Runtime};
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -538,13 +539,13 @@ fn install(
                     if op == "writeFile"
                         && let Some(encoded) = args.field("base64").as_str().and_then(masked)
                     {
-                        args.insert("base64", Value::String(encoded));
+                        args.set("base64", Value::String(encoded));
                     }
                     let mut result = sandbox.call(&op, &args);
                     if op == "readFile"
                         && let Some(encoded) = result.field("ok").as_str().and_then(masked)
                     {
-                        result.insert("ok", Value::String(encoded));
+                        result.set("ok", Value::String(encoded));
                     }
                     result.to_string()
                 }

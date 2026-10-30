@@ -3,6 +3,7 @@
 use super::driver::Inner;
 use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::Instant;
 
@@ -60,7 +61,7 @@ impl Inner {
         if format != "png"
             && let Some(quality) = params.get("quality").and_then(Value::as_f64)
         {
-            args.insert("quality", json!(quality.clamp(0.0, 100.0) as i64));
+            args.set("quality", json!(quality.clamp(0.0, 100.0) as i64));
         }
         let mut size: Option<(f64, f64)> = None;
         if let Some(clip) = params.get("clip").filter(|clip| clip.is_object()) {
@@ -74,7 +75,7 @@ impl Inner {
                 self.send_until(&session, "Page.getLayoutMetrics", json!({}), deadline)?;
             let page_x = metrics.field("cssVisualViewport").field("pageX").as_f64().unwrap_or(0.0);
             let page_y = metrics.field("cssVisualViewport").field("pageY").as_f64().unwrap_or(0.0);
-            args.insert("clip", json!({"x": read("x") + page_x, "y": read("y") + page_y, "width": width, "height": height, "scale": 1}));
+            args.set("clip", json!({"x": read("x") + page_x, "y": read("y") + page_y, "width": width, "height": height, "scale": 1}));
             size = Some((width, height));
         } else if params.get("fullPage").and_then(Value::as_bool) == Some(true) {
             let metrics =
@@ -82,11 +83,8 @@ impl Inner {
             let content = metrics.field("cssContentSize");
             let width = content["width"].as_f64().unwrap_or(0.0).ceil();
             let height = content["height"].as_f64().unwrap_or(0.0).ceil();
-            args.insert(
-                "clip",
-                json!({"x": 0, "y": 0, "width": width, "height": height, "scale": 1}),
-            );
-            args.insert("captureBeyondViewport", json!(true));
+            args.set("clip", json!({"x": 0, "y": 0, "width": width, "height": height, "scale": 1}));
+            args.set("captureBeyondViewport", json!(true));
             size = Some((width, height));
         }
         let shot = self.send_until(&session, "Page.captureScreenshot", args, deadline)?;

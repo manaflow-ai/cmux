@@ -82,6 +82,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -526,6 +527,7 @@ pub(super) fn advertised_capabilities(
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
+        split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
@@ -576,6 +578,7 @@ pub(super) fn advertised_capabilities(
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
         TAB_ATTENTION_CAPABILITY,
+        TAB_ATTENTION_REQUEST_ID_CAPABILITY,
         WORKSPACE_DESCRIPTION_CAPABILITY,
         WORKSPACE_STATUS_CAPABILITY,
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
@@ -617,6 +620,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+        conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY,
         conversation_live::CHIEF_LIVE_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,

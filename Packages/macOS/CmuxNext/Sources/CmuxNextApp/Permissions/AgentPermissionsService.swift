@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPermissions
+import CmuxNextOnboarding
 
 /// Agent permission requests in the App (plans/cmux-next/agent-permissions-DESIGN.md):
 /// the request store over the system probe and opener, and the presenter
@@ -18,13 +19,20 @@ final class AgentPermissionsService {
         self.setup = setup
         let probe = SystemPermissionProbe(setup: setup, appEvents: services.appEvents, mainWork: services.mainWork)
         self.probe = probe
-        let requests = AgentPermissionRequests(probe: probe, opener: SystemPermissionOpener(setup: setup, work: services.work))
+        let opener = SystemPermissionOpener(setup: setup, work: services.work, showComputerUse: { [weak services] in
+            services?.onboarding.show(step: .computerUse)
+        })
+        let requests = AgentPermissionRequests(probe: probe, opener: opener)
         self.requests = requests
+        // The Computer Use window guides the helper's grants, so the card steps aside after Continue;
+        // under the upstream driver no window opens and the card keeps guiding.
         presenter = PermissionRequestPresenter(requests: requests, appURL: { [weak setup] kind in
             kind.heldByComputerUseHelper ? setup?.helperAppURL : Bundle.main.bundleURL
         }, appIcon: { [weak setup] kind in
             // cmux's own icon is in memory; the helper's is read on the system lane when the helper is found.
             kind.heldByComputerUseHelper ? setup?.helperAppIcon : NSApp.applicationIconImage
+        }, guidedElsewhere: { [weak setup] kind in
+            SystemPermissionOpener.guidesInWindow(kind, driver: setup?.driver ?? .legacy)
         }, mainWork: services.mainWork)
         presenter.start()
     }

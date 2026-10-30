@@ -1,7 +1,10 @@
 // The transcript's row renderers by row kind (App.tsx VirtualTranscript), one module each in
 // rows/; a user's registry.js adds or replaces them (window.cmuxAcpmuxRegistry).
+import { createElement } from "react";
+import { BtwAside } from "../aside/BtwAside";
+import type { BtwRow as InlineBtwRow } from "../aside/btwNotes";
 import { ACTIVITY_LINE, DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "../conversation/turns";
-import { QUEUED_MESSAGE, WAITING_MESSAGES } from "../model";
+import { QUEUED_MESSAGE } from "../model";
 import { OFFER_RESULT } from "../offer/offersShown";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { QUESTION_RECORD } from "../question/record";
@@ -26,7 +29,6 @@ import { PlanRow } from "./PlanRow";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { PreviewRow } from "./PreviewRow";
 import { QueuedMessageRow } from "./QueuedMessageRow";
-import { WaitingMessagesRow } from "./WaitingMessagesRow";
 import { QuestionRecordRow } from "./QuestionRecordRow";
 import { RenderRow } from "./RenderRow";
 import { SessionOfferRow } from "./SessionOfferRow";
@@ -45,6 +47,11 @@ import { WorkingRow } from "./WorkingRow";
 import type { NativeRegistry } from "./rowProps";
 
 export const defaultRegistry: NativeRegistry = {
+  // An inline /btw side question (aside/btwNotes.ts); this file is .ts, so no JSX.
+  btw: ({ row }) => {
+    const aside = row as InlineBtwRow;
+    return createElement(BtwAside, { note: aside.btw, onDismiss: aside.dismissBtw });
+  },
   user: MessageRow,
   assistant: MessageRow,
   activity: ToolActivityRow,
@@ -68,7 +75,6 @@ export const defaultRegistry: NativeRegistry = {
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   [QUEUED_MESSAGE]: QueuedMessageRow,
-  [WAITING_MESSAGES]: WaitingMessagesRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,

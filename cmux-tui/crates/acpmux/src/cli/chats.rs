@@ -21,8 +21,8 @@ use serde_json::{Value, json};
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::client::Client;
-use crate::no_panic::JsonExt;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ChatsCmd {

@@ -7,12 +7,12 @@
 //! `value["key"] = x` panics when `value` is not an object or null (an
 //! array, a string from a peer). [`JsonExt::set`] inserts into an object,
 //! turns null into an object, and leaves any other value as it is.
-//! [`JsonExt::field`] and [`JsonExt::item`] read like `value["key"]` and
+//! [`JsonRead::field`] and [`JsonRead::item`] read like `value["key"]` and
 //! `value[0]` (Null when absent) without the index operator, so the panic
 //! lints stay at 0 and a reader sees that no read can panic.
-//! [`JsonExt::field_mut`] is `&mut value["key"]` without the index operator.
+//! [`JsonRead::field_mut`] is `&mut value["key"]` without the index operator.
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Lock without panicking on poison.
@@ -41,17 +41,12 @@ impl<T: ?Sized> RwLockExt<T> for RwLock<T> {
     }
 }
 
-/// Set an object key without the panicking `IndexMut` of `serde_json::Value`.
-pub trait JsonExt {
-    /// Insert `key`; a null becomes an object first. Any other non-object
-    /// value is left unchanged (and `false` is returned).
-    fn set(&mut self, key: &str, value: Value) -> bool;
-    /// The object map, creating it from null. `None` for any other non-object.
-    fn object_mut(&mut self) -> Option<&mut Map<String, Value>>;
-    /// `value[path[0]][path[1]]... = value`: each missing or null level
-    /// becomes an object, as `IndexMut` does. A level that holds any other
-    /// value is left unchanged (and `false` is returned).
-    fn set_path(&mut self, path: &[&str], value: Value) -> bool;
+/// Non-panicking `serde_json::Value` writes: the shared [`cmux_json::JsonSet`]
+/// under the name the daemon already imports.
+pub use cmux_json::JsonSet as JsonExt;
+
+/// Read a `serde_json::Value` like the index operator, without its panics.
+pub trait JsonRead {
     /// `value[key]` for reading: Null when the key is absent or `self` is
     /// not an object.
     fn field(&self, key: &str) -> &Value;
@@ -65,36 +60,12 @@ pub trait JsonExt {
 
 static JSON_NULL: Value = Value::Null;
 
-impl JsonExt for Value {
-    fn set(&mut self, key: &str, value: Value) -> bool {
-        match self.object_mut() {
-            Some(map) => {
-                map.insert(key.to_owned(), value);
-                true
-            }
-            None => false,
-        }
-    }
-    fn object_mut(&mut self) -> Option<&mut Map<String, Value>> {
-        if self.is_null() {
-            *self = Value::Object(Map::new());
-        }
-        self.as_object_mut()
-    }
-    fn set_path(&mut self, path: &[&str], value: Value) -> bool {
-        let Some((last, parents)) = path.split_last() else { return false };
-        let mut at = self;
-        for key in parents {
-            let Some(map) = at.object_mut() else { return false };
-            at = map.entry((*key).to_owned()).or_insert(Value::Null);
-        }
-        at.set(last, value)
-    }
+impl JsonRead for Value {
     fn field(&self, key: &str) -> &Value {
         self.get(key).unwrap_or(&JSON_NULL)
     }
     fn field_mut(&mut self, key: &str) -> Option<&mut Value> {
-        Some(self.object_mut()?.entry(key).or_insert(Value::Null))
+        Some(JsonExt::object_mut(self)?.entry(key).or_insert(Value::Null))
     }
     fn item(&self, index: usize) -> &Value {
         self.get(index).unwrap_or(&JSON_NULL)
@@ -123,7 +94,7 @@ impl StrExt for str {
 
 #[cfg(test)]
 mod tests {
-    use super::{JsonExt, StrExt};
+    use super::{JsonExt as _, JsonRead, StrExt};
     use serde_json::Value;
     use serde_json::json;
 
@@ -157,16 +128,17 @@ mod tests {
     #[test]
     fn set_path_builds_missing_levels_and_leaves_other_values() {
         let mut v = json!({"keep": 1});
-        assert!(v.set_path(&["_meta", "acpmux", "name"], json!("n")));
+        v.set_path(&["_meta", "acpmux", "name"], json!("n"));
         assert_eq!(v, json!({"keep": 1, "_meta": {"acpmux": {"name": "n"}}}));
 
         let mut null = serde_json::Value::Null;
-        assert!(null.set_path(&["a"], json!(true)));
+        null.set_path(&["a"], json!(true));
         assert_eq!(null, json!({"a": true}));
 
         let mut blocked = json!({"_meta": "peer string"});
-        assert!(!blocked.set_path(&["_meta", "acpmux", "name"], json!("n")));
+        blocked.set_path(&["_meta", "acpmux", "name"], json!("n"));
         assert_eq!(blocked, json!({"_meta": "peer string"}));
-        assert!(!blocked.set_path(&[], json!(1)));
+        blocked.set_path(&[], json!(1));
+        assert_eq!(blocked, json!({"_meta": "peer string"}));
     }
 }

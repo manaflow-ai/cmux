@@ -22,9 +22,10 @@ use super::transfer_out::{
     transfers_dir,
 };
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cmux_json::JsonSet as _;
 
 /// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
 /// receive before the finish reads it, and no receive of it starts after.

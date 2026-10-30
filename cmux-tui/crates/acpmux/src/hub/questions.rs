@@ -20,8 +20,8 @@
 //! decline it), so an answer always comes from a person, or, for a
 //! sub-session, from a session above it (`subsession_answer.rs`).
 
-use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 /// The normalized question of a request, when it carries one.

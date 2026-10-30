@@ -243,13 +243,14 @@
 //!   person until then.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 
 pub use super::start_gate::{
     CALLER_ENV_KEYS, CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, START_MODE_FIELD,
     StartMode, caller_env, caller_proves, caller_token, host_label, mode_person_required,
     take_caller,
 };
+use cmux_json::JsonSet as _;
 
 /// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
 pub const KEY_FIELD: &str = "personKey";
@@ -656,7 +657,8 @@ impl PersonGate {
             spent.pop_front();
         }
         let fresh = nonces.iter().enumerate().all(|(i, nonce)| {
-            !nonces[..i].contains(nonce) && !spent.iter().any(|(n, _)| n == nonce)
+            !nonces.get(..i).unwrap_or_default().contains(nonce)
+                && !spent.iter().any(|(n, _)| n == nonce)
         });
         if nonces.is_empty() || !fresh {
             return false;

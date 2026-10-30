@@ -9,12 +9,11 @@ import Testing
 @testable import CmuxNextApp
 
 /// The agent card's Continue (AgentPermissionRequests through
-/// SystemPermissionOpener) is the main way a person sets up computer use. On
-/// macOS 26 the Screen Recording toggle alone leaves the helper's capture
-/// check false until the helper asks once, so Continue must send the same
-/// `request_system_permission` as Allow in Settings and onboarding
-/// (`ComputerUseSetup.open`). Before, it only opened System Settings, and the
-/// card never ended `granted`.
+/// SystemPermissionOpener) is the main way a person sets up computer use: it
+/// shows the Computer Use window. On macOS 26 the Screen Recording toggle
+/// alone leaves the helper's capture check false until the helper asks once,
+/// so Allow in that window sends `request_system_permission`
+/// (`AppComputerUsePermissionSource.openSettings`, `ComputerUseSetup.open`). Before, the card never ended `granted`.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct ComputerUsePermissionCardTests {
@@ -28,6 +27,8 @@ struct ComputerUsePermissionCardTests {
 
     @MainActor @Observable final class OpenedURLs {
         var urls: [URL] = []
+        /// How many times Continue showed the Computer Use window.
+        var windows = 0
     }
 
     /// A ready legacy helper with `granted` grants, and the card store the App builds over it.
@@ -47,7 +48,9 @@ struct ComputerUsePermissionCardTests {
         setup.start()
         await ComputerUseSetupTests.run(rig) { setup.phase == .ready }
         let probe = SystemPermissionProbe(setup: setup, appEvents: AppEvents(center: NotificationCenter()), mainWork: rig.work)
-        let requests = AgentPermissionRequests(probe: probe, opener: SystemPermissionOpener(setup: setup, work: BackgroundWork()))
+        let opener = SystemPermissionOpener(setup: setup, work: BackgroundWork(), showComputerUse: { opened.windows += 1 },
+                                            openURL: { opened.urls.append($0) })
+        let requests = AgentPermissionRequests(probe: probe, opener: opener)
         return Card(rig: rig, setup: setup, requests: requests, grants: grants, opened: opened)
     }
 
@@ -56,11 +59,16 @@ struct ComputerUsePermissionCardTests {
                           requester: PermissionRequester(agentName: "Claude Code", agentID: "term_a"))
     }
 
-    @Test func continueWithScreenRecordingMissingAsksTheHelperOnce() async throws {
+    @Test func continueShowsTheWindowAndScreenshotsAllowAsksTheHelperOnce() async throws {
         let card = await makeCard(ComputerUsePermissions(accessibility: true, screenRecording: false))
         let waiting = Task { await card.requests.request(computerUseRequest(), timeout: .seconds(60)) }
         await ComputerUseSetupTests.run(card.rig) { card.requests.current != nil }
         card.requests.continueCurrent()
+        await ComputerUseSetupTests.run(card.rig) { card.opened.windows >= 1 }
+        #expect(card.opened.windows == 1)
+        #expect(card.opened.urls.isEmpty)
+        // Allow on Screenshots in the window.
+        AppComputerUsePermissionSource(setup: card.setup, mainWork: card.rig.work).openSettings(.screenRecording)
         await ComputerUseSetupTests.run(card.rig) { card.grants.count >= 1 }
         #expect(await card.grants.panes == [.screenRecording])
         #expect(card.opened.urls == [ComputerUseSetup.settingsURL(.screenRecording)])
@@ -70,11 +78,15 @@ struct ComputerUsePermissionCardTests {
 
     /// Accessibility needs only the toggle: the request would raise macOS's
     /// "would like to control this computer" alert over the drag panel.
-    @Test func continueWithAccessibilityMissingSendsNoRequest() async throws {
+    @Test func accessibilityAllowAfterContinueSendsNoRequest() async throws {
         let card = await makeCard(ComputerUsePermissions(accessibility: false, screenRecording: false))
         let waiting = Task { await card.requests.request(computerUseRequest(), timeout: .seconds(60)) }
         await ComputerUseSetupTests.run(card.rig) { card.requests.current != nil }
         card.requests.continueCurrent()
+        await ComputerUseSetupTests.run(card.rig) { card.opened.windows >= 1 }
+        #expect(card.opened.windows == 1)
+        // Allow on Accessibility in the window.
+        AppComputerUsePermissionSource(setup: card.setup, mainWork: card.rig.work).openSettings(.accessibility)
         await ComputerUseSetupTests.run(card.rig) { card.opened.urls.count >= 1 }
         #expect(card.opened.urls == [ComputerUseSetup.settingsURL(.accessibility)])
         card.requests.denyCurrent()

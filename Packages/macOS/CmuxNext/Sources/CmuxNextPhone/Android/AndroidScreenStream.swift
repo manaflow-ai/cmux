@@ -57,9 +57,12 @@ final class AndroidScreenStream {
         let decoder = AndroidFrameAssembler()
         let mainWork = mainWork, frameOwner = frameOwner
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            let data: Data
+            switch handle.readReady() {
+            case .bytes(let ready): data = ready
+            case .retry: return
+            case .end: handle.readabilityHandler = nil; return
+            }
             for sample in decoder.samples(from: data) {
                 mainWork.postFromAnyThread(.visible, owner: frameOwner) { [weak self] in self?.onSample?(sample.buffer) }
             }

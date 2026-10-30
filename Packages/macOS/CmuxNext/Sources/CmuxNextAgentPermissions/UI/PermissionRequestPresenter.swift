@@ -18,6 +18,7 @@ public final class PermissionRequestPresenter {
         appURL: appURL, appIcon: appIcon))
     private let appURL: (PermissionKind) -> URL?
     private let appIcon: (PermissionKind) -> NSImage?
+    private let guidedElsewhere: (PermissionKind) -> Bool
     private let mainWork: MainWorkScheduler
     private var following: ServiceObservation<Shown>?
     /// The guide the person closed: the request still waits for its grant, the card stays hidden.
@@ -27,15 +28,19 @@ public final class PermissionRequestPresenter {
     ///   - requests: the request store.
     ///   - appURL: the app that gets a grant (cmux, or the Computer Use helper).
     ///   - appIcon: that app's icon, read off the main thread (nil until it is).
+    ///   - guidedElsewhere: kinds another window guides after Continue (the
+    ///     Computer Use window): the card hides while such a request is guided.
     ///   - screen: the screen to show the card on (cmux's key window's).
     ///   - mainWork: the app's one main-thread scheduler: the card follows the store on it.
     public init(requests: AgentPermissionRequests, appURL: @escaping (PermissionKind) -> URL?,
                 appIcon: @escaping (PermissionKind) -> NSImage?,
+                guidedElsewhere: @escaping (PermissionKind) -> Bool = { _ in false },
                 screen: @escaping () -> NSScreen? = { NSApp.keyWindow?.screen ?? NSScreen.main },
                 mainWork: MainWorkScheduler) {
         self.requests = requests
         self.appURL = appURL
         self.appIcon = appIcon
+        self.guidedElsewhere = guidedElsewhere
         self.screen = screen
         self.mainWork = mainWork
     }
@@ -45,6 +50,14 @@ public final class PermissionRequestPresenter {
         var request: PendingPermissionRequest?
         var waiting: Int
         var granted: PendingPermissionRequest?
+    }
+
+    /// Whether the card shows for `request` (nil: only the granted confirm).
+    func showsCard(_ request: PendingPermissionRequest?, granted: PendingPermissionRequest?) -> Bool {
+        if let request, request.phase == .guiding, request.id == closedGuide || guidedElsewhere(request.request.kind) { return false }
+        // The granted confirm of a request another window guided: that window says so.
+        if request == nil, let granted, guidedElsewhere(granted.request.kind) { return false }
+        return request != nil || granted != nil
     }
 
     /// Follows the store for the app's life. Idempotent.
@@ -63,8 +76,7 @@ public final class PermissionRequestPresenter {
     }
 
     private func show(_ request: PendingPermissionRequest?, waiting: Int, granted: PendingPermissionRequest?) {
-        if let request, request.id == closedGuide, request.phase == .guiding { return panel.orderOut(nil) }
-        guard request != nil || granted != nil else { return panel.orderOut(nil) }
+        guard showsCard(request, granted: granted) else { return panel.orderOut(nil) }
         panel.card.render(request, waiting: waiting, granted: granted)
         panel.present(on: screen())
     }

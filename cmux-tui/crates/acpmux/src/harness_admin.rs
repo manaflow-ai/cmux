@@ -28,8 +28,8 @@ use crate::byo_endpoint;
 use crate::cli::harness::{self, AddRequest, DoctorReport, StepStatus};
 use crate::config::profiles::{self, ProfileSources};
 use crate::config::{Config, ProfileSource};
-use crate::no_panic::JsonExt;
 use crate::registry::{self, Launch, Registry};
+use cmux_json::JsonSet as _;
 
 /// Why an operation was refused. `reason()` is the stable code the daemon
 /// puts in an error's `data.reason`.

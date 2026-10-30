@@ -32,6 +32,8 @@ extension SSHService {
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        // A joined machine's menu rows (Labs `labs.machineJoin`): Check, Rotate Credential, Revoke….
+        MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         // SSH is made on first use (a run, a menu's check), never at binding.
         let available: @MainActor () -> String? = { context.services.ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { context.services.ssh.unavailableReason ?? (context.services.ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }

@@ -47,12 +47,14 @@ cmux-memory.workspace = true
 # The daemon's features and their sources, shared with the cmux-tui owner (the leftover
 # daemon idle exit, src/daemon_lifecycle.rs), and `memoryAcpmuxPressure`.
 cmux-features = { workspace = true, features = ["sources"] }
+cmux-json.workspace = true
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 cmux-link.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
+cmux-wg.workspace = true
 anyhow = "1"
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
@@ -95,6 +97,7 @@ cmux-trace.workspace = true
 # (src/maintenance.rs), and Energy Saver (src/energy_control.rs).
 cmux-wake.workspace = true
 uuid = { version = "1.20", features = ["v7"] }
+x25519-dalek.workspace = true
 libc = "0.2"
 notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).

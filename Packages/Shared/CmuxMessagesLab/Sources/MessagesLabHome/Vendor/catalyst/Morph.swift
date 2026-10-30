@@ -272,7 +272,8 @@ final class MorphBubble {
             p.serial += 1
             return p.serial
         }
-        prepQueue.async {
+        let box = PaletteScope.effective // cmux: the typing chat's palette goes with the job
+        prepQueue.async { PaletteScope.with(box) {
             let latest = prepLock.withLock { $0.serial == serial }
             guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
             let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
@@ -282,7 +283,7 @@ final class MorphBubble {
                 guard p.serial == serial else { return }
                 p.prepared = (tl, size, scale, images)
             }
-        }
+        } }
     }
     private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
         prepLock.withLock { p in

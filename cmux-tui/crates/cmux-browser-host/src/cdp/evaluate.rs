@@ -4,6 +4,7 @@ use super::driver::{Inner, Session};
 use super::state::{AGENT_WORLD, HOST_WORLD, World, error_message};
 use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode, required_str, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -636,7 +637,7 @@ impl Inner {
 fn graft(node: &mut Value, parent_id: &str, subtree: &Value) -> bool {
     if node.field("frame").field("id").as_str() == Some(parent_id) {
         if !node.field("childFrames").is_array() {
-            node.insert("childFrames", json!([]));
+            node.set("childFrames", json!([]));
         }
         if let Some(children) = node.get_mut("childFrames").and_then(Value::as_array_mut) {
             children.retain(|child| {

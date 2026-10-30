@@ -2,9 +2,9 @@
 //! spawns with: its profile, its preset's env, args and system prompt file.
 
 use super::*;
-use crate::no_panic::JsonExt;
 
 use crate::config::check_preset_args;
+use cmux_json::JsonSet as _;
 
 fn pi_session_for(root: &Path, agent_id: &str) -> std::io::Result<Option<PathBuf>> {
     let Ok(entries) = std::fs::read_dir(root) else { return Ok(None) };

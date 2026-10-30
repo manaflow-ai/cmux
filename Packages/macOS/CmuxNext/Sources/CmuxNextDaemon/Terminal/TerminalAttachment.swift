@@ -17,7 +17,9 @@ public actor TerminalAttachment: TerminalByteChannel {
         /// With `attach-identity-v1` the daemon resolves the terminal by its
         /// public resource id (`term_…`, the tab's `terminal_resource_id`,
         /// not the 32-hex `terminal_id`) and validates the generation instead
-        /// of trusting a possibly stale numeric surface.
+        /// of trusting a possibly stale numeric surface. A target from an
+        /// earlier generation (made before the daemon restarted) attaches by
+        /// the id at the daemon's current generation, never by its old surface.
         public var terminalResourceID: ResourceID?
         public var generation: DaemonGeneration?
 
@@ -187,11 +189,26 @@ public actor TerminalAttachment: TerminalByteChannel {
         ], timeout: DaemonConnection.defaultRequestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get())
         _ = try replies[1].get()
+        let target = Self.currentTarget(target, identity: identity)
+        // A retargeted view names no surface until the daemon's first `vt-state` does.
+        if target.surface == Self.unresolvedSurface { sink.resolvedSurface.value.withLock { $0 = Self.unresolvedSurface } }
         let request = try Self.attachRequest(target, identity: identity, size: size, snapshotVersion: snapshotVersion,
                                              localHistory: localHistory, images: images, stream: nil)
         let response = try await DaemonConnection.perform(request, on: transport, timeout: Self.attachTimeout)
         try await adopt(response, size: size, sharedSizing: identity.supports(DaemonCapability.sharedSizing.rawValue),
                         claimGeometry: claimGeometry, target: target.surface, createIntent: createIntent)
+    }
+
+    /// The target to attach to `identity`'s daemon. A target made before the daemon restarted (a
+    /// restored pane): the `term_` id is the same terminal, but its numeric surface is the old
+    /// owner's (each restart renumbers them), and asking for it failed every retry with "unknown
+    /// surface". With `attach-identity-v1` it becomes ``Target/unplaced(terminalResourceID:generation:)``
+    /// at the current generation: the daemon resolves the id to the current surface, and the first
+    /// `vt-state` names it. Any other target is unchanged.
+    static func currentTarget(_ target: Target, identity: DaemonIdentity) -> Target {
+        guard identity.supports(DaemonCapability.attachIdentity.rawValue), let terminal = target.terminalResourceID,
+              target.generation != identity.generation else { return target }
+        return .unplaced(terminalResourceID: terminal, generation: identity.generation)
     }
 
     /// Takes the attach reply: the view's lease, participant and size state, then the geometry claim, then arms

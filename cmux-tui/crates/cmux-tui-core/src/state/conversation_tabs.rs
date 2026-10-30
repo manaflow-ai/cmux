@@ -17,7 +17,7 @@
 //! changes nothing commits nothing.
 
 use crate::Actor;
-use crate::panic_free::{JsonFields, RecoverPoison};
+use crate::panic_free::RecoverPoison;
 use serde_json::Map;
 
 use crate::Surface;
@@ -36,6 +36,7 @@ use crate::state::prelude::*;
 use crate::state::store::StateChanges;
 use crate::state::values::fresh_upserts;
 use crate::workspace_registry::FrontendBrowserRecord;
+use cmux_json::JsonSet as _;
 
 /// Where a new conversation tab goes: a pane (or the focused pane), a
 /// workspace, which gets its first screen and pane when it has none (the
@@ -226,7 +227,7 @@ impl Mux {
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
                 if let Some(split_id) = split_id {
-                    ids.insert("split_id", Value::String(split_id.clone()));
+                    ids.set("split_id", Value::String(split_id.clone()));
                 }
                 Ok(ids)
             }

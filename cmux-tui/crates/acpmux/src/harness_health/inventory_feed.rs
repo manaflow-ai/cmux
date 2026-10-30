@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use tokio::sync::watch;
 
 use super::{HarnessHealth, HealthService, inventory};
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 
 #[derive(Clone)]
 pub(crate) struct Snapshot {

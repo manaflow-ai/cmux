@@ -29787,7 +29787,17 @@
                 "max_length": 200
               }
             },
-            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms, request_id} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+          },
+          "attention_request_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 32,
+              "max_length": 32
+            },
+            "description": "tab-attention-request-id-v1: with attention:null, clear only the mark whose extra.attention.request_id equals this opaque 32-byte lowercase hexadecimal identity. A stale identity is a successful no-op and returns the current tab. Requires attention:null; never use at_ms as identity or fall back to an unconditional clear when capability or identity is absent."
           },
           "expected_revision": {
             "required": false,

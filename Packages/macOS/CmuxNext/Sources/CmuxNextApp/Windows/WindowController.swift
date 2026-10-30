@@ -184,6 +184,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         topPages.teardown()
         sidebar.teardown()
         visibility.detach()
+        // Last: a host the steps above made for the closing window (the overlay layer is made on
+        // first use) closes its panel too, since it came after the close that tears hosts down.
+        if let window { WindowOverlayHost.windowIsClosing(window) }
     }
 
     /// Preview pages are removed immediately when Labs is switched off,
@@ -197,7 +200,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             return settings.snapshot.previewFeatures
         } apply: { [weak self] enabled in
             guard !enabled, let self, let page = state.page,
-                  page == .page(.appStore) || page == .page(.changelog) else { return }
+                  case .page(let id) = page, InternalPageTabStore.isPreviewPage(id) else { return }
             _ = leaveTopPage()
         }
     }

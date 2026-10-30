@@ -2,12 +2,12 @@
 //! caller's transaction, and `WorkspaceRegistry::apply_bookmark_op` runs one
 //! op with its replay record in one transaction.
 
-use anyhow::Context;
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
 use super::super::{WorkspaceMutation, WorkspaceRegistry};
 use super::*;
+use cmux_json::JsonSet as _;
 
 // MARK: Ops on a transaction
 
@@ -473,9 +473,9 @@ impl WorkspaceRegistry {
 /// A bookmark result is always an object (`apply_op` and the stored replay
 /// both build one); anything else is a corrupt replay row, reported.
 fn mark_replayed(result: &mut Value, replayed: bool) -> anyhow::Result<()> {
-    result
-        .as_object_mut()
-        .context("stored bookmark result is not an object")?
-        .insert("replayed".into(), json!(replayed));
+    anyhow::ensure!(
+        result.set("replayed", json!(replayed)),
+        "stored bookmark result is not an object"
+    );
     Ok(())
 }

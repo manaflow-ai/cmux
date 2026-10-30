@@ -2,8 +2,9 @@
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::mac_approvers::MacProof;
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::no_panic::LockExt;
+use cmux_json::JsonSet as _;
 use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 

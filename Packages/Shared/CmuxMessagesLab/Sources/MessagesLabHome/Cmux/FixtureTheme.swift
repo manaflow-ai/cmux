@@ -18,6 +18,8 @@ struct FixtureTheme: Equatable {
         let connector: NSColor
         let badge: NSColor
         let incomingText: NSColor
+        /// The composer's own text and symbols (palette `composeText`: the theme's, whatever a chat's bubbles chose).
+        let composeText: NSColor
         let outgoingText: NSColor
         let secondaryText: NSColor
         /// (2x px window y, colour), over the gradient's 1041 pt.
@@ -49,6 +51,7 @@ struct FixtureTheme: Equatable {
             connector = c(p.typingDot)
             badge = c(p.badge)
             incomingText = c(p.incomingText)
+            composeText = c(p.composeText)
             outgoingText = c(p.outgoingText)
             secondaryText = c(p.secondaryText)
             let span = Fixture.gradientHeight * 2

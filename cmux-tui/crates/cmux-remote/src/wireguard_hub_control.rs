@@ -50,6 +50,7 @@ use crate::provider::socks::{ADDRESS_IPV4, ADDRESS_IPV6};
 use crate::read_buffer::filled;
 use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
 use crate::wireguard_hub::HubError;
+use cmux_json::JsonSet as _;
 
 /// Control connections served at once.
 const MAX_CONTROL_CONNECTIONS: usize = 32;
@@ -633,7 +634,7 @@ async fn forward_events(mut events: broadcast::Receiver<PathEvent>, lines: mpsc:
         match events.recv().await {
             Ok(event) => {
                 let mut body = path_fields(&event);
-                body.insert("event".into(), json!("path.changed"));
+                body.set("event", json!("path.changed"));
                 // A full queue skips this event; the next one carries the
                 // same fields.
                 match lines.try_send(Value::Object(body).to_string()) {

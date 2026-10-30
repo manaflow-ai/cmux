@@ -855,6 +855,18 @@
       "row": "assume_isolated_outside_adapters",
       "allow": 2,
       "why": "Trunk sync (cp/sync-trunk-20261029a, replaces cp/sync-trunk-20261028a): no new site. MainQueueObservation.swift:17 is perf/chrome-parity's own seam, unchanged by the merge (7eb211cdf65 has the same line); MobileKeyboardFrameTracker.swift:72 is the one queue: .main observer block both sides already had (trunk 9b7d6d9f93c and perf 7eb211cdf65 each have it), its body merged to trunk's record(change:endFrame:) inside perf's lock-held token list. The ratchet counts them only because the merge brings the other side's file in. They move to a @MainActor observation when their owners rewrite those observers."
+    },
+    {
+      "date": "2026-10-29",
+      "row": "stateful_singletons",
+      "allow": 2,
+      "why": "Per-PR kill switches are deliberately process-wide: the public killSwitch API must read one verified set across all call sites, and one KillSwitchReader follows the app updater so a ring change cannot leave competing readers or stale writes. The state is replaced only after signature verification; the reader is created at the updater composition seam. Independent review of cmux#24212 covers this lifecycle."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "global_mutable_statics",
+      "allow": 4,
+      "why": "MessagesLabHome PaletteScope (per-chat bubble colours, user 2026-10-28): the vendored MessagesLab renderer reads its palette from process-wide statics (Fixture.theme, Fixture.paletteGeneration) on any thread, so two Home chats on screen with different Chat Colors overwrote each other. The fix mirrors the renderer's existing RenderScaleScope: a main-thread scope slot (mainThreadScoped, as RenderScaleScope's, to avoid binding a task local on main outside a task), the process palette that replaces the stored Fixture.theme, a main-only intern table so equal palettes share cache ids, and Fixture.baseGeneration that replaces the stored paletteGeneration. Moving them into an injected instance would mean rewriting every static drawing helper of the vendored renderer, which reads Fixture.* by design."
     }
   ],
   "observer_wrappers": [

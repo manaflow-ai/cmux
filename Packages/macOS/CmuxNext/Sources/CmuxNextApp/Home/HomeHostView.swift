@@ -120,6 +120,7 @@ final class HomeHostView: NSView {
             guard let service, let other = service.tabChiefs.otherHost(of: conversation) else { return }
             service.hostedChief.pick(other)
         }
+        transcript.chatColors = service.chatColors  // Chat Colors…: this chat's own colours, live
         // Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
         observations.append(VisibleObservation(node, owner: "HomeHost.chiefHost", on: work) { [weak service] in
             service?.chiefHost(of: conversation) ?? HomeChiefHostLine()

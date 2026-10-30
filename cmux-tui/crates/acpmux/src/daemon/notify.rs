@@ -2,7 +2,7 @@
 //! person may want to hear about while no client shows the chat.
 
 use crate::hub::Hub;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use serde_json::Value;
 use std::sync::Arc;
 

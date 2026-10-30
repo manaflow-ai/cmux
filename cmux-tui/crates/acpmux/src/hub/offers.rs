@@ -28,9 +28,10 @@
 //!   plain text, and nothing runs before the person accepts.
 
 use super::{Hub, Session};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

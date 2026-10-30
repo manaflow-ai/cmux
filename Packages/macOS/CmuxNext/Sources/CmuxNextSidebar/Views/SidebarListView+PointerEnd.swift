@@ -55,16 +55,23 @@ extension SidebarListViewComponents {
         return true
     }
 
-    /// A left release's dispatch is over (`observePointerEnds`). One sent to another window that did not end the
-    /// gesture there, with no new press begun, lost its release: the gesture ends.
-    func releaseDispatched(in eventWindow: NSWindow?) {
+    /// A left release's dispatch is over (`observePointerEnds`; `screenPoint`: where it happened, on screen). One sent
+    /// to another window that did not end the gesture there, with no new press begun, lost its release: the gesture
+    /// ends, and the release point still decides a drag out.
+    func releaseDispatched(in eventWindow: NSWindow?, at screenPoint: NSPoint? = nil) {
         guard eventWindow !== window else { return }
-        endReleasedGesture()
+        endReleasedGesture(at: screenPoint)
     }
 
-    /// A release went elsewhere and its dispatch is over: a gesture still alive with the button up has lost its release.
-    func endReleasedGesture() {
+    /// A release went elsewhere (`screenPoint`: where) and its dispatch is over: a gesture still alive with the button
+    /// up has lost its release. A drag released beside the sidebar (over another window or the desktop) is still a drag
+    /// out: its item comes off (`finishDragOut`).
+    func endReleasedGesture(at screenPoint: NSPoint? = nil) {
         guard holdsPointerGesture, !leftButtonIsDown() else { return }
+        if let drag, let screenPoint, let window, finishDragOut(drag, at: window.convertPoint(fromScreen: screenPoint)) {
+            press = nil
+            return syncRowStates()
+        }
         endPointerGesture()
     }
 
@@ -78,7 +85,11 @@ extension SidebarListViewComponents {
             if event.type == .leftMouseDown { _ = self?.pointerEventSeen(event.type, in: event.window) }
         }
         let releases = tap.subscribe(class: .button, phase: .afterDispatch, while: holds) { [weak self] event in
-            if event.type == .leftMouseUp { self?.releaseDispatched(in: event.window) }
+            // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
+            if event.type == .leftMouseUp {
+                self?.releaseDispatched(in: event.window,
+                                        at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)
+            }
         }
         return [presses, releases]
     }

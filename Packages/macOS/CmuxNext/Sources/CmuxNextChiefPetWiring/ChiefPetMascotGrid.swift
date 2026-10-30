@@ -147,7 +147,8 @@ final class ChiefPetMascotCell: NSButton {
         setButtonType(.pushOnPushOff)
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
-        image = ChiefPetMascot(rawValue: id)?.image.map { ChiefPetSettingsRows.thumbnail($0, side: Self.pictureSide) }
+        // Drawn from its PNG only when the cell draws: the grid is built with Home at launch.
+        image = ChiefPetMascot(rawValue: id).map { ChiefPetSettingsRows.lazyThumbnail(of: $0, side: Self.pictureSide) }
         image?.accessibilityDescription = title
         state = .off
         setAccessibilityRole(.radioButton)

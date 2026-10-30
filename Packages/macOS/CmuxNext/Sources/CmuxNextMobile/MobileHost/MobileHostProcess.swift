@@ -20,9 +20,9 @@ public final class MobileHostProcess: Sendable {
         var exitWaiters: [OnceContinuation<Int32, OnceContinuationError>] = []
     }
 
-    /// hostd's stdout lines (bounded: oldest dropped past 256 pending).
+    /// Every stdout line, bounded by backpressure on the pipe reader.
     public let lines: AsyncStream<String>
-    private let continuation: AsyncStream<String>.Continuation
+    private let queue = MobileHostQueue<String>(capacity: 256)
     private let state = Mutex(State())
     private let launcher: ProcessLauncher
 
@@ -30,7 +30,7 @@ public final class MobileHostProcess: Sendable {
     ///   hostd serves the person's phone now.
     public init(launcher: ProcessLauncher = ProcessLauncher(label: "com.cmuxterm.next.mobile-host", priority: .userVisible)) {
         self.launcher = launcher
-        (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
+        lines = queue.stream
     }
 
     /// Starts `launch.executable` with `environment` and returns once it runs; stderr goes to `log`
@@ -47,16 +47,15 @@ public final class MobileHostProcess: Sendable {
         // A write after hostd exited must fail with EPIPE, not raise SIGPIPE in the app.
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         let buffer = LineBuffer()
-        let continuation = continuation
+        let queue = queue
         output.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            switch handle.readReady() {
+            case .bytes(let data): for line in buffer.append(data) { queue.push(line) }
+            case .retry: return
+            case .end:
                 handle.readabilityHandler = nil
-                continuation.finish()
-                return
+                queue.finish()
             }
-            for line in buffer.append(data) { continuation.yield(line) }
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
@@ -69,7 +68,15 @@ public final class MobileHostProcess: Sendable {
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
         }
-        try await launcher.launched(process)
+        do {
+            try await launcher.launched(process)
+        } catch {
+            // Nothing was stored yet: only the reader and the line queue end.
+            output.fileHandleForReading.readabilityHandler = nil
+            queue.cancel()
+            try? input.fileHandleForWriting.close()
+            throw error
+        }
         // Stored only once hostd runs, so pid and send() never describe a child that did not start. A
         // stop() during the launch found nothing to end; hostd is ended here instead.
         let stoppedDuringLaunch = state.withLock { state -> Bool in
@@ -82,6 +89,7 @@ public final class MobileHostProcess: Sendable {
             try? input.fileHandleForWriting.close()
             launcher.terminate(process)
         }
+
     }
 
     /// Writes one control line; false when hostd is gone.
@@ -118,6 +126,7 @@ public final class MobileHostProcess: Sendable {
 
     /// Closes stdin (hostd exits on its own) and sends SIGTERM, on the launcher's queue after the launch.
     public func stop() {
+        queue.cancel()
         let process = state.withLock { state -> Process? in
             state.stopped = true
             try? state.input?.close()

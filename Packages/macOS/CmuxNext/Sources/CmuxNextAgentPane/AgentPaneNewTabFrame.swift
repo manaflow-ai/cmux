@@ -129,7 +129,7 @@ public final class AgentPaneNewTabFrame {
             redraw.givesNewTabFrame = false
             return
         }
-        // main-hop-allow: the frame wait and pageSnapshot() are the page host's main-actor async calls (the engine's
+        // main-hop-allow: the frame wait and the redraw's snapshot() are the page host's main-actor async calls (the engine's
         // frame callback and picture); this task only starts them from the settle's background task, and its resumes
         // store the picture
         Task { [weak self, weak view, weak host, weak redraw] in
@@ -142,7 +142,7 @@ public final class AgentPaneNewTabFrame {
             }
             // visibility-walk-allow: as above, the second of the capture's two reads
             guard let self, let view, let host, framed != nil, self.capturesFrames, view.window != nil, !view.isHiddenOrHasHiddenAncestor,
-                  view.isDescendant(of: host), host.bounds.size == size, let snapshot = await view.pageSnapshot(), snapshot.size == size,
+                  view.isDescendant(of: host), host.bounds.size == size, let snapshot = await redraw.snapshot(), snapshot.size == size,
                   view.snapshotKeepsClearAreas, takenAt == self.generation, self.shows(view.model) == before else { return }
             self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
         }

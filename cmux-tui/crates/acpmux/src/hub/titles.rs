@@ -10,7 +10,7 @@
 //! latest prompt (`wants_title`). A harness title, then or later, always wins.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

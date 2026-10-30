@@ -455,13 +455,19 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openComputer,
     },
     "computer-search": {
+      // The open machine list runs to about y=221, past the entry's 180px stage. On a short stage
+      // the page scrolls to show it, the anchor leaves the view and the popup hides
+      // (`.ui-positioner[data-anchor-hidden]`). When the health runner's step still then sends focus
+      // back to the dialog, focusing the hidden input does nothing and "gpu" goes to the body. A
+      // stage that holds the whole menu keeps the anchor, the popup and the input in view.
+      height: 420,
       note: "The classic machine picker uses the same searchable Combobox as environments and folders; filtering twenty machines leaves gpu-box.",
       props: { ...baseProps, peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)] },
       play: async (ctx) => {
         await openComputer(ctx);
         await ctx.focus({ role: "combobox", name: "Computer" });
         await ctx.type("gpu");
-        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1, { capMs: 8000 });
       },
     },
     "environment-picker": {

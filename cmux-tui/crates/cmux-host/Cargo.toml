@@ -23,6 +23,7 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 cmux-threads.workspace = true
 cmux-blocking.workspace = true
 cmux-panic-log.workspace = true
+cmux-json.workspace = true
 # Roles (the store update check and later app servers) come from
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.

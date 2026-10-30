@@ -118,9 +118,9 @@ public final class MacScreenPane {
     }
 
     /// A tab restored on an old pairing-link record: link pairing is no
-    /// longer supported, so it says so (Close Tab, Open Mac Screen).
+    /// longer supported, so it says so (Close Tab, Open Screen Sharing).
     public init(unsupportedLinkIn node: VisibilityNode, on mainWork: MainWorkScheduler) {
-        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Mac Screen"), gate: .unsupported)
+        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Screen Sharing"), gate: .unsupported)
         inputSink = nil
         hideTimer = nil
         view = MacScreenPaneView(model: model, node: node, on: mainWork)

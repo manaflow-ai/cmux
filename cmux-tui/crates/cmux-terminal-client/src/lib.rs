@@ -10,6 +10,7 @@ use std::time::{Duration as StdDuration, Instant};
 
 use base64::Engine;
 use bytes::Bytes;
+use cmux_json::JsonSet as _;
 use cmux_remote::MuxLineClient;
 use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
@@ -2791,7 +2792,7 @@ impl CmuxTerminalClient {
         request.insert("operation".into(), json!(operation));
         request.insert("params".into(), Value::Object(params));
         if mutation {
-            request.insert("idempotency_key".into(), json!(random_token()?));
+            request.set("idempotency_key", json!(random_token()?));
         }
         let request = Value::Object(request);
         let call = async {

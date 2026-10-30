@@ -31,6 +31,7 @@ use crate::Mux;
 use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.create";
 pub(super) const BRANCH_PREFIX: &str = "cmux/";
@@ -228,7 +229,7 @@ fn described(attempt: &Attempt, common_dir: &Path) -> Value {
         "base_commit": attempt.base_commit,
     });
     if let Some(main) = main_root(common_dir) {
-        value.insert("main_root", json!(main.to_string_lossy()));
+        value.set("main_root", json!(main.to_string_lossy()));
     }
     value
 }

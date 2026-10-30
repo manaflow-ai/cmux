@@ -3,7 +3,7 @@ import { memo } from "react";
 import { ChiefPromptBubble } from "../conversation/ChiefPromptBubble";
 import { CopyButton } from "../conversation/CopyButton";
 import { IncomingMessageLine, IncomingNotice } from "../conversation/IncomingMessageCard";
-import { PromptActions, ReceivedActions } from "../conversation/MessageActions";
+import { PromptActions, ReceivedActions, ReplyActions } from "../conversation/MessageActions";
 import { PendingSteer } from "../conversation/PendingSteer";
 import { DeliveryFailure } from "../conversation/PromptDelivery";
 import { SteerWaitingActions } from "../conversation/QueuedMessageCard";
@@ -15,6 +15,7 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { AuthorChip } from "../multiplayer/Faces";
 import { ReceivedResult } from "../offer/SuggestedTasks";
+import { RowPullRequests } from "../summary/PullRequestDock";
 import { editQueued, openOfferChat, openSenderChat, replyToMessage, sendSteerNow } from "./rowActions";
 import type { RowProps } from "./rowProps";
 
@@ -24,7 +25,7 @@ const steerControls = (row: AcpmuxRow) =>
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 export const MessageRow = memo(
-  function MessageRow({ row, githubRepository }: RowProps) {
+  function MessageRow({ row, replyActions, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
@@ -137,7 +138,7 @@ export const MessageRow = memo(
         </div>
       );
     }
-    return (
+    const reply = (
       <RevealedMarkdown
         text={row.text ?? ""}
         streaming={row.streaming === true}
@@ -145,9 +146,19 @@ export const MessageRow = memo(
         messageAt={row.at}
       />
     );
+    // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
+    // it (model.ts hasReplyActions).
+    if (!replyActions) return reply;
+    return (
+      <>
+        <RowPullRequests.Provider value={undefined}>{reply}</RowPullRequests.Provider>
+        <ReplyActions row={row} />
+      </>
+    );
   },
   (previous, next) =>
     previous.row.id === next.row.id &&
     previous.row.version === next.row.version &&
+    previous.replyActions === next.replyActions &&
     previous.githubRepository === next.githubRepository,
 );

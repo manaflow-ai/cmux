@@ -34,7 +34,7 @@
 //! often the value is used, not what a command it runs may do with it.
 
 use super::{Hub, Session, SessionStatus};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::HashMap;

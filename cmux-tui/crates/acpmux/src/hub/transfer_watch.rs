@@ -16,7 +16,7 @@
 
 use super::transfer_out::{bundle_files, transfers_dir};
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 
 /// How long a move may go without its client before the source ends it.
 pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from_secs(300);

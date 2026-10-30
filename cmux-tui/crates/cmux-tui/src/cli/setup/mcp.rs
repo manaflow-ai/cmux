@@ -27,7 +27,7 @@ use serde_json::{Value, json};
 use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
 use super::super::fix_command::quote_arg;
 use super::{Outcome, Refusal};
-use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "mcp";
 
@@ -260,11 +260,11 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 if user_action.is_null() {
                     user_action = action.clone();
                 }
-                row.insert("user_action", action);
+                row.set("user_action", action);
                 "needs_user"
             }
             Plan::Failed(error) => {
-                row.insert("error", json!(error));
+                row.set("error", json!(error));
                 failed = true;
                 "failed"
             }
@@ -277,20 +277,20 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
             Plan::Add | Plan::Replace => {
                 match apply(client, &command, found.as_ref().filter(|e| e.name == SERVER)) {
                     Ok(line) => {
-                        row.insert("undo", json!(line));
+                        row.set("undo", json!(line));
                         undo.push(line);
                         changed = true;
                         "changed"
                     }
                     Err(error) => {
-                        row.insert("error", json!(error));
+                        row.set("error", json!(error));
                         failed = true;
                         "failed"
                     }
                 }
             }
         };
-        row.insert("state", json!(state));
+        row.set("state", json!(state));
         rows.push(row);
     }
     // The switch comes first, but only when a harness is there to wire:

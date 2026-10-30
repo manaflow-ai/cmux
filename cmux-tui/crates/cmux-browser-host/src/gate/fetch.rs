@@ -10,6 +10,7 @@ use crate::panic_free::JsonFields;
 use crate::policy::egress::ip_range;
 use crate::protocol::{DriverError, ErrorCode};
 use crate::vm::VmHost;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::PoisonError;
 use std::time::Instant;
@@ -290,7 +291,7 @@ impl Gate {
         if let Some(body) = value.get("bodyBase64").and_then(Value::as_str)
             && let Some(bytes) = crate::fs_sandbox::base64_decode(body)
         {
-            value.insert(
+            value.set(
                 "bodyBase64",
                 json!(crate::fs_sandbox::base64_encode(&self.mask_bytes(&bytes))),
             );
@@ -342,19 +343,16 @@ impl Gate {
                     object.remove("targetId");
                 }
             }
-            call.insert("url", json!(hop.url));
-            call.insert("method", json!(hop.method));
-            call.insert(
-                "headers",
-                json!(hop.headers.iter().map(|(n, v)| [n, v]).collect::<Vec<_>>()),
-            );
-            call.insert("bodyBase64", json!(hop.body));
-            call.insert("credentials", json!(hop_credentials(credentials, page_origin, &hop.url)));
-            call.insert("redirect", json!("manual"));
-            call.insert("maxBytes", json!(MAX_BODY_BYTES));
-            call.insert("idleTimeoutMs", json!(IDLE_TIMEOUT_MS));
-            call.insert("fetchId", json!(fetch_id));
-            call.insert(
+            call.set("url", json!(hop.url));
+            call.set("method", json!(hop.method));
+            call.set("headers", json!(hop.headers.iter().map(|(n, v)| [n, v]).collect::<Vec<_>>()));
+            call.set("bodyBase64", json!(hop.body));
+            call.set("credentials", json!(hop_credentials(credentials, page_origin, &hop.url)));
+            call.set("redirect", json!("manual"));
+            call.set("maxBytes", json!(MAX_BODY_BYTES));
+            call.set("idleTimeoutMs", json!(IDLE_TIMEOUT_MS));
+            call.set("fetchId", json!(fetch_id));
+            call.set(
                 "timeoutMs",
                 json!(deadline.map_or(0, |deadline| {
                     deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64
@@ -395,8 +393,8 @@ impl Gate {
             }
             let Some(redirect) = redirect else {
                 // The final URL and `redirected` come from the host's chain.
-                value.insert("url", json!(hop.url));
-                value.insert("redirected", json!(redirects > 0));
+                value.set("url", json!(hop.url));
+                value.set("redirected", json!(redirects > 0));
                 return Ok(value);
             };
             redirects += 1;

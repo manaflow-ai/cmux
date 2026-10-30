@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// Bytes per `fs.write` line: the daemon takes 12 MiB, so a part stays
@@ -90,8 +91,8 @@ impl Remote {
     pub(super) fn call(&mut self, cmd: &str, mut params: Value) -> anyhow::Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
-        params.insert("id", json!(id));
-        params.insert("cmd", json!(cmd));
+        params.set("id", json!(id));
+        params.set("cmd", json!(cmd));
         let mut line = params.to_string();
         line.push('\n');
         self.reader.get_mut().write_all(line.as_bytes())?;

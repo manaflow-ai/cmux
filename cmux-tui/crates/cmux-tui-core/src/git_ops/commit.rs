@@ -36,6 +36,7 @@ use crate::Mux;
 use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.commit";
 /// State files that make a plain commit the wrong action, and their names.
@@ -309,12 +310,12 @@ fn described(repository: &Repository, commit: &str) -> Result<Value, ResourceErr
         "deletions": clamp(deletions),
     });
     if let Some(parent) = repository.commit(&format!("{commit}^")) {
-        value.insert("parent", json!(parent));
+        value.set("parent", json!(parent));
     }
     if let Ok(branch) = run(&["symbolic-ref", "--quiet", "--short", "HEAD"])
         && !branch.is_empty()
     {
-        value.insert("branch", json!(branch));
+        value.set("branch", json!(branch));
     }
     Ok(value)
 }

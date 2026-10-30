@@ -25,9 +25,9 @@ use super::{Target, not_found, target, writer};
 use crate::Mux;
 use crate::git_ops::diff;
 use crate::git_ops::write_run::{Bound, WriteGit};
-use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.checkpoint.diff";
 /// Building a files tree writes nothing a reader depends on, so it may stop.
@@ -72,12 +72,12 @@ pub(super) fn diff(
         }
     };
     drop(scratch);
-    value.insert("from", json!(from_id));
+    value.set("from", json!(from_id));
     // A side that left eligible files out (too large, over the file limit)
     // cannot show their changes, so the comparison is incomplete.
-    value.insert("complete", json!(from_complete && to_complete));
+    value.set("complete", json!(from_complete && to_complete));
     if let Some(to_id) = to_id {
-        value.insert("to", json!(to_id));
+        value.set("to", json!(to_id));
     }
     Ok(value)
 }

@@ -8,8 +8,9 @@ use clap::{Args, Subcommand};
 use serde_json::{Value, json};
 
 use crate::cli::output::{arg_or_stdin, print_json};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand)]
 pub enum TaskCmd {

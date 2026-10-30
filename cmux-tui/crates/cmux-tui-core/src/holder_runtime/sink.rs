@@ -220,7 +220,7 @@ impl SinkState {
         Pending {
             confirmed: self.confirmed,
             received: self.received,
-            head: all.iter().take(head_len).copied().collect(),
+            head: all.get(..head_len).unwrap_or(&all).to_vec(),
             all,
         }
     }
@@ -459,7 +459,16 @@ impl HolderSink {
         }
         // Taken, not parsed: the bytes stay queued (and in `pending`) until
         // the reader confirms them.
-        let n = copy_queued(buf, &state.bytes);
+        let (head, tail) = state.bytes.as_slices();
+        let mut n = 0;
+        for part in [head, tail] {
+            let Some(room) = buf.get_mut(n..) else { break };
+            let take = room.len().min(part.len());
+            if let (Some(to), Some(from)) = (room.get_mut(..take), part.get(..take)) {
+                to.copy_from_slice(from);
+            }
+            n += take;
+        }
         state.in_flight = n;
         let unnumbered: usize =
             state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
@@ -634,21 +643,6 @@ pub(super) struct SnapshottingReader {
     /// output counts: a reopened terminal's replayed seed or a prologue is
     /// not the shell's first text.
     pub(super) terminal_id: String,
-}
-
-/// Copies the front of `queued` into `buf` (memcpy of its two halves); the
-/// count copied.
-#[allow(
-    clippy::indexing_slicing,
-    reason = "INVARIANT: n <= both lengths; head and tail together hold queued.len() >= n bytes"
-)]
-fn copy_queued(buf: &mut [u8], queued: &VecDeque<u8>) -> usize {
-    let n = buf.len().min(queued.len());
-    let (head, tail) = queued.as_slices();
-    let from_head = n.min(head.len());
-    buf[..from_head].copy_from_slice(&head[..from_head]);
-    buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
-    n
 }
 
 impl Read for SnapshottingReader {

@@ -38,6 +38,8 @@
 //! one entry per copy, each with its own `ok` and, when false, its
 //! `error_code` (`sync_conflict` with `conflicts`). Unix only, like the link.
 
+use cmux_json::JsonSet as _;
+
 mod grants;
 mod requests;
 mod uploads;
@@ -384,7 +386,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     match answer {
         Ok(mut line) => {
-            line.insert("ok", json!(true));
+            line.set("ok", json!(true));
             println!("{line}");
             0
         }
@@ -487,9 +489,9 @@ fn grant(
         && before.remote != grant.remote
     {
         let (removed, _) = forget_copies(&store, Some(socket), &[before]);
-        synced.insert("removed", json!(removed));
+        synced.set("removed", json!(removed));
     }
-    synced.insert("grant", grant_json(&grant));
+    synced.set("grant", grant_json(&grant));
     Ok(synced)
 }
 
@@ -526,9 +528,9 @@ fn sync(socket: &Path, machine: &str, session: Option<&str>) -> Result<Value, Fa
                         "error": format!("{folder} is no longer the shared folder")}),
         };
         drop(store);
-        entry.insert("folder", json!(folder));
-        entry.insert("remote", json!(remote));
-        entry.insert("mode", json!(mode));
+        entry.set("folder", json!(folder));
+        entry.set("remote", json!(remote));
+        entry.set("mode", json!(mode));
         synced.push(entry);
     }
     Ok(json!({ "synced": synced }))
@@ -568,9 +570,9 @@ fn sync_copy(socket: &Path, folder: &Path, remote: &str, mode: Mode, first: bool
     match sync_cli::push_kept(socket, folder, remote, &keep) {
         Ok(summary) => {
             let mut answer = summary.json();
-            answer.insert("ok", json!(true));
+            answer.set("ok", json!(true));
             if !pulled.is_null() {
-                answer.insert("pulled", pulled);
+                answer.set("pulled", pulled);
             }
             answer
         }

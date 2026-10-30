@@ -29,8 +29,8 @@
 use super::{Conn, str_param};
 use crate::hub::subsessions::{LimitsActor, StartRequest};
 use crate::hub::{Hub, Session};
-use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;

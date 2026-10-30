@@ -13,6 +13,7 @@ use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
 use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
+use cmux_json::JsonSet as _;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -551,7 +552,7 @@ impl Gate {
             let mut call =
                 json!({"targetId": params["targetId"], "method": method, "args": [handle]});
             if let Some(frame) = params.get("frameId").filter(|f| !f.is_null()) {
-                call.insert("frameId", frame.clone());
+                call.set("frameId", frame.clone());
             }
             self.driver.call("frame.observe", &call)
         };
@@ -587,7 +588,7 @@ impl Gate {
                 "input.insertText: give a secret or a text, not both",
             ));
         }
-        params.insert("text", json!({"__secret": name}));
+        params.set("text", json!({"__secret": name}));
         Ok(())
     }
 }
@@ -902,8 +903,8 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
         && same(last)
     {
         let count = last.get("count").and_then(Value::as_u64).unwrap_or(1) + 1;
-        last.insert("count", json!(count));
-        last.insert("lastAt", entry.get("at").cloned().unwrap_or(Value::Null));
+        last.set("count", json!(count));
+        last.set("lastAt", entry.get("at").cloned().unwrap_or(Value::Null));
         return;
     }
     log.push(entry);
@@ -914,7 +915,7 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
             log.remove(1);
             if let Some(first) = log.first_mut() {
                 let count = first.get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
-                first.insert("count", json!(count));
+                first.set("count", json!(count));
             }
         } else {
             log.remove(0);

@@ -25,8 +25,8 @@
 //! `withdraw.origin_refused`), and a peer's session is never forwarded one.
 
 use super::super::*;
-use crate::no_panic::JsonExt;
 use crate::supervised::{Fatal, ShutdownBehavior};
+use cmux_json::JsonSet as _;
 use std::sync::OnceLock;
 use std::time::Duration;
 

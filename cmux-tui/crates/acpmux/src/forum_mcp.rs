@@ -5,7 +5,7 @@
 //! token from this server's own env, so the daemon knows which session posts.
 
 use crate::client::Client;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;

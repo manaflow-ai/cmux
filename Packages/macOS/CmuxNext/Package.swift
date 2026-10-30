@@ -500,7 +500,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFloatingTests",
             // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on.
             // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
-            dependencies: ["CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextFloating", "CmuxNextTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
@@ -699,7 +699,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAgentPermissionsTests",
-            dependencies: ["CmuxNextAgentPermissions", "CmuxNextWakeupsTestSupport"],
+            // Wakeups: PermissionRequestPresenterTests builds the presenter on a MainWorkScheduler.
+            dependencies: ["CmuxNextAgentPermissions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1172,7 +1173,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
-            // CmuxSafeConcurrency: OnceContinuation.
+            // CmuxSafeConcurrency: OnceContinuation. Wakeups: ScreenshotMask waits out a window's frames on a
+            // DemandTimer.
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -2091,7 +2093,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Ghostty action fuzz suites; WakeupsTestSupport for the pointer coalescer's manual clock
             // (TerminalPointerCoalescingTests); Design for the scroller's shared clip (TerminalScrollerTests).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
-                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign", "CmuxNextTerminalFind",
+                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign", "CmuxNextTerminalFind", "CmuxNextTestSupport",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             // The pin's capabilities: GhosttyTraceHookTests calls the hook through libghostty's record type.
             swiftSettings: uiSwiftSettings + ghosttyNextKitCapabilities,
@@ -2323,7 +2325,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextControlTests",
             // Signposts: BurstTraceRingTests reads the burst.event catalog name and the burst category bit.
             // Appearance: SocketSettingsWriteTests reads the appearance settings a socket write changes.
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextAppearance", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", "CmuxNextFeatures", "CmuxNextTestSupport", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            // Design: ModelRouterModelSettingTests imports it (trunk 541fa9df55f).
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextAppearance", "CmuxNextDesign", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", "CmuxNextFeatures", "CmuxNextTestSupport", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -2334,10 +2337,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                            "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
-        // Test-only: every exit() of the test process prints its stack (TestProcessExitTests).
+        // Test-only: every exit() of the test process prints its stack, and the main run loop
+        // survives being stopped at its outermost run, whose return would end the whole test run
+        // through swift_task_asyncMainDrainQueue's exit(0) (TestProcessExitTests).
         .target(
             name: "CmuxNextTestExitTrace",
-            path: "Tests/Support/CmuxNextTestExitTrace"
+            path: "Tests/Support/CmuxNextTestExitTrace",
+            linkerSettings: [.linkedFramework("CoreFoundation")]
         ),
         // Test-only, linked into no product: the in-process benches' cmux-perf-result/v1 writer
         // (PerfResultWriter, read when CMUX_PERF_RESULT_DIR is set; scripts/perf-lab/stories/swift_benches.py),
@@ -2358,6 +2364,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentPermissions",
                 "CmuxNextAgentUpdates",
                 "CmuxNextApp",
+                "CmuxNextAppCore",
                 "CmuxNextApps",
                 "CmuxNextBookmarks",
                 "CmuxNextBrowserCore",

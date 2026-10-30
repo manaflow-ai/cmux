@@ -7,7 +7,7 @@ import CmuxNextInput
 /// One extension action: Chromium's icon, which already carries the badge
 /// and the disabled look laid out on the whole button, with gray hover
 /// and press fills.
-final class ExtensionActionButton: NSButton, PointerHoverReporting {
+final class ExtensionActionButton: ClickableButton, PointerHoverReporting {
     let actionID: String
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?

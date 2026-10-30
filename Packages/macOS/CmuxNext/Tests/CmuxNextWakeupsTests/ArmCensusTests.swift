@@ -165,7 +165,7 @@ struct ArmCensusTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let ledger = WakeupLedger()
         ledger.armCensus.start(processStartNanos: 0)
-        var changes = FolderChanges(folders: [folder], ledger: ledger).events().makeAsyncIterator()
+        var changes = await FolderChanges(folders: [folder], ledger: ledger).events().makeAsyncIterator()
         // The loop task arms the watch when it starts; the census shows it then (bounded, 5 s).
         for _ in 0..<500 {
             if !ledger.armCensus.snapshot().arms.isEmpty { break }
@@ -191,7 +191,7 @@ struct ArmCensusTests {
         defer { try? FileManager.default.removeItem(at: parent) }
         let ledger = WakeupLedger()
         ledger.armCensus.start(processStartNanos: 0)
-        let stream = FolderChanges(folders: [parent.appendingPathComponent("Backgrounds", isDirectory: true)], ledger: ledger).events()
+        let stream = await FolderChanges(folders: [parent.appendingPathComponent("Backgrounds", isDirectory: true)], ledger: ledger).events()
         // task-owner: the test's consumer, so the watch loop runs; cancelled at the end of the test
         let consumer = Task { for await _ in stream {} }
         defer { consumer.cancel() }

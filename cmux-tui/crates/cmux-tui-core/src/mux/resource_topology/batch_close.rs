@@ -15,6 +15,7 @@
 
 use super::*;
 use crate::workspace_registry::TopologyCloseCommit;
+use cmux_json::JsonSet as _;
 use std::sync::PoisonError;
 
 /// What one batch close removes.
@@ -503,7 +504,7 @@ impl Mux {
             "end_terminals": end_terminals,
         });
         if let Some(reason) = reason {
-            set_field(&mut fingerprint, "reason", json!(reason.as_str()))?;
+            fingerprint.set("reason", json!(reason.as_str()));
         }
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
@@ -680,7 +681,7 @@ impl Mux {
             "end_terminals": true,
         });
         if let Some(reason) = reason {
-            set_field(&mut fingerprint, "reason", json!(reason.as_str()))?;
+            fingerprint.set("reason", json!(reason.as_str()));
         }
         // A retry of a committed close replays before the selector resolves.
         {

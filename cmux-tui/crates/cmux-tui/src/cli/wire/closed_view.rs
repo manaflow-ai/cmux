@@ -1,9 +1,8 @@
 //! The human table of `closed list`: one short MEMBERS cell per closed group
 //! instead of the full member JSON, which stays in `--json`.
 
+use cmux_json::JsonSet as _;
 use serde_json::Value;
-
-use crate::cli::json_fields::JsonFields;
 
 /// The widest MEMBERS cell, in characters, ellipsis included.
 const MAX_CELL: usize = 80;
@@ -17,7 +16,7 @@ pub(super) fn summarize(rows: &[Value]) -> Value {
                 let mut row = row.clone();
                 if let Some(members) = row.get("members").and_then(Value::as_array) {
                     let cell = members.iter().map(member).collect::<Vec<_>>().join(", ");
-                    row.insert("members", Value::String(truncate(cell)));
+                    row.set("members", Value::String(truncate(cell)));
                 }
                 row
             })

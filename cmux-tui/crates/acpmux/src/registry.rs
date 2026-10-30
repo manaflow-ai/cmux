@@ -36,7 +36,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::config::{HarnessKind, HarnessProfile};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 
 /// Where the daemon reads the registry.
 pub const REGISTRY_URL: &str =

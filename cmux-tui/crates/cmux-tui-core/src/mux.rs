@@ -319,6 +319,7 @@ pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+mod startup_record;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
 mod terminal_catalog_index;
@@ -758,6 +759,9 @@ pub struct Mux {
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,
+    /// The laps of this owner's open (registry, restore, adoption), until
+    /// the owner's start takes them for `startup-timings.jsonl`.
+    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.

@@ -7,9 +7,10 @@
 //! for a harness an earlier daemon started and for Windows.
 
 use crate::client::Client;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;

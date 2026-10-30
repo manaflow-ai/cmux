@@ -14,9 +14,10 @@ public import Foundation
 /// ```
 public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// App launch knob to daemon variable: key-press flow marks (scripts/cmux-next/trace.py), the
-    /// create-path debug timing marks, the terminal host model (`holder`; bench_memory.py
-    /// `--terminal-host-model`), the root of the host and holder copies (cmux-tui-platform
-    /// `host_exe/macos.rs`), which the app's crash forwarder reads too.
+    /// create-path debug timing marks, the terminal host model (`holder`: the install's one holder
+    /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off;
+    /// bench_memory.py `--terminal-host-model`), and the root of the host and holder copies
+    /// (cmux-tui-platform `host_exe/macos.rs`), which the app's crash forwarder reads too.
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),

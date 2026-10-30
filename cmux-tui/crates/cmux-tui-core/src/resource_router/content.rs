@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use ghostty_vt::{KeyEncoder, Mods, MouseAction, MouseButton, MouseInput, key_input_from_chord};
 use regex::Regex;
 use serde_json::{Map, Value, json};
@@ -337,10 +338,10 @@ fn terminal_process_get(
         ("foreground_executable".to_string(), json!(crate::platform::foreground_process_name(pid))),
     ]);
     if let Some(executable) = executable {
-        value.insert("executable".to_string(), json!(executable));
+        value.set("executable", json!(executable));
     }
     if let Some(cwd) = surface.local_cwd() {
-        value.insert("cwd".to_string(), json!(cwd));
+        value.set("cwd", json!(cwd));
     }
     Ok(Value::Object(value))
 }

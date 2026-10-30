@@ -3,7 +3,7 @@
 //! numbered options (checkboxes for a multi select), then the keys.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::tui::Answering;
 
 /// Rows the card needs: borders, head, prompt, one per option, keys.

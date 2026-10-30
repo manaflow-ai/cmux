@@ -33,6 +33,7 @@ use super::super::session_journal::unix_epoch_ms;
 
 use super::super::presentation_store::svg_icon::{sanitize_svg_icon, svg_icon_wire};
 use super::super::presentation_store::validate_presentation_icon_asset;
+use cmux_json::JsonSet as _;
 
 /// Largest stored PNG, JPEG or WebP, in bytes.
 pub const MAX_RASTER_BYTES: usize = 256 * 1024;
@@ -196,10 +197,7 @@ impl StoredBlob {
             ("size".to_string(), self.data.len().into()),
         ]);
         if with_data {
-            value.insert(
-                "data".into(),
-                base64::engine::general_purpose::STANDARD.encode(&self.data).into(),
-            );
+            value.set("data", base64::engine::general_purpose::STANDARD.encode(&self.data).into());
         }
         serde_json::Value::Object(value)
     }

@@ -8,17 +8,11 @@ use crate::supervised::{Fatal, ShutdownBehavior};
 impl Hub {
     /// Lists the temporary folders of sessions this daemon no longer has
     /// (`agent/session_tmp.rs`) and removes them on a thread of their own.
-    /// The daemon calls it before its socket serves, so no session starts
-    /// between the list and the store it is checked against.
+    /// The daemon calls it after metadata loads and before startup releases spawns,
+    /// from the sessions it loaded (no second list of the store).
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("session tmp sweep skipped, the store did not list: {e}");
-                return;
-            }
-        };
+        let metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
         let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
         let closed: std::collections::HashSet<&str> = metas
             .iter()

@@ -20,6 +20,10 @@ nonisolated enum AgentPaneRenderFrame {
     static let name = "frame"
     /// The frame's URL, for the pane's CSP `frame-src` (PageDescriptor.agent): this document only.
     static let source = "\(PageDescriptor.scheme)://cmux.agent/\(prefix)/\(name)"
+    /// The offline HTML/SVG artifact card's frame (`conversation/artifactSandbox.ts`), for the same
+    /// `frame-src`: the page host serves this one exact URL itself, behind its own sandboxed policy and
+    /// navigation rules (`PageArtifactFrame` in CmuxNextPages), never through ``AgentPageResources``.
+    static let artifactSource = "\(PageDescriptor.scheme)://cmux.agent/__artifact"
 
     static let policy = [
         "default-src 'none'",

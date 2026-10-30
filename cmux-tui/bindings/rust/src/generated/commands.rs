@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a.
+// cmux-tui mux protocol 12, IR be5ba4057e499583a0ba0d5cad919ee93c2bb53f8ee062342163e0947347f53d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2033,6 +2033,8 @@ pub struct ConversationRunAppendResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRunsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answers: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before_started_at: Optional<u64>,
     pub conversation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3511,6 +3513,8 @@ pub struct NewPaneRightRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub side: Optional<T::ColumnSide>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5839,6 +5843,9 @@ impl CmuxClient {
     }
 
     pub fn conversation_runs(&mut self, request: ConversationRunsRequest) -> Result<ConversationRunsResult> {
+        if !request.answers.is_missing() {
+            self.require_capability_field("conversation-runs", "conversation-run-answers-v1")?;
+        }
         self.execute(&CONVERSATION_RUNS_METADATA, &request)
     }
 
@@ -6425,6 +6432,10 @@ impl CmuxClient {
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
+        }
+        if !request.side.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "column-left-v1")?;
         }
         if !request.tab_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;

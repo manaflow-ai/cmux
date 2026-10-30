@@ -21,12 +21,12 @@ async fn a_read_loop_panic_fails_the_in_flight_call() {
             read_then_close(read, &closed, &pending, &notif_tx).await;
         });
     }
+    // The read loop's end drops every pending sender (transport EOF, #27210): the call
+    // ends with a closed channel, never a daemon-made error.
     let answered = tokio::time::timeout(Duration::from_secs(5), answer)
         .await
-        .expect("the call fails within 5 s")
-        .expect("an answer, not a dropped sender");
-    let error = answered.expect_err("the connection closed");
-    assert_eq!(error.message, "daemon connection closed");
+        .expect("the call fails within 5 s");
+    assert!(answered.is_err(), "the sender was dropped, not answered: {answered:?}");
     assert!(closed.load(Ordering::SeqCst));
     let goodbye = notifications.recv().await.expect("the goodbye");
     assert!(

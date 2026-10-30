@@ -47,7 +47,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 use cmux_tui_platform::process_priority::{PriorityError, ProcessPriority};
 use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;

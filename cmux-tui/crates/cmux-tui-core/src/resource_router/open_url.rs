@@ -72,6 +72,7 @@ use crate::resource::{
 use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, PaneId, ResourceSelectors, ResourceTarget, Surface, SurfaceId, SurfaceKind};
+use cmux_json::JsonSet as _;
 
 /// Advertised by `identify`: `workspace.open_url`.
 pub(crate) const CAPABILITY: &str = "workspace-open-url-v1";
@@ -383,7 +384,7 @@ fn newly_created(value: Option<&Value>) -> Result<Value, ResourceError> {
         ));
     };
     let mut object = object.clone();
-    object.insert("reused".to_string(), Value::Bool(false));
+    object.set("reused", Value::Bool(false));
     Ok(Value::Object(object))
 }
 

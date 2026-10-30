@@ -169,10 +169,10 @@ impl Ring {
         // SAFETY: the header mapping is HEADER bytes; reads are in bounds.
         let (magic, layout, capacity, base, snapshot) = unsafe {
             let bytes = std::slice::from_raw_parts(header, HEADER);
-            let magic: [u8; 4] = bytes[..4].try_into().unwrap_or_default();
-            let layout = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or_default());
-            let capacity = u64::from_le_bytes(bytes[8..16].try_into().unwrap_or_default());
-            let base = u64::from_le_bytes(bytes[16..24].try_into().unwrap_or_default());
+            let magic: [u8; 4] = chunk_at(bytes, 0).unwrap_or_default();
+            let layout = chunk_at(bytes, 4).map_or(0, u32::from_le_bytes);
+            let capacity = chunk_at(bytes, 8).map_or(0, u64::from_le_bytes);
+            let base = chunk_at(bytes, 16).map_or(0, u64::from_le_bytes);
             let snapshot = Snapshot::load(&header_words(header));
             libc::munmap(header.cast(), HEADER);
             (magic, layout, capacity, base, snapshot)
@@ -370,7 +370,7 @@ impl Ring {
     pub fn slices(&self, from: u64, max: usize) -> (u64, &[u8], &[u8]) {
         let (from, head, tail) = self.cursor.window(from, max);
         let data = self.data();
-        (from, &data[head], &data[tail])
+        (from, data.get(head).unwrap_or_default(), data.get(tail).unwrap_or_default())
     }
 
     /// The data area.
@@ -384,11 +384,10 @@ impl Ring {
         // SAFETY: the header is HEADER bytes at the start of the mapping.
         unsafe {
             let header = std::slice::from_raw_parts_mut(self.map, HEADER);
-            header[..4].copy_from_slice(&MAGIC);
-            header[4..8].copy_from_slice(&self.layout.to_le_bytes());
-            header[OFF_CAPACITY..OFF_CAPACITY + 8]
-                .copy_from_slice(&(self.cursor.capacity() as u64).to_le_bytes());
-            header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&self.base.to_le_bytes());
+            put_at(header, 0, &MAGIC);
+            put_at(header, 4, &self.layout.to_le_bytes());
+            put_at(header, OFF_CAPACITY, &(self.cursor.capacity() as u64).to_le_bytes());
+            put_at(header, OFF_BASE, &self.base.to_le_bytes());
         }
         // SAFETY: the mapping lives as long as `self`.
         let words = unsafe { header_words(self.map) };
@@ -432,6 +431,19 @@ unsafe fn data_mut<'a>(map: *mut u8, range: std::ops::Range<usize>) -> &'a mut [
     unsafe { std::slice::from_raw_parts_mut(map.add(HEADER + range.start), range.len()) }
 }
 
+/// The `N` bytes of `bytes` at offset `at`, if it holds them.
+fn chunk_at<const N: usize>(bytes: &[u8], at: usize) -> Option<[u8; N]> {
+    bytes.get(at..)?.first_chunk::<N>().copied()
+}
+
+/// Copy `value` into `header` at offset `at` (a header field; the header
+/// always holds every field, so nothing is skipped).
+fn put_at(header: &mut [u8], at: usize, value: &[u8]) {
+    if let Some(field) = header.get_mut(at..).and_then(|rest| rest.get_mut(..value.len())) {
+        field.copy_from_slice(value);
+    }
+}
+
 /// A new shared ring segment whose next byte has offset `base`: the
 /// descriptor to pass, with the header written (layout 2). The daemon makes
 /// one when it hands a terminal that had none (an older holder's) to a
@@ -451,10 +463,10 @@ pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
     // SAFETY: the header mapping is HEADER bytes.
     unsafe {
         let header = std::slice::from_raw_parts_mut(map, HEADER);
-        header[..4].copy_from_slice(&MAGIC);
-        header[4..8].copy_from_slice(&LAYOUT.to_le_bytes());
-        header[OFF_CAPACITY..OFF_CAPACITY + 8].copy_from_slice(&(capacity as u64).to_le_bytes());
-        header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&base.to_le_bytes());
+        put_at(header, 0, &MAGIC);
+        put_at(header, 4, &LAYOUT.to_le_bytes());
+        put_at(header, OFF_CAPACITY, &(capacity as u64).to_le_bytes());
+        put_at(header, OFF_BASE, &base.to_le_bytes());
         Cursor::new(capacity, base, base).republish(&header_words(map));
         libc::munmap(map.cast(), HEADER);
     }

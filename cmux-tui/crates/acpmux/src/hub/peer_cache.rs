@@ -27,6 +27,15 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
     let before = summary.clone();
     summary["status"] = Value::String("unreachable".into());
+    if summary.get("state").is_some() {
+        summary["state"] = Value::String("unreachable".into());
+    }
+    // Unreachable is not stuck: last-known stuck details would contradict `state`.
+    for key in ["stuckReason", "stuckSince", "stuckError"] {
+        if summary.get(key).is_some() {
+            summary[key] = Value::Null;
+        }
+    }
     summary["stale"] = Value::Bool(true);
     summary["lastSeen"] = json!(last_seen);
     super::views::decide(summary);
@@ -265,5 +274,16 @@ mod tests {
         assert!(e.message.starts_with("peer_unreachable: huge-blue"), "{}", e.message);
         assert!(hub.peer_down_for("nopeer/lane").is_none());
         assert!(hub.peer_down_for("lane").is_none());
+    }
+
+    #[test]
+    fn a_stale_row_is_unreachable_with_no_stuck_details() {
+        let mut row = json!({"sessionId": "m1", "status": "ready", "state": "stuck",
+            "stuckReason": "capacity", "stuckSince": 7, "stuckError": "HTTP 503"});
+        assert!(mark_stale(&mut row, Some(9)));
+        assert_eq!(row["state"], "unreachable", "{row}");
+        for key in ["stuckReason", "stuckSince", "stuckError"] {
+            assert!(row[key].is_null(), "{key}: {row}");
+        }
     }
 }

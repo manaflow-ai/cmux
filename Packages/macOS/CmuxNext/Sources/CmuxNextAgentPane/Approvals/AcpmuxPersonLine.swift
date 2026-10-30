@@ -13,7 +13,8 @@ import Foundation
 /// waiting then answers nil.
 @MainActor
 public final class AcpmuxPersonLine {
-    private let line: AcpmuxCheckedLine
+    /// The connection itself (internal: tests hold its queue).
+    let line: AcpmuxCheckedLine
     private let timer: MainDeadline
     /// The app's main-thread scheduler and this line's owner on it: a refused proof ends its wait there.
     private let mainWork: MainWorkScheduler
@@ -23,6 +24,8 @@ public final class AcpmuxPersonLine {
     private var closed = false
     /// acpmux took the person proof: this connection may allow.
     public private(set) var isPerson = false
+    /// The surfaces this acpmux serves (`initialize`'s `_meta.acpmux.capabilities`, e.g. `machine-consent-v1`).
+    public private(set) var capabilities: Set<String> = []
 
     private init(environment: AcpmuxEnvironment, deadlines: MainDeadlineScheduler) {
         line = AcpmuxCheckedLine(environment: environment)
@@ -48,7 +51,9 @@ public final class AcpmuxPersonLine {
             connection.close()
             return nil
         }
-        let challenge = ((initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
+        let meta = (initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        connection.capabilities = Set(meta?["capabilities"] as? [String] ?? [])
+        let challenge = meta?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String {
             connection.isPerson = await connection.prove(nonce: nonce, connection: id)
         }
@@ -79,13 +84,21 @@ public final class AcpmuxPersonLine {
 
     /// One request; its `result`, or nil when it failed or the connection closed.
     public func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+        await call(method, params, through: nil)
+    }
+
+    /// One request as ``call(_:_:)``; with `gate`, it is written only through it, on the line's queue
+    /// right before the bytes go out, and a refused one closes the connection and answers nil
+    /// (``AcpmuxCheckedLine/send(_:through:)``).
+    public func call(_ method: String, _ params: [String: Any],
+                     through gate: (@Sendable (() -> Void) -> Bool)?) async -> [String: Any]? {
         guard !closed else { return nil }
         nextID += 1
         let id = nextID
         let frame = AcpmuxPermissionPrompt.frame(id: id, method: method, params: params)
         let reply: ResultBox? = try? await withOnceContinuation { (waiter: OnceContinuation<ResultBox?, OnceContinuationError>) in
             waiters[id] = waiter
-            line.send(frame)
+            if let gate { line.send(frame, through: gate) } else { line.send(frame) }
         }
         return reply?.value
     }

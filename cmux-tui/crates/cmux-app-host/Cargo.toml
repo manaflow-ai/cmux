@@ -28,6 +28,7 @@ engine = ["dep:rquickjs", "dep:cmux-panic-log"]
 [dependencies]
 # The host's panic log (src/main.rs); the binary only.
 cmux-panic-log = { workspace = true, optional = true }
+cmux-json.workspace = true
 rquickjs = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

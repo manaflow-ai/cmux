@@ -4,6 +4,8 @@
 
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
@@ -673,7 +675,7 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
         "errors":errors,
     });
     if plan.action != Action::Uninstall {
-        value["activation"] = Value::String(ACTIVATION_NOTE.into());
+        value.set("activation", Value::String(ACTIVATION_NOTE.into()));
     }
     RunResult { failed: !errors.is_empty(), value }
 }

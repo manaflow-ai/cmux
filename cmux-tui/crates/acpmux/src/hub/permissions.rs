@@ -2,8 +2,9 @@
 
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::no_panic::LockExt;
+use cmux_json::JsonSet as _;
 
 tokio::task_local! {
     /// The fence of the ancestor's answer the agent's request in this task got, until its
@@ -291,6 +292,11 @@ impl Hub {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
+        // The tap persists a redacted receipt for ambiguous hosted metadata; the
+        // same fence must also keep its original update out of in-memory state.
+        if session.fences_compaction_update(update) {
+            return;
+        }
         // A subagent's messages and settings are not the session's own.
         let sid = params.and_then(|p| p.get("sessionId")).and_then(Value::as_str);
         let owned = sid.is_some_and(|sid| {
@@ -923,7 +929,7 @@ impl Hub {
                 let mut record = json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance": chat_option.is_some() && full_access.is_none(), "request": request});
                 // The mode that answered it, for the transcript's "Approved: … (Full access)".
                 if let Some((mode, _)) = &full_access {
-                    record["fullAccess"] = json!(mode);
+                    record.set("fullAccess", json!(mode));
                     tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
                 }
                 self.append(session, "mux", "permission_auto", record);

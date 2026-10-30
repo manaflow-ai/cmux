@@ -3,7 +3,8 @@
 //! move: it pages the bundle from one daemon to the other, and gives the chat back on a failure.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
+use cmux_json::JsonSet as _;
 
 /// Moves `session` to the daemon at `to`.
 pub(super) async fn run(

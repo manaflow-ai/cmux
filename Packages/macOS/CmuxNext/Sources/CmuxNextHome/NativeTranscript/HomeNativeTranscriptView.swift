@@ -99,6 +99,14 @@ public final class HomeNativeTranscriptView: NSView {
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followSettings(on:)`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
+    /// This chat's chosen bubble colours over the default for every chat (Chat Colors…,
+    /// `home.bubbleColors.*`); empty keeps the bubble style's colours.
+    public var bubbleColors = HomeBubbleColors() { didSet { if bubbleColors != oldValue { applyTheme() } } }
+    /// The chats' own colours (Chat Colors…): set, the view follows this conversation's, live, over the
+    /// default for every chat (`home.bubbleColors.*`, ``bubbleColors``). Nil keeps ``bubbleColors`` as set.
+    public var chatColors: HomeChatColorStore? { didSet { if chatColors !== oldValue { followChatColors() } } }
+    /// The conversation this view shows (the key of its ``chatColors``).
+    public let conversationID: ConversationID
     /// The first-run panel's open-a-terminal or start-an-agent row was picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
     /// An agent row of the first-run panel was picked: the host opens that tab (its daemon tab id).
@@ -141,6 +149,10 @@ public final class HomeNativeTranscriptView: NSView {
     var settingsWatch: FrameObservation<HomeTranscriptSettings>?
     /// The settings last applied; nil before the first apply.
     var appliedSettings: HomeTranscriptSettings?
+    /// The scheduler the live settings and ``chatColorsWatch`` apply on (`deadlines.work`).
+    private let settingsWork: MainWorkScheduler
+    /// This conversation's Chat Colors… while ``chatColors`` is set (``followChatColors()``).
+    private var chatColorsWatch: FrameObservation<HomeBubbleColors>?
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
@@ -158,6 +170,8 @@ public final class HomeNativeTranscriptView: NSView {
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
+        conversationID = conversation
+        settingsWork = deadlines.work
         voice = HomeVoiceDictation(deadlines: deadlines)
         let wake = HomeDemandWake(node: visibility, deadlines: deadlines)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: wake,
@@ -227,6 +241,8 @@ public final class HomeNativeTranscriptView: NSView {
         guard !stopped else { return }
         stopped = true
         settingsWatch?.cancel()
+        chatColorsWatch?.cancel()
+        chatColorsWatch = nil
         windowed.set(.hidden)
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
@@ -377,6 +393,23 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
+    /// Chat Colors…: this conversation's colours over the default for every chat, live, applied as
+    /// the other live settings are (``followSettings(on:)``): at most once a frame while the
+    /// transcript is visible, and once when it shows after a change.
+    private func followChatColors() {
+        chatColorsWatch?.cancel()
+        chatColorsWatch = nil
+        guard let store = chatColors, !stopped else { return }
+        let id = conversationID.rawValue
+        let watch = FrameObservation(owner: "home.transcript.chatColors", delivery: .visible(visibility), on: settingsWork) {
+            store.colors(for: id).over(HomeChatColorStore.colors(fromHexes: DesignSettings.shared.homeBubbleColors))
+        } onChange: { [weak self] colors in
+            self?.bubbleColors = colors
+        }
+        chatColorsWatch = watch
+        bubbleColors = watch.value
+    }
+
     /// The live interface scale applies to the native first-run chrome, times the Chief chat's zoom
     /// (`HomeTranscriptSettings.zoom`), so the empty chat's panel grows with the header and field around it. The
     /// MessagesLab transcript owns its own text and field metrics.
@@ -499,9 +532,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
-        let accent = accentOverride, style = bubbleStyle
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
-        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
+        let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
+        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
+        let measured = chosen.sent == nil && chosen.sentText == nil
+            && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
         transcript.applyTheme(active: active, measuredAccent: measured)
         // The header's top fade (Debug Settings > Home > Top of the chat; the glass band by default,
         // HeaderGlass.swift), or no header and the rows' own short fade (HomeNativeTranscriptView+TopFade.swift).

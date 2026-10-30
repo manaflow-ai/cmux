@@ -7,8 +7,9 @@
 //! The transcript is the record: no file is read, so an edit's before and after text are its
 //! hunks' lines (context and removed, context and added), with each file's +/- counts.
 
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::no_panic::StrExt;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// One past tool call.

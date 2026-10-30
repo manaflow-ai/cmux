@@ -9,7 +9,7 @@ public extension PageDescriptor {
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
     /// acpmux; a Debug dev server adds its own HMR origin, ``PageDevServer``), shows
-    /// loopback previews and render cards (AgentPaneRenderFrame) in frames, plays its granted media
+    /// loopback previews, render cards and artifact cards (AgentPaneRenderFrame) in frames, plays its granted media
     /// (`media-src 'self'`), and runs only its own script files and the pages' shared chunks
     /// (``PageCSP/sharedChunks``), no inline script, plus WebAssembly compilation (`'wasm-unsafe-eval'`) for Ondine. The page's
     /// meta CSP says the same (build-agent-pane-web.sh); the host runs the
@@ -18,7 +18,7 @@ public extension PageDescriptor {
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", processGroup: .agent, namespaces: [AgentPageOps.namespace],
         csp: PageCSP(connect: ["'none'"],
-                     frame: [AgentPaneRenderFrame.source, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+                     frame: [AgentPaneRenderFrame.source, AgentPaneRenderFrame.artifactSource, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"], script: ["'wasm-unsafe-eval'"], inlineScript: false),
         dynamicPrefixes: AgentPageResources.prefixes,
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
@@ -39,7 +39,7 @@ public nonisolated struct AgentPageOps {
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
             "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "chat.attach.choose", "chat.attach.dropped", "app.action", "chats.open", "chats.openInTerminal", "chats.watch", "chats.page",
-            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "pane.tabRowTools", "chat.toolCard.respond", "chat.upload", "chat.sideChat", "chat.subagentPane", "chat.processTerminal", "chat.openTab", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "pane.tabRowTools", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.processTerminal", "chat.openTab", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio",

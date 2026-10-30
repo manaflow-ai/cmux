@@ -31,6 +31,7 @@ use super::super::agent_message::{self, Body, MessagePlan};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError, wire};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 /// Items one read returns by default and at most.
 pub(in crate::cli) const DEFAULT_READ_LIMIT: usize = 50;
@@ -360,15 +361,15 @@ fn send(
     if let Some(reason) =
         delivery.and_then(|delivery| delivery.get("reason")).filter(|r| !r.is_null())
     {
-        result.insert("reason", reason.clone());
+        result.set("reason", reason.clone());
     }
     // Stored but not handed to the chat: the receipt says so, and the CLI
     // and the tool report it as an error (`delivery_failed`).
     if sent.failed {
-        result.insert("state", json!("failed"));
+        result.set("state", json!("failed"));
     }
     if !sent.problems.is_empty() {
-        result.insert("problems", json!(sent.problems));
+        result.set("problems", json!(sent.problems));
     }
     Ok(json!({
         "schema_version": 1,
@@ -597,10 +598,8 @@ impl Transcript {
                 else {
                     return;
                 };
-                if let Some(status) = update["status"].as_str()
-                    && let Some(tool) = item.extra.get_mut("tool")
-                {
-                    tool.insert("status", json!(status));
+                if let Some(status) = update["status"].as_str() {
+                    item.extra.set_path(&["tool", "status"], json!(status));
                 }
             }
             _ => {}

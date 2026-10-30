@@ -1,8 +1,8 @@
 //! Pairing: add a machine with one pasted line.
 //!
 //! The person mints a ticket here (`acpmux host ticket new --role R`). The new
-//! machine redeems it once (`acpmux host join TICKET`, which the install
-//! script runs) over this daemon's WebSocket listener, and gets a device
+//! machine redeems it once (`acpmux host join`, the ticket on its stdin, which
+//! the install line runs) over this daemon's WebSocket listener, and gets a device
 //! credential bound to the role the minter chose:
 //!
 //! - `client`: the new machine adds this daemon as its peer and drives its
@@ -48,6 +48,8 @@
 //! (`_meta.acpmux.requireFullAccess`, `server/remote_guard.rs`): that runs only
 //! when the setting covers it.
 
+use cmux_json::JsonSet as _;
+
 mod read_only;
 mod store;
 mod ticket;
@@ -63,7 +65,6 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 
 /// The upgrade request header that carries a ticket's secret at redeem.

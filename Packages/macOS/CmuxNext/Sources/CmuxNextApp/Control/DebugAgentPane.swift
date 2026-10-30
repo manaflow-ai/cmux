@@ -67,11 +67,14 @@ enum DebugAgentPane {
         if userVerbs.contains(action) { gestures.record() }
     }
 
-    /// Runs `fn(...args)` on the page and returns its result as JSON text.
-    private static let script = """
+    /// Runs `fn(...args)` on the page and returns its result as JSON text. A page still loading
+    /// gets up to 5 s for its debug hook, on timers: animation frames never come to a page that
+    /// draws nothing yet (a chat restored behind its workspace), and that wait held the call to
+    /// the 60 s deadline.
+    static let script = """
         let debug = window.cmuxAcpmuxDebug;
-        for (let frame = 0; !debug && frame < 120; frame += 1) {
-            await new Promise(requestAnimationFrame);
+        for (const end = Date.now() + 5000; !debug && Date.now() < end;) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
             debug = window.cmuxAcpmuxDebug;
         }
         if (!debug || typeof debug[fn] !== "function") return JSON.stringify({ error: "the page has no cmuxAcpmuxDebug." + fn });

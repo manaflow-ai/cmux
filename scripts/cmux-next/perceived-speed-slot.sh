@@ -7,6 +7,8 @@
 # analyzes here and prints the ranking table (DIR/table.md). Run from a fleet host; never on a personal machine.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+# capture-host and the ssh routes to the capture minis (capture-host-env.sh).
+. "$here/capture-host-env.sh"
 job="" out="" runs=3 surfaces=()
 while [ $# -gt 0 ]; do
   case "$1" in

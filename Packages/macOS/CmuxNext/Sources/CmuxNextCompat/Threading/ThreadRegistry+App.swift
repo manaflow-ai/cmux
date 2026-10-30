@@ -76,6 +76,8 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux.home.media-decode", qos: .userInitiated),
         ThreadDeclaration("cmux.mobile.image-attachment", qos: .userInitiated),
         ThreadDeclaration("com.cmux.composer.dictation-audio", qos: .userInitiated),
+        // The dictation recording's writer: the WAV file the recognizer reads after the stop.
+        ThreadDeclaration("com.cmuxterm.dictation.recording", qos: .utility),
         // Browser.
         ThreadDeclaration("com.cmuxterm.next.browser-host.provider.write", qos: .userInitiated),
         ThreadDeclaration("cmux browser-host provider reader", qos: .userInitiated),

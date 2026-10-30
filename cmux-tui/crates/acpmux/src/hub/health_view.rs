@@ -2,10 +2,10 @@
 //! `_acpmux/harness/health` and the daemon's periodic check.
 
 use super::*;
-use crate::no_panic::JsonExt;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
 use crate::maintenance::JobSpec;
+use cmux_json::JsonSet as _;
 
 /// The periodic health check on the maintenance clock (`maintenance.rs`).
 /// Energy Saver may stretch it: it reports versions and runs opted-in

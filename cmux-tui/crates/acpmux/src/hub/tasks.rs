@@ -30,8 +30,9 @@
 //! A task for a peer's session is not here yet.
 
 use super::{Fatal, Hub, PromptOptions, ShutdownBehavior};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::broadcast;

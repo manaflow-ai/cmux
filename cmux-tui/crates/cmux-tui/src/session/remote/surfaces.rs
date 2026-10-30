@@ -1,7 +1,7 @@
 //! Surface attach, cell pixel geometry, overflow recovery, and retirement.
 
 use super::*;
-use crate::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 impl RemoteSession {
     pub fn set_cell_pixel_size(
@@ -312,8 +312,8 @@ impl RemoteSession {
         };
         let mut request = json!({"cmd": "attach-surface", "surface": id});
         if let Some((cols, rows)) = initial_size {
-            request.insert("cols", json!(cols));
-            request.insert("rows", json!(rows));
+            request.set("cols", json!(cols));
+            request.set("rows", json!(rows));
         }
         // The vt-state event that follows fills the mirror.
         let response = match self.request_with_deadline(request, RequestDeadline::Attach) {

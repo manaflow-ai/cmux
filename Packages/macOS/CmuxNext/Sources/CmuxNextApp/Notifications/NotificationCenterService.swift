@@ -151,6 +151,13 @@ final class NotificationCenterService {
         desktop = DesktopNotifier(work: work)
     }
 
+    // The Dock badge watcher owns an NSRunningApplication KVO token. Cancel
+    // it before this service goes away so its AsyncStream terminates and
+    // invalidates that token while the observed application still exists.
+    nonisolated deinit {
+        dockBadgeFollow?.cancel()
+    }
+
     /// Wires the service to the app in `AppServices.init`, with no I/O: what reads `services` before the
     /// observers start (the Chief pet the platform services make in the launch turn, a click's or a
     /// key's read) works from the first frame.

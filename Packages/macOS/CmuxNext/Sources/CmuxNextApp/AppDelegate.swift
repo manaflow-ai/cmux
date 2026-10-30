@@ -18,6 +18,7 @@ import CmuxNextWebUpdates
 import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSignposts
 import CmuxNextTerminal
@@ -166,13 +167,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An upgrade's payment page sends the person back here: read the plan again on each activation.
         services.lifetimeFollowers.append(services.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "PaidPlan.returned") { [weak services] in
             guard let services else { return }
-            Task { await services.paidPlanReturned() }
+            Task {
+                await services.paidPlanReturned()
+                await services.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
+            }
         })
+        // The person's latest key or mouse input, before any page can make a join consent grant: one local event monitor.
+        services.personInput.start()
         LaunchStart.energySaver.runNow(on: order.startup) { services.followEnergySaver(settings) }
         registerSavedPicture(services: services, settings: settings)
         registerHomeFeeds(services: services, settings: settings)
         order.startup.post(.afterFirstFrame, "ConfigActions.start", on: .main) { [weak services, weak settings] in
             if let settings { services?.configActions.start(settings: settings) }  // cmux.json's custom actions for the palette and menus
+        }
+        order.startup.post(.afterFirstFrame, "JoinConsent.follow", on: .main) { [weak services, weak settings] in
+            if let settings { services?.joinConsent.follow(settings: settings) }  // labs.machineJoin and acpmux's machine consent folder
+        }
+        order.startup.post(.afterFirstFrame, "ComputerUsePreview.follow", on: .main) { [weak services, weak settings] in
+            if let settings { services?.computerUsePreview.follow(settings) }  // computerUse.livePreview
         }
         // What an engine reads when it makes a page or starts, before any does (managed policy included).
         services.cache.browserTabs.preference.follow(settings, on: services.mainWork)

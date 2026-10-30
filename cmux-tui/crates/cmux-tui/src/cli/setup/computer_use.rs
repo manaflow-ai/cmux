@@ -25,6 +25,7 @@ use super::super::GlobalArgs;
 use super::super::agents_doctor::{ACCESSIBILITY_URL, SCREEN_RECORDING_URL, STATUS_METHOD};
 use super::{Outcome, Refusal};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "computer_use";
 
@@ -53,48 +54,48 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "user_action": Value::Null,
     });
     if !applies(global) {
-        report.insert("state", json!("not_applicable"));
+        report.set("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     let before = match read(global) {
         Ok(status) => status,
         Err(action) => {
-            report.insert("state", json!("needs_user"));
-            report.insert("user_action", action);
+            report.set("state", json!("needs_user"));
+            report.set("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
     };
-    report.insert("before", before.clone());
+    report.set("before", before.clone());
     let mut current = before;
     if current.field("phase") == "off" {
         // Already on, and the app's phase has not caught up: asking again
         // would show the person a second sheet.
         if enabled(global) {
-            report.insert("state", json!("needs_user"));
-            report.insert("after", current);
-            report.insert("user_action", wait_step());
+            report.set("state", json!("needs_user"));
+            report.set("after", current);
+            report.set("user_action", wait_step());
             return Ok(Outcome { report, failed: false });
         }
         if dry_run {
-            report.insert("state", json!("planned"));
-            report.insert("undo", json!(UNDO));
+            report.set("state", json!("planned"));
+            report.set("undo", json!(UNDO));
             return Ok(Outcome { report, failed: false });
         }
         if let Err(action) = turn_on(global) {
-            report.insert("state", json!("needs_user"));
-            report.insert("user_action", action);
+            report.set("state", json!("needs_user"));
+            report.set("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
-        report.insert("undo", json!(UNDO));
+        report.set("undo", json!(UNDO));
         current = match read(global) {
             Ok(status) => status,
             Err(action) => {
-                report.insert("state", json!("needs_user"));
-                report.insert("user_action", action);
+                report.set("state", json!("needs_user"));
+                report.set("user_action", action);
                 return Ok(Outcome { report, failed: false });
             }
         };
-        report.insert("after", current.clone());
+        report.set("after", current.clone());
     }
     let changed = !report.field("undo").is_null();
     // The app's phase follows the setting a moment later: right after the
@@ -105,7 +106,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
     } else {
         next_step(&current)
     };
-    report.insert(
+    report.set(
         "state",
         json!(match (&action, changed) {
             (Some(_), _) => "needs_user",
@@ -114,9 +115,9 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         }),
     );
     if report.field("after").is_null() {
-        report.insert("after", current);
+        report.set("after", current);
     }
-    report.insert("user_action", action.unwrap_or(Value::Null));
+    report.set("user_action", action.unwrap_or(Value::Null));
     Ok(Outcome { report, failed: false })
 }
 

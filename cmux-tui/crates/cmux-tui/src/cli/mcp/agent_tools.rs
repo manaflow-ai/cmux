@@ -11,6 +11,7 @@ use super::super::agent_message;
 use super::super::agents::{self, AgentCommand, AgentFailure, chat};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Verb {
@@ -427,7 +428,7 @@ impl AgentTool {
                 // Stored but not handed to the chat: an error that keeps its
                 // receipt, so a retry can name the message.
                 if failed {
-                    result.insert("isError", json!(true));
+                    result.set("isError", json!(true));
                 }
                 result
             }
@@ -623,7 +624,7 @@ impl Arguments<'_> {
 pub(super) fn fit_receipt(mut receipt: Value) -> Value {
     let size = serde_json::to_vec(&receipt).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
     if size > super::MAX_RESULT_BYTES {
-        receipt.insert("state", json!({"truncated": true, "hint": "call agents_snapshot"}));
+        receipt.set("state", json!({"truncated": true, "hint": "call agents_snapshot"}));
     }
     receipt
 }

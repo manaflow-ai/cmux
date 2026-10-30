@@ -9,10 +9,10 @@
 //! `groupId`, which the chat shows as one card.
 
 use crate::client::Client;
-use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-sessions";

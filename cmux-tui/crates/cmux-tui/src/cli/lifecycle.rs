@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -799,7 +800,7 @@ fn run_ensure(
                 "message":message,
             });
             if let Some(pid) = replaced {
-                result.insert("replaced_pid", json!(pid));
+                result.set("replaced_pid", json!(pid));
             }
             print_success(result, output)
         }

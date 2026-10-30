@@ -1,5 +1,5 @@
 use super::*;
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 use std::sync::Mutex as StdMutex;
 

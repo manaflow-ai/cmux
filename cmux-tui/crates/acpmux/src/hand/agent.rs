@@ -8,7 +8,7 @@
 
 use super::HandError;
 use crate::client::Client;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::{Message, method};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 pub use super::gateway::ModelRoute;
+use cmux_json::JsonSet as _;
 
 pub const HARNESSES: &[&str] = &["claude", "codex", "opencode"];
 /// Text is sent once this much has gathered, or at the next non-text event.

@@ -36,6 +36,10 @@ export const stackWorld = () => {
       calls++
       return teams.has(t) ? { display_name: teams.get(t)!, plan: null } : null
     },
+    listUserTeams: async (u: string) => {
+      calls++
+      return [...members.keys()].filter((k) => k.endsWith(`:${u}`) && teams.has(k.slice(0, k.length - u.length - 1))).map((k) => k.slice(0, k.length - u.length - 1))
+    },
     getUserPlan: async () => null,
     getUserVmPlan: async () => ({ vm_plan: null }),
     listTeamMembers: async (t: string) => {

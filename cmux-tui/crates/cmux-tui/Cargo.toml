@@ -63,6 +63,7 @@ path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
 cmux-blocking.workspace = true
+cmux-json.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # Generated client request types (cmux_ipc::client, p05-ipc task 028).
@@ -158,6 +159,8 @@ cmux-trace.workspace = true
 # `mux-session-mutation` starts registered at its class (pty_input/
 # session_mutation.rs); already in the graph via cmux-tui-core.
 cmux-threads.workspace = true
+# `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
+cmux-chat-index.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

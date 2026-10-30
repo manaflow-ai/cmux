@@ -14,6 +14,8 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
         case verification
         /// `BrowserFirstPaintScript` (main frame only).
         case firstPaint
+        /// `BrowserScrollReportScript` (main frame only).
+        case scrollReport
         /// A cmux page's calls to its page host (``CEFDocumentScripts/pageHost``, main frame only).
         case pageHost
 
@@ -23,6 +25,7 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
             case .protectedMedia: BrowserProtectedMedia.channel
             case .verification: VerificationPageScripts.channel
             case .firstPaint: BrowserFirstPaintScript.channel
+            case .scrollReport: BrowserScrollReportScript.channel
             case .pageHost: CEFDocumentScripts.pageHostChannel
             }
         }
@@ -32,6 +35,7 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
             case .media, .protectedMedia: BrowserMediaState.world
             case .verification: VerificationPageScripts.world
             case .firstPaint: BrowserFirstPaintScript.world
+            case .scrollReport: BrowserScrollReportScript.world
             case .pageHost: CEFDocumentScripts.pageHostWorld
             }
         }

@@ -15,7 +15,7 @@
 //! `cursor/task`, `cursor/generate_image`) need no reply.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 use std::collections::HashSet;
 
 /// Which `cursor/` request a method is.

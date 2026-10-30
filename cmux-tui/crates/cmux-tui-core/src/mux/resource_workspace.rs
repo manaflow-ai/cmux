@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::panic_free::{JsonFields, RecoverPoison};
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
@@ -463,7 +464,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_authority) = authority.fingerprint() {
-            fingerprint.insert("name_authority", name_authority);
+            fingerprint.set("name_authority", name_authority);
         }
         self.commit_resource_mutation_plan(
             mutation,

@@ -42,6 +42,7 @@ use super::CloudError;
 use super::service::{CloudBackend, CloudWire, ConnectError, EventSink, WireRecv};
 use super::session::{token_account, token_agent, token_claim, validate_api_base_url};
 use crate::panic_free::JsonFields as _;
+use cmux_json::JsonSet as _;
 
 mod ask;
 mod chief;
@@ -464,23 +465,23 @@ impl HostReplica {
         let state = self.inner.lock();
         let mut status = json!({ "state": state.phase.name() });
         if let Some(lease) = &state.lease {
-            status.insert("api_base_url", json!(lease.origin));
-            status.insert("expires_at", json!(lease.expires_at));
-            status.insert("host_name", json!(lease.host_name));
+            status.set("api_base_url", json!(lease.origin));
+            status.set("expires_at", json!(lease.expires_at));
+            status.set("host_name", json!(lease.host_name));
         }
         if let Some(host) = &state.host {
-            status.insert("host", json!(host));
-            status.insert("stream", json!(stream_of(host)));
-            status.insert("seq", json!(state.published_seq));
+            status.set("host", json!(host));
+            status.set("stream", json!(stream_of(host)));
+            status.set("seq", json!(state.published_seq));
         }
         if state.purge {
-            status.insert("purge_pending", json!(true));
+            status.set("purge_pending", json!(true));
         }
         if state.purge_unconfirmed {
-            status.insert("purge_unconfirmed", json!(true));
+            status.set("purge_unconfirmed", json!(true));
         }
         if let Some(error) = &state.last_error {
-            status.insert("last_error", json!(error));
+            status.set("last_error", json!(error));
         }
         status
     }

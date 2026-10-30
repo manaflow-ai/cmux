@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use crate::cli::output::print_json;
 use crate::client::Client;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::method;
 
 #[derive(Subcommand)]

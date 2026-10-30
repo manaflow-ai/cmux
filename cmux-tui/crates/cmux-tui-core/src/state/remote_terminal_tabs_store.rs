@@ -18,11 +18,11 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::panic_free::JsonFields;
 use crate::workspace_registry::presentation_store::{
     append_presentation_record, validate_frontend_browser_title,
 };
 use crate::workspace_registry::{JournalSubject, WorkspaceRegistry};
+use cmux_json::JsonSet as _;
 
 pub(crate) const REMOTE_TERMINAL_TABS_CAPABILITY: &str = "remote-terminal-tabs-v1";
 /// The raw tab `kind` of a remote-terminal tab.
@@ -308,7 +308,7 @@ pub(crate) fn tab_remote_wire(
         .optional()?;
     Ok(record.map(|record| {
         let mut wire = record.wire();
-        wire.insert("title", json!(record.title));
+        wire.set("title", json!(record.title));
         wire
     }))
 }

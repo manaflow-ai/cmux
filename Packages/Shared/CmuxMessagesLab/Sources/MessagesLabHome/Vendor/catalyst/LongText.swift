@@ -428,7 +428,8 @@ final class LongTextLayout: Sendable {
     let markdown: Bool
     /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
     /// its tiles near the end are drawn off main, then both reach the screen in one publish.
-    struct TileHint: Sendable { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
+    /// cmux: `box`, the asking view's palette (PaletteScope), which the prerendered tiles draw in.
+    struct TileHint: Sendable { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int; var box: PaletteBox? }
     var tileHint: TileHint? {
         get { state.withLock { $0.hint } }
         set { state.withLock { $0.hint = newValue } }
@@ -588,7 +589,9 @@ final class LongTextLayout: Sendable {
                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
                         // a tile that could not be allocated is not prerendered.
-                        if let img = TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) { tiles.append((k, img)) }
+                        if let img = PaletteScope.with(h.box, { TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) }) {
+                            tiles.append((k, img))
+                        }
                     }
                     line += c
                 }
@@ -671,8 +674,7 @@ final class LongTextLayout: Sendable {
         }
         // Tiles drawn with the measurement: in the cache before the new height is laid out.
         // (Keyed by scale too: tiles of a view at another scale stay out of this view's lookups.)
-        let generation = Fixture.paletteGeneration
-        for t in tiles where t.key.palette == generation { TileCache.shared.put(t.key, t.image.value) }
+        for t in tiles where Fixture.generationIsLive(t.key.palette) { TileCache.shared.put(t.key, t.image.value) } // cmux: any view's palette
         return changed
     }
     var hasPending: Bool { state.withLock { !$0.pending.isEmpty || !$0.pendingTiles.isEmpty } }

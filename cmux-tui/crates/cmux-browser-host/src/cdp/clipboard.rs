@@ -17,6 +17,7 @@ use super::driver::Inner;
 use super::state::World;
 use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -256,7 +257,7 @@ pub(super) fn deny_clipboard_permissions(
     ] {
         let mut params = json!({"permission": permission, "setting": "denied"});
         if let Some(context) = context {
-            params.insert("browserContextId", json!(context));
+            params.set("browserContextId", json!(context));
         }
         conn.call(None, "Browser.setPermission", params, super::driver::INTERNAL_TIMEOUT)?;
     }

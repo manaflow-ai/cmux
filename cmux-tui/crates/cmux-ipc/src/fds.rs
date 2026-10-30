@@ -71,7 +71,7 @@ impl FdBadMessage {
 pub fn send_all(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<()> {
     let mut sent = send_with_fds(fd, bytes, fds)?;
     while sent < bytes.len() {
-        sent += send_with_fds(fd, &bytes[sent..], &[])?;
+        sent += send_with_fds(fd, bytes.get(sent..).unwrap_or_default(), &[])?;
     }
     Ok(())
 }

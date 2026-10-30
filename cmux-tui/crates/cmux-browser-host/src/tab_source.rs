@@ -11,9 +11,9 @@
 
 use crate::driver::{EventSink, Reply, RequestFilter};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
-use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
 use crate::provider::LeaseState;
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -70,10 +70,10 @@ impl TabRow {
             "dataStore": self.data_store,
         });
         if let Some(opener) = &self.opener {
-            row.insert("openerTargetId", Value::String(opener.clone()));
+            row.set("openerTargetId", Value::String(opener.clone()));
         }
         if self.incognito {
-            row.insert("incognito", Value::Bool(true));
+            row.set("incognito", Value::Bool(true));
         }
         row
     }

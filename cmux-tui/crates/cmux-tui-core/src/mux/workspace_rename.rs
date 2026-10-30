@@ -1,6 +1,7 @@
 //! Workspace rename: revision-checked, provider-managed and selector paths.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::PoisonError;
 
 impl Mux {
@@ -173,7 +174,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_fingerprint) = name_authority.fingerprint() {
-            set_field(&mut fingerprint, "name_authority", name_fingerprint)?;
+            fingerprint.set("name_authority", name_fingerprint);
         }
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);

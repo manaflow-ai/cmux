@@ -10,7 +10,8 @@
 
 use super::*;
 use crate::adopt::{AdoptRequest, IfLive};
-use crate::no_panic::{JsonExt, LockExt};
+use crate::no_panic::LockExt;
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.

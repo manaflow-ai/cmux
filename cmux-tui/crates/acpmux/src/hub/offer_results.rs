@@ -22,7 +22,7 @@
 //! - The person may accept after the child's first turn ended: the answer sends it then.
 
 use super::{Hub, PromptOptions, Session};
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::method;
 use crate::store::EventRecord;
 use crate::supervised::{Fatal, ShutdownBehavior};

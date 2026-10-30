@@ -21,6 +21,7 @@ use super::supervisor::{
 };
 use crate::backoff::Backoff;
 use crate::panic_free::{JsonFields, RecoverPoison};
+use cmux_json::JsonSet as _;
 
 /// A host that stays up this long after `ready` counts as healthy: its next
 /// crash starts the backoff over.
@@ -162,7 +163,7 @@ impl Supervisor {
         fields.remove("gesture");
         if user && !host_key.preview {
             let token = inner.gestures.mint(&host_key.app, Instant::now());
-            fields.insert("gesture".into(), Value::String(token));
+            fields.set("gesture", Value::String(token));
         }
         let payload = Value::Object(fields);
         let running = inner
@@ -458,7 +459,7 @@ impl Supervisor {
                 let mut event =
                     json!({ "event": "apps-scene", "mount_id": mount_key.mount_id, "ops": ops });
                 if std::mem::take(&mut record.reset) {
-                    event.insert("reset", Value::Bool(true));
+                    event.set("reset", Value::Bool(true));
                 }
                 vec![Out::Client(mount_key.client, event)]
             }

@@ -26,6 +26,8 @@ pub(crate) struct ChildSetup {
     pub(crate) inherit: Vec<(RawFd, RawFd)>,
     pub(crate) process_group_fence: bool,
     pub(crate) open_file_limit: Option<u64>,
+    /// `Command::address_space_limit` (Linux; always None elsewhere).
+    pub(crate) address_space_limit: Option<u64>,
     /// After `new_session` and the open of `stdin_path`: make that terminal
     /// the controlling terminal (`TIOCSCTTY` on descriptor 0), so its line
     /// discipline sends SIGINT, SIGQUIT and SIGTSTP to the foreground group
@@ -110,6 +112,9 @@ impl ChildSetup {
         if let Some(soft) = self.open_file_limit {
             set_open_file_limit(soft)?;
         }
+        if let Some(bytes) = self.address_space_limit {
+            set_address_space_limit(bytes)?;
+        }
         if self.process_group_fence {
             install_process_group_fence()?;
         }
@@ -128,6 +133,26 @@ fn set_open_file_limit(soft: u64) -> io::Result<()> {
         }
         limit.rlim_cur = (soft as libc::rlim_t).min(limit.rlim_max);
         if libc::setrlimit(libc::RLIMIT_NOFILE, &raw const limit) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+/// `setrlimit(RLIMIT_AS)`: soft and hard at most `bytes`, never above the
+/// inherited values.
+fn set_address_space_limit(bytes: u64) -> io::Result<()> {
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    let bytes = bytes as libc::rlim_t;
+    // SAFETY: getrlimit and setrlimit are async-signal-safe; `limit` is
+    // valid storage for one rlimit.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_AS, &raw mut limit) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        limit.rlim_cur = limit.rlim_cur.min(bytes);
+        limit.rlim_max = limit.rlim_max.min(bytes);
+        if libc::setrlimit(libc::RLIMIT_AS, &raw const limit) != 0 {
             return Err(io::Error::last_os_error());
         }
     }

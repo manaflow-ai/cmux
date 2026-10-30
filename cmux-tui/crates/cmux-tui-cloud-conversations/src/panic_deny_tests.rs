@@ -33,18 +33,3 @@ fn json_fields_read_null_for_missing_keys_and_non_objects() {
     assert!(json!([1]).field("t").is_null());
     assert!(json!("op").field("t").is_null());
 }
-
-#[test]
-fn json_fields_insert_into_objects_and_null_only() {
-    let mut object = json!({"a": 1});
-    object.insert("b", json!(2));
-    assert_eq!(object, json!({"a": 1, "b": 2}));
-
-    let mut null = Value::Null;
-    null.insert("a", json!(1));
-    assert_eq!(null, json!({"a": 1}));
-
-    let mut array = json!([1]);
-    array.insert("a", json!(1));
-    assert_eq!(array, json!([1]));
-}

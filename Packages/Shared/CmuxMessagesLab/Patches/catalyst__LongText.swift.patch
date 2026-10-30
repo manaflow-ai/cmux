@@ -259,7 +259,7 @@
      let index: LongTextIndex
      let width: CGFloat
      let column: CGFloat
-@@ -391,22 +428,35 @@
+@@ -391,22 +428,36 @@
      let markdown: Bool
      /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
      /// its tiles near the end are drawn off main, then both reach the screen in one publish.
@@ -273,7 +273,8 @@
 -    private var pending: [Int: Int32] = [:]
 -    private var inFlight = Set<Int>()
 -    private(set) var measured = 0
-+    struct TileHint: Sendable { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
++    /// cmux: `box`, the asking view's palette (PaletteScope), which the prerendered tiles draw in.
++    struct TileHint: Sendable { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int; var box: PaletteBox? }
 +    var tileHint: TileHint? {
 +        get { state.withLock { $0.hint } }
 +        set { state.withLock { $0.hint = newValue } }
@@ -307,7 +308,7 @@
  
      static let measureQueue: OperationQueue = {
          let q = OperationQueue()
-@@ -425,40 +475,38 @@
+@@ -425,40 +476,38 @@
          self.markdown = index.markdown && (markdown ?? true)
          column = Metrics(width: width).maxTextWidth
          let col = Float(column)
@@ -359,7 +360,7 @@
      }
      var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
      var size: CGSize { size(scale: Fixture.renderScale) }
-@@ -467,11 +515,11 @@
+@@ -467,11 +516,11 @@
          CGSize(width: Sizing.textBalloonWidth(column, column: column, scale: scale), height: textHeight + 2 * Fixture.bubblePadY)
      }
      var blockCount: Int { index.blockCount }
@@ -376,7 +377,7 @@
  
      func key(_ b: Int) -> BlockLayoutCache.Key {
          // A markdown block's layout also depends on whether the next block continues it.
-@@ -491,7 +539,7 @@
+@@ -491,7 +540,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b), reuse: reuse)
          BlockLayoutCache.shared.put(k, out)
@@ -385,7 +386,7 @@
          report(b, out.lineCount)
          return out
      }
-@@ -510,9 +558,7 @@
+@@ -510,9 +559,7 @@
      /// (2 screens), then publish counts and tiles together.
      func measureTail(_ blocks: Range<Int>) {
          guard !blocks.isEmpty else { return }
@@ -396,7 +397,15 @@
          LongTextLayout.tailQueue.addOperation { [weak self] in
              guard let self, !self.retired else { return }
              // Lines of the first tail block before this append: its tiles above them did not change.
-@@ -547,10 +593,11 @@
+@@ -542,15 +589,18 @@
+                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
+                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
+                         // a tile that could not be allocated is not prerendered.
+-                        if let img = TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) { tiles.append((k, img)) }
++                        if let img = PaletteScope.with(h.box, { TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale) }) {
++                            tiles.append((k, img))
++                        }
+                     }
                      line += c
                  }
              }
@@ -412,7 +421,7 @@
              LongTextCenter.schedule(self)
          }
      }
-@@ -563,7 +610,7 @@
+@@ -563,7 +613,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b))
          BlockLayoutCache.shared.put(key(b), out)
@@ -421,7 +430,7 @@
          return out
      }
  
-@@ -574,10 +621,11 @@
+@@ -574,10 +624,11 @@
          require(blocks: a..<(b + 1))
      }
      func require(blocks: Range<Int>) {
@@ -437,7 +446,7 @@
          guard !todo.isEmpty else { return }
          // Chunks of 8 blocks per operation (fewer queue hops).
          for i in stride(from: 0, to: todo.count, by: 8) {
-@@ -596,33 +644,38 @@
+@@ -596,33 +647,37 @@
      }
  
      func report(_ b: Int, _ n: Int) {
@@ -483,8 +492,7 @@
          // (Keyed by scale too: tiles of a view at another scale stay out of this view's lookups.)
 -        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration { TileCache.shared.put(k, img) }
 -        pendingTiles.removeAll()
-+        let generation = Fixture.paletteGeneration
-+        for t in tiles where t.key.palette == generation { TileCache.shared.put(t.key, t.image.value) }
++        for t in tiles where Fixture.generationIsLive(t.key.palette) { TileCache.shared.put(t.key, t.image.value) } // cmux: any view's palette
          return changed
      }
 -    var hasPending: Bool { lock.lock(); defer { lock.unlock() }; return !pending.isEmpty || !pendingTiles.isEmpty }
@@ -492,7 +500,7 @@
  
      // MARK: Anchors (text-local y: 0 at the first line's slot top)
  
-@@ -722,8 +775,8 @@
+@@ -722,8 +777,8 @@
                  if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
                      let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
                      let ct = CTLineCreateWithAttributedString(attr)
@@ -503,7 +511,7 @@
                      out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
                  }
              }
-@@ -750,54 +803,97 @@
+@@ -750,54 +805,97 @@
      }
  }
  
@@ -632,7 +640,7 @@
          let apply = {
              rs.forEach { $0() }
              ls.forEach { $0.applyPending() }
-@@ -807,19 +903,26 @@
+@@ -807,19 +905,26 @@
  }
  
  /// Text to index and layouts (thread safe). Finds a streamed text's previous index by prefix.
@@ -669,7 +677,7 @@
      static let maxIndexes = 12
      static let syncBytes = 512 << 10
  
-@@ -843,65 +946,123 @@
+@@ -843,65 +948,123 @@
          let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
          let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
          let wk = md || !idx.markdown ? width : -width
@@ -827,7 +835,7 @@
                      let old = layoutsOf(prev)
                      register(i, addr: addr, print: pr, head: hd, replacing: prev)
                      // Layouts carry the measured blocks. The tail keeps its previous line count (and
-@@ -911,7 +1072,10 @@
+@@ -911,7 +1074,10 @@
                      for o in old {
                          let tailOffMain = LongText.offMainTail
                          let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
@@ -839,7 +847,7 @@
                          if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
                          // The previous rule: the new tail is measured now (about 4 KB).
                          let reuse = BlockLayoutCache.shared.get(o.key(keep))
-@@ -921,19 +1085,20 @@
+@@ -921,19 +1087,20 @@
                      return i
                  }
              }
@@ -868,7 +876,7 @@
                  LongTextCenter.scheduleReplace(lineage: lineage) {
                      self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                  }
-@@ -943,37 +1108,81 @@
+@@ -943,37 +1110,81 @@
      }
  
      private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
@@ -970,7 +978,7 @@
  }
  
  /// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
-@@ -982,6 +1191,11 @@
+@@ -982,6 +1193,11 @@
  /// fixed (80 lines and the band), so measurement never changes it.
  enum LongTextFold {
      static let headLines = 40, tailLines = 40
@@ -982,7 +990,7 @@
      /// 3 screens (the 1041 pt window).
      static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
      static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
-@@ -992,15 +1206,16 @@
+@@ -992,15 +1208,16 @@
          if disabledByArgument { return false }
          return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
      }

@@ -8,7 +8,7 @@
  
  /// The send morph: the compose field turns into the new bubble.
  ///
-@@ -255,31 +256,40 @@
+@@ -255,31 +256,41 @@
      /// layout the send derives: trimmed text, TextParts, Sizing at the window width). The
      /// send uses them only for an equal layout, size and scale; else it renders as before.
      private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
@@ -29,12 +29,14 @@
          let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
          guard !t.isEmpty, !LongText.isLong(t) else { return }
 -        prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
+-        prepQueue.async {
+-            prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
 +        let serial = prepLock.withLock { p in
 +            p.serial += 1
 +            return p.serial
 +        }
-         prepQueue.async {
--            prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
++        let box = PaletteScope.effective // cmux: the typing chat's palette goes with the job
++        prepQueue.async { PaletteScope.with(box) {
 +            let latest = prepLock.withLock { $0.serial == serial }
              guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
              let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
@@ -43,11 +45,12 @@
 -            prepLock.lock()
 -            if serial == prepSerial { prepared = (tl, size, scale, images) }
 -            prepLock.unlock()
+-        }
 +            prepLock.withLock { p in
 +                guard p.serial == serial else { return }
 +                p.prepared = (tl, size, scale, images)
 +            }
-         }
++        } }
      }
      private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
 -        prepLock.lock(); defer { prepLock.unlock() }
@@ -62,7 +65,7 @@
      }
  
      /// Any thread (prepQueue, main): the drawing reads `scale`.
-@@ -441,7 +451,10 @@
+@@ -441,7 +452,10 @@
          defer { src.free(); dst.free() }
          let k = UInt32(clamping: 2 * max(0, r) + 1) // a negative radius does not trap
          for _ in 0..<3 {
@@ -74,7 +77,7 @@
              swap(&src, &dst)
          }
          return try? src.createCGImage(format: format)
-@@ -450,6 +463,8 @@
+@@ -450,6 +464,8 @@
      /// The outgoing gradient's colour at a window y (pt).
      static func blue(atWindowY y: CGFloat) -> UIColor {
          let px = y * 2

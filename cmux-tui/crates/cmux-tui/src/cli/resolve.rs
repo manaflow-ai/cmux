@@ -16,7 +16,7 @@ use super::command::plan::CALLER_SCOPES;
 use super::command::{RequestPlan, Resolve, ZoomStep, random_prefixed};
 use super::wire::{print_local_error, print_operation_error, random_request_id, read_envelope};
 use super::{GlobalArgs, OutputMode};
-use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -693,10 +693,10 @@ pub(super) fn call_as(
         "params": params,
     });
     if let Some(key) = idempotency_key {
-        request.insert("idempotency_key", Value::String(key.to_owned()));
+        request.set("idempotency_key", Value::String(key.to_owned()));
     }
     if let Some(credential) = credential {
-        request.insert("credential", Value::String(credential.to_owned()));
+        request.set("credential", Value::String(credential.to_owned()));
     }
     let encoded = request.to_string().into_bytes();
     send(reader, &encoded).map_err(Failure::Transport)?;

@@ -40,7 +40,8 @@ use serde_json::{Value, json};
 use super::mirror::Origin;
 use super::supervisor::{ApiError, HostKey, Inner, Out, Supervisor};
 use super::timer::TimerId;
-use crate::panic_free::{JsonFields, RecoverPoison};
+use crate::panic_free::RecoverPoison;
+use cmux_json::JsonSet as _;
 
 /// Families a provider may serve. The supervisor's own ops (`app.storage.*`,
 /// `net.fetch`) and the daemon's catalog ops are never routed.
@@ -140,7 +141,7 @@ pub(super) fn error_body(body: Value) -> Value {
     let retryable = body.get("retryable").and_then(Value::as_bool).unwrap_or(false);
     let mut out = json!({ "code": code, "message": message, "retryable": retryable });
     if let Some(details) = body.get("details") {
-        out.insert("details", details.clone());
+        out.set("details", details.clone());
     }
     out
 }
@@ -257,7 +258,7 @@ impl Supervisor {
         let demand = Self::inventory_demand_locked(&mut inner);
         let mut result = json!({ "families": families });
         if inventory_watch {
-            result.insert("inventory_demand", inner.inventory_demand.snapshot());
+            result.set("inventory_demand", inner.inventory_demand.snapshot());
         }
         drop(inner);
         self.emit(demand.into_iter().collect());
@@ -341,7 +342,7 @@ impl Supervisor {
             "deadline_ms": deadline_ms(deadline),
         });
         if let Some(key) = idempotency_key {
-            event.insert("idempotency_key", Value::String(key));
+            event.set("idempotency_key", Value::String(key));
         }
         // Sent after the lock is released; a failed send fails the call.
         Ok(vec![Out::Provider(client, request_id, event)])

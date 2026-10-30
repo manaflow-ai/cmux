@@ -215,6 +215,55 @@ final class AppControl {
                                                                   mainWork: services.mainWork)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
+
+    /// The Chromium page and retirement probes, and the capture fixtures of Add Device, the joined
+    /// machines, This Mac's join consent and the daemon update.
+    func registerDebugCaptureMethods(_ services: AppServices, on router: ControlRouter) {
+        router.register([
+            // Every Chromium page's origin, hidden state and renderer client ids (bench_power.py loaded).
+            .mainActor("debug.cef_pages") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(debugCEFPagesReport(services))
+            },
+            .async("debug.browser_retirement") { [weak services] _ in
+                guard let services else { return .null }
+                do {
+                    let result = try await BrowserRetirementProbe(engine: services.cache.cef).run { page in
+                        let entry = BrowserEntry(tab: page, mainWork: services.mainWork, node: nil)
+                        return (entry, entry.chrome)
+                    }
+                    return .object(result.mapValues(JSONValue.bool))
+                } catch {
+                    return .object(["error": .string(String(describing: error))])
+                }
+            }.withDeadline(.fixed(.seconds(30))),
+        ])
+        // The capture fixtures live behind DEBUG only.
+        #if DEBUG
+        router.register([
+            // Captures of Add Device: a fixture listing (network and ~/.ssh/config rows), never the capture host's tailnet.
+            .mainActor("debug.add_device") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAddDevice.show(call.params, services: services))
+            },
+            // Captures of the Machines section's joined rows: fixture machines, no platform or account.
+            .mainActor("debug.joined_machines") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAddDevice.showJoined(call.params, services: services))
+            },
+            // Captures of This Mac's join consent: a fixture joined status, its switches and the one-time sheet.
+            .mainActor("debug.join_consent") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugJoinConsent.show(call.params, services: services))
+            },
+            // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
+            .mainActor("debug.daemon_update") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
+            },
+        ])
+        #endif
+    }
     #endif
 
     func stop() {
@@ -273,6 +322,7 @@ extension AppControl {
             group("Control.registerDebugDrivers", services) { control, services, router in
                 DebugDriverControl.register(on: router, services: services, keys: control.keySequencePlayer)
             },
+            group("Control.registerDebugCaptures", services) { control, services, router in control.registerDebugCaptureMethods(services, on: router) },
         ]
         #endif
         groups += [

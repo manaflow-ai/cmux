@@ -5,8 +5,8 @@
 
 use super::person::{REASON, person_required, valid_key};
 use super::*;
-use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
+use cmux_json::JsonSet as _;
 
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;

@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::user_settings::{self, Settings};
 
 pub const SETTING_AUTO: &str = "agents.trust.autoTrust";

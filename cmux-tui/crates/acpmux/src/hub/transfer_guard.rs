@@ -19,7 +19,8 @@
 
 use super::*;
 use crate::config::HarnessKind;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
+use cmux_json::JsonSet as _;
 
 /// The longest `from` (serialized) a guarded finish records.
 const MAX_FROM: usize = 4 << 10;

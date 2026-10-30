@@ -21,6 +21,10 @@ public final class AgentPageRedraw {
     private let nextFrame: @MainActor (PageWebView, @escaping () -> Void) -> Void
     private var probing = false
     private var generation: UInt64 = 0
+    /// Tests drive capture completion without a window-server compositor. Nil uses the page's
+    /// real frame and snapshot paths; neither override changes capture ownership or visibility.
+    var nextFrameOverride: (@MainActor (@escaping () -> Void) -> Void)?
+    var snapshotOverride: (@MainActor () async -> NSImage?)?
 
     init(page: PageWebView, nextFrame: @escaping @MainActor (PageWebView, @escaping () -> Void) -> Void = { $0.afterNextFrame($1) }) {
         self.page = page
@@ -105,6 +109,7 @@ public final class AgentPageRedraw {
     /// the page is gone. Never when the page drops its frame callback: `body` is released then, and the
     /// next call asks the page for a frame again.
     public func afterNextFrame(_ body: @escaping () -> Void) {
+        if let nextFrameOverride { return nextFrameOverride(body) }
         guard let page else { return body() }
         if let frameWait {
             frameWait.bodies.append(body)
@@ -120,28 +125,42 @@ public final class AgentPageRedraw {
     }
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
-    public var givesNewTabFrame = false
+    public var givesNewTabFrame = false {
+        didSet {
+            if givesNewTabFrame != oldValue { newTabFrameCaptureChanged?(givesNewTabFrame) }
+        }
+    }
+    /// A parked spare wakes for a fresh cover capture and sleeps once it finishes. Its owner
+    /// removes this callback on adoption or drop, so a late capture cannot hide an active page.
+    public var newTabFrameCaptureChanged: ((Bool) -> Void)?
     /// That capture's settle deadline, held while it is pending (``AgentPaneNewTabFrame/capture(_:in:)``).
     var newTabSettle: MainDeadline?
 
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
     private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
 
+    /// The capture source shared by a parked page's remembered cover and the app's New Tab frame.
+    func snapshot() async -> NSImage? {
+        if let snapshotOverride { return await snapshotOverride() }
+        return await page?.snapshot()
+    }
+
     /// Snapshots the page as it draws now in `pane` (a parked New Tab spare), kept when `pane` is
     /// still where and as large as it was when the snapshot is ready: the image its move into a pane
     /// shows until it draws there is then this page at that size.
-    public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?) {
+    public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?, completion: @escaping @MainActor () -> Void = {}) {
         // Only a page that draws today's chats and model (`AgentPaneNewTabFrame`).
-        guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
+        guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return completion() }
         // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``):
         // checked before and after, as the page can move to or from Chromium while its picture is taken.
-        guard let page, page.snapshotKeepsClearAreas else { return }
+        guard let page, page.snapshotKeepsClearAreas else { return completion() }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
         // main-hop-allow: snapshot() is the page host's main-actor async picture (the engine's capture); this task only
         // starts it, and its one resume keeps the picture when the page is still where it was
         Task { @MainActor [weak self, weak page, weak pane, weak place] in
-            guard let image = await page?.snapshot(), image.size == size, page?.snapshotKeepsClearAreas == true,
+            defer { completion() }
+            guard let image = await self?.snapshot(), image.size == size, page?.snapshotKeepsClearAreas == true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
             self?.remembered = (image, size, appearance, generation)
         }

@@ -9,7 +9,8 @@
 //! get, draft and a start retry work across a restart.
 
 use super::*;
-use crate::no_panic::{JsonExt, LockExt};
+use crate::no_panic::LockExt;
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 
 pub(super) mod capsule;

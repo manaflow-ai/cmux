@@ -21,7 +21,7 @@
 //! a card withdrawn that way is logged as a cancelled decision and the session's status is
 //! settled, as for any answered prompt, so the chat drops the card and stops asking for input.
 
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex as StdMutex;

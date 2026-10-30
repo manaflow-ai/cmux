@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::OutputMode;
 use super::{AppCommand, Options, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT, failure};
-use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 /// `browser.page.wait` answers by its own timeout (default 5 s, the old
 /// `cmux browser wait`); the CLI waits that long plus this margin.
@@ -525,7 +525,7 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
     match output {
         OutputMode::Human => super::super::wire::print_local_success(&Value::String(path), output),
         _ => {
-            result.insert("path", json!(path));
+            result.set("path", json!(path));
             super::super::wire::print_local_success(&result, output)
         }
     }

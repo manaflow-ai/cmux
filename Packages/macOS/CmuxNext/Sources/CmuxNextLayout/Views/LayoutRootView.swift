@@ -71,6 +71,21 @@ public final class LayoutRootView: NSView {
     var ownerDecidedAtTouch = false
     /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
+    /// Asks a web page whether it keeps a Command scroll (`layout.pagesHandleCommandScroll`); nil:
+    /// every Command scroll is the layout's.
+    let pageCommandScroll: (any PageCommandScrollArbiter)?
+    /// The Command scroll from a page window held while its page is asked (`LayoutRootView+PageScroll`).
+    var pageProbe: PageProbe?
+    /// The task that asks the page for ``pageProbe``; tests await it.
+    var pageProbeTask: Task<Void, Never>?
+    /// Stops waiting for the page at ``pageProbeDeadline``, on the layout's injected clock.
+    let pageProbeTimer: DemandTimer
+    /// How long a held Command scroll waits for its page's answer before the columns take it. A
+    /// page that is not stuck answers within a frame or two.
+    let pageProbeDeadline: Duration = .milliseconds(120)
+    var pageProbeGeneration: UInt64 = 0
+    /// The last wheel answer of a page window, reused for the notches of one spin.
+    var wheelPageAnswer: WheelPageAnswer?
     /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
     /// only when the pointer enters another pane, so a keyboard move is not undone by a
     /// small pointer twitch inside the pane it left.
@@ -164,8 +179,8 @@ public final class LayoutRootView: NSView {
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
-    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
-    /// tests inject a manual clock.
+    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline and the wait for a
+    /// page's Command scroll answer; tests inject a manual clock.
     /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
     /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
@@ -176,18 +191,25 @@ public final class LayoutRootView: NSView {
     /// their own trace runtime.
     /// `hiddenWork` is the app's count of work done while off screen (its passes while ``isOffScreen``); nil
     /// where nobody reads it.
+    /// `pageCommandScroll` asks a web page whether it keeps a Command scroll
+    /// (`layout.pagesHandleCommandScroll`); nil gives every Command scroll to the layout.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
                 input: InputEventTap? = nil, mainWork: MainWorkScheduler,
-                motionSignposter: Signposter = .motion, hiddenWork: HiddenLayoutWork? = nil) {
+                motionSignposter: Signposter = .motion, hiddenWork: HiddenLayoutWork? = nil,
+                pageCommandScroll: (any PageCommandScrollArbiter)? = nil) {
         self.model = model
         inputTap = input
         self.hiddenWork = hiddenWork
         motionTrace = LayoutMotionTrace(signposter: motionSignposter)
         planApplies = mainWork.planApplies
         self.scrollFocusSignals = scrollFocusSignals
+        self.pageCommandScroll = pageCommandScroll
+        // timer-class-allow: the page-answer deadline runs on the injected scrollbar clock the strip suites step; only a held
+        // Command scroll arms it, and the page's answer cancels it
+        self.pageProbeTimer = DemandTimer(owner: "layout.page-command-scroll", clock: scrollbarClock)
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
                                          rendersMotionOnServer: rendersMotionOnServer)
         self.motionBackends = MotionBackends(LayoutRootView.renderServerMotions, renderServer: rendersMotionOnServer)

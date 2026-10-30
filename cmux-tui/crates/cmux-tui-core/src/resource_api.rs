@@ -4,6 +4,8 @@
 //! live in the outer runtime, so the public router crosses this injected
 //! boundary instead of importing provider implementation details into core.
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -303,8 +305,8 @@ fn machine_snapshot(context: &LocalResourceContext, catalog: bool) -> Value {
     if catalog {
         // Strict older SDKs reject these fields, even on a local record.
         // The reader opts in; this metadata grants no execution authority.
-        machine.insert("platform", machine_platform());
-        machine.insert("capabilities", machine_capabilities());
+        machine.set("platform", machine_platform());
+        machine.set("capabilities", machine_capabilities());
     }
     machine
 }
@@ -474,10 +476,10 @@ pub(crate) fn public_terminal_snapshot(
         // This is a coalesced output revision, not the resource revision. It
         // lets external observers skip a full screen read when the PTY did
         // not change.
-        terminal.insert("stream_revision", json!(revision.to_string()));
+        terminal.set("stream_revision", json!(revision.to_string()));
     }
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
-        terminal.insert("cwd", json!(cwd));
+        terminal.set("cwd", json!(cwd));
     }
     let running = durable.lifecycle == TerminalLifecycle::Running;
     let mut extra = Map::new();
@@ -520,10 +522,10 @@ pub(crate) fn public_terminal_snapshot(
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
     if !extra.is_empty() {
-        terminal.insert("extra", Value::Object(extra));
+        terminal.set("extra", Value::Object(extra));
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
-        terminal.insert(
+        terminal.set(
             "exit",
             durable.exit.clone().context("exited terminal omitted its durable outcome")?,
         );
@@ -794,12 +796,12 @@ pub(crate) fn public_session_snapshot_at_cut<R>(
                     "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
-                    snapshot.insert("terminal_id", json!(terminal_id));
+                    snapshot.set("terminal_id", json!(terminal_id));
                 }
                 if let Some(subtitle) = notification.subtitle {
-                    snapshot.insert("subtitle", json!(subtitle));
+                    snapshot.set("subtitle", json!(subtitle));
                 }
-                snapshot.insert("extra", json!({"source": notification.source.as_str()}));
+                snapshot.set("extra", json!({"source": notification.source.as_str()}));
                 snapshot
             })
             .collect::<Vec<_>>();
@@ -858,12 +860,9 @@ pub(crate) fn public_session_snapshot_at_cut<R>(
         });
         registry.read_state(|connection| {
             crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
-            snapshot.insert(
-                "extra",
-                json!({
-                    "state": crate::state::store::state_snapshot(connection)?,
-                }),
-            );
+            snapshot.set("extra", json!({
+                "state": crate::state::store::state_snapshot(connection)?,
+            }));
             Ok(())
         })?;
         Ok((snapshot, journal_head, visit(state)))

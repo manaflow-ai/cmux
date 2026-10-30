@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 use super::{Outcome, Refusal};
 use crate::cli::json_fields::JsonFields;
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "trust";
 
@@ -68,22 +69,22 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "user_action": Value::Null,
     });
     if held == wanted {
-        report.insert("state", json!("ok"));
-        report.insert("after", report.field("before").clone());
+        report.set("state", json!("ok"));
+        report.set("after", report.field("before").clone());
         return Ok(Outcome { report, failed: false });
     }
-    report.insert("written", json!(written));
+    report.set("written", json!(written));
     if request.dry_run {
-        report.insert("state", json!("planned"));
-        report.insert("undo", json!(undo));
+        report.set("state", json!("planned"));
+        report.set("undo", json!(undo));
         return Ok(Outcome { report, failed: false });
     }
     let through = write(&paths, &written, request.level)?;
     let after = read(&paths, &folder)?;
-    report.insert("state", json!("changed"));
-    report.insert("after", after);
-    report.insert("through", json!(through));
-    report.insert("undo", json!(undo));
+    report.set("state", json!("changed"));
+    report.set("after", after);
+    report.set("through", json!(through));
+    report.set("undo", json!(undo));
     Ok(Outcome { report, failed: false })
 }
 

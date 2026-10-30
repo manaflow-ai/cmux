@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use super::mux_work::Retry;
 use super::*;
 use crate::terminal_end::TerminalEnd;
+use cmux_json::JsonSet as _;
 use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
@@ -295,8 +296,8 @@ impl Mux {
             // this revision derives `tab_id: null, tab_ids: []` from topology;
             // a delta that disagrees leaves clients with a graph that no
             // snapshot at the same cursor can confirm.
-            set_field(&mut terminal_snapshot, "tab_id", Value::Null)?;
-            set_field(&mut terminal_snapshot, "tab_ids", serde_json::json!([]))?;
+            terminal_snapshot.set("tab_id", Value::Null);
+            terminal_snapshot.set("tab_ids", serde_json::json!([]));
         }
         let topology = detach_projection.as_ref().map(|projection| {
             (&projection.patch, &projection.changes, projection.workspace_close.as_ref())

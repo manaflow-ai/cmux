@@ -94,6 +94,21 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         onPress?(self)
     }
 
+    /// The pointing hand over the star, as over every clickable control (`OmnibarPointer`); its
+    /// rect sits above the bar's arrow rects in the key window.
+    // cursor-rects-allow: the key window's hand over the star, above the bar's arrow rect; the row's tracking area gives the same hand in any window state (ArrowCursorView)
+    override func resetCursorRects() {
+        if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
+    }
+
+    /// The rects `resetCursorRects` registered, while non-nil (tests).
+    var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?
+
+    override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+        recordedCursorRects?.append((rect, object))
+        super.addCursorRect(rect, cursor: object)
+    }
+
     // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()

@@ -603,11 +603,13 @@ impl Hub {
             interrupt_turn: None,
             provenance: None,
             agent: None,
+            class: None,
             after_turn: None,
             supersede: None,
             display_parts: None,
             full_access_device: None,
             no_queue: false,
+            send_now: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

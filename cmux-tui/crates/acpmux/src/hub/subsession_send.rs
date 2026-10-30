@@ -5,7 +5,7 @@
 
 use super::subsessions::refused;
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 
 impl Hub {
     /// `_acpmux/subsession/send`: a prompt from `caller` to a descendant or

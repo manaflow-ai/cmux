@@ -17,19 +17,22 @@ public final class AddDeviceCard {
         self.mainWork = mainWork
     }
 
-    /// Opens the card over `window`, on `way` when given, and reads the network again.
-    public func open(way: AddDeviceWay? = nil, over window: NSWindow?) {
+    /// Opens the card over `window`, on `way` when given, and reads the network again. The task
+    /// ends when the opening's read does (a capture awaits it).
+    @discardableResult
+    public func open(way: AddDeviceWay? = nil, over window: NSWindow?) -> Task<Void, Never> {
         let panel = panel ?? AddDeviceCardPanel(model: model, mainWork: mainWork)
         self.panel = panel
         panel.present(over: window)
         // task-owner: one listing per opening; a newer opening's begin() supersedes it (generation)
         // main-hop-allow: begin is the card model's main-actor async listing (its awaits are the network browse); the card is already on screen
-        Task { await model.begin(way: way) }
+        return Task { await model.begin(way: way) }
     }
 
     public var isShown: Bool { panel?.isVisible == true }
 
     public func close() {
+        model.closeCard()
         panel?.orderOut(nil)
     }
 }

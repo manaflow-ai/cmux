@@ -22,7 +22,7 @@
 
 use super::{Conn, Origin};
 use crate::hub::Hub;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 

@@ -201,10 +201,14 @@ public final class WindowOverlayHost {
     /// The window the overlays draw in now (the panel, the main window, or nil while none shows).
     var overlayWindow: NSWindow? { topLayer.window }
 
-    /// The host of `window`, made on first use; it goes away with the window.
+    /// The host of `window`, made on first use; it goes away with the window. A closed window keeps
+    /// its torn-down host (whose panel is closed and never attaches again) until it shows again:
+    /// work that reaches a closed window late (its controller's teardown, a task) makes no new
+    /// panel that nothing would close.
     public static func host(for window: NSWindow) -> WindowOverlayHost {
         let key = ObjectIdentifier(window)
-        if let host = hosts[key], host.window === window { return host }
+        if let host = hosts[key], host.window === window, !host.isTearingDown || !window.isVisible { return host }
+        hosts = hosts.filter { $0.value.window != nil }
         let host = WindowOverlayHost(window: window)
         hosts[key] = host
         host.closeWatch = WindowEvents.of(window).subscribe(NSWindow.willCloseNotification, owner: "WindowOverlayHost.close") { [weak host] in
@@ -213,9 +217,17 @@ public final class WindowOverlayHost {
         return host
     }
 
+    /// `window` is closing (its controller tears down): its host tears down, also a host made
+    /// during the close (by that teardown), which came after the close notification and never
+    /// heard it, or for a window that never had a host before its close.
+    public static func windowIsClosing(_ window: NSWindow) {
+        guard let host = hosts[ObjectIdentifier(window)], host.window === window, !host.isTearingDown else { return }
+        host.tearDown()
+    }
+
     /// The host of `window` if one exists (never makes one).
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
-        hosts[ObjectIdentifier(window)].flatMap { $0.window === window ? $0 : nil }
+        hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
 
     /// The app host if one exists (never makes one).
@@ -292,11 +304,11 @@ public final class WindowOverlayHost {
         removeAgentCursor()
         syncWindowButtons()
         if topLayer.window === window { topLayer.removeFromSuperview() }
-        if let window {
-            if let madePanel, madePanel.parent === window { window.removeChildWindow(madePanel) }
-            Self.hosts[ObjectIdentifier(window)] = nil
-        }
-        madePanel?.orderOut(nil)
+        // The host stays in `hosts` for the closed window (`host(for:)`) until the window is gone.
+        if let window, let madePanel, madePanel.parent === window { window.removeChildWindow(madePanel) }
+        // The window closed and the host goes with it: nothing orders this panel in again, so it
+        // closes (ordered out only, it stayed in the app's window list, open, for good).
+        madePanel?.close()
     }
 
     // MARK: Attach and order
@@ -306,7 +318,7 @@ public final class WindowOverlayHost {
     /// while the top layer is in the window.
     func syncPanel() {
         if isAppHost { return syncAppPanel() }
-        guard let window else { return }
+        guard let window, !isTearingDown else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         let windowBefore = overlayWindow
         let modalHadKeyboard = modalHoldsKeyboard

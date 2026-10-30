@@ -27,12 +27,12 @@
 //! home to adopt gets a record too (`mode: none`), so an old path that
 //! appears later never replaces a home in use.
 
-use crate::json_fields::JsonFields;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{LEGACY_TAG, Outcome, RECORD, Steps};
+use cmux_json::JsonSet as _;
 
 /// How long a stopped daemon may take to let go of its lock.
 const STOP_WAIT: Duration = Duration::from_secs(45);
@@ -143,10 +143,10 @@ fn adopt_locked(
                 aside.clone()
             }
         };
-        record.insert("mode", "merge".into());
-        record.insert("merged_sessions", merged.0.into());
-        record.insert("renamed_sessions", serde_json::json!(merged.1));
-        record.insert("post_update_kept", serde_json::json!(kept));
+        record.set("mode", "merge".into());
+        record.set("merged_sessions", merged.0.into());
+        record.set("renamed_sessions", serde_json::json!(merged.1));
+        record.set("post_update_kept", serde_json::json!(kept));
     }
     // Asides a crash left between the two renames of an earlier run.
     let leftovers: Vec<PathBuf> = cmux_blocking::fs::read_dir(&builds)
@@ -176,7 +176,7 @@ fn adopt_locked(
         Ok(()) => steps.step(format!("{} is now a link to {}", legacy.display(), link.display())),
         Err(error) => steps.step(format!("no link at {}: {error}", legacy.display())),
     }
-    record.insert("steps", serde_json::json!(steps.lines));
+    record.set("steps", serde_json::json!(steps.lines));
     if let Err(error) = super::write_record(&home.join(RECORD), &record) {
         steps.step(format!("record not written: {error}"));
     }
@@ -322,6 +322,6 @@ fn new_session_id() -> String {
 fn set_session_id(path: &PathBuf, id: &str) {
     let Ok(text) = cmux_blocking::fs::read_to_string(path) else { return };
     let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else { return };
-    value.insert("id", id.into());
+    value.set("id", id.into());
     let _ = super::write_record(path, &value);
 }

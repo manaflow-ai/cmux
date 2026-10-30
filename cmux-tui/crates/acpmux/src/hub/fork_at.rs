@@ -5,7 +5,7 @@
 //! resumes a copy of the parent's transcript that holds its first prompts
 //! and everything they led to, under a new session id.
 
-use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;

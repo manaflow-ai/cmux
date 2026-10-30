@@ -12,7 +12,7 @@ public import CmuxNextWakeups
 /// top band holds Home and what the person put there (Lawrence 2026-10-26); those chats are in the
 /// Priority view and Home.
 extension SidebarModel {
-    /// What ``followTopItems(on:chief:)`` follows: the top items and whether the layout places the Chief.
+    /// What ``followTopItems(on:chief:document:)`` follows: the top items and whether the sidebar places the Chief.
     public struct TopItems: Equatable {
         var items: [SidebarTransientItem]
         var chiefPlaced: Bool
@@ -21,14 +21,21 @@ extension SidebarModel {
     /// Keeps `transientTopItems` current until the token is released or cancelled, on `mainWork` (the app's one
     /// main-thread scheduler). A service observation: it writes the sidebar model and `ChiefSidebar.isPlaced`,
     /// which the App Store card and the fold read with no sidebar on screen. `visible`: an agent's or a peer's change
-    /// shows in the rows; a person's Add to Sidebar flushes before its frame.
-    public func followTopItems(on mainWork: MainWorkScheduler, chief: ChiefSidebar = .shared) -> ServiceObservation<TopItems> {
+    /// shows in the rows; a person's Add to Sidebar flushes before its frame. `document`: the sidebar document every
+    /// window draws from.
+    public func followTopItems(on mainWork: MainWorkScheduler, chief: ChiefSidebar = .shared,
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore? = { SidebarDocStore.current })
+        -> ServiceObservation<TopItems> {
         ServiceObservation(.visible, owner: "SidebarModel.topItems", on: mainWork) { [weak self] in
-            TopItems(items: Self.topItems(chief: chief), chiefPlaced: self?.layout.firstItem(with: .builtIn(.chief)) != nil)
+            // Placed in a band, or anywhere in the sidebar document (a group or a machine list): never this window's
+            // rows, which its workspace membership filters, so every window's feed tells the same.
+            TopItems(items: Self.topItems(chief: chief),
+                     chiefPlaced: self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
+                         || document()?.placesItem(with: .builtIn(.chief)) == true)
         } apply: { [weak self] next in
             guard let self else { return }
             if transientTopItems != next.items { transientTopItems = next.items }
-            if chief.isPlaced != next.chiefPlaced { chief.isPlaced = next.chiefPlaced } // the layout is every window's, so any window's feed tells
+            if chief.isPlaced != next.chiefPlaced { chief.isPlaced = next.chiefPlaced }
         }
     }
 

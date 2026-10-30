@@ -171,9 +171,8 @@ pub fn hop(name: &'static str, flow: u64, terminal: &str) {
 #[inline]
 pub fn hop_id(name: &'static str, flow: u64, terminal: &[u8; 16]) {
     if on() {
-        let mut first = [0u8; 8];
-        first.copy_from_slice(&terminal[..8]);
-        write_hop(name, flow, u64::from_be_bytes(first));
+        let key = terminal.first_chunk::<8>().map_or(0, |first| u64::from_be_bytes(*first));
+        write_hop(name, flow, key);
     }
 }
 
@@ -199,7 +198,7 @@ pub fn flush() -> bool {
 /// a shorter id left-aligned (so it is [`hop_id`]'s number for the same bytes). 0 for an id that is
 /// empty or not hex (a browser surface, a local PTY with no host identity).
 fn terminal_key(hex: &[u8]) -> u64 {
-    let digits = &hex[..hex.len().min(16)];
+    let digits = hex.get(..16).unwrap_or(hex);
     let mut key = 0u64;
     for &digit in digits {
         let value = match digit {
@@ -242,12 +241,17 @@ fn hop_name(name: &str) -> &'static InternedName {
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
+/// The lowercase hex digit of the low four bits of `nibble`.
+fn hex_digit(nibble: u8) -> u8 {
+    HEX.get(usize::from(nibble & 0x0f)).copied().unwrap_or(b'0')
+}
+
 /// Lowercase hex of a terminal's 16-byte id (the daemon's `TerminalId::to_hex`).
 pub fn hex(id: &[u8]) -> String {
     let mut out = String::with_capacity(id.len() * 2);
     for byte in id {
-        out.push(char::from(HEX[usize::from(byte >> 4)]));
-        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        out.push(char::from(hex_digit(byte >> 4)));
+        out.push(char::from(hex_digit(byte & 0x0f)));
     }
     out
 }

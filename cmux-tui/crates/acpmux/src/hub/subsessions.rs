@@ -76,8 +76,9 @@
 //! locked while it is held, so it may be taken under any other lock.
 
 use super::*;
-use crate::no_panic::JsonExt;
+use crate::no_panic::JsonRead;
 use crate::store::{SubsessionLimits, SubsessionLink};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeSet;
 
 /// The settings keys (schemas/settings/source/subsessions.json).

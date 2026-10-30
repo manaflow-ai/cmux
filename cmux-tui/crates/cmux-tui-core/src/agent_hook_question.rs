@@ -14,9 +14,8 @@
 //!   "multiSelect":false,"options":[{"label":"main","description":"the default"}]}]}
 //! ```
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
-
-use crate::panic_free::JsonFields;
 
 /// Questions kept at most (Claude Code asks at most 4).
 pub const MAX_QUESTIONS: usize = 4;
@@ -106,7 +105,7 @@ pub fn agent_hook_live_question(native_event: &str, native: &Value) -> Option<St
     }
     let mut out = json!({"harness": harness, "questions": questions});
     if let Some(id) = text(first(native, &["tool_use_id", "toolUseId"]), ID_CHARS) {
-        out.insert("tool_use_id", Value::String(id));
+        out.set("tool_use_id", Value::String(id));
     }
     fit(out)
 }
@@ -132,7 +131,7 @@ fn fit(mut question: Value) -> Option<String> {
     if encoded.len() <= MAX_QUESTION_JSON_BYTES {
         return Some(encoded);
     }
-    for item in question.get_mut("questions")?.as_array_mut()?.iter_mut() {
+    for item in question.get_mut("questions").and_then(Value::as_array_mut)?.iter_mut() {
         for option in item.get_mut("options").and_then(Value::as_array_mut).into_iter().flatten() {
             option.as_object_mut().map(|option| option.remove("description"));
         }
@@ -142,7 +141,7 @@ fn fit(mut question: Value) -> Option<String> {
         if encoded.len() <= MAX_QUESTION_JSON_BYTES {
             return Some(encoded);
         }
-        let questions = question.get_mut("questions")?.as_array_mut()?;
+        let questions = question.get_mut("questions").and_then(Value::as_array_mut)?;
         if questions.len() <= 1 {
             return None;
         }

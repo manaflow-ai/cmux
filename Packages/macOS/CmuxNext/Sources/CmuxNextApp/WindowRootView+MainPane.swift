@@ -178,14 +178,24 @@ extension WindowRootView {
         Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
     }
 
-    /// What `layout()` frames the main pane and the titlebar from, now. Under a minimal titlebar the
-    /// top row's pills sit on the traffic lights' line (`WindowTitlebar.cardTopInset`); the right
-    /// sidebar sits on the edge opposite the sidebar.
+    /// The card's top inset: under a minimal titlebar the top row's pills sit on the traffic
+    /// lights' line, and with tab bars at the bottom the card clears the lights when no sidebar
+    /// is under them (`WindowTitlebar.cardTopInset`).
+    var mainPaneTopInset: CGFloat {
+        let gutter = Metrics.mainPaneGutter
+        // The sidebar's state, not the card's frame mid-slide: the inset changes once per toggle.
+        let sidebarHoldsLights = sidebarSide == .left && !sidebarHidden && !sidebar.isHidden
+        let clears = DesignSettings.shared.tabBarPosition == .bottom && !sidebarHoldsLights
+        return WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: gutter, clearsTrafficLights: clears)
+    }
+
+    /// What `layout()` frames the main pane and the titlebar from, now. The card's top is
+    /// ``mainPaneTopInset``; the right sidebar sits on the edge opposite the sidebar.
     var mainPaneLayoutInput: WindowRootLayout.Input {
         let minimal = titlebarStyle == .minimal, gutter = Metrics.mainPaneGutter
         return WindowRootLayout.Input(
             bounds: bounds, sidebarFrame: sidebar.frame, side: sidebarSide, railInset: railContentInset, gutter: gutter,
-            cardTopInset: WindowTitlebar.cardTopInset(of: self, minimal: minimal, gutter: gutter),
+            cardTopInset: mainPaneTopInset,
             titlebarHeight: minimal ? 0 : Metrics.titlebarHeight, rightPanelWidth: rightPanelWidth,
             trafficLightInset: Metrics.trafficLightInset
         )

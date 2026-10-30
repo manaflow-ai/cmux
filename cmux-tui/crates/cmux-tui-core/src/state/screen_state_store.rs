@@ -8,9 +8,9 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
-use crate::panic_free::JsonFields;
 use crate::workspace_registry::presentation_store::validate_presentation_color;
 use crate::workspace_registry::screen_store::ScreenPresentationState;
+use cmux_json::JsonSet as _;
 
 /// A partial screen metadata update: `None` keeps a field, `Some(None)`
 /// clears it.
@@ -104,7 +104,7 @@ pub(crate) fn screen_group_snapshot(
         "icon": icon,
     });
     if let Some(saved_id) = saved_id {
-        snapshot.insert("saved_id", json!(saved_id));
+        snapshot.set("saved_id", json!(saved_id));
     }
     Ok(Some(snapshot))
 }
