@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use optchat_chief::workspaces::place_in_personal_group_from;
 use serde_json::{Value, json};
 
-/// A session daemon that lists workspace `k1` and the user's group "Sidebar"; returns its socket
+/// A session daemon that lists workspace `k1` and the user's group "Chief agents"; returns its socket
 /// folder and every request it got.
 fn daemon() -> (tempfile::TempDir, Arc<Mutex<Vec<Value>>>) {
     let dir = tempfile::tempdir().unwrap();
@@ -29,7 +29,7 @@ fn daemon() -> (tempfile::TempDir, Arc<Mutex<Vec<Value>>>) {
                     let answer = if req["type"] == "request" {
                         let result = match req["operation"].as_str().unwrap_or("") {
                             "workspace_group.list" => {
-                                json!([{"id": "grp_sidebar", "name": "Sidebar", "index": 0}])
+                                json!([{"id": "grp_agents", "name": "Chief agents", "index": 0}])
                             }
                             _ => json!({"group_id": req["params"]["group"]}),
                         };
@@ -56,7 +56,7 @@ fn daemon() -> (tempfile::TempDir, Arc<Mutex<Vec<Value>>>) {
     (dir, requests)
 }
 
-/// The `workspace.place` the Chief sent for `k1` into group "Sidebar", with settings `settings`.
+/// The `workspace.place` the Chief sent for `k1` into group "Chief agents", with settings `settings`.
 fn placed(settings: Option<&str>) -> Value {
     let home = tempfile::tempdir().unwrap();
     if let Some(text) = settings {
@@ -65,15 +65,20 @@ fn placed(settings: Option<&str>) -> Value {
         std::fs::write(config.join("cmux-next.json"), text).unwrap();
     }
     let (dir, requests) = daemon();
-    place_in_personal_group_from(&dir.path().join("cmux.sock"), "k1", "sidebar", home.path())
-        .unwrap();
+    place_in_personal_group_from(
+        &dir.path().join("cmux.sock"),
+        "k1",
+        "Chief agents",
+        home.path(),
+    )
+    .unwrap();
     let requests = requests.lock().unwrap();
     let place = requests
         .iter()
         .find(|r| r["operation"] == "workspace.place")
         .cloned();
     let place = place.unwrap_or_else(|| panic!("no workspace.place in {requests:?}"));
-    assert_eq!(place["params"]["group"], "grp_sidebar");
+    assert_eq!(place["params"]["group"], "grp_agents");
     place
 }
 
