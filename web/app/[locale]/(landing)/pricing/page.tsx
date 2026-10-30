@@ -131,7 +131,7 @@ export default async function PricingPage({
     t,
     query: {},
     snapshot: unknownPlan,
-    goPlanEnabled: false,
+    goPlanEnabled: isGoPlanEnabled(),
     pending: true,
   };
   const personalize = (section: "individual" | "team" | "comparison") => (
@@ -163,7 +163,7 @@ const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
     searchParams ?? Promise.resolve({}),
   ]);
   // Plus is offered to every visitor, paid subscribers included.
-  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
+  const goPlanEnabled = isGoPlanEnabled(snapshot.userId);
   return { snapshot, query, goPlanEnabled };
 });
 
