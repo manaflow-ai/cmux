@@ -104,6 +104,22 @@ import Testing
         #expect(laneDone.map(\.id) == [Self.coordinator, Self.lane, Self.mine])
     }
 
+    /// A drag keeps the "Done (N)" folds only when it moves no row the fold would move (`dragUnfolds`). With nesting
+    /// the fold still runs, so a drag of a Done row must unfold as it does without the tree: kept folded, the
+    /// dragged row would leave its slot and the drop gap would open where the row will not show (Astra on #28103).
+    @Test func aDragOfADoneRowUnfoldsWithTheTree() {
+        var o = SidebarLayoutOptions()
+        (o.foldsDone, o.activeWorkspaceID) = (true, Self.mine)
+        o.sessionTree = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator, Self.sub: Self.lane], foldsDeep: true)
+        var root = SidebarWorkspace(id: Self.coordinator, title: "coordinator")
+        root.taskStatus = .done
+        var nested = SidebarWorkspace(id: Self.lane, title: "lane")
+        nested.taskStatus = .done
+        #expect(SidebarLayout.dragUnfolds([root], options: o), "a Done root")
+        #expect(SidebarLayout.dragUnfolds([nested], options: o), "a Done nested row")
+        #expect(!SidebarLayout.dragUnfolds([SidebarWorkspace(id: Self.mine, title: "mine")], options: o), "a row outside any Done run")
+    }
+
     /// An idle-only subtree is not empty: its count chip draws.
     @Test func anIdleOnlyRollUpIsNotEmpty() {
         #expect(!SidebarTreeRollUp(total: 2).isEmpty)
