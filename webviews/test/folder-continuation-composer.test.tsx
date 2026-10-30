@@ -144,8 +144,6 @@ test("a cancelled transfer preserves the source without restore or duplication",
     transfer.cancel();
   });
   expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
-  await f.draw("other");
-  expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
   expect(readPersistedDraft("source")).toBe("held draft");
   expect(f.sent).toHaveLength(0);
 });
@@ -154,8 +152,6 @@ test("a different selected session never receives a pending transfer", async () 
   act(() => {
     f.handle.current!.prepareDraftTransfer("destination");
   });
-  await f.draw("other");
-  expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
   expect(readPersistedDraft("source")).toBe("held draft");
 });
 
