@@ -25,6 +25,9 @@ SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
               "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS")
+# A host that runs no heavy checks, outside CI: CI (CI or GITHUB_ACTIONS=true) always runs every piece, so a test
+# run on a CI runner must clear both or it would test CI's behaviour instead.
+LIGHT_HOST = {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "", "GITHUB_ACTIONS": ""}
 
 # Two `&&` pieces, as webviews' real check script has many; each fails on BAD.
 WEBVIEWS_PACKAGE = """{
@@ -1041,14 +1044,14 @@ class TuiBindingsTests(unittest.TestCase):
             (tools / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "$TOOL_LOG"\n')
             (tools / name).chmod(0o755)
 
-        result, calls = self.lint_all(CMUX_LOCAL_HEAVY_CHECKS="0")
+        result, calls = self.lint_all(**LIGHT_HOST)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [], "nothing may install, build or check a package that has no node_modules")
         self.assertIn("cmux-tui/frontends/web: not linted here, it has no node_modules", result.stderr)
 
         (self.repo / "cmux-tui/frontends/web/node_modules").mkdir()
-        result, calls = self.lint_all(CMUX_LOCAL_HEAVY_CHECKS="0")
+        result, calls = self.lint_all(**LIGHT_HOST)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c for c in calls if not c.endswith("@ webviews")], ["fmt web"])
@@ -1087,7 +1090,7 @@ class TuiBindingsTests(unittest.TestCase):
         self.tool_log.write_text("")
 
         result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD", "--head", head],
-                                cwd=self.repo, env={**self.env, "CMUX_LOCAL_HEAVY_CHECKS": "0"}, text=True,
+                                cwd=self.repo, env={**self.env, **LIGHT_HOST}, text=True,
                                 capture_output=True)
 
         self.assertEqual(result.returncode, 0, result.stderr)
