@@ -502,6 +502,7 @@ import { useSideSessions } from "./aside/sideSessions";
 import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
 import { BtwAside } from "./aside/BtwAside";
 import { askBtwQuestion } from "./btwCapability";
+import { isFastModeOption } from "./heldOptions";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -9994,9 +9995,7 @@ function AcpmuxPane() {
               if (command.action === "plan") return passThrough();
               if (command.action === "fast") {
                 if (argument) return passThrough();
-                const option = snapshot.summary?.configOptions?.find(
-                  (entry) => entry.id === "fast-mode" || /fast[ _-]?mode/i.test(entry.name ?? ""),
-                );
+                const option = snapshot.summary?.configOptions?.find(isFastModeOption);
                 if (option) {
                   const off =
                     option.options.find((choice) => /^(off|false|disabled)$/i.test(choice.value))?.value ??
