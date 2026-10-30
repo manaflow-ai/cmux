@@ -3,7 +3,7 @@
 // step-by-step rows so the reader can follow work as it arrives.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnFoldFor, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { toggleTurnFold, turnFoldFor, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -116,6 +116,26 @@ test("an expanded provisional steer fold stays open when its older prompt arrive
   const loaded = turnView(full, expanded);
   expect(loaded).toContainEqual(expect.objectContaining({ id: `${WORKED}-prompt` }));
   expect(loaded).toContainEqual(expect.objectContaining({ id: "report" }));
+});
+
+test("App's toggle call shape (raw snapshot rows) closes a fold a provisional steer key opened", () => {
+  // App.tsx passes `snapshot.rows` (turnRowsRef), never the derived turnView rows with their
+  // synthetic worked-* rows. The clicked fold must still resolve and clear the provisional key.
+  const full = completedTurn();
+  const expanded = new Set([`${WORKED}-report`]);
+  const isOpen = (keys: ReadonlySet<string>) =>
+    turnView(full, keys).find((entry) => entry.id === `${WORKED}-prompt`)?.foldOpen === true;
+  expect(isOpen(expanded)).toBe(true);
+  expect(full.some((entry) => entry.kind === WORKED)).toBe(false);
+
+  const closed = toggleTurnFold(full, expanded, `${WORKED}-prompt`);
+  expect([...closed]).toEqual([]);
+  expect(isOpen(closed)).toBe(false);
+  expect(turnView(full, closed)).not.toContainEqual(expect.objectContaining({ id: "read" }));
+
+  const reopened = toggleTurnFold(full, closed, `${WORKED}-prompt`);
+  expect([...reopened]).toEqual([`${WORKED}-prompt`]);
+  expect(isOpen(reopened)).toBe(true);
 });
 
 test("a completed fold keeps asks, refusals, and turn context available without opening the work", () => {
