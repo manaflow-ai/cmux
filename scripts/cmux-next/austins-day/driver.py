@@ -345,7 +345,7 @@ def connection_holders(rows, ask_daemon=True):
             roles[role] += 1
             # The binary's name, then the command words without --socket VALUE, --json and ids.
             # The app path has spaces ("cmux DEV <tag>.app"): replace it before splitting (review of 59ea3fdb421).
-            rest = args[len(CLI):] if role == "cli" else args.replace(opts.app + "/", "<app>/")
+            rest = (args[len(CLI):] if role == "cli" else args).replace(opts.app + "/", "<app>/")
             words, skip = [], False
             for w in rest.split():
                 if skip:
