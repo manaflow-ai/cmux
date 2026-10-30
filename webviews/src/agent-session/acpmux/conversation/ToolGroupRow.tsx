@@ -73,7 +73,8 @@ export function ToolGroupRow({
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true);
-  const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`, false, true);
+  // A thought behind "+K more" shows too: Thinking shows the whole group that holds one.
+  const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`, holdsThought, true);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // The calls behind "+K more", and where the shown tail starts (a thought between two hidden
   // calls hides with them).

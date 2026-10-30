@@ -121,13 +121,13 @@ export function useTranscriptDisclosure(
 
 /**
  * A row's own open state, kept while it is mounted (a lone call's details): closed, or open in the
- * Verbose view. A toggle lasts while the view does; a switch starts from the new view's default.
+ * Verbose view. Toggles are kept per view, so switching back finds the old toggle where it was.
  */
 export function useRowDisclosure(): [boolean, (open: boolean) => void] {
   const view = useContext(ViewContext);
-  const [choice, setChoice] = useState<{ view: TranscriptView; open: boolean }>();
-  const open = choice?.view === view ? choice.open : view === "verbose";
-  const setOpen = useCallback((next: boolean) => setChoice({ view, open: next }), [view]);
+  const [choices, setChoices] = useState<Partial<Record<TranscriptView, boolean>>>({});
+  const open = choices[view] ?? view === "verbose";
+  const setOpen = useCallback((next: boolean) => setChoices((current) => ({ ...current, [view]: next })), [view]);
   return [open, setOpen];
 }
 
