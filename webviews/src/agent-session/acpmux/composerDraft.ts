@@ -412,20 +412,6 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
   return (await readDurableDraftState(sessionId))?.draft;
 }
 
-// The chats whose acpmux draft this page has read: from then on what the page holds for one is
-// built on it (`hydratedDraft`'s `firstRead`). Never trimmed: one id per chat the page opened.
-const readDrafts = new Set<string>();
-
-/** Whether this page has read `sessionId`'s acpmux draft before. */
-export function draftWasRead(sessionId: string | undefined): boolean {
-  return Boolean(sessionId && readDrafts.has(sessionId));
-}
-
-/** Records a successful read only after the caller has confirmed that its result is current. */
-export function markDraftRead(sessionId: string | undefined): void {
-  if (sessionId?.trim()) readDrafts.add(sessionId);
-}
-
 /// Reads the daemon draft: `{ draft }` once acpmux answered (`draft` undefined when it holds none),
 /// or undefined when nothing could be read (no session, no page action yet, a failed or dropped
 /// connection). "Unread" is never "no draft": a composer that took it for one would let what the

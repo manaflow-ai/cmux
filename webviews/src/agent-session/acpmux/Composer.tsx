@@ -71,13 +71,11 @@ import { BoltIcon } from "./BoltIcon";
 import {
   cachePersistedDraft,
   draftGeneration as validDraftGeneration,
-  draftWasRead,
   flushPendingDraftWrites,
   forgetQueuedDraft,
   hasPendingDraftWrite,
   hydratedDraft,
   lastQueuedDraftText,
-  markDraftRead,
   mergedDraft,
   readDurableDraftState,
   readPersistedDraft,
@@ -578,6 +576,13 @@ export function Composer({
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
+  // Read knowledge belongs to this mounted composer and active chat. Another client can
+  // change the daemon draft while this view is absent, even within the same generation.
+  const readSession = useRef<string | undefined>(undefined);
+  const draftWasRead = (session: string | undefined) => Boolean(session && readSession.current === session);
+  const markDraftRead = (session: string | undefined) => {
+    readSession.current = session;
+  };
   const restoringSession = useRef(false);
   // An intentional boundary while offline must also supersede the first eventual durable read.
   const pendingReplacement = useRef(initialDraft.pendingReplacement);
@@ -884,6 +889,7 @@ export function Composer({
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
     hydratedSession.current = undefined;
+    readSession.current = undefined;
     editedBeforeHydration.current = false;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
