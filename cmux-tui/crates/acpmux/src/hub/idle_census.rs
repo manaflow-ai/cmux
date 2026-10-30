@@ -48,6 +48,8 @@ pub struct Sidecar {
     command: String,
     args: Vec<String>,
     resolved: Option<String>,
+    // A record written before servers carried an interpreter has none: none is known.
+    #[serde(default)]
     interpreter: Option<String>,
 }
 
