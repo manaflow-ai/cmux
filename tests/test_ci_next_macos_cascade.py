@@ -1322,9 +1322,9 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context()), SIDE)
                 # The bot's attempt 2 (the rescue moved a stuck sibling) keeps the slot.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, large=f" {name} ")), LARGE)
-                # A person's re-run goes back to the minis first: attempt 1's count is stale by then.
-                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
+                # A person's later retry cannot reuse the owned label; fast-tier falls to Blacksmith.
+                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
 
     def test_release_compile_pr_takes_an_idle_mini_else_the_placements_blacksmith_slot(self):
@@ -1567,7 +1567,7 @@ class Wiring(unittest.TestCase):
                 # The bot's attempt 2, placed afresh, takes its retry label; an earlier reading never.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), expected_without_retry)
-                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), SIDE if name == "fast-tier" else expected_without_retry)
                 # With no slot or a carried placement, preserve the base's
                 # owned queue rather than bypassing Blacksmith exclusions.
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
