@@ -1,5 +1,6 @@
 // Capture the real transcript gallery entry with a coarse pointer.
 // Usage: bun capture-transcript-hover-gallery.mjs OUT_DIR [dark|light]
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -11,6 +12,7 @@ fs.mkdirSync(out, { recursive: true });
 const root = path.resolve(import.meta.dir, "../..");
 const build = spawn("bun", ["run", "gallery:build"], { cwd: root, stdio: "inherit" });
 await new Promise((resolve, reject) => {
+  build.once("error", reject);
   build.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`gallery build exited ${code}`))));
 });
 const server = spawn(
@@ -18,6 +20,7 @@ const server = spawn(
   ["x", "vp", "preview", "--config", "vite.config.gallery.ts", "--host", "127.0.0.1", "--port", "0"],
   { cwd: root, stdio: ["ignore", "pipe", "pipe"] },
 );
+server.stderr.pipe(process.stderr);
 const stop = () => server.kill("SIGTERM");
 process.on("exit", stop);
 try {
@@ -47,14 +50,25 @@ try {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 60_000,
     });
-    await page.evaluate(() => {
-      for (const selector of [".cv-user", ".cv-received", ".acpmux-turnSummary", ".acpmux-assistant"]) {
-        for (const element of document.querySelectorAll(selector)) element.classList.add("capture-hover");
+    assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), true);
+    assert.equal(await page.evaluate(() => matchMedia("(hover: hover)").matches), false);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("DOM.enable");
+    await cdp.send("CSS.enable");
+    const { root: documentRoot } = await cdp.send("DOM.getDocument");
+    for (const selector of [".cv-user", ".acpmux-turnSummary"]) {
+      const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: documentRoot.nodeId, selector });
+      assert.ok(nodeId, `missing capture target ${selector}`);
+      await cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["hover"] });
+    }
+    await page.evaluate(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      for (const element of document.querySelectorAll(".cv-user__actions,.cv-turn-actions")) {
+        for (const animation of element.getAnimations()) {
+          animation.pause();
+          animation.currentTime = 0;
+        }
       }
-      const style = document.createElement("style");
-      style.textContent =
-        ".capture-hover .cv-user__actions,.capture-hover .cv-received-actions,.capture-hover .cv-reply-actions,.capture-hover .cv-turn-actions{opacity:1!important;transition:none!important}";
-      document.head.append(style);
     });
     const target = page.locator(".acpmux-shell").first();
     const box = await target.boundingBox();
@@ -65,8 +79,8 @@ try {
       clip: {
         x: Math.max(0, box.x - 32),
         y: Math.max(0, box.y - 32),
-        width: box.width + 64,
-        height: box.height + 64,
+        width: Math.min(1000, box.x + box.width + 32) - Math.max(0, box.x - 32),
+        height: Math.min(720, box.y + box.height + 32) - Math.max(0, box.y - 32),
       },
     });
     const metrics = await page.evaluate(() => {
