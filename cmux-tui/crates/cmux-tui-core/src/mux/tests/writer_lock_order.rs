@@ -184,7 +184,7 @@ fn settling_a_late_registry_receipt_does_not_relock_state() {
         .unwrap();
 
     let (done, finished) = std::sync::mpsc::channel();
-    let pinning = mux.clone();
+    let pinning = mux;
     std::thread::spawn(move || {
         let registry = pinning.workspace_registry.lock().unwrap();
         let state = pinning.lock_state_pinned(&registry).unwrap();
