@@ -28,7 +28,9 @@ import WebKit
     @Test func noChooserUploadReconstructsEveryByteAboveFormerLimit() async throws {
         let page = BrowserPageSnapshotTests.Page()
         await page.load()
-        defer { page.window.close() }
+        // A window made in code is released by close() unless told not to; under ARC that is an
+        // over-release, and the next test died with signal 11.
+        defer { page.window.isReleasedWhenClosed = false; page.window.close() }
         _ = try await page.read("(() => { document.body.innerHTML = '<input id=\"upload\" type=\"file\">'; return true; })()")
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("upload-large-\(UUID().uuidString).bin")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -63,7 +65,9 @@ import WebKit
     @Test func interleavedUploadsKeepTheirOwnBytesAndCleanup() async throws {
         let page = BrowserPageSnapshotTests.Page()
         await page.load()
-        defer { page.window.close() }
+        // A window made in code is released by close() unless told not to; under ARC that is an
+        // over-release, and the next test died with signal 11.
+        defer { page.window.isReleasedWhenClosed = false; page.window.close() }
         _ = try await page.read("(() => { document.body.innerHTML = '<input id=\"upload\" type=\"file\">'; window.changes = 0; document.getElementById('upload').addEventListener('change', () => window.changes++); return true; })()")
 
         func run(_ script: String) async throws -> JSONValue {
