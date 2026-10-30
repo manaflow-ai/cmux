@@ -10,7 +10,10 @@
 // as the transcript's wrap choice is (conversation/blockWrap.ts).
 import { useSyncExternalStore } from "react";
 
-export const COMPOSER_LOOKS = ["claude", "codex"] as const;
+/// `prototype` (Lucas 2026-10-29): Claude's composer with its chips in the box's bottom row (+, model,
+/// mode, then mic and Send), folder and computer above the box, and the model menu's Model panel
+/// (QuickModelPanel.tsx). New Tab's fourth dot.
+export const COMPOSER_LOOKS = ["claude", "codex", "prototype"] as const;
 export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
 
 /// A dot's name, over it while pointed at.
@@ -19,6 +22,8 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
   claude: "Claude",
   // l10n-allow: product names (Claude, Codex), never translated.
   codex: "Codex",
+  // l10n-allow: a design trial's working name, shown on its dot only.
+  prototype: "Prototype",
 };
 
 /// The default: Claude's look, the composer as it was before the dots.
@@ -26,7 +31,7 @@ export const DEFAULT_COMPOSER_LOOK: ComposerLook = "claude";
 const KEY = "cmux.composer.look";
 
 function parse(value: unknown): ComposerLook {
-  return value === "codex" ? "codex" : DEFAULT_COMPOSER_LOOK;
+  return value === "codex" || value === "prototype" ? value : DEFAULT_COMPOSER_LOOK;
 }
 
 /// The page's copy, for a page with no storage; storage's when there is one.
@@ -80,9 +85,10 @@ export function useComposerLook(): ComposerLook {
   return useSyncExternalStore(subscribe, current, current);
 }
 
-/// The model picker has one anchor in both looks: the quiet row under the box. Keeping the
-/// whole chip group there also preserves its ordering and a single picker instance when the
-/// person switches looks (ComposerFoot.tsx).
+/// The model picker has one anchor in Claude's and Codex's looks: the quiet row under the box.
+/// Keeping the whole chip group there also preserves its ordering and a single picker instance when
+/// the person switches looks (ComposerFoot.tsx). The Prototype look puts the chips in the box's own
+/// bottom row, after + and before the mic and Send.
 export function useQuietRow(): boolean {
-  return true;
+  return useComposerLook() !== "prototype";
 }
