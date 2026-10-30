@@ -505,8 +505,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Ends with this function (dropped at shutdown).
     let home_gone = home_watch::watch(&home(), &socket_path(), &lock);
-    // The socket this daemon bound: a shutdown after its home was lost removes only that one.
+    // The socket this daemon bound: a shutdown removes only that one.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
+    // Its home and lock, re-read during the shutdown: one that began on a signal no longer
+    // watches them, and the home may be replaced while it drains.
+    let owned_home = home_watch::Owned::now(&[&home(), &lock]);
+    let recheck_home = move || {
+        if let Some(why) = owned_home.as_ref().and_then(|owned| owned.lost()) {
+            if !crate::config::home_lost() {
+                tracing::warn!("shutting down: {why}");
+            }
+            crate::config::mark_home_lost();
+        }
+    };
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
@@ -616,6 +627,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
+    recheck_home();
     let home_lost = crate::config::home_lost();
     if home_lost {
         let _ = hub.end_agents_at_shutdown(Default::default());
@@ -664,8 +676,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
     }
     hub.stop_idle_reaper();
-    // New clients get "connection refused" instead of a dying daemon.
-    if !home_lost || bound_socket.as_ref().is_some_and(|s| s.lost().is_none()) {
+    // New clients get "connection refused" instead of a dying daemon. Only the socket this
+    // daemon bound: one replaced since is another daemon's.
+    recheck_home();
+    // Read again: the router, pid and app files below stay alone once it is lost.
+    let home_lost = crate::config::home_lost();
+    if bound_socket.as_ref().map_or(!home_lost, |s| s.lost().is_none()) {
         let _ = std::fs::remove_file(socket_path());
     }
     // How many hosted agents this shutdown kept running for the next
