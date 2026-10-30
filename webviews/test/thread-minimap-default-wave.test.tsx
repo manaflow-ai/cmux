@@ -293,7 +293,9 @@ test("keyboard focus on a rail tick has a visible focus treatment", async () => 
   const focus = /\.acpmux-minimap__tick:focus-visible\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(focus).toMatch(/outline:.*var\(--cmux-focus-ring-width/);
   expect(focus).toMatch(/outline-offset:\s*-1\.5px/);
-  expect(css).toMatch(/@media \(prefers-contrast: more\)[\s\S]*\.acpmux-minimap__tick:focus-visible[\s\S]*outline-offset:\s*2px/);
+  expect(css).toMatch(
+    /@media \(prefers-contrast: more\)[\s\S]*\.acpmux-minimap__tick:focus-visible[\s\S]*outline-offset:\s*2px/,
+  );
   const { host, root } = await render();
   try {
     expect(host.querySelector('[data-tick="2"]')?.getAttribute("data-focus-ring")).toBe("tick");

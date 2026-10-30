@@ -303,8 +303,12 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     const ring = await page.evaluate(() => {
       const tick = document.getElementById("rail-tick")!;
       const style = getComputedStyle(tick);
-      return { focused: tick.matches(":focus-visible"), style: style.outlineStyle,
-        width: parseFloat(style.outlineWidth), offset: parseFloat(style.outlineOffset) };
+      return {
+        focused: tick.matches(":focus-visible"),
+        style: style.outlineStyle,
+        width: parseFloat(style.outlineWidth),
+        offset: parseFloat(style.outlineOffset),
+      };
     });
     expect(ring.focused).toBe(true);
     expect(ring.style).toBe("solid");
@@ -315,8 +319,11 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     const contrastRing = await page.evaluate(() => {
       const tick = document.getElementById("rail-tick")!;
       const style = getComputedStyle(tick);
-      return { style: style.outlineStyle, width: parseFloat(style.outlineWidth),
-        offset: parseFloat(style.outlineOffset) };
+      return {
+        style: style.outlineStyle,
+        width: parseFloat(style.outlineWidth),
+        offset: parseFloat(style.outlineOffset),
+      };
     });
     expect(contrastRing.style).toBe("solid");
     expect(contrastRing.width).toBe(2);
