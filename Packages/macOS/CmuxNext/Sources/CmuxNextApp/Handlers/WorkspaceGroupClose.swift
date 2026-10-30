@@ -36,6 +36,18 @@ enum WorkspaceGroupClose {
         let names = closing.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         sidebar.handle(.closeGroup(sidebar.model.groupID(personal: group.id.rawValue)))
+        // Group close fans out to each workspace daemon. Once their close
+        // events reach the home store, remove an unpinned group that has no
+        // live rows; a short observation deadline keeps this bounded while
+        // allowing the close events to settle.
+        if services.machines.local.store.personal.isLoaded {
+            let life = PersonalGroupLife(machines: services.machines), id = group.id
+            Task { @MainActor in
+                let empty: @MainActor @Sendable () -> Bool = { life.isEmptyUnpinned(id) }
+                if !empty() { await ObservationDeadline(owner: "workspace-group-close-prune").until(empty, limit: .seconds(5)) }
+                life.deleteIfEmpty(id, failed: { sidebar.resync() })
+            }
+        }
         guard invocation.origin == .user, !names.isEmpty,
               let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }
         offerUndo(toastID, closedToast(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name), groups: [(group.id.rawValue, names)],

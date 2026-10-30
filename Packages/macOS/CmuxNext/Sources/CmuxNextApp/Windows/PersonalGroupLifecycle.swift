@@ -54,6 +54,13 @@ nonisolated enum PersonalGroupLifecycle {
     static func isEmpty(_ group: WorkspaceGroupID, rows: [PersonalWorkspace], isLive: (Member) -> Bool) -> Bool {
         !rows.contains { $0.group == group && isLive(member($0)) }
     }
+
+    /// Closing a workspace can leave its personal row behind for Reopen
+    /// Closed. The group is still removable when no live row remains; pinned
+    /// groups are retained as an explicit saved container.
+    static func shouldDeleteAfterClose(_ group: Group, rows: [PersonalWorkspace], isLive: (Member) -> Bool) -> Bool {
+        !group.pinned && isEmpty(group.id, rows: rows, isLive: isLive)
+    }
 }
 
 /// The lifecycle rule over the home session's personal state and the
@@ -148,7 +155,10 @@ struct PersonalGroupLife {
 
     /// Deletes `group` when it is still an unpinned group with no live member.
     func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor () -> Void) {
-        guard isEmptyUnpinned(group) else { return }
+        guard let model = personal.group(group),
+              PersonalGroupLifecycle.shouldDeleteAfterClose(
+                  PersonalGroupLifecycle.Group(id: model.id, pinned: model.pinned),
+                  rows: personal.workspaces, isLive: isLive) else { return }
         let life = self
         commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
     }
