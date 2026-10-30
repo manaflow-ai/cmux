@@ -31,7 +31,9 @@ import CmuxNextWakeups
 ///    daemon at this app's own executable path. With one key per daemon such a daemon holds no
 ///    key of this app, so its allows are refused; the app logs why.
 /// The pane's WebSocket listener and accepted end are accepted as another install's only when
-/// their pid passed rules 1 and 2 on the unix socket first.
+/// their pid passed rules 1 and 2 on the unix socket first. A same-user daemon whose executable
+/// path cannot be read (an update deleted the file it runs) counts as another install's under
+/// the same rules, so its chats show here instead of a refusal until it exits.
 ///
 /// Anything else is refused and logged once per path; the app then never sends the key there.
 ///
@@ -133,9 +135,8 @@ nonisolated enum AcpmuxServerPeer {
         guard judge(owners, executable: executable, what: "accepted end on port \(port)") else { return nil }
         let wanted = executable.resolvingSymlinksInPath().path
         let foreign = owners.contains { pid in
-            var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return true }
-            return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path != wanted
+            guard let path = executablePath(pid: pid) else { return true }
+            return URL(fileURLWithPath: path).resolvingSymlinksInPath().path != wanted
         }
         return foreign ? .foreign : .own
     }
@@ -143,21 +144,36 @@ nonisolated enum AcpmuxServerPeer {
     /// Every owner passes the executable rule, or is another install's daemon that passed rules
     /// 1 and 2 on its unix socket; none refuses. The scan lists only this user's processes.
     private static func judge(_ owners: [pid_t], executable: URL, what: String) -> Bool {
-        let wanted = executable.resolvingSymlinksInPath().path
         let foreign = foreignDaemons.withLock { $0 }
-        var refusal: Refusal?
-        if owners.isEmpty { refusal = .noPeer }
-        for pid in Set(owners) where refusal == nil {
-            var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { refusal = .noPeer; break }
-            let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
-            if path != wanted, !foreign.contains(pid) { refusal = .otherExecutable(path); break }
+        guard let refusal = refusal(owners, executable: executable, foreign: foreign, path: executablePath(pid:)) else {
+            return true
         }
-        guard let refusal else { return true }
         if refusedPaths.withLock({ $0.insert(what).inserted }) {
             logger.error("acpmux WebSocket \(what, privacy: .public) refused: \(refusal.description, privacy: .public); the pane does not connect")
         }
         return false
+    }
+
+    /// Why ``judge(_:executable:what:)`` refuses `owners`, nil when it passes them. Another
+    /// install's daemon (`foreign`, it passed rules 1 and 2) passes before its path is read: one an
+    /// update deleted the file of has no path, and it serves the chats it served on the unix socket.
+    static func refusal(_ owners: [pid_t], executable: URL, foreign: Set<pid_t>,
+                        path: (pid_t) -> String?) -> Refusal? {
+        guard !owners.isEmpty else { return .noPeer }
+        let wanted = executable.resolvingSymlinksInPath().path
+        for pid in Set(owners) where !foreign.contains(pid) {
+            guard let found = path(pid) else { return .noPeer }
+            let resolved = URL(fileURLWithPath: found).resolvingSymlinksInPath().path
+            if resolved != wanted { return .otherExecutable(resolved) }
+        }
+        return nil
+    }
+
+    /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
+    private static func executablePath(pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(cString: buffer)
     }
 
     struct TCPSocket {
@@ -236,10 +252,37 @@ nonisolated enum AcpmuxServerPeer {
     static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false,
                       expectedUID: uid_t = getuid()) -> Result<Match, Refusal> {
         // The peer's facts on this very descriptor (UnixSocketPeer, shared with the CUA client).
-        guard let peer = UnixSocketPeer(descriptor: descriptor) else { return .failure(.noPeer) }
-        guard peer.uid == expectedUID else { return .failure(.otherUser(peer.uid)) }
-        if peer.runs(executable) { return .success(.own) }
-        return allowForeign ? .success(.foreign) : .failure(.otherExecutable(peer.executablePath))
+        if let peer = UnixSocketPeer(descriptor: descriptor) {
+            return verdict(uid: peer.uid, executablePath: peer.executablePath, executable: executable,
+                           allowForeign: allowForeign, expectedUID: expectedUID)
+        }
+        return verdict(uid: peerUID(descriptor), executablePath: nil, executable: executable,
+                       allowForeign: allowForeign, expectedUID: expectedUID)
+    }
+
+    /// ``check(descriptor:executable:allowForeign:expectedUID:)`` on the peer's facts: `uid` nil when
+    /// no credential could be read, `executablePath` nil when only the uid could (the process runs a
+    /// file an update deleted, as an earlier bundle's daemon does after Sparkle replaced the app).
+    /// A same-user peer whose path is unknown is another install's where the caller allows one, so
+    /// it still serves its chats here: showing one session in two places is no reason to block
+    /// ("there's frequently nothing wrong with showing the same session but in two different
+    /// places", Leo, 2026-10-29). Rules 2 and 3 still apply to it; it never gets an enroll.
+    static func verdict(uid: uid_t?, executablePath: String?, executable: URL, allowForeign: Bool,
+                        expectedUID: uid_t) -> Result<Match, Refusal> {
+        guard let uid else { return .failure(.noPeer) }
+        guard uid == expectedUID else { return .failure(.otherUser(uid)) }
+        guard let executablePath else { return allowForeign ? .success(.foreign) : .failure(.noPeer) }
+        if executablePath == executable.resolvingSymlinksInPath().path { return .success(.own) }
+        return allowForeign ? .success(.foreign) : .failure(.otherExecutable(executablePath))
+    }
+
+    /// The peer's uid (`LOCAL_PEERCRED`) alone, nil when it cannot be read.
+    private static func peerUID(_ descriptor: Int32) -> uid_t? {
+        var credentials = xucred()
+        var size = socklen_t(MemoryLayout<xucred>.size)
+        guard getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERCRED, &credentials, &size) == 0,
+              credentials.cr_version == XUCRED_VERSION else { return nil }
+        return credentials.cr_uid
     }
 
     /// The cmux app whose bundled acpmux runs at `path` (`cmux DEV nxdog98-v1`), else the path.
