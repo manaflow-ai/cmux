@@ -753,12 +753,14 @@ fn agent_socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from)
 }
 
+/// The Cloud agent's socket was seen, by the census or by [`handoff_loop`] as it queued a report.
+static SEEN: AtomicBool = AtomicBool::new(false);
+
 /// Whether this machine has a Cloud agent to report to: its reports wait in memory, so a daemon
 /// here never stops for being unused (`unused_exit.rs`, which asks at each census). Once seen, for
 /// the rest of the daemon's life: the agent's restart removes its socket for a while, and the
 /// reports wait for it (`handoff_loop`).
 pub(super) fn reports_here() -> bool {
-    static SEEN: AtomicBool = AtomicBool::new(false);
     reports_to(&agent_socket(), &SEEN)
 }
 
@@ -861,7 +863,8 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         };
         // Off a Cloud machine only a session's close and reopen are kept (a few bytes each).
         // Once the socket was seen, steps are kept while it is gone (an agent restart).
-        cloud = cloud || path.exists();
+        // The same latch the unused exit reads, so a report queued here keeps the daemon.
+        cloud = cloud || reports_to(&path, &SEEN);
         if !cloud && !matches!(step, Step::Closed | Step::Reopened) {
             continue;
         }
