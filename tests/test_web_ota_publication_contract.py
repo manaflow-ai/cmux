@@ -90,9 +90,8 @@ class WebOTAPublicationContractTests(unittest.TestCase):
 
     def test_workflow_pins_identity_and_records_manifest_toolchain(self):
         workflow = WORKFLOW.read_text()
-        self.assertIn('CMUX_WEB_BUN_VERSION: "1.4.4"', workflow)
         self.assertIn('CMUX_WEB_NODE_VERSION: "24.22.1"', workflow)
-        self.assertIn('bun-version: ${{ env.CMUX_WEB_BUN_VERSION }}', workflow)
+        self.assertIn('bun-version: "1.4.4"', workflow)
         self.assertIn('node-version: ${{ env.CMUX_WEB_NODE_VERSION }}', workflow)
         self.assertIn('"bun": normalize(subprocess.run(["bun", "--version"]', workflow)
         self.assertIn('"node": normalize(subprocess.run(["node", "--version"]', workflow)
@@ -100,8 +99,8 @@ class WebOTAPublicationContractTests(unittest.TestCase):
 
     def test_toolchain_mismatch_fails_immutable_manifest_reuse(self):
         workflow = WORKFLOW.read_text()
-        self.assertIn('different Bun/Node toolchain; refusing immutable-key publication', workflow)
-        self.assertIn('exit 1', workflow)
+        self.assertIn('echo "::error::the existing manifest for $key has a different Bun/Node toolchain; refusing immutable-key publication"', workflow)
+        self.assertIn('exit 1\n          fi', workflow)
 
 
 if __name__ == "__main__":
