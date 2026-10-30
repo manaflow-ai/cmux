@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4112462583801",
+  "notes": "notes/4112462583801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26827,
+      "title": "cmux daemon: bridge a link share to its hosted room, 2/2: the host socket (cmux.share/1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28137,
+      "title": "carry of #25287: fence trust retries to their visit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27592,
+      "title": "cmux NEXT: Background tasks panel, docked under the side panel, opens transcripts instantly (2/2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28385,
+      "title": "fix(settings): Up/Down skip rows that search filtered out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27814,
+      "title": "cmux NEXT sidebar: the Updated card is the sidebar cards' glass again",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
