@@ -15,9 +15,9 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
 }
 
 /// The most of a chat's title a summary shows. A harness may title a chat with its whole first
-/// prompt: cosmic-gray's list rows came to 4 KB each with them, and its list of 3,700 to more than
-/// one message holds (2026-10-30). Every summary cuts the same, so a list and the changes after it
-/// never show one chat under two titles; the prompt itself stays in the chat's history.
+/// prompt: one fleet host's list rows came to 4 KB each with them, and its list of 3,700 to more
+/// than one message holds (2026-10-30). Every summary cuts the same, so a list and the changes
+/// after it never show one chat under two titles; the prompt itself stays in the chat's history.
 const TITLE_CHARS: usize = 200;
 
 /// `title`, or for a longer one its first [`TITLE_CHARS`], folded and cut as `lastPrompt` is.

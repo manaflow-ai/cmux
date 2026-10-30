@@ -1,5 +1,5 @@
 //! How `acpmux ls` reads the session list: in pages (`limit` and `cursor`,
-//! `hub/session_pages.rs`), never as one reply. cosmic-gray's whole list was 15.7 MB with 3,700
+//! `hub/session_pages.rs`), never as one reply. One fleet host's whole list was 15.7 MB with 3,700
 //! sessions on 2026-10-30, past the 15 MiB message limit, and its daemon refused it with
 //! `message.too_large`; a daemon that pages by `limit` (every one since the keyset pages) answers
 //! these pages whatever its size, and one too old for `limit` sends the whole list as before.

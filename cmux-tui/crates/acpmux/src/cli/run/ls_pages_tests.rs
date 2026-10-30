@@ -17,7 +17,7 @@ fn sessions(n: u64, pad: usize) -> Vec<Value> {
             let mut row = json!({"sessionId": format!("s{i:05}"), "updatedAt": 10_000 + i,
                 "status": if i % 2 == 0 { "closed" } else { "idle" }, "title": "t".repeat(pad)});
             if i % 3 == 0 {
-                row["peer"] = json!("cosmic-gray");
+                row["peer"] = json!("peer-1");
             }
             row
         })
@@ -81,10 +81,10 @@ async fn a_list_larger_than_a_page_is_read_whole_each_row_once() {
     assert_eq!(got.next, Some(Value::Null));
 }
 
-/// cosmic-gray, 2026-10-30: 3,700 sessions of about 4 KB came to 15.7 MB, past the 15 MiB a
+/// A fleet host, 2026-10-30: 3,700 sessions of about 4 KB came to 15.7 MB, past the 15 MiB a
 /// reply may hold. Its pages hold a quarter of that each.
 #[tokio::test]
-async fn cosmic_grays_list_goes_in_pages_under_the_message_limit() {
+async fn a_busy_hosts_list_goes_in_pages_under_the_message_limit() {
     let list = RefCell::new(sessions(3_700, 4_300));
     let whole = json!({"sessions": *list.borrow()}).to_string().len();
     assert!(whole > crate::rpc::MAX_MESSAGE_BYTES, "{whole}");
