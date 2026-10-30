@@ -1,0 +1,17 @@
+/* Gallery only: two other looks of the todo list beside the shipped card (conversation.css .cv-plan). */
+.cv-plan-looks-gallery[data-plan-look="borderless"] .cv-plan {
+  padding-inline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.cv-plan-looks-gallery[data-plan-look="count"] .cv-plan__progress {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  padding-block: 0 var(--ds-space-1);
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}

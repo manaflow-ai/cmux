@@ -54,6 +54,9 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
     # wall-clock bounds of its fallback owner election; run it by hand when that step changes.
     "tests/test_cmux_tui_election_budget.py",
+    # lane = "manual" for the same rule. It reads nightly-next-launch-smoke.yml and nightly.yml to assert
+    # the post-publish smoke never gates a publish; run it by hand when the smoke or its workflow changes.
+    "tests/test_nightly_next_launch_smoke.py",
 }
 
 

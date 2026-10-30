@@ -423,6 +423,7 @@ impl Brain {
         }
         self.phase = Phase::Running;
         self.stop_wanted = false;
+        self.length_refused = false;
         self.tool_stopped = false;
         self.denial_stopped = None;
         // A user message or a report replaces the `until: event` wakes.
@@ -684,7 +685,14 @@ impl Brain {
                 model: engine.model.clone(),
                 effort: engine.effort.clone(),
                 preset,
-                tags: crate::acpmux::turn_tags(&self.settings.chief_id, &self.settings.parent),
+                // The Chief's own name: `MUX_CHIEF_TITLE`, which the app
+                // gives each Chief's brain (a rename restarts it).
+                tags: crate::acpmux::turn_tags(
+                    &self.settings.chief_id,
+                    &self.settings.parent,
+                    &self.settings.membership.participant,
+                    crate::cli::env("MUX_CHIEF_TITLE").as_deref(),
+                ),
                 // Only the Chief's own turn gets the seal its `chiefs`
                 // tool needs (chief_profile.rs TURN_KEY_ENV).
                 env: [(
@@ -1284,6 +1292,9 @@ impl Brain {
             add_answers(&mut self.state.carry_answers, answers.clone());
         } else if !answers.is_empty() {
             self.state.last_answers = answers.clone();
+            self.state.last_run = conversation
+                .clone()
+                .map(|conversation| (conversation, key.to_owned()));
         }
         let pending: Vec<String> = answers
             .iter()

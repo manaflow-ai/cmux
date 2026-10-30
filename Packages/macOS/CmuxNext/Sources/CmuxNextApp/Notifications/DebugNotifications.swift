@@ -72,7 +72,7 @@ enum DebugNotifications {
             "authorization": .string(center.desktop.authorization),
             "log": .array(center.log.map(JSONValue.string)),
             "feed_log": .array((center.feedDriver?.log ?? []).map(JSONValue.string)),
-            "dock_badge": center.dockBadgeLabel.map(JSONValue.string) ?? .null,
+            "dock_badge": center.dockBadge.label.map(JSONValue.string) ?? .null,
             "dismissed_highlights": .object(center.dismissedHighlights.mapValues { .number(Double($0)) }),
             "highlight_look": .string(AttentionHighlightLook.tunable.value.rawValue),
             "preferences": [

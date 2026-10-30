@@ -49,14 +49,16 @@ import { memo, useId, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
-import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
-import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
+import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
+import { retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
@@ -69,6 +71,8 @@ import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
 /// Lines the tray shows under its header without a click.
 export const TRAY_OPEN_MAX = 3;
+
+const ROW_ICON = rowIconSize(12);
 
 const itemKey = (item: TrayItem): string =>
   item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
@@ -121,6 +125,7 @@ export const SubagentTray = memo(function SubagentTray({
   enters?: boolean;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const listId = useId();
   const now = useNow(items.length > 0);
   // The person's choice holds; until then a short list shows and a long one folds.
@@ -261,7 +266,7 @@ export const SubagentTray = memo(function SubagentTray({
         className="acpmux-summary-text"
         text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
       />
-      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
     </button>
   );
   return (
@@ -283,15 +288,16 @@ export const SubagentTray = memo(function SubagentTray({
           onClick={() => setOpened(!open)}
         >
           <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
-            {runs ? <Spinner size={14} loading /> : <Icon name="agent.session" size={14} />}
+            <Icon name="agent.session" size={14} />
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
-          {starts.length > 0 && (
-            <span className="acpmux-summary-meta acpmux-running-tray__time">
-              {formatDuration(Math.max(0, now - Math.min(...starts)))}
-            </span>
-          )}
-          <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+          <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
+            {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
+          </span>
+          <span className="acpmux-running-tray__status">
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+          </span>
+          <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
         </button>
       )}
       {fold.present && (
@@ -323,16 +329,18 @@ export const SubagentTray = memo(function SubagentTray({
                 ? toolDetail(t, item.agent.action, true)
                 : (item.agent.action ?? item.agent.kind)
           }
+          progress={subagentProgress(t, language, item.agent).join(" · ")}
           mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
-          state={t(subagentStatusLabel(item.agent, waiting))}
+          state={subagentStateText(t, item.agent, waiting)}
           time={formatDuration(elapsed(item.agent, now))}
           depth={item.depth}
           title={item.agent.task}
           label={t("subagents.open", { name: item.agent.name })}
           kind={t("tray.kind.subagent")}
           chevron
+          trayColumns
           onOpen={() => onOpen(item.agent.id)}
           after={
             stop &&
@@ -355,6 +363,7 @@ export const SubagentTray = memo(function SubagentTray({
             status="running"
             state={t("subagents.state.running")}
             expanded={canOpenTerminal ? openCommands.has(key) : undefined}
+            trayColumns
             time={
               item.command.startedAt === undefined
                 ? undefined
@@ -397,6 +406,9 @@ export const SubagentTray = memo(function SubagentTray({
         </>
       );
     }
+    // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
+    const sessionPhase = sessionRetry(item.session);
+    const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
     return (
       <AgentLine
         name={item.session.title}
@@ -405,9 +417,10 @@ export const SubagentTray = memo(function SubagentTray({
         kind={t("tray.kind.subagent")}
         chevron
         icon="agent.chat"
-        status={SESSION_STATUS[item.session.state]}
-        working={item.session.state === "running"}
-        state={t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+        status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
+        working={sessionRetrying !== undefined || item.session.state === "running"}
+        state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+        trayColumns
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
       />
     );

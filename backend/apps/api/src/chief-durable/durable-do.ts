@@ -11,7 +11,7 @@ import { postMessage } from "./post.ts"
 import { clip, clipInput, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "../chief-brain/brain-runs.ts"
 import { type BrainConfig, readConfig, SCHEMA, writeConfig } from "../chief-brain/brain-store.ts"
 import { claudeAuthFor, forgetClaudeAuth, HOLDER, turnsObject } from "../chief-brain/claude-auth.ts"
-import { Compactor } from "../chief-brain/compactor.ts"
+import { Compactor, compactorHold } from "../chief-brain/compactor.ts"
 import { marksHeader, PrefixCache, ttlMs, turnPlan } from "../chief-brain/cache-prefix.ts"
 import { capText, type Kind, Memory, RETRY_MS } from "../chief-brain/memory.ts"
 import { brainModels, compactorModel, FAKE, gatewayOptions, isClaude, isMetered, pickTurnModel, turnFailedNotice } from "../chief-brain/models.ts"
@@ -144,7 +144,8 @@ export class ChiefDurableDO extends DurableObject<Env> {
       onBuilt: () => undefined,
       off: () => (this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_d.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
-      onRetryWait: (at) => void this.schedule("compact", "compact", at).catch(() => undefined)
+      onRetryWait: (at) => void this.schedule("compact", "compact", at).catch(() => undefined),
+      hold: compactorHold(this.sql)
     })
   }
 
@@ -603,8 +604,11 @@ export class ChiefDurableDO extends DurableObject<Env> {
     }
     if (job.fn === "ledger") return void this.ledger({ type: "check_due" })
     if (job.fn !== "compact" || this.compactor.off()) return
+    // Held after failures (compactor.ts): wake when the hold ends, without keeping the object up meanwhile.
+    const held = this.compactor.cooling()
+    if (held > 0) return { rescheduleAt: Date.now() + Math.max(held, RETRY_MS) }
     this.compactor.pump()
-    if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }
+    if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + Math.max(RETRY_MS, this.compactor.cooling()) }
   }
 }
 

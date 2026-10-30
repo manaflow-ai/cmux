@@ -6,7 +6,9 @@
 //! stdio MCP client on first use and lists its tools as
 //! `<prefix>_<tool>` (`cmux-cua` is `cua`), so `cmux_docs` finds them and a
 //! `cmux_exec` script calls them through `Server::call`, under the same
-//! allowlist as every other tool.
+//! allowlist as every other tool. A list from an earlier start
+//! (`upstream_listing.rs`) answers `tools/list` without starting the server,
+//! so a chat that never calls one of its tools never starts it.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
@@ -18,6 +20,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 use super::computer_use_gate::{self, Gate};
+use cmux_json::JsonSet as _;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -77,12 +80,53 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
         .collect()
 }
 
+/// What a proxied tool's description puts between its own text and its
+/// server's rules: `\n\n<server> rules: <rules>`.
+const RULES_BREAK: &str = "\n\n";
+const RULES_LABEL: &str = " rules: ";
+
+/// A proxied tool's own description, without the server rules added to it:
+/// docs search matches what a tool does, not the rules every tool of its
+/// server shares (they name terminals, messages, files and passwords).
+pub(super) fn without_rules(description: &str) -> &str {
+    let mut from = 0;
+    while let Some(at) = description.get(from..).and_then(|tail| tail.find(RULES_BREAK)) {
+        let start = from + at;
+        let rest = description.get(start + RULES_BREAK.len()..).unwrap_or_default();
+        if let Some((server, _)) = rest.split_once(RULES_LABEL)
+            && !server.is_empty()
+            && !server.contains(char::is_whitespace)
+        {
+            return description.get(..start).unwrap_or(description);
+        }
+        from = start + RULES_BREAK.len();
+    }
+    description
+}
+
 /// The tool name prefix of server `name`: `cmux-cua` is `cua`.
 fn prefix(name: &str) -> String {
     let name = name.strip_prefix("cmux-").unwrap_or(name);
     name.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
         .collect()
+}
+
+/// The rules the model gets for server `spec`: cmux's own rules for its
+/// computer use server ([`acpmux::agent_tools::CUA_RULES`]) first, then the
+/// server's `initialize` instructions. The helper v2 bridge has the same name
+/// (its spec names the endpoint folder), but no target guard yet: its chats
+/// get no cmux rules, which promise one.
+pub(super) fn rules(spec: &Spec, own: Option<&str>) -> Option<String> {
+    let own = own.filter(|text| !text.trim().is_empty());
+    let v2 = spec.env.iter().any(|(key, _)| key == acpmux::cua_v2::ENDPOINT_DIR_ENV);
+    let cmux =
+        (spec.name == acpmux::cua_v2::SERVER_NAME && !v2).then_some(acpmux::agent_tools::CUA_RULES);
+    match (cmux, own) {
+        (Some(cmux), Some(own)) => Some(format!("{cmux}\n\n{own}")),
+        (Some(cmux), None) => Some(cmux.to_owned()),
+        (None, own) => own.map(str::to_owned),
+    }
 }
 
 /// One server: started on first use, again after it dies or times out.
@@ -96,6 +140,8 @@ pub(super) struct Upstream {
     /// Why and when the last start failed: said once, retried after
     /// `START_BACKOFF`.
     failed: Option<(String, Instant)>,
+    /// Where lists from earlier starts are kept (`upstream_listing.rs`).
+    listings: Option<PathBuf>,
 }
 
 /// Why a request has no result.
@@ -132,16 +178,40 @@ impl Drop for Conn {
 impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None }
+        let listings = super::upstream_listing::default_dir();
+        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+    }
+
+    /// The same server with its stored lists kept in `dir` (none: never stored).
+    #[cfg(test)]
+    pub(super) fn with_listings(mut self, dir: Option<PathBuf>) -> Self {
+        self.listings = dir;
+        self
+    }
+
+    /// Whether the server's process runs.
+    #[cfg(test)]
+    pub(super) fn started(&self) -> bool {
+        self.conn.is_some()
     }
 
     pub(super) fn name(&self) -> &str {
         &self.spec.name
     }
 
-    /// The tools under their cmux names, starting the server if needed.
-    /// `taken` holds names already in use; a clash is left out.
+    /// The tools under their cmux names: the stored list from an earlier
+    /// start, else the server's own, starting it. `taken` holds names already
+    /// in use; a clash is left out.
     pub(super) fn descriptors(&mut self, taken: &BTreeSet<String>) -> Vec<Value> {
+        if self.tools.is_none()
+            && let Some(stored) = self
+                .listings
+                .as_deref()
+                .and_then(|dir| super::upstream_listing::load(dir, &self.spec))
+        {
+            self.instructions = rules(&self.spec, stored.instructions.as_deref());
+            self.tools = Some(stored.tools);
+        }
         if self.tools.is_none() {
             if self.failed.as_ref().is_some_and(|(_, at)| at.elapsed() < START_BACKOFF) {
                 return Vec::new();
@@ -173,13 +243,19 @@ impl Upstream {
                     .instructions
                     .as_deref()
                     .filter(|r| !r.trim().is_empty())
-                    .map(|r| format!("\n\n{server} rules: {r}"))
+                    .map(|r| format!("{RULES_BREAK}{server}{RULES_LABEL}{r}"))
                     .unwrap_or_default();
-                tool["description"] = json!(format!("[{server}] {description}{rules}"));
-                tool["name"] = json!(name);
+                tool.set("description", json!(format!("[{server}] {description}{rules}")));
+                tool.set("name", json!(name));
                 Some(tool)
             })
             .collect()
+    }
+
+    /// Starts the server when it is not running, so a stored list gives way
+    /// to its own before a call is checked against it.
+    pub(super) fn connect(&mut self) -> Result<(), String> {
+        if self.conn.is_none() { self.start() } else { Ok(()) }
     }
 
     /// The server's own name of cmux tool `name`, when it is one of its.
@@ -225,6 +301,8 @@ impl Upstream {
 
     fn try_start(&mut self) -> Result<(), String> {
         self.conn = None;
+        // The key before the start: a list is stored only for the command it came from.
+        let key = self.listings.as_ref().and_then(|_| super::upstream_listing::key(&self.spec));
         let mut child = Command::new(&self.spec.command)
             .args(&self.spec.args)
             // This server's own folding and allowlist stay with it.
@@ -261,7 +339,8 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        self.instructions = init["instructions"].as_str().map(str::to_owned);
+        let given = init.get("instructions").and_then(Value::as_str).map(str::to_owned);
+        self.instructions = rules(&self.spec, given.as_deref());
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;
@@ -274,6 +353,11 @@ impl Upstream {
                 Some(next) if !next.is_empty() && tools.len() < 1000 => cursor = Some(next.into()),
                 _ => break,
             }
+        }
+        if let (Some(dir), Some(key)) = (&self.listings, &key) {
+            let listing =
+                super::upstream_listing::Listing { tools: tools.clone(), instructions: given };
+            super::upstream_listing::store(dir, &self.spec, key, &listing);
         }
         self.tools = Some(tools);
         self.failed = None;
@@ -390,6 +474,12 @@ impl ProxiedCall {
             return result;
         }
         let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Err(message) = upstream.connect() {
+            let error = json!({"code": "upstream.failed",
+                "message": format!("{}: {message}", upstream.name()),
+                "details": {}, "retryable": true});
+            return super::tool_error(super::envelope(error, "not_run", None));
+        }
         let Some(tool) = upstream.owns(&self.name) else {
             let error = json!({"code": "upstream.failed", "message": format!(
                 "{}: the server no longer lists {}", upstream.name(), self.name),
@@ -475,8 +565,13 @@ impl<B: super::Backend> super::Server<B> {
             return None;
         }
         let inner = proxied.inner.clone();
-        let computer_use = (proxied.name == computer_use_gate::SERVER)
-            .then(|| name[proxied.prefix.len() + 1..].to_owned());
+        let computer_use = if proxied.name == computer_use_gate::SERVER {
+            name.strip_prefix(proxied.prefix.as_str())
+                .and_then(|rest| rest.strip_prefix('_'))
+                .map(str::to_owned)
+        } else {
+            None
+        };
         let arguments = Value::Object(arguments.clone());
         let gate = match computer_use {
             Some(tool) => computer_use_gate::gate(

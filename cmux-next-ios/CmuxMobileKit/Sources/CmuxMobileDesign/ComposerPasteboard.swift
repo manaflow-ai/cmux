@@ -4,7 +4,9 @@ import UniformTypeIdentifiers
 
 /// A file pasted into a composer, read once the person chose Paste.
 public struct ComposerPastedFile: Sendable {
-    public let data: Data
+    public let data: Data?
+    public let fileURL: URL
+    public let byteCount: Int
     /// The copying app's name for it (Files: the file's name), with its extension.
     public let name: String
     public let type: UTType
@@ -13,8 +15,6 @@ public struct ComposerPastedFile: Sendable {
 /// Copied files read for a paste, and the ones that could not be attached.
 public struct ComposerPastedFiles: Sendable {
     public var files: [ComposerPastedFile] = []
-    /// Over the upload limit.
-    public var tooLarge: [String] = []
     /// Offered but unreadable.
     public var unreadable: [String] = []
 }
@@ -80,10 +80,9 @@ public extension UIPasteboard {
 
 public extension ComposerPastedFiles {
     /// Reads the copied files of `providers` (take them from the pasteboard
-    /// during the paste). Each arrives as a file the system wrote; its size
-    /// is checked before it is read, and the read happens off the main thread.
+    /// during the paste). Each arrives as a file the system wrote; it is copied while the provider grants access, off the main thread.
     @MainActor
-    static func load(_ providers: [NSItemProvider], maxBytes: Int) async -> ComposerPastedFiles {
+    static func load(_ providers: [NSItemProvider]) async -> ComposerPastedFiles {
         var result = ComposerPastedFiles()
         for provider in providers {
             guard let type = provider.registeredTypeIdentifiers.lazy.compactMap({ UTType($0) })
@@ -91,12 +90,11 @@ public extension ComposerPastedFiles {
             let name = fileName(provider.suggestedName, type: type)
             let read: Read = await withCheckedContinuation { continuation in
                 _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
-                    continuation.resume(returning: Read(url, maxBytes: maxBytes))
+                    continuation.resume(returning: Read(url, name: name, inlineLimit: type.conforms(to: .image) ? 24 << 20 : ComposerFileCopy.inlineBytes))
                 }
             }
             switch read {
-            case .data(let data): result.files.append(ComposerPastedFile(data: data, name: name, type: type))
-            case .tooLarge: result.tooLarge.append(name)
+            case .file(let copy): result.files.append(ComposerPastedFile(data: copy.inlineData, fileURL: copy.url, byteCount: copy.byteCount, name: name, type: type))
             case .unreadable: result.unreadable.append(name)
             }
         }
@@ -112,15 +110,12 @@ public extension ComposerPastedFiles {
     }
 
     private enum Read: Sendable {
-        case data(Data), tooLarge, unreadable
+        case file(ComposerFileCopy), unreadable
 
         /// Called on the provider's queue, while `url` still exists.
-        init(_ url: URL?, maxBytes: Int) {
-            guard let url else { self = .unreadable; return }
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            guard size <= maxBytes else { self = .tooLarge; return }
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), !data.isEmpty else { self = .unreadable; return }
-            self = .data(data)
+        init(_ url: URL?, name: String, inlineLimit: Int) {
+            guard let url, let copy = try? ComposerFileCopy(source: url, name: name, inlineLimit: inlineLimit) else { self = .unreadable; return }
+            self = .file(copy)
         }
     }
 }

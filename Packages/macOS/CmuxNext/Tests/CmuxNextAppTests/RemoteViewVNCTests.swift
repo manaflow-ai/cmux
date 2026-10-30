@@ -119,3 +119,67 @@ struct RemoteVNCMappingTests {
         #expect(scroll.add(dx: 0, dy: -1500, precise: true) == (0, -1))
     }
 }
+
+#if DEBUG
+@MainActor
+struct RemoteVNCReconnectTests {
+    @Test(.timeLimit(.minutes(1))) func manualReconnectCancelsStaleAutomaticRetry() async throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
+        let attempts = AttemptCounter()
+        let session = RemoteVNCSession(cloudRecord: record) {
+            attempts.increment()
+            return ConnectedRFBTransport()
+        }
+        defer { session.close() }
+        session.scheduleAutomaticRetryForTesting(after: .milliseconds(50))
+        #expect(session.hasPendingRetryForTesting)
+
+        let statuses = session.source.statusUpdates()
+        session.reconnect(in: nil)
+        for await status in statuses {
+            if status.state == .streaming { break }
+            if case .ended = status.state { break }
+        }
+        try #require(session.source.status.state == .streaming)
+        let connectedClient = try #require(session.source.client)
+        // The RFB handshake succeeded. A stale retry must not replace this connection.
+        #expect(attempts.value == 1)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(attempts.value == 1)
+        #expect(session.source.client === connectedClient)
+        #expect(session.source.status.state == .streaming)
+    }
+}
+
+private nonisolated final class ConnectedRFBTransport: RFBTransport {
+    private let bytes: AsyncThrowingStream<[UInt8], any Error>
+    private let continuation: AsyncThrowingStream<[UInt8], any Error>.Continuation
+
+    init() {
+        (bytes, continuation) = AsyncThrowingStream.makeStream(of: [UInt8].self)
+        var handshake = Array("RFB 003.008\n".utf8)
+        handshake += [1, 1, 0, 0, 0, 0] // None security, accepted.
+        handshake += [0, 1, 0, 1] // One-pixel desktop.
+        handshake += RFBPixelFormat.bgrx.encoded
+        handshake += [0, 0, 0, 4] + Array("test".utf8)
+        continuation.yield(handshake)
+    }
+
+    func open() async throws {}
+    func receive() async throws -> [UInt8] {
+        var iterator = bytes.makeAsyncIterator()
+        guard let chunk = try await iterator.next() else { throw RFBError.connectionClosed }
+        return chunk
+    }
+    func send(_ bytes: [UInt8]) async throws {}
+    func close() { continuation.finish(throwing: RFBError.connectionClosed) }
+}
+
+private nonisolated final class AttemptCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
+}
+#endif
