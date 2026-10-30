@@ -23,6 +23,7 @@ import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import { MessagePlacement } from "./conversation/messagePlacement";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -231,7 +232,8 @@ export type AcpmuxRow = {
   /// Another agent's message still waiting in the queue (conversation/queuedMessages.ts): the
   /// queue entry's promptId, which its ⋯ menu steers, edits or deletes, and whether it was sent
   /// now already (acpmux marks it `next`; it runs right after the turn).
-  queuedMessage?: { promptId: string; next?: boolean };
+  /// `lead`: the first of the queued messages, which says "Read after this turn" for them all.
+  queuedMessage?: { promptId: string; next?: boolean; lead?: boolean };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
@@ -328,10 +330,6 @@ export type AcpmuxRow = {
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
   /// the step it is on ends), then `landed`.
   steer?: "waiting" | "landed";
-  /// Several other sessions' messages that wait for the agent, drawn as one card
-  /// (conversation/WaitingMessagesCard.tsx, waitingMessages.ts): when it reads them (`step`, steers
-  /// it has not read; `turn`, queued behind the running turn) and the rows, oldest first.
-  waiting?: { delivery: "step" | "turn" | "chat"; rows: readonly AcpmuxRow[] };
   /// A prompt sent now that ended the turn it went into (acpmux cancels it, or the agent ends it
   /// with `end_turn`) and runs next: accepted, drawn inside that turn (turnStart.ts
   /// ``continuesTurn``), with no mark of its own.
@@ -519,6 +517,8 @@ export type AcpmuxCatalogModel = {
   shortName?: string;
   family?: string;
   efforts?: string[];
+  /** Present when the catalog/profile explicitly supplied the effort capability, including []. */
+  effortsDeclared?: boolean;
   defaultEffort?: string;
   fast?: boolean;
   inlineFast?: boolean;
@@ -727,6 +727,9 @@ export type AcpmuxSnapshot = {
   /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
   silentTurn?: true;
+  /// Stop (or Esc) was sent and the running turn has not ended yet (direct.ts `cancel`): Stop
+  /// turns and says it is stopping, so a press never looks like it did nothing.
+  stopping?: true;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
@@ -847,9 +850,9 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
-/// A sub-session card (subagents/AgentCard.css): its 10px margins, 12px padding and 24px head, and
-/// while it works or waits on the person, its 16px doing line.
-const cardHeight = (state: string) => 46 + (state === "working" || state === "input" ? 16 : 0);
+/// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
+/// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
+const cardHeight = (_state: string) => 32;
 
 /// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
 /// about 60 characters, and the toggle once it is cut.
@@ -903,11 +906,6 @@ function activityStepHeight(item: AcpmuxActivity): number {
       return 26;
   }
 }
-/// How many lines of another agent's message its card shows before it is cut
-/// (conversation/IncomingMessageCard.tsx, `.cv-received__body[data-cut]`).
-// Agent and lane reports keep enough context to show a compact table or a few links before the
-// card folds. The open control still reveals the complete Markdown body.
-export const RECEIVED_LINES = 8;
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 16;
@@ -1057,8 +1055,6 @@ export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
 /// The row kind of another agent's message while it waits in the queue (conversation/queuedMessages.ts):
 /// its received card after the running turn, until acpmux starts it.
 export const QUEUED_MESSAGE = "queuedMessage";
-/// The row kind of several other sessions' waiting messages drawn as one card (conversation/waitingMessages.ts).
-export const WAITING_MESSAGES = "waitingMessages";
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -1073,7 +1069,6 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "turnSummary" &&
   (!next ||
-    next.kind === WAITING_MESSAGES ||
     ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
       (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
@@ -1395,38 +1390,22 @@ function measuredRowHeight(
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-  // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
-  // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
-  // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
-  // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
-  // the row's message gap.
-  // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
-  // Several waiting messages as one card (conversation/WaitingMessagesCard.tsx): its 26px head in
-  // `.cv-waiting`'s 2px margins and the message gap; opened, each message under it as its own row
-  // draws it, less the gap the row frame gives a row (`.acpmux-row`), which the card has once.
-  if (row.kind === WAITING_MESSAGES && row.waiting) {
-    const head = finish(2 + 26 + 2 + MESSAGE_GAP);
-    if (!messageOpened(sessionId, row.id)) return head;
-    return row.waiting.rows.reduce(
-      (height, member) => height + measuredRowHeight(member, width, cache, false, false, sessionId) - MESSAGE_GAP,
-      head,
-    );
-  }
+  // A task notification from another agent is a tool row's line under `.cv-tools`' 2px margin
+  // (conversation/IncomingMessageCard.tsx), with the row's message gap.
   if (row.incoming?.kind === "message") {
-    // In Minimal Mode a closed message is its line alone, images too; one the person opened
-    // (incomingOpened.ts) is its whole card, uncut.
-    const minimal = chatDisplay().minimal;
-    const opened = messageOpened(sessionId, row.id);
-    if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
+    // One 26px disclosure line in `.cv-received`'s 2px margins; one the person opened
+    // (incomingOpened.ts) adds its panel (2px above, 4px below, 8px padding each side, 24px in
+    // from the icon column and 10px padding across): the 18px From line, 4px, and the whole text
+    // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
+    // The first queued message has the run's 18px "Read after this turn" over its line.
+    const line = 2 + 26 + 2 + MESSAGE_GAP + (row.queuedMessage?.lead ? 18 : 0);
+    if (!messageOpened(sessionId, row.id)) return finish(line);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const limit = RECEIVED_LINES * lineHeight;
-    // .cv-user__more: a 20px control with 4px above it, only on a closed long card.
-    const more = !opened && lines > limit + 1 ? 24 : 0;
-    const card = 4 + 16 + (opened ? lines : Math.min(lines, limit)) + more + 6;
-    return finish(26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0));
+    const lines = text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight;
+    const details = row.incoming.message.raw.trim() === text ? 0 : 24;
+    return finish(line + 2 + 4 + 16 + 18 + 4 + lines + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
@@ -1495,6 +1474,7 @@ export function layoutConversation(
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
+  const messages = new MessagePlacement(rows, previous?.layout);
   let start = 0;
   if (previous) {
     const limit = Math.min(rows.length, previous.rows.length);
@@ -1518,6 +1498,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
+    messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
@@ -1546,7 +1527,9 @@ export function layoutConversation(
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, totalHeight: top };
+  const layout = { tops, heights, totalHeight: top };
+  messages.finish(rows, layout);
+  return layout;
 }
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
@@ -1657,7 +1640,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { chatDisplay, currentChatMetrics } from "./chatDisplay";
+import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 
 /// The pane's fallback accessible name and problem-only header status.

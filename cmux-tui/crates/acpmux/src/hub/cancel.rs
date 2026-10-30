@@ -98,6 +98,12 @@ impl Hub {
         // Claude process can ignore the interrupt, and the first Stop must
         // still settle the UI immediately.
         if compacting && let Some(turn) = turn.as_ref() {
+            // Fence inbound metadata before publishing the forced end. The cancel
+            // writer can be delayed while Claude continues emitting its old tail.
+            session.fence_compaction_metadata();
+            if let Some(translator) = child.translator.as_ref() {
+                translator.fence_compaction_metadata();
+            }
             let queued: Vec<String> = session
                 .queue
                 .lock()
@@ -127,7 +133,12 @@ impl Hub {
             }
         }
         let sent = child
-            .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
+            // Preserve the Stop's compaction snapshot: a delayed writer may run only
+            // after the old boundary has already cleared the translator's live flag.
+            .notify(
+                method::SESSION_CANCEL,
+                json!({"sessionId": sid, "_meta": {"acpmux": {"compactionCancelled": compacting}}}),
+            )
             .await
             .map_err(|e| RpcError::internal(e.to_string()));
         drop(input_handoff);
