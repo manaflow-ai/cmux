@@ -630,5 +630,17 @@ class SettingsSourceStampTests(unittest.TestCase):
         self.assertEqual(self.repo.guard("check-stamp").returncode, 2)
 
 
+class WorkflowTests(unittest.TestCase):
+    def test_the_trusted_guard_is_the_base_tip_not_the_pull_requests_last_push_base(self):
+        """pull_request.base.sha only moves when the pull request's head is pushed, so a guard fix
+        never reached an open pull request: #26153 ran a guard 620 commits old on a re-run and on a
+        new ready-for-review event. github.sha under pull_request_target is the base branch's tip."""
+        text = (ROOT / ".github/workflows/cmux-next-defaults-guard.yml").read_text(encoding="utf-8")
+        step = text.split("- name: Check out the trusted guard (base)", 1)[1].split("- name:", 1)[0]
+        self.assertIn("ref: ${{ github.sha }}", step)
+        self.assertNotIn("pull_request.base.sha", step)
+        self.assertIn("pull_request_target:", text)
+
+
 if __name__ == "__main__":
     unittest.main()
