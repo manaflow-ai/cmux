@@ -62,6 +62,7 @@ struct OmnibarTrailingFirstClickTests {
 
     @Test func everyTrailingBadgeTakesTheFirstClickOfAWindowThatIsNotKey() throws {
         let (bar, window) = shownBar()
+        defer { window.closeAfterTest() }
         let shown = badges(bar)
         #expect(shown.count == 4)
         for (name, badge) in shown {
@@ -75,6 +76,7 @@ struct OmnibarTrailingFirstClickTests {
 
     @Test func oneFirstClickOnTheStarPressesIt() throws {
         let (bar, window) = shownBar()
+        defer { window.closeAfterTest() }
         var presses = 0
         bar.onBookmarkStar = { _ in presses += 1 }
         let event = firstClickPress(bar.starButton, in: window)

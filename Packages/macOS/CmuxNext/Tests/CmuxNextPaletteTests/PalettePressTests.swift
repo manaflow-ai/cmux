@@ -41,6 +41,7 @@ struct PalettePressTests {
 
     @Test func pressRunsTheRowUnderThePointerAtOnce() {
         let (window, table) = table()
+        defer { window.closeAfterTest() }
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
         table.mouseDown(with: event(.leftMouseDown, row: 1, in: table, window: window))
@@ -49,6 +50,7 @@ struct PalettePressTests {
 
     @Test func dragAndReleaseAfterThePressRunNothingMore() {
         let (window, table) = table()
+        defer { window.closeAfterTest() }
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
         table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
@@ -60,6 +62,7 @@ struct PalettePressTests {
     /// A press on a row scrolled out of view (under the search bar or footer) runs nothing.
     @Test func pressOnARowScrolledOutOfViewRunsNothing() {
         let (window, table) = table()
+        defer { window.closeAfterTest() }
         // A 30 pt list over a 90 pt table, scrolled to row 1: rows 0 and 2 are out of view.
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 30, width: 200, height: 30))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 90))
@@ -78,6 +81,7 @@ struct PalettePressTests {
 
     @Test func pressOffEveryRowRunsNothing() {
         let (window, table) = table()
+        defer { window.closeAfterTest() }
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
         table.mouseDown(with: event(.leftMouseDown, row: -1, in: table, window: window))

@@ -102,6 +102,8 @@ struct PaneZoomTerminalResizeTests {
         func settle() {
             for _ in 1...240 where root.advanceFrame(1.0 / 120) {}
         }
+
+        func tearDown() { window.closeAfterTest() }
     }
 
     /// p1 p2 / p3 p4.
@@ -115,6 +117,7 @@ struct PaneZoomTerminalResizeTests {
     @Test(arguments: ["p1", "p2", "p3", "p4"])
     func aZoomInA2x2ReportsTheTerminalGridOnceWhenItLandsNotOnEveryFrame(pane: String) throws {
         let screen = Screen(Self.grid2)
+        defer { screen.tearDown() }
         let probe = try screen.probe(PaneID(pane))
         let before = probe.reports.count
         screen.zoom(PaneID(pane))
@@ -127,6 +130,7 @@ struct PaneZoomTerminalResizeTests {
 
     @Test func anUnzoomReportsOnceAndAZoomInterruptedBackToItsSlotReportsNothing() throws {
         let screen = Screen(Self.pair)
+        defer { screen.tearDown() }
         let probe = try screen.probe("p2")
         screen.zoom("p2")
         screen.settle()
@@ -153,6 +157,7 @@ struct PaneZoomTerminalResizeTests {
     /// their grid until it lands, exactly as a zooming pane does.
     @Test func aSidebarSlideReportsOneGridPerTerminalAtTheLandingNotOnEveryFrame() throws {
         let screen = Screen(Self.pair, sliding: true)
+        defer { screen.tearDown() }
         let window = try #require(screen.window as? SlidingWindow)
         let probe = try screen.probe("p1")
         let before = probe.reports.count
@@ -175,6 +180,7 @@ struct PaneZoomTerminalResizeTests {
     /// stops matching the shell window's root view.
     @Test func aResizeOutsideASlideStillReportsItsGridAtOnce() throws {
         let screen = Screen(Self.pair, sliding: true)
+        defer { screen.tearDown() }
         let probe = try screen.probe("p1")
         let before = probe.reports.count
         // 48 points off the window is 24 off each pane of the pair: three columns a frame,
@@ -186,6 +192,7 @@ struct PaneZoomTerminalResizeTests {
 
     @Test func reduceMotionZoomReportsOnceInTheSameFrame() throws {
         let screen = Screen(Self.grid2, reduceMotion: true)
+        defer { screen.tearDown() }
         let probe = try screen.probe("p4")
         let before = probe.reports.count
         screen.zoom("p4")

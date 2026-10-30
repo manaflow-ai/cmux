@@ -13,6 +13,10 @@ import Testing
 
     @Test func theKeyWindowTakesTheToggle() {
         let (key, other) = (Self.window(), Self.window())
+        defer {
+            key.closeAfterTest()
+            other.closeAfterTest()
+        }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: key, ordered: [other, key]) === key)
     }
 
@@ -20,9 +24,12 @@ import Testing
     /// takes it, and with none on screen no Home does.
     @Test func withoutAKeyWindowTheFrontVisibleOneTakesIt() {
         let (hidden, shown) = (Self.window(), Self.window())
+        defer {
+            hidden.closeAfterTest()
+            shown.closeAfterTest()
+        }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden]) == nil)
         shown.orderFrontRegardless()
-        defer { shown.closeAfterTest() }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden, shown]) === shown)
     }
 
@@ -48,12 +55,20 @@ import Testing
     @Test func aChildPanelWithTheKeysStandsForItsWindow() {
         let (home, popover) = (Self.window(), Self.window())
         home.addChildWindow(popover, ordered: .above)
-        defer { home.removeChildWindow(popover) }
+        defer {
+            home.removeChildWindow(popover)
+            popover.closeAfterTest()
+            home.closeAfterTest()
+        }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: popover, ordered: []) === home)
     }
 
     @Test func onlyTheHomeInTheTargetWindowAnswers() {
         let (front, back) = (Self.window(), Self.window())
+        defer {
+            front.closeAfterTest()
+            back.closeAfterTest()
+        }
         let target = ObjectIdentifier(front)
         #expect(HomeChiefSettingsPopover.answersToggle(for: target, in: front))
         #expect(!HomeChiefSettingsPopover.answersToggle(for: target, in: back))
