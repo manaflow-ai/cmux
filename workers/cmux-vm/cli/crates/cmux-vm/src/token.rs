@@ -506,6 +506,7 @@ pub async fn revoke(
     client: &Client,
     token: &StoredToken,
     env: &dyn Fn(&str) -> Option<String>,
+    json_output: bool,
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     match call(client.agents_revoke_agent_key(&token.key_id, None)).await {
@@ -515,8 +516,12 @@ pub async fn revoke(
         Err(error) => return Err(error),
     }
     remove(env).map_err(CliError::unexpected)?;
-    writeln!(out, "token {} revoked and removed", token.key_id)
-        .map_err(|e| CliError::unexpected(format!("write output: {e}")))
+    let text = if json_output {
+        json!({ "id": token.key_id, "revoked": true, "removed": true }).to_string()
+    } else {
+        format!("token {} revoked and removed", token.key_id)
+    };
+    writeln!(out, "{text}").map_err(|e| CliError::unexpected(format!("write output: {e}")))
 }
 
 /// Seconds since the Unix epoch for `YYYY-MM-DDTHH:MM:SS[.fff]Z`.
@@ -592,6 +597,47 @@ mod tests {
         assert_eq!(token.status(at - 60).1, crate::exit::UNAUTHENTICATED);
         token.expires_at = String::new();
         assert_eq!(token.status(at - 60).1, crate::exit::UNAUTHENTICATED);
+    }
+
+    // The file store; macOS keeps the token in the login Keychain.
+    #[cfg(not(target_os = "macos"))]
+    #[tokio::test]
+    async fn revoke_json_is_one_json_object() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/v1/agent-keys/vmk_x"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let dir = std::env::temp_dir().join(format!("cmux-vm-revoke-json-{}", std::process::id()));
+        let xdg = dir.to_string_lossy().into_owned();
+        let env = |name: &str| (name == "XDG_CONFIG_HOME").then(|| xdg.clone());
+        let token = StoredToken {
+            key: "cmuxvm_sk_SECRET".into(),
+            key_id: "vmk_x".into(),
+            expires_at: "2099-01-01T00:00:00Z".into(),
+            team_id: None,
+            base_url: None,
+            scopes: Vec::new(),
+            max_vms: None,
+            max_usd_per_hour: None,
+        };
+        save(&token, &env).unwrap();
+        let client =
+            cmux_vm_client::authenticated_raw_client(&server.uri(), &token.key, None, "test")
+                .unwrap();
+        let mut out = Vec::new();
+        revoke(&client, &token, &env, true, &mut out).await.unwrap();
+        let printed: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            printed,
+            json!({"id": "vmk_x", "revoked": true, "removed": true})
+        );
+        assert_eq!(load(&env).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

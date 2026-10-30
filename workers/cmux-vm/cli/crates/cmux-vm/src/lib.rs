@@ -740,7 +740,7 @@ async fn token_command(
                 concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
             )
             .map_err(|e| CliError::usage(e.to_string()))?;
-            token::revoke(&client, &stored, env, stdout)
+            token::revoke(&client, &stored, env, cli.json, stdout)
                 .await
                 .map(|()| exit::OK)
         }
