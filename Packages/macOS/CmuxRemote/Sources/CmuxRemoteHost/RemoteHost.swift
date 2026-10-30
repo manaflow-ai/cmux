@@ -244,12 +244,8 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             let id = request["id"]
             let method = request["method"] as? String ?? ""
             let params = request["params"] as? [String: Any] ?? [:]
-            // The JSON values are made on this thread and read only by the one task.
-            nonisolated(unsafe) let request = (id, params)
-            Task {
-                let (id, params) = request
-                channel.write(await self.handleSupervisor(id: id, method: method, params: params))
-            }
+            let request = SupervisorRequest(id: id, method: method, params: params)
+            Task { [self] in channel.write(await handleSupervisor(request)) }
         }
         let alone = lock.withLock { () -> Bool in
             supervisors.removeAll { $0 === channel }
@@ -260,7 +256,8 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if alone { Task { @MainActor in self.host?.armOrphanTimer() } }
     }
 
-    private func handleSupervisor(id: Any?, method: String, params: [String: Any]) async -> Data {
+    private func handleSupervisor(_ request: SupervisorRequest) async -> Data {
+        let (id, method, params) = (request.id, request.method, request.params)
         guard let host else { return RemoteWire.failure(id: id, code: "gone", message: "the host is stopping") }
         switch method {
         case "status":
@@ -367,4 +364,11 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             channel.close()
         }
     }
+}
+
+/// One supervisor request, handed from the connection's reader thread to the task that answers it.
+struct SupervisorRequest: @unchecked Sendable { // crash-allow: built by the reader thread, then read only by the one answering task
+    let id: Any?
+    let method: String
+    let params: [String: Any]
 }

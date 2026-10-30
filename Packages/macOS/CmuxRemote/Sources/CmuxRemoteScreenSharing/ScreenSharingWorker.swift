@@ -56,15 +56,11 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     private func startControl() {
         let control = self.control
         let thread = Thread { [weak self] in
-            while let request = control.readObject() {
-                let id = request["id"]
-                let method = request["method"] as? String ?? ""
-                let params = request["params"] as? [String: Any] ?? [:]
-                nonisolated(unsafe) let sendable = (id, params)
+            while let object = control.readObject() {
+                let request = WorkerRequest(object)
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    let (id, params) = sendable
-                    control.write(await handle(method, params, id: id))
+                    control.write(await handle(request.method, request.params, id: request.id))
                 }
             }
             // The host closed our stdin: end the session for the viewer, then exit.
@@ -126,15 +122,11 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         LocalSocket.serve(listener, name: "remote-screen-app") { [weak self] channel in
             // Only the host connects here (it splices the app's channel through).
             guard channel.peer?.pid == getppid() else { return channel.close() }
-            while let request = channel.readObject() {
-                let id = request["id"]
-                let method = request["method"] as? String ?? ""
-                let params = request["params"] as? [String: Any] ?? [:]
-                nonisolated(unsafe) let sendable = (id, params)
+            while let object = channel.readObject() {
+                let request = WorkerRequest(object)
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    let (id, params) = sendable
-                    if let answer = await handleApp(method, params, id: id, channel: channel) { channel.write(answer) }
+                    if let answer = await handleApp(request.method, request.params, id: request.id, channel: channel) { channel.write(answer) }
                 }
             }
             Task { @MainActor [weak self] in self?.unsubscribe(channel) }
@@ -223,9 +215,22 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         nextPerform += 1
         return await withCheckedContinuation { continuation in
             performs[ask] = continuation
-            if !channel.write(RemoteWire.event("perform", ["id": ask, "action": action, "params": params])) {
+            if !channel.write(RemoteWire.event("perform", ["id": ask, "action": action, "params": params as Any])) {
                 performs.removeValue(forKey: ask)?.resume(returning: nil)
             }
         }
+    }
+}
+
+/// One request line, handed from a reader thread to the main actor that answers it.
+struct WorkerRequest: @unchecked Sendable { // crash-allow: built by the reader thread, then read only on the main actor
+    let id: Any?
+    let method: String
+    let params: [String: Any]
+
+    init(_ object: [String: Any]) {
+        id = object["id"]
+        method = object["method"] as? String ?? ""
+        params = object["params"] as? [String: Any] ?? [:]
     }
 }
