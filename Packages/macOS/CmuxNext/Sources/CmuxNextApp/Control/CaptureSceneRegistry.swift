@@ -493,25 +493,29 @@ extension CaptureSceneRegistry {
         ("capture-vm-refused", "refused-vm", "vm_start_failed", "the provider could not start this machine"),
     ]
 
-    /// Adds both machines to the settled showcase window, with a header per computer
+    /// Shows the settled showcase window's sidebar, adds both machines with a header per computer
     /// (`sidebar.groupByComputer`, as `DebugCloudMachineFixture` does), connects each so its link
     /// ends, waits until the list lays out both headers, scrolls to them (they follow This Mac's rows,
-    /// maybe below the fold), waits until both draw inside the list's visible part, snapshots the
-    /// window, then takes the machines and the setting back. A header that never draws there fails
-    /// the scene: the check reads the drawn rows (`SidebarView.debugRows`), never only the model.
+    /// maybe below the fold), waits until both draw inside the list's visible part, and snapshots the
+    /// window. One `defer` takes the machines and the setting back on every exit, a cancelled wait
+    /// included. Nothing claims the machines' workspaces for a window (a header draws without rows),
+    /// so no claim outlives the scene. A header that never draws fails the scene: the check reads
+    /// the drawn rows (`SidebarView.debugRows`) of a sidebar that shows, never only the model.
     func renderCloudMachineDisconnected(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                         windowID: String) async -> CmuxNextSettings.JSONValue {
         let ids = Self.endedLinkMachines.map(\.id)
+        guard let controller = services.windows.controller(for: windowID) else {
+            return .object(["error": .string("no window for the Cloud machine headers"), "scene": .string(definition.name)])
+        }
+        // A saved hidden or collapsed sidebar would keep its rows mounted but out of the picture.
+        controller.sidebar.restore(width: 300, hidden: false)
         let groupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
-        func removeMachines() {
-            for id in ids {
-                services.machines.remove(id)?.disconnect()
-                services.windows.pendingClaims.removeValue(forKey: "ws-\(id)")
-            }
+        for id in ids { services.machines.remove(id)?.disconnect() }
+        defer {
+            for id in ids { services.machines.remove(id)?.disconnect() }
             services.windows.reconcileMembership()
             DesignSettings.shared.sidebarSections.groupsByComputer = groupedBefore
         }
-        for id in ids { services.machines.remove(id)?.disconnect() }
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
@@ -527,7 +531,6 @@ extension CaptureSceneRegistry {
             session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(machine.id)", workspaces: [
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-\(machine.id)"), name: "workspace-1"),
             ]))
-            services.windows.claimNew(workspaceID: "ws-\(machine.id)", window: windowID)
             // A click's connect: its `cloud.machine.connect` fails, and the link ends.
             session.connect(origin: .user)
         }
@@ -548,7 +551,6 @@ extension CaptureSceneRegistry {
         let frameStats = frames.stop()
         let report = endedLinkReport(windowID: windowID)
         guard settled != nil else {
-            removeMachines()
             return .object(["error": .string(listed == nil ? "the Cloud machine headers never reached the sidebar list with their ended link"
                                                            : "the Cloud machine headers never drew in the sidebar's visible part"),
                             "scene": .string(definition.name), "scene_action": report, "frames": frameStats])
@@ -556,7 +558,6 @@ extension CaptureSceneRegistry {
         var snapshotParams = params
         snapshotParams["window"] = .string(windowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
-        removeMachines()
         guard case .object(var result) = snapshot else { return snapshot }
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
@@ -575,17 +576,23 @@ extension CaptureSceneRegistry {
     }
 
     /// The sidebar list's scroll view in `windowID`, and its visible part in top-left window points
-    /// (as `SidebarDebugRow.windowFrame` is).
+    /// (as `SidebarDebugRow.windowFrame` is): the clip view's bounds within the sidebar's own visible
+    /// rect. Nil while the sidebar or a parent is hidden, or nothing of the list is visible.
     func endedLinkVisibleList(windowID: String) -> (scroll: NSScrollView, visible: CGRect)? {
-        guard let controller = services.windows.controller(for: windowID),
-              let scroll = Self.endedLinkScrollView(in: controller.sidebar.container.sidebarView) else { return nil }
+        guard let controller = services.windows.controller(for: windowID) else { return nil }
+        let sidebar = controller.sidebar.container.sidebarView
+        guard !sidebar.isHiddenOrHasHiddenAncestor, sidebar.window != nil, !sidebar.visibleRect.isEmpty,
+              let scroll = Self.endedLinkScrollView(in: sidebar), !scroll.isHiddenOrHasHiddenAncestor else { return nil }
         let height = controller.window?.contentView?.bounds.height ?? 0
         let clip = scroll.contentView.convert(scroll.contentView.bounds, to: nil)
+            .intersection(sidebar.convert(sidebar.visibleRect, to: nil))
+        guard !clip.isEmpty else { return nil }
         return (scroll, CGRect(x: clip.minX, y: height - clip.maxY, width: clip.width, height: clip.height))
     }
 
-    /// Whether machine `id`'s header is drawn: its row view is in the list, has a size, is neither
-    /// suppressed nor faded out, and its middle is inside the list's visible part.
+    /// Whether machine `id`'s header is drawn: the sidebar shows (``endedLinkVisibleList(windowID:)``),
+    /// the header's row view is in the list, has a size, is neither suppressed nor faded out, and its
+    /// middle is inside the list's visible part.
     func endedLinkHeaderShown(_ id: String, windowID: String) -> Bool {
         guard let row = endedLinkHeader(id, windowID: windowID), let list = endedLinkVisibleList(windowID: windowID) else { return false }
         return row.inList && !row.suppressed && row.windowFrame.height > 0 && (row.viewAlpha ?? 0) > 0
