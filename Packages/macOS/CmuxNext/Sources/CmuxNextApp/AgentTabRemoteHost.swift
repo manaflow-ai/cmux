@@ -11,6 +11,10 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The chat's session; nil for a new chat that ``start`` starts on its machine first.
     let session: String?
     let machine: String
+    let hostID: String
+    /// The daemon's store host (`registry:<id>`, ``AgentTabStore/registryHost(of:)``), which opening a
+    /// remote child checks its lineage under; the wire notes the daemon's links under it too.
+    var linksHost: String?
     let endpoint: AgentSessionAttachClient.EndpointProvider
     /// `.observe` opens the remote session as a read-only viewer with no mutation fallback.
     var mode: AgentSessionAttachClient.Mode = .attach
@@ -61,14 +65,14 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             return try answer.get()
         }
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, trust: mode == .attach && servesTrust ? ask : nil)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [endpoint] in
                 RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason] cwd, harness, model in
                     let started: AgentTabRemoteStart.Started
                     do {
@@ -79,7 +83,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, trust: servesTrust ? ask : nil)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)

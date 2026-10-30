@@ -4,6 +4,7 @@ import CmuxNextDevices
 import CmuxNextServer
 import CmuxNextWakeups
 import CmuxScreenKit
+import CmuxNextTestSupport
 import CryptoKit
 import Foundation
 import Testing
@@ -854,7 +855,7 @@ struct MacScreenHubHostOrderTests {
 }
 
 /// The host's approval prompt is visible every time, not only the first.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct MacScreenApprovalPanelTests {
     @Test func everyPromptHasAVisibleFrame() throws {
         let prompt = MacScreenApprovalPrompt()
