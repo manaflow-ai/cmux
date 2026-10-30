@@ -96,6 +96,10 @@ public nonisolated struct KeyBindingDefaults {
         "home.nextConversation", "home.previousConversation", "home.selectConversationByNumber",
     ]
 
+    /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
+    /// where ``onHome`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
+    public static let homeScoped: Set<ActionID> = ["home.zoomIn", "home.zoomOut", "home.zoomReset"]
+
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
     /// sidebar order, wrapping as tabs do. Ctrl-Tab / Ctrl-Shift-Tab and Ctrl-1…9 are also the
     /// actions' catalog keys; Cmd-Shift-] / [ are aliases. They go after the Chrome tab keys
@@ -153,6 +157,11 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
+        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home zoom the Chief chat, as they zoom an agent chat or a page.
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onHome),
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onHome),
+        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onHome),
+        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onHome),
         // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
         // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
         KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
@@ -213,7 +222,17 @@ public nonisolated struct KeyBindingDefaults {
 
     /// Aliases that follow their action's catalog key: present only while
     /// the action has its default key (no cmux.json override or chord).
-    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases }
+    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases + spaceAliases }
+
+    /// The space keys (plans/cmux-next/spaces-overhaul-DESIGN.md "Keys"). Previous / Next Space's catalog
+    /// keys are Ctrl-Opt-Cmd-Left / Right; Opt-Cmd-[ / ] stay as aliases (not in the code editor, whose keys they are). Select Space 1…9 keeps its
+    /// catalog Ctrl-Opt-1…9 (the Number Keys card's scheme, ``ShortcutDigitScheme``) and adds
+    /// Ctrl-Opt-Cmd-1…9. Ctrl-Cmd-arrows and Ctrl-Cmd-digits were asked for, but they are Ghostty's
+    /// reserved pane resize and Focus Pane by Number; Ctrl-arrows and Ctrl-digits are Mission Control's.
+    public static let spaceAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("[", modifiers: [.option, .command])], command: "space.previous", when: .not(.has(KeyContext.codeEditorFocusedKey))),
+        KeyBinding(keys: [Shortcut("]", modifiers: [.option, .command])], command: "space.next", when: .not(.has(KeyContext.codeEditorFocusedKey))),
+    ] + (1...9).map { KeyBinding(keys: [Shortcut(String($0), modifiers: [.control, .option, .command])], command: "space.selectByNumber", argument: String($0)) }
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the

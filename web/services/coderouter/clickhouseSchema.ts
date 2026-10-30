@@ -45,6 +45,11 @@ export const CLICKHOUSE_EXPECTED_COLUMNS: readonly ClickHouseExpectedColumn[] = 
   ...columns("usage_events", "005_usage_events_api_key.sql", ["api_key_id"]),
   ...columns("route_events", "005_usage_events_api_key.sql", ["api_key_id"]),
   ...columns("route_events", "006_route_events_capacity_hold.sql", ["held_ms", "hold_count"]),
+  ...columns("vm_runtime_events", "007_vm_runtime_events.sql", [
+    "event_id", "event_type", "event_time", "interval_id", "interval_started_at", "vm_id",
+    "stack_user_id", "team_id", "plan_id", "provider", "vcpus", "memory_mb", "source",
+    "version", "recorded_at",
+  ]),
 ];
 
 export type ClickHouseSchemaCheck =

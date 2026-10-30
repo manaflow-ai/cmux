@@ -17,8 +17,7 @@ pub(crate) const TEAMMATE_ALLOWLIST: &[&str] = &["lawrence@manaflow.ai"];
 pub(crate) enum Scope {
     /// The read-only probe: host name, OS, version, session, access.
     Status,
-    /// Run and watch agent sessions. Reserved: refused until the filtered
-    /// daemon proxy exists (design slice 3).
+    /// Attach to shared agent chats through the filtered proxy.
     Agents,
     /// A full daemon connection: terminals and input, as the teammate.
     Shell,
@@ -45,7 +44,7 @@ impl Scope {
     fn describe(self) -> &'static str {
         match self {
             Self::Status => "see this machine's cmux status (read-only)",
-            Self::Agents => "start and watch cmux agent sessions (not available yet)",
+            Self::Agents => crate::localization::catalog().host_share.agents,
             Self::Shell => {
                 "open your cmux terminals and run any command as you (full shell access)"
             }
@@ -53,7 +52,7 @@ impl Scope {
     }
 }
 
-/// One teammate grant in `remote.json`.
+/// One teammate grant in the host config.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Grant {
     pub login: String,
@@ -66,6 +65,19 @@ pub(crate) struct Grant {
     pub consented_via: Option<String>,
     #[serde(default)]
     pub revoked_at: Option<String>,
+}
+
+/// Records `login`'s approved grant of `scopes`, replacing any earlier one. The write goes
+/// through `config::commit`, which closes the open connections admitted under the old grant.
+pub(crate) fn replace(config: &mut Config, login: &str, scopes: Vec<Scope>) {
+    config.grants.retain(|g| !same_login(&g.login, login));
+    config.grants.push(Grant {
+        login: login.to_owned(),
+        scopes,
+        consented_at: Some(now_rfc3339()),
+        consented_via: Some("cli-tty".to_owned()),
+        revoked_at: None,
+    });
 }
 
 pub(crate) fn on_allowlist(login: &str) -> bool {
@@ -104,9 +116,9 @@ pub(crate) fn check(config: &Config, login: &str) -> Check {
     Check::Granted(scopes)
 }
 
-/// Whether the scopes allow a full daemon connection (`op: connect`).
+/// Whether the scopes allow a connection; agents use the filtered proxy.
 pub(crate) fn may_connect(scopes: &[Scope]) -> bool {
-    scopes.contains(&Scope::Shell)
+    scopes.contains(&Scope::Shell) || scopes.contains(&Scope::Agents)
 }
 
 /// A grant needs a person: stdin and stderr must both be terminals, so no

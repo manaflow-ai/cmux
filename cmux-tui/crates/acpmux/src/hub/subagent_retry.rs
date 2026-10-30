@@ -30,8 +30,8 @@
 //!   to answer (it says to do nothing when the subagent already runs).
 //! - Once its prompt's turn ends with the subagent still failed (the agent did not resume it),
 //!   or it fails again, the next attempt waits; after the configured attempts it is given up
-//!   (`exhausted`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) comes with
-//!   hb-retry-turn's handler, on top of this.
+//!   (`exhausted`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
+//!   attempt now, or sends one more (`subagent_retry/manual.rs`).
 //! - While a retry waits, the subagent's entry in `_meta.acpmux.subagents` carries
 //!   `retry: {attempt, of, reason, nextAt}` (`nextAt` in Unix ms). `retryable` says whether a
 //!   person's retry can work: true while acpmux knows its agent id and the chat is open, after a
@@ -40,7 +40,17 @@
 //!   when the retry fires (`retry: null`), is skipped or is given up, and each step logs `subagent_retry {subagentId, agentId, attempt,
 //!   of, reason, outcome, nextAt?, promptId?, skipped?}`, `outcome` one of `scheduled`, `fired`,
 //!   `skipped` or `exhausted`.
-//! - A wait is not persisted: a daemon restart drops it. A chat keeps at most [`MAX_FAILED`]
+//! - From an attempt's fire (automatic or a person's) until the subagent runs again or the
+//!   attempt is over, its entry carries `retryInFlight: {attempt, of, reason, firedAt, promptId,
+//!   manual}` (`firedAt` in Unix ms; capability `subagent-retry-v2`), and `null` on every other
+//!   entry acpmux logs: the next `scheduled`, `exhausted` or skipped one, a refused or given-back
+//!   attempt, a resume (`running`), Stop and close. A person's retry meanwhile is `retry.busy`.
+//!   Every entry reads it from the state at its logging ([`Hub::log_entry`]), so none can say
+//!   in flight after the attempt ended.
+//! - A wait is not persisted: a daemon restart (or a move) drops it. The chat's next load (or
+//!   its import) logs each entry the log left waiting or in flight again with `retry` and
+//!   `retryInFlight` null and `retryable: false` ([`Hub::settle_subagent_retries`]), and a retry
+//!   prompt its queue kept never starts ([`Retries::start`]). A chat keeps at most [`MAX_FAILED`]
 //!   failed subagents no retry waits for (given up or stopped, for a person's retry): past
 //!   that the oldest is forgotten, checked whenever one fails, is stopped or is given up. All
 //!   go at close, each entry then `retryable: false`.
@@ -48,7 +58,7 @@
 use super::{Hub, PromptOptions, Session, SessionStatus};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -56,6 +66,11 @@ use tokio::sync::Notify;
 
 /// The provenance kind of the prompt that asks for a subagent's resume.
 pub const PROVENANCE_KIND: &str = "subagent_retry";
+
+/// Whether a prompt of `provenance` is a subagent retry's.
+pub(super) fn is_retry(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(PROVENANCE_KIND)
+}
 
 /// Longest error text quoted to the agent, in characters.
 const MAX_ERROR_CHARS: usize = 300;
@@ -76,6 +91,29 @@ struct State {
     /// Retry prompts sent and not answered yet, by chat and prompt id: true once their retry
     /// was skipped, so a prompt that has not started is refused.
     sent: HashMap<(String, String), bool>,
+    /// Each chat's last [`MAX_GONE`] failed subagents that can no longer be retried, oldest
+    /// first, and why: what a person's retry of one answers (`manual.rs`).
+    gone: HashMap<String, VecDeque<Gone>>,
+}
+
+/// A failed subagent no retry can bring back: its id, agent id and why (`resumed`, `replaced`,
+/// `ended`, `forgotten` or `not_retryable`).
+struct Gone {
+    id: String,
+    agent_id: Option<String>,
+    why: &'static str,
+}
+
+/// Most subagents a chat remembers as no longer retryable.
+const MAX_GONE: usize = 64;
+
+/// Remembers in a chat's `gone` that its subagent `id` can no longer be retried, and why.
+fn note_gone(gone: &mut VecDeque<Gone>, id: &str, agent_id: Option<&str>, why: &'static str) {
+    gone.retain(|g| g.id != id);
+    if gone.len() >= MAX_GONE {
+        gone.pop_front();
+    }
+    gone.push_back(Gone { id: id.to_owned(), agent_id: agent_id.map(str::to_owned), why });
 }
 
 #[derive(Default)]
@@ -111,6 +149,10 @@ struct Wait {
     wake: Arc<Notify>,
     /// Its prompt went out.
     fired: bool,
+    /// When it fired, in Unix ms.
+    fired_at: u64,
+    /// A person's retry fired it (`manual.rs`).
+    manual: bool,
 }
 
 impl Wait {
@@ -139,18 +181,23 @@ impl Retries {
     }
 
     /// Starts the chat's turn of `prompt_id` (`start`), unless it is a retry prompt whose retry
-    /// was skipped since it went out: then the refusal. Under the lock a skip takes, so a skip
-    /// either comes first and the prompt never starts, or finds it started.
+    /// was skipped since it went out, or a `retry` prompt (its provenance says so) no attempt of
+    /// this daemon sent: one a restart or a move restored from the queue, whose retry is gone.
+    /// Then the refusal. Under the lock a skip takes, so a skip either comes first and the
+    /// prompt never starts, or finds it started.
     pub(super) fn start(
         &self,
         session_id: &str,
         prompt_id: &str,
+        retry: bool,
         start: impl FnOnce(),
     ) -> Result<(), RpcError> {
         let all = self.lock();
-        if all.sent.get(&(session_id.to_owned(), prompt_id.to_owned())) == Some(&true) {
+        let sent = all.sent.get(&(session_id.to_owned(), prompt_id.to_owned()));
+        if sent == Some(&true) || (retry && sent.is_none()) {
             return Err(RpcError::invalid_params(
-                "subagent_retry.skipped: the subagent was resumed, replaced or stopped",
+                "subagent_retry.skipped: the subagent was resumed, replaced or stopped, or the \
+                 daemon restarted",
             )
             .with_data(json!({"reason": "subagent_retry.skipped"})));
         }
@@ -209,7 +256,9 @@ impl Hub {
         let mut schedule = Vec::new();
         {
             let mut all = self.subagent_retries.lock();
+            let all = &mut *all;
             let subs = all.subs.entry(session.id.clone()).or_default();
+            let gone = all.gone.entry(session.id.clone()).or_default();
             for e in events.iter().filter(|e| e.get("parent").is_some_and(Value::is_null)) {
                 // acpmux's own retry updates (`log_step`) change nothing.
                 if e.get("retryable").is_some() {
@@ -264,12 +313,22 @@ impl Hub {
                             });
                             subs.insert(id.to_owned(), sub);
                             schedule.push(id.to_owned());
+                            gone.retain(|g| g.id != id);
+                        } else {
+                            // A bad request, a sign-in failure, or no agent id to resume it by.
+                            note_gone(gone, id, text("agentId"), "not_retryable");
                         }
                     }
                     // Completed, cancelled or gone: nothing more to retry.
                     _ => {
-                        if let Some(f) = subs.remove(id).and_then(|s| s.failed) {
-                            skipped.push((id.to_owned(), f, "ended", state, false));
+                        match subs.remove(id).and_then(|s| s.failed) {
+                            Some(f) => skipped.push((id.to_owned(), f, "ended", state, false)),
+                            // Resumed earlier, it ended since.
+                            None => {
+                                if let Some(g) = gone.iter_mut().find(|g| g.id == id) {
+                                    g.why = "ended";
+                                }
+                            }
                         }
                     }
                 }
@@ -378,6 +437,7 @@ impl Hub {
             let mut all = self.subagent_retries.lock();
             let mut waits = Vec::new();
             if closed {
+                all.gone.remove(&session.id);
                 // Every failure goes, waiting or not: each entry then says it can't be retried.
                 for (id, sub) in all.subs.remove(&session.id).into_iter().flatten() {
                     if let Some(f) = sub.failed {
@@ -401,9 +461,74 @@ impl Hub {
             // After a Stop a person can still retry it; not after close.
             self.skip_wait(session, &id, failure, why, "failed", !closed);
         }
-        if !closed {
+        if closed {
+            // Every entry it logged is settled now.
+            self.set_retry_open(session, false);
+        } else {
             self.forget_past_limit(session);
         }
+    }
+
+    /// The chat's log entries say a retry waits or is in flight (`open`), or none does: kept in
+    /// its saved meta for the next load ([`Hub::settle_subagent_retries`]). Saved on a change
+    /// only.
+    fn set_retry_open(&self, session: &Session, open: bool) {
+        let changed = {
+            let mut meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::replace(&mut meta.subagent_retry_open, open) != open
+        };
+        if changed {
+            self.save_meta(session);
+        }
+    }
+
+    /// At a chat's load (`log_load.rs`) or its arrival from another daemon (`transfer.rs`):
+    /// each subagent whose last entry acpmux logged has a retry waiting or in flight gets one
+    /// more entry, `retry` and `retryInFlight` null and `retryable: false`, in its last state.
+    /// That retry was this daemon's (or the source's) and is gone: a person's retry of it now
+    /// answers `retry.unknown_subagent`. Read only when the saved meta says an entry may be
+    /// open (a close settles its chat's; one the daemon stopped in the middle of is settled
+    /// here too). A log that cannot be read keeps the mark, for the next load.
+    pub(super) fn settle_subagent_retries(&self, session: &Session) {
+        let open = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !open.subagent_retry_open {
+            return;
+        }
+        drop(open);
+        // Each subagent's last state and agent id, and whether acpmux's last entry left it open.
+        let mut subs: HashMap<String, (Value, Value, bool)> = HashMap::new();
+        let kinds = ["subagent_state_update"];
+        let scanned =
+            self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
+                let entries =
+                    e.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array);
+                for entry in entries.into_iter().flatten() {
+                    let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
+                    let sub =
+                        subs.entry(id.to_owned()).or_insert((Value::Null, Value::Null, false));
+                    for (key, slot) in [("state", &mut sub.0), ("agentId", &mut sub.1)] {
+                        if let Some(v) = entry.get(key).filter(|v| v.is_string()) {
+                            *slot = v.clone();
+                        }
+                    }
+                    if entry.get("retryable").is_some() {
+                        let set = |k: &str| entry.get(k).is_some_and(|v| !v.is_null());
+                        sub.2 = set("retry") || set("retryInFlight");
+                    }
+                }
+                true
+            });
+        if let Err(e) = scanned {
+            tracing::warn!(session = %session.id, "settling subagent retries: {e}");
+            return;
+        }
+        for (id, (state, agent_id, _)) in subs.into_iter().filter(|(_, s)| s.2) {
+            let state = state.as_str().unwrap_or("failed").to_owned();
+            let entry = json!({"id": id, "parent": null, "state": state, "agentId": agent_id,
+                "retry": null, "retryInFlight": null, "retryable": false});
+            self.append_entry(session, &id, &state, entry);
+        }
+        self.set_retry_open(session, false);
     }
 
     /// Forgets the chat's oldest failures past [`MAX_FAILED`] no retry waits for: each entry
@@ -478,6 +603,8 @@ impl Hub {
                 prompt_id: format!("subagent-retry-{tool}-{}-{next_at}", attempts + 1),
                 wake: Arc::new(Notify::new()),
                 fired: false,
+                fired_at: 0,
+                manual: false,
             };
             failure.wait = Some(wait.clone());
             (failure.clone(), wait, delay)
@@ -573,29 +700,53 @@ impl Hub {
         let Some((failure, name)) = fired else { return false };
         let provenance = json!({"kind": PROVENANCE_KIND, "subagentId": id,
             "agentId": failure.agent_id, "attempt": wait.attempt});
+        let opts = PromptOptions { provenance: Some(provenance), ..PromptOptions::default() };
+        let result =
+            self.send_attempt(session, id, wait, &failure, name.as_deref(), opts, None).await;
+        if let Err(e) = result {
+            tracing::warn!(session = %session.id, subagent = id, "subagent retry: {}", e.message);
+        }
+        self.end_attempt(session, id, wait)
+    }
+
+    /// The sent `wait`'s prompt answered: no longer refused at its start. Whether the wait is
+    /// still the subagent's (its turn ended with it still failed), taken.
+    fn end_attempt(&self, session: &Session, id: &str, wait: &Wait) -> bool {
+        let sent = (session.id.clone(), wait.prompt_id.clone());
+        self.subagent_retries.lock().sent.remove(&sent);
+        self.take_wait(session, id, wait).is_some()
+    }
+
+    /// Sends fired `wait`'s prompt under `opts` (its rules and provenance) and waits for its
+    /// turn, telling `accepted` once the prompt is recorded: the prompt's outcome.
+    #[allow(clippy::too_many_arguments)]
+    async fn send_attempt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        id: &str,
+        wait: &Wait,
+        failure: &Failure,
+        name: Option<&str>,
+        mut opts: PromptOptions,
+        accepted: Option<Box<dyn FnOnce(Value) + Send>>,
+    ) -> Result<Value, RpcError> {
         // Stop, close or a resume between the fire and the queue: taken back from the queue.
         let (hub, owner, sub, sent) = (self.clone(), session.clone(), id.to_owned(), wait.clone());
-        let on_accepted: Box<dyn FnOnce(Value) + Send> = Box::new(move |accepted: Value| {
-            if accepted.get("queued") == Some(&json!(true)) && !hub.is_wait(&owner, &sub, &sent) {
+        let on_accepted: Box<dyn FnOnce(Value) + Send> = Box::new(move |v: Value| {
+            if v.get("queued") == Some(&json!(true)) && !hub.is_wait(&owner, &sub, &sent) {
                 tokio::spawn(async move {
                     hub.remove_queued_because(&owner, &sent.prompt_id, Some(PROVENANCE_KIND));
                 });
             }
+            if let Some(accepted) = accepted {
+                accepted(v);
+            }
         });
-        let opts = PromptOptions {
-            prompt_id: Some(wait.prompt_id.clone()),
-            provenance: Some(provenance),
-            on_accepted: Some(on_accepted),
-            ..PromptOptions::default()
-        };
-        let text = retry_text(name.as_deref(), &failure.agent_id, &failure.error);
+        opts.prompt_id = Some(wait.prompt_id.clone());
+        opts.on_accepted = Some(on_accepted);
+        let text = retry_text(name, &failure.agent_id, &failure.error);
         let blocks = vec![json!({"type": "text", "text": text})];
-        if let Err(e) = self.prompt_with(session, blocks, "acpmux", false, opts).await {
-            tracing::warn!(session = %session.id, subagent = id, "subagent retry: {}", e.message);
-        }
-        let sent = (session.id.clone(), wait.prompt_id.clone());
-        self.subagent_retries.lock().sent.remove(&sent);
-        self.take_wait(session, id, wait).is_some()
+        self.prompt_with(session, blocks, "acpmux", false, opts).await
     }
 
     /// Whether `wait` is still the subagent's.
@@ -626,6 +777,7 @@ impl Hub {
         let failed = sub.failed.as_mut()?;
         let ours = failed.wait.as_mut().filter(|w| w.is(wait) && !w.fired)?;
         ours.fired = true;
+        ours.fired_at = crate::store::now_ms();
         let failure = failed.clone();
         sub.attempts = sub.attempts.max(wait.attempt);
         all.sent.insert((session.id.clone(), wait.prompt_id.clone()), false);
@@ -652,10 +804,16 @@ impl Hub {
         session: &Arc<Session>,
         id: &str,
         failure: Failure,
-        why: &str,
+        why: &'static str,
         state: &str,
         retryable: bool,
     ) {
+        // Closed, the chat answers for all; superseded, its new failure follows.
+        if !retryable && why != "closed" && why != "superseded" {
+            let mut all = self.subagent_retries.lock();
+            let gone = all.gone.entry(session.id.clone()).or_default();
+            note_gone(gone, id, Some(&failure.agent_id), why);
+        }
         let skipped = failure.wait.as_ref().filter(|wait| {
             wait.wake.notify_one();
             if !wait.fired {
@@ -697,7 +855,9 @@ impl Hub {
         self.append(session, "mux", "subagent_retry", msg);
     }
 
-    /// Logs the subagent's update with its retry state.
+    /// Logs the subagent's update with its retry state, and its attempt in flight as the state
+    /// holds it now (a fired wait still the subagent's, else null). The caller holds no lock of
+    /// the retries' state.
     fn log_entry(
         &self,
         session: &Session,
@@ -707,8 +867,43 @@ impl Hub {
         retry: Value,
         retryable: bool,
     ) {
+        let in_flight = self.in_flight(session, id);
+        let open = !retry.is_null() || !in_flight.is_null();
+        if open {
+            self.set_retry_open(session, true);
+        }
         let entry = json!({"id": id, "parent": null, "state": state,
-            "agentId": failure.agent_id, "retry": retry, "retryable": retryable});
+            "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
+            "retryable": retryable});
+        self.append_entry(session, id, state, entry);
+        // The last open entry settled: no load needs to read the log for it.
+        if !open && !self.any_open(session) {
+            self.set_retry_open(session, false);
+        }
+    }
+
+    /// Whether one of the chat's failed subagents may have an entry logged open: a retry waits
+    /// or is in flight, or one may come (not stopped or given up, whose entries are settled).
+    fn any_open(&self, session: &Session) -> bool {
+        let all = self.subagent_retries.lock();
+        let subs = all.subs.get(&session.id).into_iter().flat_map(|s| s.values());
+        subs.filter_map(|s| s.failed.as_ref()).any(|f| f.wait.is_some() || !f.idle)
+    }
+
+    /// The subagent's `retryInFlight`: its wait that fired and is still its own, else null.
+    fn in_flight(&self, session: &Session, id: &str) -> Value {
+        let all = self.subagent_retries.lock();
+        let sub = all.subs.get(&session.id).and_then(|s| s.get(id));
+        let Some(failure) = sub.and_then(|s| s.failed.as_ref()) else { return Value::Null };
+        match failure.wait.as_ref().filter(|w| w.fired) {
+            Some(w) => json!({"attempt": w.attempt, "of": w.of, "reason": failure.reason,
+                "firedAt": w.fired_at, "promptId": w.prompt_id, "manual": w.manual}),
+            None => Value::Null,
+        }
+    }
+
+    /// Logs `entry` as the subagent's update.
+    fn append_entry(&self, session: &Session, id: &str, state: &str, entry: Value) {
         let update = json!({"jsonrpc": "2.0", "method": crate::rpc::method::SESSION_UPDATE,
             "params": {"sessionId": session.id,
                 "update": {"sessionUpdate": "subagent_state_update", "subagentSessionId": id,
@@ -717,6 +912,9 @@ impl Hub {
         self.append(session, "in", "subagent_state_update", update);
     }
 }
+
+#[path = "subagent_retry_manual.rs"]
+mod manual;
 
 #[cfg(test)]
 #[path = "subagent_retry_tests.rs"]
@@ -744,17 +942,22 @@ mod tests {
         let key = ("s1".to_owned(), "p".to_owned());
         retries.lock().sent.insert(key.clone(), false);
         let mut started = false;
-        retries.start("s1", "p", || started = true).unwrap();
+        retries.start("s1", "p", true, || started = true).unwrap();
         assert!(started);
         retries.lock().sent.insert(key, true);
         let mut again = false;
-        let refused = retries.start("s1", "p", || again = true).unwrap_err();
+        let refused = retries.start("s1", "p", true, || again = true).unwrap_err();
         assert!(!again);
         assert_eq!(refused.data.unwrap()["reason"], "subagent_retry.skipped");
-        retries.start("s1", "other", || {}).unwrap();
+        retries.start("s1", "other", false, || {}).unwrap();
         let mut elsewhere = false;
-        retries.start("s2", "p", || elsewhere = true).unwrap();
+        retries.start("s2", "p", false, || elsewhere = true).unwrap();
         assert!(elsewhere, "another chat's prompt of the same id starts");
+        // A retry prompt no attempt here sent (a restart restored it) never starts.
+        let mut restored = false;
+        let refused = retries.start("s2", "p", true, || restored = true).unwrap_err();
+        assert!(!restored);
+        assert_eq!(refused.data.unwrap()["reason"], "subagent_retry.skipped");
     }
 
     /// Past the limit the oldest stopped or given-up failures go; a waiting one stays.
@@ -774,6 +977,8 @@ mod tests {
                     prompt_id: String::new(),
                     wake: Arc::new(Notify::new()),
                     fired: false,
+                    fired_at: 0,
+                    manual: false,
                 }),
             }),
             ..Sub::default()

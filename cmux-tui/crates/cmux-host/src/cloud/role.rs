@@ -29,8 +29,9 @@ use serde_json::{Value, json};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
-use super::github::{self, TokenAsk};
-use super::github_minter::{Minter, Stop};
+use super::github;
+use super::github_minter::{Ask, Minter, Stop};
+use super::handoff::{self, HandoffReport};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -67,25 +68,67 @@ fn random_unit() -> f64 {
 /// Files under the agent's root: atomic (temp file + rename), parents 0700.
 pub struct FileStore {
     paths: Paths,
+    /// Tests: the next step of a write that fails.
+    #[cfg(test)]
+    fail_next: std::cell::Cell<Option<WriteStep>>,
+}
+
+/// The steps of a write that can fail (tests inject one).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteStep {
+    Write,
+    Permissions,
+    Rename,
+    Link,
+}
+
+/// A temp file removed when dropped, so no failure path leaves one behind.
+struct TempGuard {
+    path: PathBuf,
+}
+
+impl Drop for TempGuard {
+    fn drop(&mut self) {
+        match fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => log(&format!("{}: temp file cleanup: {e}", self.path.display())),
+        }
+    }
 }
 
 impl FileStore {
     pub fn new(paths: Paths) -> FileStore {
-        FileStore { paths }
+        FileStore {
+            paths,
+            #[cfg(test)]
+            fail_next: std::cell::Cell::new(None),
+        }
     }
 
     fn at(&self, file: &str) -> PathBuf {
         self.paths.at(file)
     }
-}
 
-impl Store for FileStore {
-    fn read(&self, file: &str) -> Option<String> {
-        fs::read_to_string(self.at(file)).ok()
+    /// Tests: makes `step` of the next write fail.
+    #[cfg(test)]
+    pub fn fail_next(&self, step: WriteStep) {
+        self.fail_next.set(Some(step));
     }
 
-    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
-        let path = self.at(file);
+    fn step(&self, step: WriteStep) -> io::Result<()> {
+        #[cfg(test)]
+        if self.fail_next.get() == Some(step) {
+            self.fail_next.set(None);
+            return Err(io::Error::other(format!("injected {step:?} failure")));
+        }
+        let _ = step;
+        Ok(())
+    }
+
+    /// A finished temp file next to `path`, holding `text` with `mode`. The
+    /// guard removes it when dropped (a rename that moved it leaves nothing).
+    fn temp_beside(&self, path: &Path, text: &str, mode: u32) -> Result<TempGuard, String> {
         let dir = path.parent().ok_or("no parent directory")?;
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let tmp = dir.join(format!(
@@ -101,10 +144,52 @@ impl Store for FileStore {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .map_err(|e| format!("{}: {e}", tmp.display()))?;
-        out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        out.set_permissions(fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-        drop(out);
-        fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+        let guard = TempGuard { path: tmp };
+        self.step(WriteStep::Write)
+            .and_then(|()| out.write_all(text.as_bytes()))
+            .map_err(|e| e.to_string())?;
+        self.step(WriteStep::Permissions)
+            .and_then(|()| out.set_permissions(fs::Permissions::from_mode(mode)))
+            .map_err(|e| e.to_string())?;
+        Ok(guard)
+    }
+}
+
+impl Store for FileStore {
+    fn read(&self, file: &str) -> Option<String> {
+        fs::read_to_string(self.at(file)).ok()
+    }
+
+    fn present(&self, file: &str) -> Result<bool, String> {
+        let path = self.at(file);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    }
+
+    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
+        let path = self.at(file);
+        let tmp = self.temp_beside(&path, text, mode)?;
+        self.step(WriteStep::Rename)
+            .and_then(|()| fs::rename(&tmp.path, &path))
+            .map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn create_new(&mut self, file: &str, text: &str, mode: u32) -> Result<bool, String> {
+        let path = self.at(file);
+        let tmp = self.temp_beside(&path, text, mode)?;
+        // link() fails on any existing entry (a file, a dangling symlink, a
+        // directory), so a record written after the caller's check is kept.
+        // The temp name goes when `tmp` drops, linked or not.
+        let linked = self.step(WriteStep::Link).and_then(|()| fs::hard_link(&tmp.path, &path));
+        drop(tmp);
+        match linked {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
     }
 
     fn remove(&mut self, file: &str) {
@@ -524,21 +609,22 @@ impl Worker {
                 Err(_) => closed.push(i),
             }
         }
-        // A GitHub token ask takes its connection to the minter, which
-        // answers it with one line and closes it: one ask per connection,
-        // and the poll loop never waits on a mint.
+        // A GitHub token ask or a hand-off report takes its connection to
+        // the minter, which answers it with one line and closes it: one ask
+        // per connection, and the poll loop never waits on the API.
         let mut session_lines = Vec::new();
-        let mut asks: Vec<(usize, Result<TokenAsk, String>)> = Vec::new();
+        let mut asks: Vec<(usize, Ask)> = Vec::new();
         for (i, line) in lines {
             // One ask per connection, and none from a client already gone:
-            // nobody would read the token.
+            // nobody would read the reply.
             if asks.iter().any(|(asker, _)| *asker == i) {
                 continue;
             }
-            if closed.contains(&i) && github_ask(&line).is_some() {
+            let ask = agent_ask(&line);
+            if closed.contains(&i) && ask.is_some() {
                 continue;
             }
-            match github_ask(&line) {
+            match ask {
                 Some(ask) => asks.push((i, ask)),
                 None => session_lines.push(line),
             }
@@ -613,7 +699,8 @@ impl Worker {
             Ok(bound) => bound,
             Err(e) => return log(&format!("bound.json unreadable: {e}")),
         };
-        // A machine bound by an older build has no kind record yet.
+        // A machine bound by an older build may have no kind record yet; one
+        // that has a record keeps it.
         if let Err(e) = super::client::record_owner_kind(&mut self.store) {
             log(&format!("vm-kind write: {e}"));
         }
@@ -806,12 +893,15 @@ fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHt
     Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
 }
 
-/// The ask of a `{"github_token": {...}}` line (checked), or `None` for
-/// every other line (the session's).
-fn github_ask(line: &str) -> Option<Result<TokenAsk, String>> {
+/// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
+/// line (checked), or `None` for every other line (the session's).
+fn agent_ask(line: &str) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
-    let ask = msg.get(github::REQUEST_KEY)?;
-    Some(TokenAsk::from_json(ask))
+    if let Some(ask) = msg.get(github::REQUEST_KEY) {
+        return Some(github::TokenAsk::from_json(ask).into());
+    }
+    let report = msg.get(handoff::REQUEST_KEY)?;
+    Some(HandoffReport::from_json(report).into())
 }
 
 /// Reads what is available; `Ok(false)` at end of stream.

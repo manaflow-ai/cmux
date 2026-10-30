@@ -6,7 +6,7 @@
 # (peer authentication of one connected socket, one held child, this process's
 # own children); a new `keep` row needs a review note in the commit.
 cmux-tui/crates/acpmux/src/adopt_live.rs	1	remove	cx-t2sqm.2 (OpenCode only; Claude and Codex use their recorded holders)
-cmux-tui/crates/acpmux/src/agent_host/tree.rs	1	remove	cx-t2sqm.3
+cmux-tui/crates/acpmux/src/agent_host/tree.rs	1	remove	cx-t2sqm.3; also the idle census (hub/idle_census.rs, #26174) until harnesses report what runs under them
 cmux-tui/crates/acpmux/src/hub/pool/reaper.rs	1	remove	cx-t2sqm.3
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs	2	remove	cx-t2sqm.4
@@ -47,3 +47,4 @@ cmux-tui/crates/cmux-tui-platform/src/platform/job_launch.rs	3	keep	one pid: the
 cmux-tui/crates/cmux-worktree-care/src/procs.rs	1	keep	one bounded check of one folder right before worktree care removes it (lsof -t +d <folder>: top level only, 10 s, a hit or an error keeps it); never a machine scan
 cmux-tui/crates/cmux-pty/src/macos.rs	2	keep	this process only: PROC_PIDLISTFDS of getpid() between fork and exec, to mark its own inherited descriptors close-on-exec (new-terminal-100x; macOS has no close_range)
 cmux-tui/crates/acpmux/src/agent_host/scope.rs	1	keep	one held child: the agent host this daemon just spawned, read only for its own cgroup to confirm systemd moved it into its scope before it starts its harness (#24858)
+cmux-tui/crates/acpmux/src/linux_sandbox/supervisor.rs	2	keep	seccomp supervisor resolves its own sandboxed child's /proc/<pid>/fd aliases (one held child)

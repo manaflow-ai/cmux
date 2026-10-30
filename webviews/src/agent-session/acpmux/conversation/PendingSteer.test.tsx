@@ -1,4 +1,4 @@
-import { afterEach, expect, jest, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -55,7 +55,7 @@ afterEach(async () => {
 const steers = { count: 0 };
 async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${(steers.count += 1)}` }) {
   const container = dom?.window.document.getElementById("root") ?? installDom();
-  const unsteer = async () => true;
+  const unsteer = async () => "back" as const;
   await act(async () => {
     root = createRoot(container);
     root.render(
@@ -67,27 +67,11 @@ async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerP
   return container;
 }
 
-// The fold's timer is the behavior: fake timers run it out.
-const runFold = () => act(() => void jest.advanceTimersByTime(1_000));
-
-afterEach(() => void jest.useRealTimers());
-
-test("Send now and the X fade out once Send now worked, while the steer still reads waiting", async () => {
+test("Send now and the X disappear immediately once delivery is accepted", async () => {
   const container = await render(true);
-  jest.useFakeTimers();
   expect(container.querySelector(".cv-user__take-back")).not.toBeNull();
-  // jsdom has no layout: the controls are 64px wide here.
-  Object.defineProperty(dom!.window.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 64 });
   const button = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   await act(async () => button.click());
-  // At once it leaves: no second click, and it fades and folds its width from where it was drawn
-  // (no line moves).
-  const leaving = container.querySelector<HTMLElement>(".cv-user__pending--leaving");
-  expect(leaving).not.toBeNull();
-  expect(leaving!.style.getPropertyValue("--cv-pending-width")).toBe("64px");
-  expect(leaving!.getAttribute("aria-hidden")).toBe("true");
-  expect(button.disabled).toBe(true);
-  await runFold();
   expect(container.querySelector(".cv-user__pending")).toBeNull();
 });
 
@@ -107,33 +91,28 @@ test("a row drawn again after Send now worked shows no controls while the steer 
 
 test("Send now remains available when delivery fails", async () => {
   const failed = await render(false);
-  jest.useFakeTimers();
   const failureButton = failed.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   await act(async () => failureButton.click());
-  await runFold();
   expect(failed.querySelector(".cv-user__send-now")).not.toBeNull();
   expect(failed.querySelector(".cv-user__pending--leaving")).toBeNull();
 });
 
-test("Send now and the X fold away when the agent reads the steer first", async () => {
+test("Send now and the X disappear when the agent reads the steer first", async () => {
   const container = installDom();
   root = createRoot(container);
   const draw = (row: AcpmuxRow) =>
     act(async () =>
       root!.render(
-        <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
           <PendingSteer row={row} send={() => new Promise<boolean>(() => {})} />
         </TurnActionsContext.Provider>,
       ),
     );
   const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-read-first" };
   await draw(steer);
-  jest.useFakeTimers();
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
   // acpmux's snapshot says the agent read it before Send now's reply came.
   await draw({ ...steer, version: 2, steer: "landed" });
-  expect(container.querySelector(".cv-user__pending--leaving")).not.toBeNull();
-  await runFold();
   expect(container.querySelector(".cv-user__pending")).toBeNull();
 });
 
@@ -142,7 +121,7 @@ test("a steer read before it was drawn has no Send now or X", async () => {
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+      <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
         <PendingSteer row={{ ...waiting, steer: "landed" }} send={async () => true} />
       </TurnActionsContext.Provider>,
     );

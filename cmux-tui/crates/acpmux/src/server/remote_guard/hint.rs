@@ -17,6 +17,7 @@
 //! before the folder: its way out is HOST's own CLI in the shell's own folder.
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// Why a remote `session/new` was refused, in `data.reason`: the daemon that forwarded it
@@ -116,11 +117,11 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
         Some(Value::Object(o)) => Value::Object(o),
         _ => json!({}),
     };
-    data["reason"] = json!(reason);
-    data["host"] = json!(peer.name);
-    data["try"] = json!(command);
+    data.set("reason", json!(reason));
+    data.set("host", json!(peer.name));
+    data.set("try", json!(command));
     if let Some(host) = run_on {
-        data["runOn"] = json!(host);
+        data.set("runOn", json!(host));
     }
     RpcError::new(e.code, message).with_data(data)
 }
@@ -259,8 +260,7 @@ fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> 
     let new = crate::cli::command::NewArgs::augment_args(clap::Command::new("new"));
     let args: Vec<_> = new.get_arguments().collect();
     let mut i = 0;
-    while i < words.len() {
-        let word = &words[i];
+    while let Some(word) = words.get(i) {
         if word == "--" {
             break;
         }
@@ -551,16 +551,13 @@ newlines')"#
     #[test]
     #[cfg(unix)]
     fn pasted_ssh_command_preserves_every_argument_and_prompt_file_byte() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("acpmux-hint-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir(&dir).unwrap();
         for (name, script) in [
             ("ssh", "#!/bin/sh\n[ \"$1\" = -- ] || exit 9\nshift 2\nexec /bin/sh -c \"$1\"\n"),
             ("acpmux", "#!/bin/sh\nprintf '%s\\0' \"$@\"\ncat\n"),
         ] {
-            let path = dir.join(name);
-            std::fs::write(&path, script).unwrap();
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            crate::test_exec::write_executable(dir.join(name), script);
         }
         let prompt = "'quoted' \"double\" $HOME $(exit 99) `exit 98`\nsecond line";
         let file = format!(

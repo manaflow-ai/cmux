@@ -103,6 +103,15 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
+    /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
+    /// setting reaches it (``SettingsApplier``).
+    public var wallpaperTint = false {
+        didSet {
+            guard wallpaperTint != oldValue else { return }
+            BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
+        }
+    }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
@@ -119,6 +128,9 @@ public final class DesignSettings {
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
     /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
     public var homeChiefBubblesThemed = false
+    /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
+    /// `sentText`, `received`, `receivedText`); empty keeps the bubble style's. A chat's own Chat Colors… go over it.
+    public var homeBubbleColors: [String: String] = [:]
     /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
     public var homeChiefPetEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.
@@ -170,9 +182,9 @@ public final class DesignSettings {
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
-    public var defaultColumnWidth: Double = 0.5
+    public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.
-    public var newColumnWidth: NewColumnWidthMode = .matchCurrent
+    public var newColumnWidth: NewColumnWidthMode = .fixed
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
     /// `layout.dockColumnEdge`, `layout.dockColumnMode`.
@@ -192,6 +204,9 @@ public final class DesignSettings {
     /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
     /// pane under the pointer (`command`, default), or the rule before it (`none`).
     public var layoutScrollModifier: LayoutScrollModifier = .command
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel (Figma,
+    /// Excalidraw zoom) keeps a Command scroll that starts over it; on by default.
+    public var pagesHandleCommandScroll = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

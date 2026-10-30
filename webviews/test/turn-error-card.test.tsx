@@ -9,6 +9,8 @@ import { failureCopy, failureKind, failureRecovery, offersOwnRoute } from "../sr
 import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
+import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
+
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };
 
@@ -69,12 +71,31 @@ test("every failure reads human, never as the agent's raw words", () => {
   expect(failureCopy(t, undefined, claude, "disk.full")).toContain("The disk is full");
 });
 
-test("the way out: Retry for what may pass, Switch model for capacity and keys, none for sign-in", () => {
+test("cloud auth failures explain safe causes without leaking provider output or machine names", () => {
+  const cloud = { name: "Claude Code", harness: "claude", hostKind: "cloud" as const, host: "secret-host.internal" };
+  expect(failureCopy(t, "Claude failed to authenticate: credential is missing", cloud)).toBe(
+    "This Cloud machine has no provider credential for Claude Code. Set it up to continue.",
+  );
+  expect(failureCopy(t, "OAuth token expired (HTTP 401): raw-secret-value", cloud)).toBe(
+    "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
+  );
+  expect(failureCopy(t, "credential was revoked: raw-secret-value", cloud)).toBe(
+    "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
+  );
+  expect(failureCopy(t, "HTTP 403 Forbidden: raw-secret-value", cloud)).toBe(
+    "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 403). Set them up again to continue.",
+  );
+  expect(failureKind("HTTP 401 Unauthorized from https://proxy.tail123.ts.net/v1/messages", cloud)).toBe("proxy-auth");
+  expect(failureKind("needs a team account on this machine; run cr add claude", cloud)).toBe("no-team-account");
+});
+
+test("the way out: Retry for what may pass (capacity too), Switch model for keys, none for sign-in", () => {
   expect(failureRecovery("disk-full")).toBe("retry");
   expect(failureRecovery("tailscale")).toBe("retry");
   expect(failureRecovery("agent-exited")).toBe("retry");
   expect(failureRecovery("other")).toBe("retry");
-  expect(failureRecovery("rate-limited")).toBe("switch-model");
+  // Capacity passes (Lawrence 2026-10-29): Continue or Retry leads, Switch model beside it.
+  expect(failureRecovery("rate-limited")).toBe("retry");
   expect(failureRecovery("invalid-key")).toBe("switch-model");
   expect(failureRecovery("subscription-login")).toBeUndefined();
   expect(failureRecovery("trust-pending")).toBeUndefined();
@@ -173,7 +194,37 @@ test('"agent process closed" draws a card: the cause, Retry first, the raw words
   expect([...details.querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Copy error"]);
 });
 
-test("capacity puts Switch model first, Retry after it", async () => {
+test("cloud credential transfer retries only the failed prompt after a successful transfer", async () => {
+  const calls: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          route: { name: "Claude Code", harness: "claude", hostKind: "cloud", host: "private.internal" },
+          transferCloudCredentials: async (rowId, prompt) => {
+            calls.push(`transfer:${rowId}:${prompt}`);
+          },
+          retry: (rowId, prompt) => calls.push(`retry:${rowId}:${prompt}`),
+        }}
+      >
+        <TurnFooter row={failed("HTTP 401 Unauthorized")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().querySelector(".cv-turn-error__cause")!.textContent).toBe(
+    "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 401). Set them up again to continue.",
+  );
+  expect(card().textContent).not.toContain("private.internal");
+  const transferButton = [...host.querySelectorAll("button")].find(
+    (element) => element.textContent === "Set up Claude Code credentials",
+  );
+  expect(transferButton).toBeDefined();
+  await act(async () => transferButton!.click());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(["transfer:user-1:Run the sidebar tests and fix what fails"]);
+});
+
+test("capacity puts Retry first, Switch model after it", async () => {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
@@ -182,9 +233,9 @@ test("capacity puts Switch model first, Retry after it", async () => {
     ),
   );
   const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
-  expect(labels).toEqual(["Switch model", "Retry"]);
-  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(labels).toEqual(["Retry", "Switch model"]);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
 });
 
 test("the typed reason reaches the card", async () => {
@@ -200,6 +251,74 @@ test("the typed reason reaches the card", async () => {
   // No retry wired: no Retry button, Details still there.
   expect(button("Retry")).toBeUndefined();
   expect(card().querySelector("details summary")!.textContent).toBe("Details");
+});
+
+// A long chat that outgrew the model's context window read as "ran into a problem and stopped" with
+// Retry, which sends the same prompt into the same history and fails the same way: a dead end. It
+// names the cause and offers Compact (the agent's own /compact) first, Retry after it.
+test("a chat that outgrew its context window reads as such, from the text or the typed reason", () => {
+  const cases = [
+    'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}',
+    "Prompt is too long",
+    "This model's maximum context length is 128000 tokens. However, your messages resulted in 131072 tokens.",
+    "context_length_exceeded",
+    "Your input exceeds the context window of this model. Please adjust your input and try again.",
+  ];
+  for (const message of cases) expect([message, failureKind(message, claude)]).toEqual([message, "context-full"]);
+  expect(failureKind("stream ended", claude, "context_window_exceeded")).toBe("context-full");
+  // A per-minute token limit is capacity, not a full context.
+  expect(failureKind("429 rate_limit_error: too many tokens per minute", claude)).toBe("rate-limited");
+  expect(failureRecovery("context-full")).toBe("compact");
+  expect(failureCopy(t, "Prompt is too long", claude)).toBe(
+    "This chat is too long for Claude Code’s context window. Compact it, then retry.",
+  );
+});
+
+test("a context-full card puts Compact first, sends it once, and keeps Retry after it", async () => {
+  let compacts = 0;
+  let settle: () => void = () => undefined;
+  const compact = () => {
+    compacts += 1;
+    return new Promise<void>((resolve) => (settle = resolve));
+  };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined, compact }}>
+        <TurnFooter row={failed("Prompt is too long")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("context-full");
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Compact", "Retry"]);
+  expect(button("Compact")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Compact")!.click());
+  await act(async () => button("Compact")!.click());
+  expect(compacts).toBe(1);
+  expect(button("Compact")!.hasAttribute("disabled")).toBe(true);
+  await act(async () => settle());
+  expect(button("Compact")!.hasAttribute("disabled")).toBe(false);
+});
+
+test("a harness without /compact keeps Retry as the context-full card's way out", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+        <TurnFooter row={failed("Prompt is too long")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Compact")).toBeUndefined();
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
+});
+
+test("Compact is offered only where the agent lists /compact", async () => {
+  const { offersCompact } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  expect(offersCompact([{ name: "compact", description: "Clear history but keep a summary" }])).toBe(true);
+  expect(offersCompact([{ name: "compact", description: "", source: "skill" }])).toBe(false);
+  expect(offersCompact([{ name: "review", description: "" }])).toBe(false);
+  expect(offersCompact(undefined)).toBe(false);
 });
 
 // Lawrence 2026-10-23, on a "Deepseek has no valid API key" card with Switch model and Copy error:
@@ -343,4 +462,104 @@ test("a failed turn with no prompt row to send again offers no Retry", async () 
   );
   expect(card().getAttribute("data-failure-kind")).toBe("agent-exited");
   expect(button("Retry")).toBeUndefined();
+});
+
+test("Cloud recovery reserves its prompt before login and retries once with that ticket", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const sent: unknown[][] = [];
+  let granted = true,
+    current = true,
+    switchDuringRestore = false;
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => {
+      if (switchDuringRestore) current = false;
+      return { input, attachments: [] };
+    },
+    send: async (...args: Parameters<import("../src/agent-session/acpmux/direct").AcpmuxDirectClient["send"]>) => {
+      sent.push(args);
+      return undefined;
+    },
+  };
+  const call = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, ...params });
+    return { transferred: granted, promptId: params.retryPromptId, ticket: "reserved-ticket" };
+  };
+  const isCurrent = () => current;
+  const getClient = () => client;
+  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "claude", call, isCurrent, getClient)!;
+  const pending = recover("row-1", "retry text");
+  // Duplicate clicks while native confirmation is open cannot reserve another prompt.
+  await recover("row-1", "retry text");
+  await pending;
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "chat.cloudCredentialTransfer",
+    provider: "claude",
+    machineID: "provider-vm-1",
+    sessionId: "chat-1",
+  });
+  expect(sent).toEqual([["retry text", [], calls[0]!.retryPromptId, undefined, "reserved-ticket"]]);
+  granted = false;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
+  granted = true;
+  switchDuringRestore = true;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
+  const count = calls.length;
+  await recover("row-1", "retry text");
+  expect(calls).toHaveLength(count);
+  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
+});
+
+test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
+  const providers: unknown[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    providers.push(params.provider);
+    return { transferred: false };
+  };
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => ({ input, attachments: [] }),
+    send: async () => undefined,
+  };
+  for (const id of [
+    "claude",
+    "claude-sr2",
+    "Claude_work",
+    "providers/claude-personal",
+    "codex",
+    "codex-work",
+    "Codex_personal",
+    "providers/codex-team",
+  ]) {
+    const recover = cloudCredentialRecovery(
+      true,
+      "vm",
+      "chat-1",
+      id,
+      call,
+      () => true,
+      () => client,
+    );
+    expect(recover).toBeDefined();
+    await recover!("row-1", "retry");
+  }
+  expect(providers).toEqual(["claude", "claude", "claude", "claude", "codex", "codex", "codex", "codex"]);
+  for (const id of [undefined, "", "opencode", "claudelike", "my-claude", "codex/"]) {
+    expect(
+      cloudCredentialRecovery(
+        true,
+        "vm",
+        "chat-1",
+        id,
+        call,
+        () => true,
+        () => client,
+      ),
+    ).toBeUndefined();
+  }
 });

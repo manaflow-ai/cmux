@@ -11,10 +11,14 @@ import Observation
 /// a read-only probe of the same feed.
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
-/// ``installAvailableUpdate()`` and ``switchChannel(to:)``. Nothing asks: updates
-/// download in the background and wait as the staged update card, and a
-/// check's progress and result show on the sidebar's notice card (``card``).
-/// The update sheet (``UpdateSheetModel``) opens only for a failure's details.
+/// ``installAvailableUpdate()`` and ``switchChannel(to:)``. No Sparkle window opens; Sparkle's
+/// user-driver steps are the sidebar's cards. Without the automatic-install opt-in
+/// (`updates.downloadAutomatically`, off by default on every channel) a found update is the
+/// update-found step (the notice card after Check for Updates, else the titlebar's Update
+/// Available) and a downloaded one is the Update Ready card, which asks before relaunching; with
+/// it, updates download by themselves and the Update Ready card still asks before the relaunch.
+/// A check's progress and result show on the notice card (``card``). The update sheet
+/// (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
 @Observable
 public final class UpdaterService {
@@ -55,6 +59,8 @@ public final class UpdaterService {
     @ObservationIgnored let snoozeTimer: DemandTimer
     /// The pulled-build banner (made on first use; it needs `self`).
     @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
+    /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
+    @ObservationIgnored var killSwitchReader: KillSwitchReader?
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -72,6 +78,12 @@ public final class UpdaterService {
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
     @ObservationIgnored let tipCheck: TipUpdateCheck
+    /// The release push's socket (``ReleasePushListener``), run by ``refreshReleasePush()``.
+    @ObservationIgnored let releasePush: ReleasePushListener
+    /// The pushed build not seen through yet and the reads left for it (``releasePushed(_:)``).
+    @ObservationIgnored var releasePushTarget: (build: String, reads: Int)?
+    /// The next read for ``releasePushTarget`` (one-shot; cancelled when the push stops).
+    @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -160,7 +172,18 @@ public final class UpdaterService {
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
-    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
+    /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
+    /// by itself until the settings load (``configure``).
+    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
+    /// ``configure`` applied the `updates.*` settings once: before that the fast check and the
+    /// release push read nothing (`updates.checkAutomatically` may be off).
+    @ObservationIgnored var settingsApplied = false
+    /// The found update waiting on the update-found step: its build, and the dismiss that ends its
+    /// Sparkle prompt without skipping it (a newer build replaces it, ``TipUpdateCheck``). Replaced by tests.
+    @ObservationIgnored var availableBuild: () -> String? = { nil }
+    @ObservationIgnored var dismissAvailable: () -> Void = {}
+    /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
+    @ObservationIgnored var downloadsFoundUpdates = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
@@ -173,19 +196,34 @@ public final class UpdaterService {
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
     /// Sparkle is about to relaunch into the update (set by the App: the quit keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
+    /// Quits and reopens the app behind once it exits (``UpdateRelaunchBehind``): the first closure
+    /// runs just before the quit (false: the user came into the app, so no quit), the second when
+    /// the app did not quit, the third when the first said no. Nil (tests, hosts without it) lets
+    /// Sparkle relaunch.
+    @ObservationIgnored public var relaunchBehind: ((_ willQuit: @escaping @MainActor () async -> Bool, _ declined: @escaping @MainActor () -> Void,
+                                                     _ inFront: @escaping @MainActor () -> Void) -> Void)?
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
+    /// Holds an automatic install while a modal, sheet, menu or composition is up (``UpdateRelaunchMoment``).
+    @ObservationIgnored let relaunchMomentHold: UpdateRelaunchMomentHold
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
+    /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
+    @ObservationIgnored var installingBuild: String?
+    /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
+    @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
+    /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
+    /// the app, a fake in tests.
+    @ObservationIgnored public var frontmost: () -> UpdateFrontmostApp = { UpdateFrontmostApp.current() }
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
     /// Whether the update sheet is on screen (set by the App): a note's
     /// timeout then leaves the state alone so the sheet keeps its details.
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
-    @ObservationIgnored private let policy: ManagedUpdatePolicy
+    @ObservationIgnored let policy: ManagedUpdatePolicy
     @ObservationIgnored let prober: UpdateProber
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let switcher: AppChannelSwitcher
@@ -213,11 +251,13 @@ public final class UpdaterService {
                 work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
         self.work = work
+        automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         tipCheck = TipUpdateCheck(clock: clock)
+        releasePushRetry = DemandTimer(owner: "UpdaterService.releasePush", clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -229,27 +269,29 @@ public final class UpdaterService {
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         let log = UpdateLogBuffer()
         self.log = log
+        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
+        releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
             // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
             let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
                                               isDisabledByPolicy: { policy.disablesUpdates })
-            // Never prompt: download in the background and wait for a click.
+            // No Sparkle window: the found and staged steps are the sidebar's cards.
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
             // The daemon keeps every terminal, agent and running turn, so all app relaunches are
             // immediate. `UpdateDriver` uses this same flag for automatic installs.
             controller.holdsUserInstalls = false
-            // The nightly feed lists each build's deltas minutes after its DMG
-            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
-            // waits once instead of downloading the full DMG. The tip feed lists an
-            // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
-            if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
-            // A nightly installs a downloaded update by itself once it is staged; the daemon
-            // preserves agents, commands and turns while the app relaunches.
-            controller.installsUpdatesWhenIdle = identity.track == .nightly
+            // A found update is offered at once, deltas listed or not: no check holds a build back
+            // for deltas that come minutes later (a later check uses them for the next build).
+            // Until the settings load (``configure``), a launch check's update waits: nothing
+            // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
+            // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
+            // agents, commands and turns while the app relaunches.
+            controller.installsUpdatesWhenIdle = false
+            controller.downloadsUpdatesInBackground = false
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS
@@ -263,9 +305,18 @@ public final class UpdaterService {
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
+            availableBuild = { [weak controller] in
+                guard case .updateAvailable(let available)? = controller?.model.state else { return nil }
+                return available.appcastItem.versionString
+            }
+            dismissAvailable = { [weak controller] in
+                guard case .updateAvailable(let available)? = controller?.model.state, !available.reply.isConsumed else { return }
+                available.reply(.dismiss)
+            }
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
         updateSnooze = UpdateSnooze(defaults: defaults)
     }
@@ -282,11 +333,13 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
+        if presentUpdateUI != nil { killSwitchReader = KillSwitchReader.start(updater: self) }
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()
         refreshUpdateSnooze()
         tipCheck.refresh(self)
+        refreshReleasePush()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -465,7 +518,10 @@ public final class UpdaterService {
             feedURL: testFeedURL ?? identity.feed().url,
             sparkleDisabledReason: reason,
             automaticChecks: reason == nil && bool(UpdateSettings.automaticChecksKey, fallback: true),
-            automaticDownloads: reason == nil && bool(UpdateSettings.automaticallyUpdateKey, fallback: false),
+            // cmux NEXT's own `updates.downloadAutomatically` as applied (network and managed policy
+            // included), not Sparkle's `SUAutomaticallyUpdate`: cmux NEXT stages through its own driver
+            // and turns that key off at every launch, and the legacy NIGHTLY app shares it.
+            automaticDownloads: reason == nil && downloadsFoundUpdates,
             phase: UpdatePhase(state),
             detectedVersion: controller?.model.detectedUpdateVersion,
             probing: isProbing,

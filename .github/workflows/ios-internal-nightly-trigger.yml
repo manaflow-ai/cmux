@@ -26,7 +26,7 @@ concurrency:
 jobs:
   decide:
     if: github.repository == 'manaflow-ai/cmux' && vars.IOS_INTERNAL_HOLD != '1'
-    runs-on: ubuntu-24.04 # github-hosted-required: iOS INTERNAL trigger never waits on Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       # actions: read lists earlier builds; actions: write dispatches one.

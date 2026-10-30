@@ -17,24 +17,40 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[cfg(unix)]
+#[path = "hub_integration/idle_census.rs"]
+mod idle_census;
+
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/carried_turns.rs"]
+mod carried_turns;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
 #[path = "hub_integration/full_access_guards.rs"]
 mod full_access_guards;
+#[path = "hub_integration/held_queue.rs"]
+mod held_queue;
+#[path = "hub_integration/inbox_digest.rs"]
+mod inbox_digest;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
+#[path = "hub_integration/log_retention.rs"]
+mod log_retention;
+#[path = "hub_integration/permission_display.rs"]
+mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/presence.rs"]
 mod presence;
+#[path = "hub_integration/prompt_class.rs"]
+mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]
@@ -73,6 +89,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stuck_liveness.rs"]
+mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]
@@ -1562,16 +1580,24 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
+#[path = "hub_integration/adopt_profile.rs"]
+mod adopt_profile;
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;
 
+#[path = "hub_integration/bg_tasks.rs"]
+mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/failover_unstartable.rs"]
+mod failover_unstartable;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
+#[path = "hub_integration/session_hibernate.rs"]
+mod session_hibernate;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;

@@ -26,6 +26,8 @@ export type AttemptPromotionSource = {
   readonly attemptId: string;
   readonly status: AttemptStatus | string;
   readonly provider: string;
+  /** `sandboxed` Runs (hq#3367) never become persistent. */
+  readonly environment?: string;
   readonly billingTeamId?: string | null;
   readonly providerVmId?: string | null;
   readonly providerWorkspaceId?: string | null;
@@ -202,6 +204,9 @@ function assertPromotable(source: AttemptPromotionSource, now = Date.now()): {
   readonly providerTerminalId: string;
   readonly sessionId: string;
 } {
+  if (source.environment === "sandboxed") {
+    throw new PromotionNotReadyError("a sandboxed run's machine is destroyed when the run ends and can't be promoted");
+  }
   if (source.status !== "succeeded") {
     throw new PromotionNotReadyError("the winning attempt has not completed successfully");
   }
@@ -337,6 +342,7 @@ export function runSnapshotPromotionSource(snapshot: RunSnapshot, attemptId: str
     attemptId: attempt.id,
     status: attempt.status,
     provider: snapshot.run.provider,
+    environment: snapshot.run.environment,
     billingTeamId: snapshot.run.billingTeamId,
     providerVmId: attempt.providerVmId,
     providerWorkspaceId: attempt.providerWorkspaceId,

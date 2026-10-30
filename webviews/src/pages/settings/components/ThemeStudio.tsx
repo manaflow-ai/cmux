@@ -3,7 +3,8 @@
 // pick) each have Match System Appearance for a light and dark pair, and the accent
 // (`appearance.accent`) is a swatch popup. Every theme choice is the same ThemePicker. The card also
 // shows the contrast the derived app tokens reach and the active window's scope overrides inline
-// (no space/workspace/terminal tabs). Overrides and the app theme are the host's theme levels. The
+// (no space/workspace/terminal tabs), and ends with the Highlight Color (`appearance.highlightColor`,
+// the app's one selected-text color). Overrides and the app theme are the host's theme levels. The
 // schema's App Theme group lists the same keys; SectionView draws none of them a second time.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
@@ -38,6 +39,7 @@ import { ResetButton, ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { RowFrame, RowStatus, SettingRow, useRowMenu } from "./SettingRow";
 import { ThemeFiles } from "./ThemeFiles";
+import { ThemeOverrides } from "./ThemeOverrides";
 import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
@@ -49,6 +51,9 @@ export const APP_THEME_KEY = "appearance.appTheme";
 export const THEME_EDITS_KEY = "appearance.themeEdits";
 /** appearance.accent: drawn here as the swatch popup, after the app theme. */
 export const ACCENT_KEY = "appearance.accent";
+/** appearance.highlightColor: drawn here as its setting row, after the accent (the App Theme group's
+ * last key: without it the page drew a second "App Theme" card for this one row). */
+export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";
 const FOLLOW_TERMINAL = "followTerminal";
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
@@ -150,6 +155,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     />
   );
   const accentRow = rowsByKey.get(ACCENT_KEY);
+  const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -277,6 +283,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
           />
         </figure>
       ) : null}
+      <ThemeOverrides disabled={!state.connected} />
       <section className="group" data-theme-rows="">
         <div className="rows">
           {names.length === 0 ? (
@@ -426,6 +433,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               />
             </StudioRow>
           )}
+          {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
         </div>
       </section>
     </div>

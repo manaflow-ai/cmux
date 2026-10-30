@@ -6,7 +6,7 @@
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
+import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
@@ -20,8 +20,6 @@ import {
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  MIN_GUTTER,
-  RAIL_LEFT,
   replyPreview,
   ROW_WIDTH,
   THREAD_PADDING_TOP,
@@ -42,6 +40,8 @@ import {
 
 /// A pointer that moves this far after pressing scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// How far the full-height map may lie over the transcript text, as the compact rail could on base.
+const MAP_MAX_OVERLAP = 8;
 /// The drawn lengths, at rest and fully grown: a prompt's tick, and a reply's.
 const USER_LENGTH = [11, TICK_BOX] as const;
 const AGENT_LENGTH = [5, 15] as const;
@@ -59,7 +59,7 @@ export function ScrollMap({
   scroller,
   viewportHeight,
   scrolls,
-  width,
+  placement,
   marks: bookmarks,
   jump,
 }: {
@@ -69,7 +69,8 @@ export function ScrollMap({
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   scrolls: boolean;
-  width: number;
+  /// The compact rail's pane-edge placement (useRailPlacement), measured against the actual text.
+  placement: { left: number; width: number; overlapsText: boolean; gutter: number };
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
@@ -101,11 +102,15 @@ export function ScrollMap({
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
+  // The full-height map keeps its 36 px box and has no reveal strip, so it shows only where that box
+  // overlaps the text by at most MAP_MAX_OVERLAP: past that its click and drag handlers would take
+  // text selection and links (the compact rail compresses and reveals itself instead).
   const shown =
     turns.length >= MAP_MIN_PROMPTS &&
     scrolls &&
     height > 4 * MAP_MARGIN &&
-    transcriptColumn(width).inset >= MIN_GUTTER;
+    !placement.overlapsText &&
+    placement.width >= ROW_WIDTH - MAP_MAX_OVERLAP;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
@@ -243,12 +248,12 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap">
+    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       <nav
         ref={rail}
         className="acpmux-minimap__rail acpmux-scrollmap"
         aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: MAP_MARGIN, width: ROW_WIDTH, height }}
+        style={{ left: placement.left, top: MAP_MARGIN, width: ROW_WIDTH, height }}
         data-hovering={pointerY !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
@@ -331,12 +336,15 @@ export function ScrollMap({
         <PreviewCard
           ref={card}
           id={cardId}
-          x={RAIL_LEFT + ROW_WIDTH}
+          x={placement.left + ROW_WIDTH}
+          railLeft={placement.left}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
+          metadata={cardTurn?.metadata}
+          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
               ? { marked: cardMarked, toggle: () => bookmarks.toggle(cardTurn) }

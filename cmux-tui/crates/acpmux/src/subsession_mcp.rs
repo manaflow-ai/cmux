@@ -8,6 +8,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-subsessions";
@@ -55,7 +56,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "start_session",
-            "description": "Start a sub-session: a new agent session that works on a task in parallel with you, as your child. It is a normal session (it resumes, forks and lists like any other) and it may start its own sub-sessions. The user finds it listed under your chat in the chat list; to put its chat in front of them, open it with the cmux MCP server's app_agent_open and its sessionId. It starts with none of your context: the prompt must carry the whole task (files, goal, constraints, how to report). Returns at once with its sessionId while it works; use wait_for_sessions or get_session to read its result, send_message to steer it, stop_session to stop or close it. Limits: each session may have a limited number of open sub-sessions, a limited number running at once (maxRunning; a start past it is queued and starts by itself when a running one finishes), and nesting is limited in depth (list_sessions shows yours under self); a refused start says which limit and how to ask for more.",
+            "description": "Start a sub-session: a new agent session that works on a task in parallel with you, as your child. It is a normal session (it resumes, forks and lists like any other) and it may start its own sub-sessions. The user finds it listed under your chat in the chat list; to put its chat in front of them, open it with the cmux MCP server's app_agent_open and its sessionId. It starts with none of your context: the prompt must carry the whole task (files, goal, constraints, how to report). Returns at once with its sessionId while it works; use wait_for_sessions or get_session to read its result, send_message to steer it, stop_session to stop or close it. Limits: each session may have a limited number of live sub-sessions (running, waiting for input, or with a harness process alive; finished, dead and closed ones do not count), a limited number running at once (maxRunning; a start past it is queued and starts by itself when a running one finishes), and nesting is limited in depth (list_sessions shows yours under self); a refused start says which limit and how to ask for more.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -64,7 +65,7 @@ fn tools() -> Value {
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
                     "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours. A folder the user has not trusted makes the call wait on a Trust / Not now card in your chat; Not now refuses it (do not ask again)."},
-                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. With no room the start is refused and says why; with room the result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\". \"auto-build\" checks the same for a build or a test run, which only a build machine takes. Default: this machine, unchecked."},
+                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
                     "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
                 },
                 "required": ["prompt"]
@@ -72,7 +73,7 @@ fn tools() -> Value {
         },
         {
             "name": "list_sessions",
-            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user allows a permission, in the app, so tell the user what it asks; a question you may answer with answer_question (see get_session's questions).",
+            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; live children) and your own limits: depth, live sub-sessions, maxChildren and maxDepth. A live child is running, waiting for input, or has a harness process alive; finished, dead and closed children do not count toward maxChildren. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user allows a permission, in the app, so tell the user what it asks; a question you may answer with answer_question (see get_session's questions).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -110,7 +111,7 @@ fn tools() -> Value {
                     "text": {"type": "string"},
                     "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default): into the running turn, read at its next tool step. after_turn: queued behind the running turn, read when it ends. interrupt: stop the running turn, then run this (not to your parent)."},
                     "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
-                    "attachments": {"type": "array", "items": {"type": "string"}, "maxItems": crate::attach::MAX_FILES, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log): an image reaches the receiver as an image, any other file as a link to its saved copy. At most 8 MiB a file and 10 MiB together."}
+                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log, a video), of any size and number: an image reaches the receiver as an image, any other file (and an image too large to show) as a link to its saved copy."}
                 },
                 "required": ["sessionId", "text"]
             }
@@ -129,12 +130,12 @@ fn tools() -> Value {
         },
         {
             "name": "retry_session",
-            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. Refused while a turn runs (retry.busy), when its last turn did not fail (retry.nothing_failed), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId; use wait_for_sessions to read the result.",
+            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. With subagent, resume that failed subagent of the sub-session instead: a waiting automatic retry fires now, or its agent is told to resume it with SendMessage. Refused while a turn runs or is about to start (retry.busy, never queued for a subagent), when nothing failed or the subagent can no longer be retried (retry.nothing_failed, data.why says why: resumed, replaced, ended, skipped, ...), for a subagent it does not have (retry.unknown_subagent), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId and kind (turn or subagent); use wait_for_sessions to read the result.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "session": {"type": "string", "description": "The sub-session's sessionId."},
-                    "subagent": {"type": "string", "description": "One of its failed subagents, by agent id. Not supported yet: refused with retry.subagent_unsupported."}
+                    "subagent": {"type": "string", "description": "One of its failed subagents (an Agent-tool subagent that failed on a transient error), by id or agent id: its agent is told to resume it now with SendMessage, instead of retrying the turn. Refused with retry.nothing_failed when it is not failed or cannot be retried, retry.unknown_subagent when there is no such subagent."}
                 },
                 "required": ["session"]
             }
@@ -158,7 +159,7 @@ fn tools() -> Value {
         },
         {
             "name": "set_session_limits",
-            "description": "Set a sub-session's own limits (most open sub-sessions, most running at once, deepest nesting), at most your own limits. null clears a value (it then inherits yours). Read your own limits, and how many of your sub-sessions run or wait now, with list_sessions (self). You cannot raise your own limits: ask the user (they change them in cmux NEXT) or your parent session.",
+            "description": "Set a sub-session's own limits (most live sub-sessions, most running at once, deepest nesting), at most your own limits. A live child is running, waiting for input, or has a harness process alive; finished, dead and closed children do not count toward maxChildren. null clears a value (it then inherits yours). Read your own limits, and how many of your sub-sessions run or wait now, with list_sessions (self). You cannot raise your own limits: ask the user (they change them in cmux NEXT) or your parent session.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -240,8 +241,9 @@ fn sent_text(r: &Value) -> String {
 }
 
 /// `send_message`'s `attachments` (absolute paths) as the files' blocks (`attach.rs`): this server
-/// reads them, as the agent's own user on its own machine.
-async fn with_attachments(mut args: Value) -> Result<Value> {
+/// reads them, as the agent's own user on its own machine, and uploads to the receiver through
+/// `daemon` the ones that go by reference.
+async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
     let Some(paths) = args.get("attachments").filter(|v| !v.is_null()) else { return Ok(args) };
     let paths: Vec<std::path::PathBuf> = paths
         .as_array()
@@ -250,9 +252,22 @@ async fn with_attachments(mut args: Value) -> Result<Value> {
         .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
         .collect::<Option<_>>()
         .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
-    let blocks =
-        tokio::task::spawn_blocking(move || crate::attach::blocks_from_paths(&paths)).await??;
-    args["attachments"] = Value::Array(blocks);
+    // No files: a text message, as without the field.
+    if paths.is_empty() {
+        return Ok(args);
+    }
+    let session = args.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // The daemon says first whether this agent may send files (not while a remote device drives
+    // it), so no file is read for a send it would refuse. With no text, an older daemon refuses
+    // the check rather than sending anything.
+    let check = json!({"sessionId": session, "text": "", "attachCheck": true});
+    daemon.request(method::MUX_SUBSESSION_SEND, check).await?;
+    let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths, &|line| {
+        tracing::info!(session = %session, "{line}");
+    })
+    .await?;
+    args.set("attachments", Value::Array(blocks));
     Ok(args)
 }
 
@@ -261,7 +276,7 @@ fn retry_params(args: &Value) -> Value {
     let session = args.get("session").or_else(|| args.get("sessionId"));
     let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
     if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
-        params["subagentId"] = subagent.clone();
+        params.set("subagentId", subagent.clone());
     }
     params
 }
@@ -297,7 +312,7 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match with_attachments(args).await {
+        "send_message" => match with_attachments(daemon, args).await {
             Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
                 Ok(r) => ok(sent_text(&r), r),
                 Err(e) => refusal(e),

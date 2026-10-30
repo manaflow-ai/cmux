@@ -53,6 +53,12 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         }
     }
 
+    /// Whichever of the two hosts listens on `socket`: the pane's socket names its daemon.
+    public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? {
+        if let local = await local.answerEnvironment(socket: socket) { return local }
+        return await chief.answerEnvironment(socket: socket)
+    }
+
     private func host(for session: String?) async -> any AgentPaneHostProviding {
         guard let session, await chiefOwns(session) else { return local }
         return chief

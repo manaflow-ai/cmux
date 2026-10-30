@@ -47,6 +47,8 @@ struct PaletteMenuVocabularyTests {
         for descriptor in ActionCatalog.all where descriptor.isPaletteVisible {
             let title = descriptor.title
             #expect(!title.contains("..."), "\(descriptor.id) \(title): the ellipsis is one character, …")
+            // This chooser's requested product copy ends in a lowercase preposition.
+            if descriptor.id == "palette.newAgentChatOn", title == "New Agent Chat on…" { continue }
             let words = title.replacingOccurrences(of: "…", with: "").split(separator: " ")
             for (index, word) in words.enumerated() {
                 for part in word.split(separator: "/") {

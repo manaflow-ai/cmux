@@ -68,6 +68,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -394,8 +395,12 @@ def blobs(repo, specs: list[tuple[str, str]]) -> list[str | None]:
     """The text of each (rev, path) in REPO from one `git cat-file --batch`, None where the rev lacks it."""
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     request = "".join(f"{rev}:{path}\n" for rev, path in specs).encode()
-    out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=request, capture_output=True,
-                         env=env, check=True).stdout
+    # Through a file, never `input=`: a write into a pipe can block in the kernel past any timeout (git_batch.py).
+    with tempfile.TemporaryFile() as stdin:
+        stdin.write(request)
+        stdin.seek(0)
+        out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], stdin=stdin, capture_output=True,
+                             env=env, check=True, timeout=60).stdout
     texts, pos = [], 0
     for _ in specs:
         newline = out.index(b"\n", pos)

@@ -350,6 +350,10 @@ pub(super) fn bind(
         return Err(MachineMismatch.into());
     }
     let expected = expected_session.as_deref();
+    // No write to or for a teammate's attachment lands between its tab check and its write
+    // (agent_session_attach.rs `while_shared`).
+    #[cfg(unix)]
+    let _rebinding = mux.control_clients.agent_sessions.rebinding();
     let (record, replayed) = mux.bind_conversation_tab_session_as(
         actor,
         surface,

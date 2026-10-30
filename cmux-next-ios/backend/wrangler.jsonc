@@ -40,8 +40,7 @@
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }],
       // Retires the old per-team hubs every minute (src/index.ts retireAllTeamHubs, the 0.10.0 migration).
       "triggers": { "crons": ["* * * * *"] },
-      // PlanetScale Postgres cmux-mobile-dev (org cmux), branch main, role cmux-mobile-api, behind Hyperdrive
-      // cmux-mobile-dev. The Hyperdrive config has
+      // Hyperdrive configs here have
       // query caching disabled (`wrangler hyperdrive update <id> --caching-disabled true`): with the default
       // 60 s cache a newly registered Mac stayed missing from /macs and /me/macs. Do the same for prod.
       // Per-user limits (PROTOCOL.md): keyed by the caller's owner key, the Mac for notify.
@@ -53,7 +52,10 @@
         { "name": "TEAM_LIMIT", "namespace_id": "4105", "simple": { "limit": 3, "period": 60 } },
         { "name": "MAILBOX_LIMIT", "namespace_id": "4106", "simple": { "limit": 60, "period": 60 } }
       ],
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "e4fd2e88cfcd4f00841ddc5b49c3ee06" }]
+      // PS_MYSQL: cmux-next-vitess development (readwriter) through Hyperdrive cmux-next-vitess-development, tables
+      // mobile_* (backend/db/drizzle-mysql/0002_mobile). The old Postgres cmux-mobile-dev is no longer bound
+      // (kept read-only until its deletion is approved; vitess-migration-DESIGN.md 2.3).
+      "hyperdrive": [{ "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }]
     },
     "prod": {
       // Production: production Stack project only, its own PlanetScale database cmux/cmux-mobile-prod (branch main,
@@ -80,7 +82,9 @@
         { "name": "TEAM_LIMIT", "namespace_id": "4205", "simple": { "limit": 3, "period": 60 } },
         { "name": "MAILBOX_LIMIT", "namespace_id": "4206", "simple": { "limit": 60, "period": 60 } }
       ],
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "11158756425f41469964743aab2f6319" }]
+      // PS_MYSQL: cmux-next-vitess main (readwriter) through Hyperdrive cmux-next-vitess-production, tables mobile_*.
+      // The old Postgres cmux-mobile-prod is no longer bound (kept read-only until its deletion is approved).
+      "hyperdrive": [{ "binding": "PS_MYSQL", "id": "0533eedddc1e4195adf0d42a4c325fce" }]
     }
   }
 }

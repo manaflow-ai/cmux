@@ -281,6 +281,44 @@ def check_verdicts():
         _check(got == "false", f"tree-preflight: a lane/ head with Cmux-Daemon-Tests: run keeps its run ({got!r})")
         _check(not any("/pulls" in r for r in api.requests),
                f"tree-preflight: an opted-in lane/ head asks no pull request lookup ({api.requests})")
+
+        # With CMUX_TUI_REF_REMOTE (the workflow sets it) a branch head is read
+        # over git, never GET git/ref, and a moved cp/, lane/ or perf/ branch is
+        # superseded before any API lookup.
+        for name in ("preflight", "daemon tests"):
+            job, step_id = ("tree-preflight", "stale") if name == "preflight" else ("cmux-next-daemon-tests", "current")
+            want = "${{ github.server_url }}/${{ github.repository }}.git"
+            _check(step(job, step_id).get("env", {}).get("CMUX_TUI_REF_REMOTE") == want,
+                   f"{name}: the superseded check reads branch heads over git")
+        with tempfile.TemporaryDirectory() as tmp:
+            remote = os.path.join(tmp, "remote.git")
+            subprocess.run(["git", "init", "-q", "--bare", remote], check=True)
+            git(repo, "push", "-q", remote, f"{head}:refs/heads/lane/moved", f"{head}:refs/heads/lane/current",
+                f"{head}:refs/heads/codex/current", f"{base}:refs/heads/codex/moved")
+            git(remote, "update-ref", "refs/heads/lane/moved", base)
+            over_git = {"CMUX_TUI_REF_REMOTE": f"file://{remote}"}
+            git_cases = [
+                ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", []),
+                ("a current lane/ head with an open pull request runs, asking only the pull request",
+                 "refs/heads/lane/current", {pulls_path: (200, [pull(7, head)])}, "false", [pulls_path]),
+                ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
+                 {pulls_path: (200, []), dispatch_path: no_dispatch}, "true", [pulls_path, dispatch_path]),
+                ("a deleted lane/ branch still asks its pull requests", "refs/heads/lane/gone",
+                 {pulls_path: (200, []), dispatch_path: no_dispatch}, "true", [pulls_path, dispatch_path]),
+                ("an other branch at its head runs with no API call", "refs/heads/codex/current", {}, "false", []),
+                ("an other branch that moved is superseded with no API call", "refs/heads/codex/moved", {}, "true", []),
+                ("a deleted other branch keeps its run", "refs/heads/codex/gone", {}, "false", []),
+            ]
+            for why, ref, routes, want, asked in git_cases:
+                api.reset(routes)
+                got = run_check(api, repo, script, "push", ref, head, over_git)
+                _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
+                paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
+                _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
+            api.reset({})
+            got = run_check(api, repo, script, "push", "refs/heads/codex/current", head,
+                            {"CMUX_TUI_REF_REMOTE": f"file://{tmp}/missing.git"})
+            _check(got == "false", f"over git: an unreadable remote keeps the run ({got!r})")
     api.server.shutdown()
 
 
@@ -368,7 +406,12 @@ def check_wiring():
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
-    _check(index == 1, "the daemon tests re-check right after the checkout")
+    # Only the checkout and the read token's mint (the re-check's API reads go
+    # out as the glaeda-route App) come before it.
+    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]]
+    _check(before == ["actions/checkout", "read-token"], "the daemon tests re-check right after the checkout")
+    _check(str(steps[index - 1].get("if")) == "github.event_name == 'push' && vars.GLAEDA_ROUTE_APP_ID != ''",
+           "the re-check's read token is minted only for a push re-check")
     current = steps[index]
     _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")
     for later in steps[index + 1:]:

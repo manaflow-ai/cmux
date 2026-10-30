@@ -40,6 +40,16 @@ impl Hub {
         ran
     }
 
+    /// Whether session `session` took prompt `prompt_id` already: its ledger holds it, or, for a
+    /// `resend`, its log does (`requests.rs`: a resend whose uploads are gone still answers with
+    /// its first run). Blocking: it may read the log.
+    pub fn knows_prompt(&self, session: &Session, prompt_id: &str, resend: bool) -> bool {
+        let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        let held = ledger.iter().any(|(id, _)| id == prompt_id);
+        drop(ledger);
+        held || (resend && self.logged_prompt(session, prompt_id).is_some())
+    }
+
     /// A prompt id the session's log already holds (`user_message` or
     /// `queued`), answered from the log: its turn's result when it ended,
     /// else `interrupted` (the daemon stopped during the turn).
@@ -55,7 +65,11 @@ impl Hub {
         }
         let mut turn_id: Option<String> = None;
         let mut ended: Option<Value> = None;
+        // The inbox digest that took it, once one did (`inbox_digest.rs`). Its turn is the
+        // digest's only once the digest's turn starts: one that never did gave it back.
+        let mut digest: Option<String> = None;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
+            let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
             match (rec.kind.as_str(), &turn_id) {
                 ("user_message" | "queued", None)
                     if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
@@ -76,6 +90,8 @@ impl Hub {
                 {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
                     ended = None;
+                    // Out of an inbox digest that failed too (`inbox_digest.rs`).
+                    digest = None;
                 }
                 ("queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
@@ -89,6 +105,46 @@ impl Hub {
                         && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
                 {
                     turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
+                }
+                // Taken into an inbox digest (`inbox_digest.rs`): its `dequeued` record names it,
+                // and so does the digest's own `queued` record, logged first.
+                ("dequeued", Some(id))
+                    if field("turnId") == Some(id.as_str())
+                        && field("digestPromptId").is_some() =>
+                {
+                    digest = field("digestPromptId").map(str::to_owned);
+                }
+                ("queued", Some(_))
+                    if digest.is_none()
+                        && super::digest::inbox_digest::took(&rec.msg)
+                            .iter()
+                            .any(|id| id == prompt_id) =>
+                {
+                    digest = field("promptId").map(str::to_owned);
+                }
+                // The digest it went into was withdrawn before its turn: so was it.
+                ("queue_removed", Some(_))
+                    if digest.is_some() && field("promptId") == digest.as_deref() =>
+                {
+                    ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
+                    return false;
+                }
+                // The digest's turn started, as the queue's restore reads it (`queue_waiting.rs`
+                // `Digests`): its `turn_started`, or its steer's `user_message` (a steer goes into
+                // the turn that ran then). That turn is this prompt's.
+                ("turn_started", Some(_))
+                    if digest.is_some() && field("promptId") == digest.as_deref() =>
+                {
+                    turn_id = field("turnId").map(str::to_owned);
+                    ended = None;
+                }
+                ("user_message", Some(_))
+                    if digest.is_some()
+                        && field("promptId") == digest.as_deref()
+                        && rec.msg.get("steer") == Some(&Value::Bool(true)) =>
+                {
+                    turn_id = field("turnId").map(str::to_owned);
+                    ended = None;
                 }
                 _ => {}
             }
