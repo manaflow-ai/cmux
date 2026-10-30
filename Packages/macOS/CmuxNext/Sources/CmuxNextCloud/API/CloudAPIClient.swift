@@ -16,11 +16,11 @@ public struct CloudAPIClient: Sendable {
     private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
-    /// Where a machine's exec and file routes live: `/api/vm` here, `/v1/vm` on the Worker
-    /// machines origin (``workerMachines(baseURL:installToken:session:appVersion:)``).
+    /// Where a machine's exec and file routes live: `/api/vm` here, `/v1/cloud/machines` on the
+    /// cmux API Worker (``workerMachines(baseURL:installToken:session:appVersion:)``).
     let machinePath: String
     /// Sends the Stack refresh token and the team header (`/api/vm`). A Worker machines client
-    /// sends only its install token: no Stack session goes to another origin.
+    /// sends only its install token, whose team claim picks the team: no Stack session goes there.
     let sendsStackSession: Bool
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
@@ -59,9 +59,10 @@ public struct CloudAPIClient: Sendable {
     }
 
     /// A Worker machine's (the Cloud app server link's) exec and file routes: the same requests
-    /// and answers as `/api/vm/{id}/exec` and `/api/vm/{id}/fs/...`, under `/v1/vm/{id}/` on
-    /// `baseURL` (``CloudConfiguration/machineRoutesBaseURL(environment:)``), with the cmux API
-    /// install token as the only credential (cmux-platform#89). Only those routes serve there.
+    /// and answers as `/api/vm/{id}/exec` and `/api/vm/{id}/fs/...`, under
+    /// `/v1/cloud/machines/{id}/` on the cmux API Worker (`baseURL`:
+    /// ``CloudConfiguration/ownerAPIBaseURL(environment:)``), with this install's token as the
+    /// only credential (cmux-platform#89, backend cloud-machine-exec). Only those routes serve there.
     public static func workerMachines(baseURL: URL, installToken: @escaping @Sendable () async throws -> String,
                                       session: URLSession = CloudAPIClient.noStoreTransport,
                                       appVersion: String = "cmux-next") -> CloudAPIClient {
@@ -75,7 +76,7 @@ public struct CloudAPIClient: Sendable {
         teamID = { nil }
         self.session = session
         self.appVersion = appVersion
-        machinePath = "/v1/vm"
+        machinePath = "/v1/cloud/machines"
         sendsStackSession = false
     }
 

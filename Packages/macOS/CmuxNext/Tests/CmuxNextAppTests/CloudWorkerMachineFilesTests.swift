@@ -6,8 +6,8 @@ import Testing
 /// cmux-platform#89, part 2: a Worker machine (the Cloud app server link) has no `/api/vm` row, so
 /// `cmux cloud deliver-secrets`, `apply-machine-config` and credential recovery failed at their
 /// first read ("This machine has no finished machine config yet"). Its exec and file routes are the
-/// same requests under `/v1/vm/{id}/` on the Worker machines origin, with the install token as the
-/// only credential.
+/// same requests under `/v1/cloud/machines/{id}/` on the cmux API Worker, with the install token
+/// as the only credential.
 @Suite(.serialized)
 struct CloudWorkerMachineFilesTests {
     nonisolated final class WorkerAPI: URLProtocol {
@@ -63,9 +63,9 @@ struct CloudWorkerMachineFilesTests {
         try await api.writeFile(machine, path: "/a", data: Data("hi".utf8), mode: 0o644)
         #expect(WorkerAPI.seen.map(\.method) == ["POST", "GET", "POST"])
         #expect(WorkerAPI.seen.map(\.url) == [
-            "https://machines.standin.invalid/v1/vm/\(machine)/exec",
-            "https://machines.standin.invalid/v1/vm/\(machine)/fs/read?path=/home/cmux/.cmux/machine-config/status.json",
-            "https://machines.standin.invalid/v1/vm/\(machine)/fs/write",
+            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec",
+            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/read?path=/home/cmux/.cmux/machine-config/status.json",
+            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/write",
         ])
         for request in WorkerAPI.seen {
             #expect(request.authorization == "Bearer install-token")
@@ -89,14 +89,11 @@ struct CloudWorkerMachineFilesTests {
         #expect(WorkerAPI.seen.first?.team == "team-1")
     }
 
-    @Test func theWorkerMachinesOriginFollowsTheAuthEnvironment() {
-        let production = CloudConfiguration.resolve(bundleID: nil, bundled: [:], process: [:], isDebugBuild: false)
-        #expect(production.machineRoutesBaseURL().absoluteString == "https://cmux-platform-production.debussy.workers.dev")
-        let staging = CloudConfiguration.resolve(bundleID: nil, bundled: [:], process: [:], isDebugBuild: true)
-        #expect(staging.machineRoutesBaseURL().absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
-        let override = ["CMUX_NEXT_MACHINE_API_URL": "https://cmux-platform-development.debussy.workers.dev"]
-        #expect(staging.machineRoutesBaseURL(environment: override).absoluteString == "https://cmux-platform-development.debussy.workers.dev")
-        #expect(production.machineRoutesBaseURL(environment: override).absoluteString == "https://cmux-platform-production.debussy.workers.dev",
-                "a Release build never sends a credential to another origin")
+    @Test func aWorkerRefusalNamesItsNestedCodeAndMessage() {
+        let body = Data(#"{"ok":false,"error":{"code":"vm_not_running","message":"Start the machine first."}}"#.utf8)
+        #expect(CloudAPIError.from(status: 409, data: body, headerCode: nil)
+            == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
+        #expect(CloudAPIError.from(status: 409, data: body, headerCode: "vm_not_running")
+            == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
     }
 }

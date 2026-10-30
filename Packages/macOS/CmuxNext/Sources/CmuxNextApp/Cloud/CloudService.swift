@@ -23,8 +23,8 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
-    /// A machine's exec and file routes: ``api`` on the legacy link, the Worker machines origin on
-    /// the app server link, whose machines have no `/api/vm` row (cmux-platform#89).
+    /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
+    /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
@@ -148,7 +148,7 @@ final class CloudService {
         )
         installIdentity = identity
         machineAPI = configuration.linkSource == .appServer
-            ? CloudAPIClient.workerMachines(baseURL: configuration.machineRoutesBaseURL(), installToken: { try await identity.installToken() })
+            ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), installToken: { try await identity.installToken() })
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
