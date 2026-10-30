@@ -185,6 +185,10 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var image: String?
     public var imageVersion: String?
     public var createdAt: Date?
+    /// Person who created the machine, when the team API supplies it.
+    public var createdBy: String?
+    /// Team visibility for shared-machine lists; absent on legacy responses.
+    public var visibility: String?
     public var address: Address?
     public var size: Size?
     /// Server-declared provider operations and attach transports; `nil`
@@ -236,7 +240,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
+        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, visibility, address, size, capabilities
         case pauseReason, idlePauseMinutes, idlePause
         case hourlyRateUsd, runningSince, sizePick
     }
@@ -249,6 +253,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         self.provider = provider
         self.status = status
         self.displayName = displayName
+        self.createdBy = nil
+        self.visibility = nil
         self.slug = slug
         self.address = address
         self.declaredCapabilities = capabilities
@@ -269,6 +275,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         image = try c.decodeIfPresent(String.self, forKey: .image)
         imageVersion = try c.decodeIfPresent(String.self, forKey: .imageVersion)
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt).map { Date(timeIntervalSince1970: $0 / 1000) }
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
+        visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
         declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
