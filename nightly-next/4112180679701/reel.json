@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4112180679701",
+  "notes": "notes/4112180679701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28506,
+      "title": "cmux mcp code mode: the sheet's run-a-command line says no pane (pane: \"current\" is the chat's own pane) (r10c: GPT 6 Astra put 'on my right' terminals in the chat's pane)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26535,
+      "title": "fix(auth): show a retry after rejected relaunch callbacks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28496,
+      "title": "test(next agent pane): routerResetDrop waits for the deferred delivery (#28492)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28491,
+      "title": "acpmux: session resume moves a stopped chat off an interactive Mac (session move --host auto)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28164,
+      "title": "fix(agent-pane): carry workflow progress tray and inspector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28461,
+      "title": "fix(pages): keep a Chromium page drawing while its pane waits for its frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28465,
+      "title": "cmux NEXT transcript: a quiet \"Thought\" row in a run's card again; the step tests know the card (base red from #27896)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
