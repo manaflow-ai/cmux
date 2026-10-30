@@ -894,16 +894,18 @@ export default agentPaneEntry({
           Object.defineProperty(event, "clipboardData", { value: data });
           ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
         };
+        // The Pasted text chip: in the prompt's line (the default inline view), or in the strip.
+        const PASTED = '.acpmux-md-inline-chip[data-kind="file"], .acpmux-attachment-pasted';
         paste();
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
+        await ctx.waitFor(() => ctx.document.querySelector(PASTED));
         paste();
         // Either way the second paste went: its text in the prompt with no chip, or a second chip.
         await ctx.waitFor(() => {
-          const chips = ctx.document.querySelectorAll(".acpmux-attachment-pasted").length;
+          const chips = ctx.document.querySelectorAll(PASTED).length;
           const prompt = ctx.document.querySelector(".acpmux-md")?.textContent ?? "";
           return chips > 1 || (chips === 0 && prompt.includes("step 40: compiling"));
         });
-        if (ctx.document.querySelector(".acpmux-attachment-pasted"))
+        if (ctx.document.querySelector(PASTED))
           throw new Error("the same long paste again must open its chip, never add a second");
       },
     },
