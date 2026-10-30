@@ -118,15 +118,14 @@ extension WorkspaceRowView {
         // Trailing cluster, right to left: the dot or spinner on the trailing column, the disclosure
         // and the tab count (fixed slots, the same with or without hover), close-or-badge, then
         // the other marks.
-        let rowWidth = b.width - SidebarStyle.horizontalInset
-        var trailing = SidebarStyle.trailingColumnStart(rowWidth: rowWidth) + SidebarStyle.trailingSlotSide
+        var trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) + SidebarStyle.trailingSlotSide
         let control = SidebarStyle.controlSize
         // Lawrence msg 11914: the row's dot or spinner owns the trailing column (the x the group
         // header chevron and every band item's dot share) whatever else the row shows; the
         // disclosure, the counts, the keycap and the hover close and more sit left of it.
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
-        let columnMark = layoutColumnMark(cy: cy, rowWidth: rowWidth, markReplacesStatus: markReplacesStatus)
+        let columnMark = layoutColumnMark(cy: cy, rowWidth: b.width, markReplacesStatus: markReplacesStatus)
         if let columnMark { trailing = columnMark.trailing }
         // The hover controls give way at once as the pointer leaves to a column mark, or to the unread count the close
         // covers (the `trailing` badge style), so a mark fading back never draws beside a control fading out (Leo
@@ -186,7 +185,7 @@ extension WorkspaceRowView {
         // show; VoiceOver uses the row's custom action.
         setHoverShown(moreButton, showMore, fades: controlFades)
         moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
-        let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: rowWidth, cy: cy, control: control,
+        let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control,
                                           showClose: showClose, showMore: showMore)
         let pinStart = layoutPin(showMore: showMore, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
