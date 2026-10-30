@@ -2174,3 +2174,7 @@ reason = "Run by hand before changing the Cloud capture provision scripts (docs/
 [[test]]
 path = "tests/test_devbox_bubblewrap.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
+lane = "linux-guard"

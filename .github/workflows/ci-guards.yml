@@ -170,6 +170,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_browsers.py
 
+      - name: Validate fast checks prefetch SwiftPM binary artifacts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
