@@ -132,15 +132,11 @@ export function AgentLine({
       </span>
       {trayColumns ? (
         <>
-          <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
-            {time}
-          </span>
-          {/* Fixed trailing grammar: duration, then status, then disclosure as sibling columns. */}
-          <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
-            {time}
-          </span>
-          {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+          {/* Fixed trailing grammar: status, duration, then disclosure as sibling columns. */}
           <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
+            {time}
+          </span>
           {chevron && onOpen && (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
@@ -149,9 +145,9 @@ export function AgentLine({
         </>
       ) : (
         <>
-          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
-          {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+          {/* Keep every AgentLine family in the same status, duration, disclosure order. */}
           <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
           {chevron && onOpen && (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
