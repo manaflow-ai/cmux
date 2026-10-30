@@ -9,7 +9,7 @@ import CmuxNextDesign
 extension SidebarItemRowView {
     /// Whether the controls show now.
     var showsHoverActions: Bool {
-        info.workspace != nil && isHovered && !isEditing && !style.isIconOnly && style != .favorite && style != .chip
+        info.workspace != nil && (isHovered || showsMenu) && !isEditing && !style.isIconOnly && style != .favorite && style != .chip
     }
 
     /// Places the controls on hover and keeps the title and the trailing marks clear of them.

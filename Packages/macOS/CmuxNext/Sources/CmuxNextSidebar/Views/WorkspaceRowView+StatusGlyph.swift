@@ -52,8 +52,21 @@ extension WorkspaceRowView {
     static func agentMarkImage(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant, placeholder: Bool) -> NSImage? {
         guard variant != .off, !placeholder else { return nil }
         let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
-        return workspace.agentIcon.flatMap { agentIconImage($0, side: side) }
+        return registeredAgentMarkImage(workspace, side: side)
+            ?? (workspace.kind == .harness ? NSImage.icon(symbol: workspace.kind.symbol, size: side) : nil)
+    }
+
+    /// The harness's own icon or brand mark, or nil when it has neither registered.
+    static func registeredAgentMarkImage(_ workspace: SidebarWorkspace, side: CGFloat) -> NSImage? {
+        workspace.agentIcon.flatMap { agentIconImage($0, side: side) }
             ?? workspace.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+    }
+
+    /// A harness mark with no registered icon or brand takes its workspace's stable color, the
+    /// same every launch; a registered mark keeps the shared tint.
+    static func agentMarkFallbackColor(_ workspace: SidebarWorkspace, side: CGFloat) -> GroupColor? {
+        guard workspace.kind == .harness, registeredAgentMarkImage(workspace, side: side) == nil else { return nil }
+        return SidebarItemInfo.stableAgentColor(for: workspace.id.rawValue)
     }
 
     static func machineMarkImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {

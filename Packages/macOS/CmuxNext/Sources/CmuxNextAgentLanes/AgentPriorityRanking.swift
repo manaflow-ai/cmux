@@ -30,7 +30,9 @@ public nonisolated struct AgentPriorityRanking: Sendable {
             let state = Self.state(lane, read: read, failingChecks: failingChecks.contains(lane.id))
             if state == .idle, !pinned, let since = lane.since, now.timeIntervalSince(since) > idleHorizon { return nil }
             let entry = SidebarPriorityEntry(id: lane.id, title: lane.title, project: lane.project, machine: machine(lane),
-                                             preview: Self.preview(lane), state: state, unread: lane.unread && !read, pinned: pinned)
+                                             preview: Self.preview(lane), state: state, unread: lane.unread && !read, pinned: pinned,
+                                             brand: SidebarItemInfo.agentBrand(forHarness: lane.harness),
+                                             agentColor: SidebarItemInfo.stableAgentColor(for: lane.id))
             return (entry, Self.tier(state), lane.since ?? .distantPast)
         }
         return ranked.sorted { a, b in
