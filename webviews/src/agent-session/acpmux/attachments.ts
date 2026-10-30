@@ -34,6 +34,8 @@ export type ComposerAttachment = {
   /** The original image on the session's machine; the inline bytes are a metadata-free preview. */
   originalPath?: string;
   originalName?: string;
+  /** Why the original's upload failed: the preview still sends, and the chip offers Retry. Never sent. */
+  originalFailed?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
 };

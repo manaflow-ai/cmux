@@ -18,12 +18,13 @@ export const KEPT_ATTACHMENTS_SETTLE_MS = 300;
 
 /// The chips a chat keeps: a shell run's chip stays with its page (its output fills when the prompt goes).
 /// A video's poster and frames stay too: the host reads them again when the chip comes back
-/// (composer/videoAttachments.ts), so a draft write never carries them.
+/// (composer/videoAttachments.ts), so a draft write never carries them. An image's failed original
+/// (`originalFailed`) is this page's upload: its Retry needs the file, which a draft does not keep.
 export function keptChips(attachments: readonly ComposerAttachment[]): ComposerAttachment[] {
   return attachments.flatMap((chip) => {
     if (chip.shellRun) return [];
-    if (!chip.video) return [chip];
-    const { video: _video, ...kept } = chip;
+    if (!chip.video && chip.originalFailed === undefined) return [chip];
+    const { video: _video, originalFailed: _failed, ...kept } = chip;
     return [kept];
   });
 }

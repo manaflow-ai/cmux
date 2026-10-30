@@ -15,6 +15,7 @@ import {
   type AttachmentIntakeOptions,
 } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
+import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -180,6 +181,8 @@ test("a staged image whose original failed shows Retry beside its preview", () =
   // Without a Retry to offer, the preview shows as it did.
   const plain = renderToStaticMarkup(<AttachmentStrip attachments={[chip]} onRemove={() => {}} />);
   expect(plain).not.toContain("acpmux-attachment-original-retry");
+  // A kept draft brings the preview back without a Retry it has no file for.
+  expect(keptChips([chip])[0]).not.toHaveProperty("originalFailed");
 });
 
 type Intake = ReturnType<typeof useAttachmentIntake>;
