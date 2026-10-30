@@ -215,6 +215,37 @@ python3 -I "$CHECK" --base "$(git -C "$repo" rev-parse HEAD)" "$repo" >/dev/null
 git -C "$repo" rm -q -f "$SRC/S/Link.swift" "$SRC/S/Real.swift"
 printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
 git -C "$repo" add -A
+# A symlink whose target goes through a directory symlink, unchanged since the base, passes.
+mkdir -p "$repo/$SRC/S/Real"; printf 'import SwiftUI\nstruct Deep {}\n' > "$repo/$SRC/S/Real/Deep.swift"
+ln -s Real "$repo/$SRC/S/Alias"; ln -s Alias/Deep.swift "$repo/$SRC/S/Link.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/S/Alias/Deep.swift" "$SRC/S/Link.swift" "$SRC/S/Real/Deep.swift" > "$repo/$LIST"
+commit base4d2-dir-symlink
+code=0; python3 -I "$CHECK" --base "$(git -C "$repo" rev-parse HEAD)" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+! grep -q "^NO-SWIFTUI: $SRC/S/Link.swift: imports SwiftUI, which it did not" "$tmp/err" \
+  || { echo "FAIL: an unchanged symlink through a directory symlink is not new SwiftUI" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" rm -q -f "$SRC/S/Link.swift" "$SRC/S/Alias" "$SRC/S/Real/Deep.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+# One dropped importer cannot vouch for two stale entries of its name.
+mkdir -p "$repo/$SRC/P" "$repo/$SRC/Q" "$repo/$SRC/R"
+printf 'import SwiftUI\nstruct V {}\n' > "$repo/$SRC/P/View.swift"
+printf 'import AppKit\nstruct V1 { let q = 1 }\n' > "$repo/$SRC/Q/View.swift"
+printf 'import AppKit\nstruct V2 { let r = "different" }\n' > "$repo/$SRC/R/View.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/P/View.swift" "$SRC/Q/View.swift" "$SRC/R/View.swift" > "$repo/$LIST"
+commit base4f-two-stale
+base4f=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" rm -q "$SRC/P/View.swift"
+printf 'import SwiftUI\nstruct V1 { let q = 1 }\n' > "$repo/$SRC/Q/View.swift"
+printf 'import SwiftUI\nstruct V2 { let r = "different" }\n' > "$repo/$SRC/R/View.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/Q/View.swift" "$SRC/R/View.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base4f" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/Q/View.swift: imports SwiftUI, which it did not" "$tmp/err" \
+  && grep -q "^NO-SWIFTUI: $SRC/R/View.swift: imports SwiftUI, which it did not" "$tmp/err" \
+  || { echo "FAIL: must fail: one dropped importer cannot cover two refilled stale entries (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" rm -q -f "$SRC/Q/View.swift" "$SRC/R/View.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
 # A base source that is not UTF-8 is read, not a crash.
 mkdir -p "$repo/$SRC/U"; printf 'import SwiftUI\n// caf\xe9\nstruct U {}\n' > "$repo/$SRC/U/Latin.swift"
 printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/U/Latin.swift" > "$repo/$LIST"

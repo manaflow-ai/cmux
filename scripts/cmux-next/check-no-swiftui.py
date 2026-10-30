@@ -211,16 +211,28 @@ def main() -> int:
                     continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
             # Finding 4: an entry the base had stale, filled with SwiftUI by this change.
-            for f in sorted(importing & allowed_set):
+            def own_origins(f: str) -> list[str]:
+                # Its own path, git's rename source, and (a symlink) the real file it reads.
+                paths = [f, moves.get(f, f)]
+                if (root / f).is_symlink():
+                    real = pathlib.Path(os.path.realpath(root / f))
+                    if real.is_relative_to(root):
+                        paths.append(real.relative_to(root).as_posix())
+                return paths
+
+            listed = sorted(importing & allowed_set)
+            # Entries whose own origins had no SwiftUI at the base, by file name: one gone entry of a
+            # name pairs with one of them only (a move that rewrote the file), never with two.
+            unexplained = by_name(f for f in listed
+                                  if not any(imported_at(root, args.base, o) for o in own_origins(f)))
+            for f in listed:
                 name = pathlib.PurePosixPath(f).name
-                paired = dropped[name] if len(dropped.get(name, [])) == 1 else []
+                paired = dropped[name] if len(dropped.get(name, [])) == 1 and len(unexplained.get(name, [])) == 1 else []
                 if f not in old_allowed and moves.get(f) not in old_allowed \
                         and not (paired and len(added_names.get(name, [])) == 1):
                     continue  # an entry this change added: the growth check above judges it
-                # Its origins at the base: its own path, git's rename source, and the one gone entry of its
-                # name (a move that rewrote the file, also into a path the base already listed). SwiftUI
-                # any of them had is not new.
-                origins = dict.fromkeys([f, moves.get(f, f)] + paired)
+                # SwiftUI any of its origins had at the base, the paired gone entry's included, is not new.
+                origins = dict.fromkeys(own_origins(f) + paired)
                 if not any(imported_at(root, args.base, o) for o in origins):
                     findings.append(f"{f}: imports SwiftUI, which it did not at {args.base}; its allowlist entry "
                                     f"was stale there, so delete the line and keep the file AppKit")
