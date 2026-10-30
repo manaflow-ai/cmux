@@ -161,6 +161,11 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
+    /// Whether this is the Japanese catalog, for help text built in code.
+    pub fn is_japanese(&self) -> bool {
+        self.japanese
+    }
+
     pub fn action_label(&self, action: Action) -> &'static str {
         let definition = action.definition();
         if self.japanese { definition.label_ja } else { definition.label_en }

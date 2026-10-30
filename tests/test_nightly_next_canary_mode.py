@@ -189,12 +189,16 @@ class VerdictDurabilityTests(unittest.TestCase):
             bin_dir = Path(tmp) / "bin"
             bin_dir.mkdir()
             (Path(tmp) / "canary.dmg").write_bytes(b"12345")
-            stubs = {"stat": 'echo "$(wc -c < "${@: -1}" | tr -d " ")"', **tools}
+            # python3 runs nightly_next_artifact_check.py; it passes unless a test stubs it.
+            stubs = {"stat": 'echo "$(wc -c < "${@: -1}" | tr -d " ")"', "python3": "exit 0", **tools}
             for name, body in stubs.items():
                 (bin_dir / name).write_text(f"#!/bin/bash\n{body}\n")
                 (bin_dir / name).chmod(0o755)
             result, output = self.run_step("canary", "Check Gatekeeper and the notary tickets",
-                                           {"BUILD": "4100", "DMG_LENGTH": length, "RUNNER_TEMP": tmp}, path=bin_dir)
+                                           {"BUILD": "4100", "DMG_LENGTH": length, "RUNNER_TEMP": tmp,
+                                            "DMG_ED_SIGNATURE": "c2ln", "SOURCE_COMMIT": "a" * 40,
+                                            "SOURCE_COMMIT_FROM": "its signed release notes"}, path=bin_dir)
+            self.step_log = result.stdout + result.stderr
             outcome = "success" if result.returncode == 0 else "failure"
             app_class = next((l.split("=", 1)[1] for l in output.splitlines() if l.startswith("class=")), "")
             recorded, verdict_output = self.run_step("canary", "Record the static artifact verdict",
@@ -203,13 +207,19 @@ class VerdictDurabilityTests(unittest.TestCase):
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
             return outcome, verdict_output
 
+    # nightly_next_artifact_check.py SUBCOMMAND (python3 -I SCRIPT SUBCOMMAND ...) runs BODY; others pass.
+    @staticmethod
+    def artifact_check(subcommand: str, body: str) -> str:
+        return f'if [ "$3" = {subcommand} ]; then {body}; fi; exit 0'
+
     # hdiutil attach that mounts a DMG holding one app at the -mountpoint.
     ATTACH = 'while [ $# -gt 0 ]; do [ "$1" = -mountpoint ] && mkdir -p "$2/cmux NEXT.app"; shift; done'
 
-    def assert_no_verdict(self, tools: dict[str, str], why: str) -> None:
+    def assert_no_verdict(self, tools: dict[str, str], why: str, reason: str = "could not be checked") -> None:
         outcome, output = self.artifact(tools)
         self.assertEqual(outcome, "failure", why)
         self.assertNotIn("verdict=", output, why)
+        self.assertIn(reason, self.step_log, why)
         # No verdict: the verdict job (dispatch and checked marker) never runs.
         self.assertIn("needs.canary.outputs.verdict != ''", self.jobs["verdict"]["if"])
 
@@ -231,6 +241,11 @@ class VerdictDurabilityTests(unittest.TestCase):
                                "spctl could not reach Apple")
         self.assert_no_verdict({"xcrun": "exit 0", "hdiutil": self.ATTACH, "spctl": "exit 1"},
                                "an spctl failure with no definite rejection")
+        self.assert_no_verdict({"python3": self.artifact_check("dmg", 'echo "Traceback (most recent call last):" >&2; exit 1')},
+                               "the DMG check crashed", "the DMG's bytes failed without a definite rejection")
+        self.assert_no_verdict({"xcrun": "exit 0", "hdiutil": self.ATTACH,
+                                "python3": self.artifact_check("commit", 'echo "OSError: [Errno 5] Input/output error" >&2; exit 1')},
+                               "the commit check crashed", "the app's source commit failed without a definite rejection")
 
     def test_only_a_definite_artifact_rejection_records_fail(self):
         self.assert_fail({"xcrun": 'echo "canary.dmg does not have a ticket stapled to it." >&2; exit 65'},
@@ -242,6 +257,12 @@ class VerdictDurabilityTests(unittest.TestCase):
                          "Gatekeeper rejected the app")
         self.assert_fail({"xcrun": "exit 0"}, "a length mismatch", length="6")
         self.assert_fail({"xcrun": "exit 0", "hdiutil": "exit 0"}, "no app in the DMG")
+        self.assert_fail({"python3": self.artifact_check(
+                              "dmg", "echo \"::error title=nightly-next DMG::canary.dmg: the feed's edSignature does not verify\" >&2; exit 1")},
+                         "the edSignature does not verify over the DMG")
+        self.assert_fail({"xcrun": "exit 0", "hdiutil": self.ATTACH, "python3": self.artifact_check(
+                              "commit", 'echo "::error title=nightly-next app commit::the app was built from abc1234" >&2; exit 1')},
+                         "the app was built from another commit")
 
     def test_a_length_mismatch_is_an_artifact_failure(self):
         self.assertNotIn("DMG_LENGTH", self.step("canary", "Download the feed's DMG")["run"])
