@@ -122,7 +122,7 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(validate.validate_document("1.0.0-nightly.42.json", document), [])
 
     def test_closing_quotes_still_count_actual_sentence_boundaries(self):
-        for text in ("“One.” “Two.” “Three.”", "'One.' 'Two.' 'Three.'",
+        for text in ("“One.” “Two.” “Three.”", "'One.' 'Two.' 'Three.'", "‘One.’ ‘Two.’ ‘Three.’",
                      "(One.) Two. Three.", "Choose “One!” Then continue. Finish here."):
             with self.subTest(text=text):
                 self.assertEqual(validate.sentence_end_count(text), 3)

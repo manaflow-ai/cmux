@@ -90,8 +90,13 @@ class ReleaseNotesTests(unittest.TestCase):
             "'Tabs stay put.'",
             '"Tabs stay put."',
             "“Tabs stay put.”",
+            "‘Tabs stay put.’",
             'Choose "Keep tabs." after restart.',
             "Choose “Keep tabs.” after restart.",
+            "Choose 'Keep tabs.' after restart.",
+            "Choose ‘Keep tabs.’ after restart.",
+            "Don't close tabs after choosing 'Keep tabs.' on restart.",
+            "Don't close tabs after choosing ‘Keep tabs.’ on restart.",
             "Zoom stays at 1.5 after restart.",
             "Tabs wait... then restore after restart.",
         ):
@@ -134,6 +139,19 @@ class ReleaseNotesTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(notes.pr_description("## Summary\n" + text), first)
                 self.assertEqual(notes.pr_description("## Summary\n" + first), first)
+
+    def test_complete_quoted_sentences_still_end_description_extraction(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        for opening, closing in (("'", "'"), ('"', '"'), ("‘", "’"), ("“", "”")):
+            with self.subTest(opening=opening):
+                first = f"{opening}Tabs stay put.{closing}"
+                self.assertEqual(notes.pr_description(
+                    f"## Summary\n{first} {opening}Panes stay open.{closing} More detail."), first)
+                self.assertEqual(notes.pr_description(
+                    f"## Summary\nDon't close tabs. {opening}Keep tabs.{closing}"), "Don't close tabs.")
 
     def test_public_links_remain_allowed(self):
         import importlib.util

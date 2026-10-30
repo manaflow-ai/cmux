@@ -210,16 +210,10 @@ def _first_sentence(text):
             continue
         if char == "." and index and index + 1 < len(text) and text[index - 1].isdigit() and text[index + 1].isdigit():
             continue
-        # Punctuation inside a quoted phrase is not the outer sentence's end unless that quote
-        # starts the whole line (the quoted sentence itself is the first sentence).
-        if text[:index].count("“") > text[:index].count("”"):
-            opening = text.rfind("“", 0, index)
-            if text[:opening].strip():
-                continue
-        if text[:index].count('"') % 2:
-            opening = text.rfind('"', 0, index)
-            if text[:opening].strip():
-                continue
+        # Use the release gate's quote boundary rule for straight and curly
+        # single/double quotes, without treating contractions as quote openers.
+        if validate.is_inline_quoted_punctuation(text, index):
+            continue
         end = index + 1
         while end < len(text) and text[end] in DESCRIPTION_QUOTES:
             end += 1

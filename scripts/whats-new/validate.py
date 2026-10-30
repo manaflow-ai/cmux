@@ -78,6 +78,17 @@ def is_abbreviation_period(text, index):
     return bool(following) and not following[0].isupper()
 
 
+def is_inline_quoted_punctuation(text, index):
+    """Closing quotes followed by lowercase prose continue the enclosing sentence."""
+    following = text[index + 1:]
+    after_closers = following.lstrip(")'\"”’»")
+    if after_closers == following or not after_closers.strip():
+        return False
+    # Allow another quoted sentence after the closing quote.
+    next_sentence = after_closers.lstrip().lstrip("('\"“‘«")
+    return not next_sentence or not next_sentence[0].isupper()
+
+
 def sentence_end_count(text):
     """Count sentence punctuation while ignoring abbreviations and ellipses."""
     count = 0
@@ -88,14 +99,8 @@ def sentence_end_count(text):
             continue
         if is_abbreviation_period(text, index):
             continue
-        following = text[index + 1:]
-        after_closers = following.lstrip(")'\"”’»")
-        if after_closers != following and after_closers.strip():
-            # Inline quoted punctuation (a “cmux Updated!” card) does not
-            # end the enclosing sentence. Allow another quoted sentence.
-            next_sentence = after_closers.lstrip().lstrip("('\"“‘«")
-            if not next_sentence or not next_sentence[0].isupper():
-                continue
+        if is_inline_quoted_punctuation(text, index):
+            continue
         count += 1
     return count
 
