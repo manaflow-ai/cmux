@@ -41,6 +41,9 @@ pub struct Session {
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
     pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
+    /// Tool output snapshots held back from the log while a newer one may replace them
+    /// (`store/deferred.rs`); taken only under `append_lock`.
+    pub(super) log_deferral: StdMutex<crate::store::Deferral>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
@@ -58,6 +61,12 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// Claim retry recovery once per session object; imports may replace a chat with the
+    /// same id and a different journal, which must get its own recovery pass.
+    pub(super) auto_resume_restored: AtomicBool,
+    /// A retry task may outlive an imported replacement with the same durable id. Its mark
+    /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
+    pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
