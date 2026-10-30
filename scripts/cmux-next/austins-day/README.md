@@ -55,10 +55,12 @@ to explore, and say so next to any number you cite.
   those hooks: on each tool call it runs the PreToolUse and PostToolUse hook commands
   (`$CMUX_TUI_HOOK claude <event>`) and on each turn end the Stop hook, with Claude Code's payload.
   It waits for sync hooks and lets `async` hooks run on. Each tool call is real git or file work in
-  the agent's worktree, and every third call is also one `cmux` CLI call. **That CLI rate is assumed, not
-  from Austin's data:** one `cmux workspace list` per 3 tool calls. It fills the 64-slot pool with CLI
-  calls, so hook-path fixes cannot show in refused connections (lead decision 2026-10-30: kept for
-  comparability until Austin's real client mix is measured; the scenario then changes, with a new A/A). Between tool calls it
+  the agent's worktree. **Main arm (from 2026-10-30): the agents make no `cmux` CLI calls** (`--cli-every
+  0`, the default): no shipped hook, plugin or status line calls `cmux workspace list` per turn, and hooks
+  send only `session.journal.append`. The earlier scenario's one `cmux workspace list` per 3 tool calls had
+  no evidence; it filled the 64-slot pool with CLI calls and drove 43 % of the registry lock busy share. It
+  stays as a labeled "assumed" sensitivity arm (`-- --cli-every 3`). Results of the two arms are never
+  compared with each other: the summary refuses runs with mixed rates. Between tool calls it
   draws to its terminal as Claude Code's TUI does (a spinner rewritten 10 times a second and about
   300 characters a second of streamed text) and keeps 15 % of a core busy.
 - **The shared repo**: `packs.py` builds a `--filter=blob:none` partial clone with 8 worktrees and
@@ -142,7 +144,10 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
   a different time in each run, so a raw cumulative count is never compared). `pool_holders`: who fills
   the pool, from the daemon's client list (`cmux-tui client list`: `client` is a scope only the `cmux-tui`
   name accepts) by kind/name and the live hook-helper and CLI processes, with
-  the refusals each client kind saw itself. `daemon_lock_wait_us`,
+  the refusals each client kind saw itself. During the load the holder sample counts processes only;
+  the daemon's client list and its lock detail (`lock_top_sites`: server-stats `locks`, the top 20 sites of
+  the registry lock and mux.state by total and by p99 hold) are read once, right after the load, so they
+  add nothing to any measured window. `daemon_lock_wait_us`,
   `daemon_lock_hold_us`, `daemon_lock_top_sites`, `journal_commit_us`: from `cmux server stats`.
 - `workspace_close_app_ms` / `workspace_close_daemon_ms`: time from the close action until the
   app's topology and the daemon's list no longer have the workspace; `workspace_close_not_done`.

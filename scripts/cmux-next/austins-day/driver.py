@@ -60,7 +60,11 @@ parser.add_argument("--seconds", type=float, default=300, help="load phase lengt
 parser.add_argument("--agents", type=int, default=80)
 parser.add_argument("--per-workspace", type=int, default=4)
 parser.add_argument("--tool-gap", type=float, default=3.0, help="mean seconds between an agent's tool calls")
-parser.add_argument("--cli-every", type=int, default=3, help="an agent `cmux` CLI call every N tool calls (0: none)")
+# Main arm (lead 2026-10-30): no agent `cmux` CLI calls. No shipped hook, plugin or status line calls `cmux
+# workspace list` per turn (hooks send only session.journal.append), so the old default of one per 3 tool
+# calls had no evidence and drove 43 % of the registry lock busy share. `--cli-every 3` is kept as the
+# labeled "assumed" sensitivity arm.
+parser.add_argument("--cli-every", type=int, default=0, help="an agent `cmux` CLI call every N tool calls (0: none, the main arm)")
 parser.add_argument("--wave-size", type=int, default=25)
 parser.add_argument("--wave-period", type=float, default=60)
 parser.add_argument("--swap-gb", type=float, default=14.0, help="hog target: swap used this much above the start (0: no hog)")
@@ -74,7 +78,7 @@ os.makedirs(opts.out, exist_ok=True)
 T0 = time.time()
 LOCK = threading.Lock()
 STOP = threading.Event()
-SERIES = {"samples": [], "server_stats": [], "holders": [], "person_cli": [], "app_control": [], "closes": [], "waves": [],
+SERIES = {"samples": [], "server_stats": [], "holders": [], "locks": [], "person_cli": [], "app_control": [], "closes": [], "waves": [],
           "acpmux_pids": [], "notes": []}
 
 
@@ -300,15 +304,19 @@ def client_list_entries(parsed):
     return None
 
 
-def connection_holders(rows):
-    """Who holds or waits for the daemon's connections now: the daemon's own client list (`list-clients`:
+def connection_holders(rows, ask_daemon=True):
+    """Who holds or waits for the daemon's connections now: the daemon's own client list (`cmux-tui client list`:
     each connection's name, kind, transport and age) by name and kind, and the live client processes on the
     host by role (hook helpers, `cmux` CLI calls, the app). A `cmux` process here is one of the bundle's CLI
     or hook binaries; each holds at most one connection or is waiting for one."""
-    # `cmux client list` (the resource operation client.list): one object per connection with name,
-    # client_kind, transport and connected_seconds. (`raw command list-clients` was refused: usage.invalid.)
-    _, parsed, code = cli("client", "list", timeout=15, binary=CLI_TUI)
-    clients = client_list_entries(parsed)
+    # `cmux-tui client list` (the resource operation client.list; `client` is a cmux-tui-only scope): one
+    # object per connection with name, client_kind, transport and connected_seconds. Asked only after the
+    # load (ask_daemon): during it this sample counts processes only, as in the A/As.
+    if ask_daemon:
+        _, parsed, code = cli("client", "list", timeout=15, binary=CLI_TUI)
+        clients = client_list_entries(parsed)
+    else:
+        parsed, code, clients = None, "not asked during the load", None
     by_label = {}
     ages = {}
     for client in clients or []:
@@ -321,7 +329,6 @@ def connection_holders(rows):
         except (TypeError, ValueError):
             pass
     roles = {"hook_helper": 0, "cli": 0, "other_bundle": 0}
-    # The cmux-tui processes this sample starts are counted under other_bundle (one at a time).
     for _, _, _, args in rows:
         if "cmux-tui-hook" in args or "__agent-hook" in args:
             roles["hook_helper"] += 1
@@ -356,7 +363,10 @@ def sampler():
         record("samples", sample)
         if tick % 3 == 0:
             record("server_stats", {**server_stats(), "phase": PHASE["name"]})
-            record("holders", {"t": round(time.time() - T0, 2), "phase": PHASE["name"], **connection_holders(rows)})
+            # During the load only the process count (as in the A/As): the daemon's own client list is read
+            # once, right after the load (connection_holders(rows, ask_daemon=True) in main), so this sample
+            # adds no connection, registry-lock acquisition or wait to the measured window.
+            record("holders", {"t": round(time.time() - T0, 2), "phase": PHASE["name"], **connection_holders(rows, ask_daemon=False)})
         tick += 1
         STOP.wait(5)
 
@@ -758,6 +768,14 @@ def main():
                 hog.kill()
                 hog.wait(timeout=30)
     record("server_stats", {**server_stats(), "phase": "end"})
+    # After the load (outside every measured window, so the A/As still hold): the daemon's lock detail
+    # (server-stats `locks`: the registry lock and mux.state, the top 20 sites by total hold and by p99
+    # hold, since the daemon's start; #28147 and later), and its own client list.
+    _, locks, locks_code = cli("raw", "command", "--request-json",
+                               json.dumps({"id": 1, "cmd": "server-stats", "include": ["locks"]}), timeout=30, binary=CLI_TUI)
+    record("locks", {"t": round(time.time() - T0, 2), "code": locks_code,
+                     "locks": locks.get("locks") if isinstance(locks, dict) else None})
+    record("holders", {"t": round(time.time() - T0, 2), "phase": "end", **connection_holders(processes(), ask_daemon=True)})
     STOP.set()
     for thread in load_threads + threads:
         thread.join(timeout=30)

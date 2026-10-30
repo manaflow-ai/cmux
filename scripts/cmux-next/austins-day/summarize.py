@@ -321,6 +321,15 @@ def run_metrics(run):
     if crashed:
         faults.append(f"{len(crashed)} hook runs hit a harness error ({crashed[0][:120]})")
     m["harness_faults"] = faults
+    # The daemon's lock detail after the load (server-stats `locks`, #28147 and later): the top sites of the
+    # registry lock and mux.state by total hold and by p99 hold, since the daemon's start. Descriptive.
+    detail = next((x.get("locks") for x in reversed(series.get("locks") or []) if x.get("locks")), None)
+    m["lock_top_sites"] = None if not detail else {
+        name: {"by_hold_total": [{k: s.get(k) for k in ("site", "acquisitions", "hold_total_us", "hold_p99_us", "hold_max_us")}
+                                 for s in (detail.get(name) or {}).get("by_hold_total") or []],
+               "by_hold_p99": [{k: s.get(k) for k in ("site", "acquisitions", "hold_total_us", "hold_p99_us", "hold_max_us")}
+                               for s in (detail.get(name) or {}).get("by_hold_p99") or []]}
+        for name in ("registry", "state")}
     # Who fills the connection pool (descriptive): median per load sample of the daemon's own client list by
     # label, and of the live client processes by role; plus the refusals each client kind saw itself.
     holders = load(series.get("holders", []))
@@ -392,6 +401,16 @@ def pick(metrics, path):
 
 
 HARNESS_DIR = "scripts/cmux-next/austins-day"
+def scenario_note(runs):
+    """The scenario's agent CLI rate, from the runs' own options."""
+    rates = sorted({(r.get("opts") or {}).get("cli_every") for r in runs if isinstance(r, dict)} - {None})
+    if rates == [0]:
+        return "main arm: no agent cmux CLI calls (hooks and the app only)"
+    if not rates:
+        return "agent CLI rate: unknown (runs from before the option was recorded: one call per 3 tool calls)"
+    return ("agent CLI rate: one cmux workspace list per " + "/".join(map(str, rates)) + " tool calls: " + AGENT_CLI_RATE_NOTE)
+
+
 AGENT_CLI_RATE_NOTE = ("assumed, not from Austin's data: one cmux workspace list per 3 tool calls; it fills the 64-slot pool with CLI calls, so hook-path fixes cannot show in refused connections")
 CONFIDENCE = 0.95
 
@@ -592,6 +611,7 @@ def main():
         args = args[1:]
     out_path, run_dirs = args[0], args[1:]
     runs = []
+    raw_runs = []
     for d in run_dirs:
         try:
             arm = json.load(open(os.path.join(d, "arm.json")))
@@ -603,11 +623,12 @@ def main():
             runs.append({"dir": d, **arm, "error": f"no run.json: {error}"})
             continue
         runs.append({"dir": d, **arm, "host": arm.get("host") or run.get("host"), "metrics": run_metrics(run)})
+        raw_runs.append(run)
     arms = {}
     for r in runs:
         if "metrics" in r:
             arms.setdefault(r["arm"], []).append(r)
-    summary = {"schema": 2, "runs": runs, "arms": {}, "scenario_note": "agent CLI rate: " + AGENT_CLI_RATE_NOTE}
+    summary = {"schema": 2, "runs": runs, "arms": {}, "scenario_note": scenario_note(raw_runs)}
     for name, members in arms.items():
         medians = {}
         for label, path in KEY:
@@ -621,6 +642,9 @@ def main():
         rounds.setdefault(r.get("round"), set()).add(r.get("host"))
     summary["same_host_per_round"] = {str(k): len(v) == 1 for k, v in rounds.items()}
     summary["invalid"] = validity(runs)
+    rates = {(r.get("opts") or {}).get("cli_every") for r in raw_runs}
+    if len(rates) > 1:
+        summary["invalid"] = f"invalid: the runs use different agent CLI rates ({sorted(map(str, rates))}): different scenarios"
     if "base" in arms and "head" in arms:
         summary["measured_commits"] = measured_commits(arms["base"][0].get("sha"), arms["head"][0].get("sha"))
     if aa_mode:
@@ -647,7 +671,7 @@ def main():
     names = list(summary["arms"])
     lines = [f"Austin's day: {len(runs)} runs; arms {', '.join(f'{n} ({summary['arms'][n]['sha'] or '?'}, {summary['arms'][n]['runs']} runs)' for n in names)}"]
     lines.append(f"same host per round: {summary['same_host_per_round']}")
-    lines.append("scenario note: the agent CLI rate is " + AGENT_CLI_RATE_NOTE)
+    lines.append("scenario: " + summary["scenario_note"])
     if summary.get("measured_commits") is not None:
         commits = summary["measured_commits"]
         lines.append(f"measured commits (base..head): {len(commits)}; check they are the PR's own (base = the PR's parent)")
@@ -686,6 +710,13 @@ def main():
         lines.append(f"{r.get('arm')} round {r.get('round')} on {r.get('host')}: agents {m['agents_started']}/{m['agents']} "
                      f"(hooked {m['agents_hooked']}), hooks {m['agent_hooks']}; Austin's failures seen: {', '.join(seen) or 'NONE'}"
                      + (f"; HARNESS FAULTS: {'; '.join(m['harness_faults'])}" if m["harness_faults"] else ""))
+        if m.get("lock_top_sites"):
+            for lock in ("registry", "state"):
+                top = (m["lock_top_sites"].get(lock) or {}).get("by_hold_total") or []
+                if top:
+                    lines.append(f"   {lock} lock, top holders by total hold (after the load): " + "; ".join(
+                        f"{s['site'].rsplit('/', 1)[-1]} {round((s.get('hold_total_us') or 0) / 1e6, 1)} s"
+                        f" p99 {round((s.get('hold_p99_us') or 0) / 1000, 1)} ms" for s in top[:3]))
         if m.get("registry_lock_held_share") is not None:
             lines.append(f"   registry lock held {m['registry_lock_held_share']:.1%} of the run's server-stats window "
                          "(descriptive, no verdict: not yet A/A-tested; the daemon's mean hold is a whole number of "

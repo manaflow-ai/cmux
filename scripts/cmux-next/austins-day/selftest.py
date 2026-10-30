@@ -405,6 +405,61 @@ class LockHeldShare(unittest.TestCase):
         self.assertEqual(share(last, first, 500.0), 0)
 
 
+class Scenario(unittest.TestCase):
+    def test_the_arm_is_named_and_mixed_cli_rates_are_refused(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for r in (1, 2):
+                for arm in ("base", "head"):
+                    d = write_run(tmp, f"{arm}-{r}", arm, head, r)
+                    path = os.path.join(d, "run.json")
+                    with open(path) as f:
+                        run_ = json.load(f)
+                    run_["opts"] = {"cli_every": 0}
+                    with open(path, "w") as f:
+                        json.dump(run_, f)
+                    dirs.append(d)
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertEqual(summary["scenario_note"], "main arm: no agent cmux CLI calls (hooks and the app only)")
+            self.assertIsNone(summary["invalid"])
+            path = os.path.join(dirs[-1], "run.json")
+            with open(path) as f:
+                run_ = json.load(f)
+            run_["opts"] = {"cli_every": 3}
+            with open(path, "w") as f:
+                json.dump(run_, f)
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertTrue(summary["invalid"].startswith("invalid: the runs use different agent CLI rates"), summary["invalid"])
+
+
+class LockDetail(unittest.TestCase):
+    def test_the_lock_detail_after_the_load_is_kept_by_lock_and_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            site = {"site": "crates/cmux-tui-core/src/mux/resource_api.rs:551", "acquisitions": 9, "hold_total_us": 25_700_000,
+                    "hold_max_us": 900_000, "hold_p99_us": 524_288, "wait_total_us": 1, "wait_max_us": 1, "wait_p99_us": 1}
+            run_["series"]["locks"] = [{"t": 400.0, "code": None, "locks": {"registry": {"by_hold_total": [site], "by_hold_p99": [site]},
+                                                                             "state": {"by_hold_total": [], "by_hold_p99": []}}}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            summary = summarize(os.path.join(tmp, "s.json"), [d])
+            top = summary["runs"][0]["metrics"]["lock_top_sites"]
+            self.assertEqual(top["registry"]["by_hold_total"][0]["hold_total_us"], 25_700_000)
+            self.assertEqual(top["state"]["by_hold_p99"], [])
+            with open(os.path.join(tmp, "s.txt")) as f:
+                self.assertIn("registry lock, top holders by total hold (after the load): resource_api.rs:551 25.7 s p99 524.3 ms", f.read())
+        # Runs before this harness have no lock detail.
+        with tempfile.TemporaryDirectory() as tmp:
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(synthetic_run(), f)
+            self.assertIsNone(summarize(os.path.join(tmp, "s.json"), [d])["runs"][0]["metrics"]["lock_top_sites"])
+
+
 class AgentFaults(unittest.TestCase):
     def test_missing_or_unhooked_agents_void_the_ab(self):
         head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
