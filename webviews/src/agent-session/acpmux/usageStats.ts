@@ -55,6 +55,16 @@ export function usageStatsOf(value: unknown): SessionUsageStats | undefined {
   };
 }
 
+/** `usageStatsOf(value)`, or `previous` when that reads the same: a snapshot per token then hands
+ *  Usage the same object, so it draws nothing again until acpmux's numbers change. */
+export function sameUsageStats(value: unknown, previous: SessionUsageStats | undefined): SessionUsageStats | undefined {
+  const next = usageStatsOf(value);
+  if (!next || !previous) return next;
+  const keys = new Set([...Object.keys(next), ...Object.keys(previous)]) as Set<keyof SessionUsageStats>;
+  for (const key of keys) if (next[key] !== previous[key]) return next;
+  return previous;
+}
+
 /** "$1,240" from 1240.4, "$12.40", "$0.08": whole dollars from $100, cents below. */
 export function usageCost(usd: number, locale?: string): string {
   return new Intl.NumberFormat(locale, {

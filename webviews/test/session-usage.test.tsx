@@ -11,7 +11,7 @@ import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspect
 import { DEFAULT_SECTIONS, resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { groupOrder } from "../src/agent-session/acpmux/inspector/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { byUsage, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
+import { byUsage, sameUsageStats, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -132,6 +132,16 @@ test("usageStatsOf reads acpmux's usageStats; null numbers are unknown and a nul
   // The session list carries it on every entry, a peer's included.
   expect(SESSIONS[1]!.usageStats?.costUsd24h).toBe(1_420.5);
   expect(SESSIONS[3]!.usageStats).toBeUndefined();
+});
+
+test("sameUsageStats keeps the previous object while acpmux's numbers are the same, so a snapshot per token redraws no Usage row", () => {
+  const first = sameUsageStats(stats({ costUsd24h: 3.5 }), undefined);
+  // A new raw object from the next session_changed, the same numbers: the same decoded object.
+  expect(sameUsageStats(stats({ costUsd24h: 3.5 }), first)).toBe(first);
+  const moved = sameUsageStats(stats({ costUsd24h: 3.6 }), first);
+  expect(moved).not.toBe(first);
+  expect(moved?.costUsd24h).toBe(3.6);
+  expect(sameUsageStats(null, first)).toBeUndefined();
 });
 
 test("byUsage ranks by 24h cost or by context, highest first, and leaves out sessions with no usage", () => {

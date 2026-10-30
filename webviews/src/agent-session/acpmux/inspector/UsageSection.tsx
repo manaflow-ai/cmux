@@ -5,7 +5,7 @@
 // to acpmux/cmux-next". The numbers are acpmux's `usageStats` (usageStats.ts), refreshed on the
 // session list acpmux already sends; the list is sorted only while the section is open, and only
 // when the list or the sort changes.
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useT, type Translate } from "../i18n";
 import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
@@ -67,7 +67,9 @@ function sortValue(stats: SessionUsageStats, sort: UsageSort, locale?: string): 
   return stats.contextTokens === undefined ? "–" : usageTokens(stats.contextTokens, locale);
 }
 
-export function UsageSection({
+/// Memoized: its props are the same objects until acpmux's numbers or list change (direct.ts keeps
+/// both), so a snapshot per token draws none of its rows again.
+export const UsageSection = memo(function UsageSection({
   own,
   sessions,
   chatId,
@@ -188,4 +190,4 @@ export function UsageSection({
       )}
     </div>
   );
-}
+});
