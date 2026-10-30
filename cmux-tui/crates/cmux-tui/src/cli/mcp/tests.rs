@@ -1448,6 +1448,20 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
     assert!(all.len() > 100, "the full list stays the API");
+    // An unknown name's hint names only what tools/list offers here.
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "t", "method": "tools/call",
+                        "params": {"name": "workspace_lst"}}))
+        .unwrap();
+    assert_eq!(typo["error"]["message"], "unknown tool: workspace_lst", "{typo}");
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "x", "method": "tools/call",
+                        "params": {"name": "cmux_exce"}}))
+        .unwrap();
+    assert_eq!(
+        typo["error"]["message"], "unknown tool: cmux_exce; did you mean cmux_exec?",
+        "{typo}"
+    );
     assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
 
     // Docs returns a matching tool's schema, best match first.

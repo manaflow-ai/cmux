@@ -881,14 +881,14 @@ impl<B: Backend> Server<B> {
         Ok(self.call_action(tool, &arguments))
     }
 
-    /// `unknown tool: NAME`, naming the nearest tool this chat may call when
-    /// one is close (`acpmux::mcp_hint`).
+    /// `unknown tool: NAME`, naming the nearest tool `tools/list` offers when
+    /// one is close (`acpmux::mcp_hint`): in code mode only `cmux_exec`.
     fn unknown_tool(&self, name: &str) -> String {
+        if self.code_mode && self.allowed.is_none() {
+            return acpmux::mcp_hint::unknown_tool(name, [code_mode::EXEC]);
+        }
         let listed = self.listed();
-        let scripts = self.code_mode && self.allowed.is_none();
-        let code_mode = if scripts { [code_mode::DOCS, code_mode::EXEC].as_slice() } else { &[] };
-        let listed = listed.iter().filter_map(|tool| tool["name"].as_str());
-        acpmux::mcp_hint::unknown_tool(name, code_mode.iter().copied().chain(listed))
+        acpmux::mcp_hint::unknown_tool(name, listed.iter().filter_map(|tool| tool["name"].as_str()))
     }
 
     /// One request from a running `cmux_exec` script: a tool call through
