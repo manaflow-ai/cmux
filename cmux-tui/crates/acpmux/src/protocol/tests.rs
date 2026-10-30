@@ -59,6 +59,7 @@ fn protocol_registry_names_every_served_method() {
         include_str!("../server/requests.rs"),
         include_str!("../server/mod.rs"),
         include_str!("../server/chats.rs"),
+        include_str!("../server/chat_windows.rs"),
         include_str!("../server/secrets.rs"),
         include_str!("../server/peer_forward.rs"),
         include_str!("../server/remote_guard.rs"),

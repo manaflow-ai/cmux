@@ -99,6 +99,8 @@ pub struct Conn {
     pub(crate) memory_vote: std::sync::OnceLock<cmux_memory::Voter>,
     /// How many hub events its fan-out has handed on (`fanout.rs`); unset with no fan-out.
     fanout_progress: std::sync::OnceLock<tokio::sync::watch::Receiver<u64>>,
+    /// Its windows over the chat index (`chat_windows.rs`).
+    chat_windows: chat_windows::ConnWindows,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -1422,6 +1424,7 @@ mod bind_person;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
+mod chat_windows;
 mod chats;
 pub mod conn_auth;
 mod ephemeral;
