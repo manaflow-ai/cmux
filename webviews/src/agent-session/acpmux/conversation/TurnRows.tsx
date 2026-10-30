@@ -1,3 +1,4 @@
+import { PullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -418,6 +419,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           <MessageTime at={row.at} className="cv-turn-time" />
         </MessageFooterRow>
+        <PullRequestDock />
       </div>
     </>
   );
