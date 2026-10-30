@@ -577,12 +577,13 @@ FEAT_BRANCH = "refs/heads/feat-cmux-next"
 def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
     """The rescue's full re-run (next_macos_cascade.bot_rerun()): only the cascade is placed afresh.
 
-    The owned routes stay empty, as every re-run had them: the jobs that read runner, gui_runner,
+    The side runner is emitted only for freshly allocated owned jobs. Other owned routes stay empty:
+    the jobs that read gui_runner,
     session_runner, the free GUI and session labels, fast_runner or gateway_runner keep the routes their
     runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
 
     Idle minis are counted on SIDE_LABEL itself: a re-run's cascade jobs fall back to
-    vars.CI_SIDE_LANE_RUNNER, never to side_route()'s wider class (runner is not read). A FEAT_BRANCH
+    that exact label, never to side_route()'s wider class. A FEAT_BRANCH
     push's Release compile takes no placement on a re-run (its runs-on reads it on attempt 1 only), so it
     leaves the cascade and takes no slot, and no idle mini is counted for it.
     """
@@ -608,7 +609,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
             # The GUI jobs of the rescue's re-run never read gui_runner: they leave the owned GUI queue they were
             # rescued from for Blacksmith macOS (cmux-next.yml's gui_overflow leg).
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"gui_overflow={GUI_OVERFLOW}\n"
+                         f"runner={label if owned else ''}\ngui_overflow={GUI_OVERFLOW}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.

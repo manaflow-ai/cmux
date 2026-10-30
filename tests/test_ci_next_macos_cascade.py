@@ -929,7 +929,7 @@ class Rerun(unittest.TestCase):
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SIDE_LABEL"], "${{ env.CMUX_NEXT_SIDE_ROUTE }}")
 
-    def test_the_rerun_writes_the_cascade_and_no_owned_route(self):
+    def test_the_rerun_writes_the_cascade_and_only_its_allocated_side_route(self):
         place = next(step for step in self.placement_job()["steps"] if step.get("id") == "place")
         call = "python3 scripts/ci/side_lane_placement.py\n"
         self.assertEqual(place["run"].count(call), 1)
@@ -955,14 +955,30 @@ class Rerun(unittest.TestCase):
                 # The idle mini races for the canary; the scheme compile gets 12 vCPU either way.
                 self.assertEqual(lines["owned_jobs"], " fast-tier ")
                 self.assertEqual(lines["blacksmith_12_jobs"], " cmux-scheme-compile ")
-                routes = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner",
+                routes = ("gui_runner", "session_runner", "free_gui_runner", "free_session_runner",
                           "fast_runner", "gateway_runner", "gateway_attempt", "nightly_runner_ready")
                 if attempt == "2":
                     # The GUI, session, fast and gateway jobs keep the routes a re-run always had.
                     self.assertEqual({key: lines[key] for key in routes if key in lines}, {})
                     self.assertEqual(lines["retry_runner"], "")
+                    self.assertEqual(lines["runner"], SIDE)
                 else:
                     self.assertEqual(lines["runner"], SIDE)
+
+    def test_bot_fast_tier_uses_actual_fresh_owned_placement(self):
+        idle = {"name": "side-mini", "status": "online", "busy": False,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        runs_on = yaml.safe_load(WORKFLOW.read_text())["jobs"]["fast-tier"]["runs-on"]
+        for runners, expected in (([idle], SIDE), ([], SMALL)):
+            with self.subTest(idle=bool(runners)):
+                outputs = self.rerun_outputs(runners, {LARGE: 5, SMALL: 10}, {LARGE: 10, SMALL: 10},
+                                             CASCADE_RUNS=" fast-tier ")
+                context = self.route_context("2", BOT)
+                outputs["placed_attempt"] = evaluate(self.placement_job()["outputs"]["placed_attempt"], context)
+                context["needs"] = {"macos-placement": {"outputs": outputs}}
+                self.assertEqual(evaluate(runs_on, context), expected)
+                outputs["placed_attempt"] = "1"
+                self.assertEqual(evaluate(runs_on, context), SMALL)
 
     def rerun_outputs(self, runners: list, live: dict, waiting: dict, **extra: str) -> dict:
         """placement.main() on the bot's attempt 2, then the step's shell, as the runner runs them."""
@@ -996,7 +1012,7 @@ class Rerun(unittest.TestCase):
         lines = self.rerun_outputs([idle_std, busy_light], free, dict(free), CASCADE_RUNS=" cmux-scheme-compile ")
         self.assertEqual(lines["owned_jobs"], "")
         self.assertEqual(lines["blacksmith_12_jobs"], " cmux-scheme-compile ")
-        self.assertNotIn("runner", lines)
+        self.assertEqual(lines["runner"], "")
 
     def test_a_feat_push_rerun_places_no_release_compile(self):
         # Its runs-on reads the placement on attempt 1 only and takes 6 vCPU on a re-run, so a slot
