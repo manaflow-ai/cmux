@@ -68,7 +68,7 @@ async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Res
     })
     .await;
     agent.kill().await;
-    assert!(result?.is_some(), "the cancellation was not stored");
+    assert!(result?, "the cancellation was not stored");
     assert_eq!(
         *cursors.lock().unwrap_or_else(|e| e.into_inner()),
         vec![None],
