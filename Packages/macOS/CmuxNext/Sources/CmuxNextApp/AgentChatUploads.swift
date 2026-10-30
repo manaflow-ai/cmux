@@ -22,23 +22,17 @@ struct AgentChatUploads {
     private static var batches: [String: Batch] = [:]
     /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
     nonisolated static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
-    /// The folder under ``root`` that holds a folder per chat (session ids are UUIDs, as upload
-    /// folders' names are, so they never share one folder).
-    nonisolated static let sessions = "sessions"
-
+    /// The folder under ``root`` that holds a folder per chat (``ChatUploadFolders``).
+    nonisolated static let sessions = ChatUploadFolders.sessions
     /// The folder every local chat upload goes under.
-    nonisolated static var root: URL? {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appending(path: "cmux", directoryHint: .isDirectory)
-            .appending(path: "Chat Uploads", directoryHint: .isDirectory)
-    }
+    nonisolated static var root: URL? { ChatUploadFolders.standard?.root }
 
     /// The upload for chat tab `tab`, nil unless its folder is on this Mac (`isLocal`).
     static func uploader(tab: String, services: AppServices) -> AgentPaneUploader? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
-        let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) ? $0 : nil }
+        let session = services.agentTabs.session(of: tab).flatMap { ChatUploadFolders.isSessionName($0) ? $0 : nil }
         return { files in
-            let chat = session.map { chatFolder($0, in: root) } ?? root
+            let chat = session.map { ChatUploadFolders(root: root).chat($0) } ?? root
             let folder = chat.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
             do {
                 let paths = try await Task.detached { try write(files, in: folder) }.value
@@ -52,7 +46,7 @@ struct AgentChatUploads {
 
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
-        let session = services.agentTabs.session(of: tab).flatMap { isSessionName($0) ? $0 : nil } ?? "new"
+        let session = services.agentTabs.session(of: tab).flatMap { ChatUploadFolders.isSessionName($0) ? $0 : nil } ?? "new"
         return { request, sessionID in
             batches = batches.filter { $0.value.expires >= Date() }
             guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
@@ -64,11 +58,10 @@ struct AgentChatUploads {
                     if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
                     else { batches[batchToken] = Batch(session: session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
                 }
-                guard size <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
+                guard size >= 0 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 if let manifest {
                     guard manifest.first?.name == name, manifest.first?.size == size,
-                          manifest.allSatisfy({ $0.size >= 0 && $0.size <= 1 * 1024 * 1024 * 1024 }),
-                          manifest.reduce(0) { $0 + $1.size } <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
+                          manifest.allSatisfy({ $0.size >= 0 }) else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 }
                 let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
                 do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
@@ -93,7 +86,7 @@ struct AgentChatUploads {
                 }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
-                guard var stage = stages[token], stage.session == session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                guard var stage = stages[token], stage.session == session, stage.received == offset, data.count <= stage.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
                 Task { @MainActor in
@@ -106,7 +99,7 @@ struct AgentChatUploads {
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
                 guard let stage = stages[token], stage.session == session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                let base = session == "new" ? root : chatFolder(session, in: root)
+                let base = session == "new" ? root : ChatUploadFolders(root: root).chat(session)
                 let destination = base.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory).appending(path: "0", directoryHint: .isDirectory).appending(path: stage.name)
                 do {
                     try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -145,16 +138,6 @@ struct AgentChatUploads {
 }
 
 extension AgentChatUploads {
-    /// Whether acpmux session id `id` names one folder: letters, digits, `-` and `_` only.
-    nonisolated static func isSessionName(_ id: String) -> Bool {
-        !id.isEmpty && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
-    }
-
-    /// Whether `name` is an upload folder's: a UUID, as ``uploader(tab:services:)`` names them.
-    nonisolated static func isUploadName(_ name: String) -> Bool {
-        UUID(uuidString: name) != nil
-    }
-
     /// The real folders in `folder` (not a symlink or a file), by name.
     nonisolated static func realFolders(in folder: URL) -> [URL] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
@@ -165,18 +148,13 @@ extension AgentChatUploads {
         }
     }
 
-    /// Chat `session`'s folder under `root`.
-    nonisolated static func chatFolder(_ session: String, in root: URL) -> URL {
-        root.appending(path: sessions, directoryHint: .isDirectory).appending(path: session, directoryHint: .isDirectory)
-    }
-
     /// Deletes chat `session`'s uploads under `root`: acpmux deleted the chat.
     nonisolated static func remove(session: String, in root: URL) {
-        guard isSessionName(session) else { return }
+        guard ChatUploadFolders.isSessionName(session) else { return }
         let chats = root.appending(path: sessions, directoryHint: .isDirectory)
         guard realFolders(in: root).contains(where: { $0.lastPathComponent == sessions }),
               realFolders(in: chats).contains(where: { $0.lastPathComponent == session }) else { return }
-        try? FileManager.default.removeItem(at: chatFolder(session, in: root))
+        try? FileManager.default.removeItem(at: ChatUploadFolders(root: root).chat(session))
     }
 
     /// Deletes each upload under `root` made more than ``maximumAge`` before `now` (its folder's
@@ -189,7 +167,7 @@ extension AgentChatUploads {
         let manager = FileManager.default
         var removed = 0
         func sweepUploads(in folder: URL) {
-            for upload in realFolders(in: folder) where isUploadName(upload.lastPathComponent) {
+            for upload in realFolders(in: folder) where ChatUploadFolders.isUploadName(upload.lastPathComponent) {
                 let made = (try? upload.resourceValues(forKeys: [.creationDateKey]))?.creationDate
                 if let made, made < cutoff, (try? manager.removeItem(at: upload)) != nil { removed += 1 }
             }
@@ -197,7 +175,7 @@ extension AgentChatUploads {
         sweepUploads(in: root)
         let chats = root.appending(path: sessions, directoryHint: .isDirectory)
         guard realFolders(in: root).contains(where: { $0.lastPathComponent == sessions }) else { return removed }
-        for chat in realFolders(in: chats) where isSessionName(chat.lastPathComponent) {
+        for chat in realFolders(in: chats) where ChatUploadFolders.isSessionName(chat.lastPathComponent) {
             sweepUploads(in: chat)
             // rmdir(2) refuses a folder that is not empty: an upload written into it meanwhile stays.
             _ = rmdir(chat.path)

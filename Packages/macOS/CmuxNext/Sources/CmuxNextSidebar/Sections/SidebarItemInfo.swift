@@ -16,6 +16,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var badge: Int?
     /// The window shows this item (Home, a pinned workspace).
     public var isActive: Bool
+    /// A pinned workspace in the sidebar's multi-selection, not the shown one: drawn with the secondary
+    /// selection fill, as its list row would be. The region sets it (`SidebarRegionView.selectedWorkspaces`).
+    public var isSecondarySelected = false
     /// The reference no longer resolves (a closed workspace): drawn dimmed.
     public var isMissing: Bool
     /// Not drawn at all (a hidden app, D55); the item stays in the layout.

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -118,7 +119,9 @@ final class AppOnboardingServices: OnboardingServices {
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            return MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
+            // The NIGHTLY's helper path, so the window and panel show its icon and name when it is installed.
+            let helper = CuaHelperIdentity.installedCandidates(isDevBuild: true).first
+            return MockComputerUsePermissionSource(helperAppURL: helper ?? URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
         }
         #endif
         return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)

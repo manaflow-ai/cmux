@@ -79,7 +79,7 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
     /// The Mac's Home list cuts previews short (no closing parenthesis).
     @Test func homeRowPreviewsReadAsPlainWords() {
         let cut = "(turn refused: the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running"
-        #expect(ChiefTurnFailure.previewText(cut) == "Chief ran into a problem on your Mac and didn't finish this.")
+        #expect(ChiefTurnFailure.previewText(cut) == "Chief couldn't finish this reply.")
         #expect(ChiefTurnFailure.previewText("Done.\n\n(turn failed: ECONNREFUSED to 10.0.0.1:443") .hasPrefix("Done.\n\nChief couldn't reach its model"))
         #expect(ChiefTurnFailure.previewText("All 12 tests pass.") == "All 12 tests pass.")
     }
@@ -98,7 +98,7 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
             ["id": "m1", "seq": 3, "author": author, "parts": [["type": "text", "text": text]], "created_at": "2026-10-14T21:31:00.000Z"]
         }
         let chief = try #require(wire.message(object(ChiefIdentity.standard.chiefID, gatewayOutage), peerReadSeq: 0))
-        #expect(chief.text == "Chief's model was too busy, so it didn't finish this.")
+        #expect(chief.text == "Chief's model is busy.")
         #expect(wire.failure(object(ChiefIdentity.standard.chiefID, gatewayOutage))?.detail.contains("31415") == true)
         let mine = try #require(wire.message(object(ChiefIdentity.standard.meID, gatewayOutage), peerReadSeq: 0))
         #expect(mine.text == gatewayOutage)
@@ -256,11 +256,30 @@ final class ScriptedChiefMac: @unchecked Sendable {
         if case .refused = session.engineProblem {} else { Issue.record("expected a refusal, got \(String(describing: session.engineProblem))") }
     }
 
-    @Test func tryAgainSendsTheMessageTheFailedTurnAnswered() async throws {
+    @Test func tryAgainWithoutAnOriginalMessageSendsNothing() async throws {
         let mac = ScriptedChiefMac([(true, ScriptedChiefMac.report)])
         let session = try await session(mac, preferences: ChiefPreferences(defaults: defaults()), macID: "mac-1")
         try await waitUntil("Chief to connect") { session.isConnected }
-        session.send(ConversationComposeMessage(text: "summarize the open PRs"))
+        mac.daemon.queueChiefMessage(gatewayOutage)
+        _ = try await session.backend.history(beforeSeq: nil, limit: 50)
+        try await waitUntil("failed turn") { session.lastTurnFailure != nil }
+        session.retryFailedTurn()
+        #expect(session.store.messages.allSatisfy { $0.senderID != session.store.meID })
+        #expect(mac.daemon.ops.allSatisfy { $0["kind"] as? String != "message.send" })
+        if case .failure? = session.barItem {} else { Issue.record("Retry was consumed without sending") }
+    }
+
+    @Test(arguments: ["text", "photo", "photo-only", "file", "file-only"])
+    func tryAgainSendsTheMessageTheFailedTurnAnswered(kind: String) async throws {
+        let mac = ScriptedChiefMac([(true, ScriptedChiefMac.report)])
+        let session = try await session(mac, preferences: ChiefPreferences(defaults: defaults()), macID: "mac-1")
+        try await waitUntil("Chief to connect") { session.isConnected }
+        let text = kind.hasSuffix("-only") ? "" : "summarize the open PRs"
+        let photo = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDZkAAAAASUVORK5CYII=")!
+        let file = Data("a,b\n1,2".utf8)
+        session.store.send(text: text,
+                           images: kind.hasPrefix("photo") ? [(photo, 1, 1, "image/png")] : [],
+                           files: kind.hasPrefix("file") ? [ConversationPendingFile(data: file, name: "table.csv")] : [])
         // The fake Chief answers "On it."; then its next turn fails on the model.
         try await waitUntil("Chief's reply") { session.store.messages.contains(where: { $0.text == "On it." }) }
         mac.daemon.queueChiefMessage(gatewayOutage)
@@ -276,10 +295,21 @@ final class ScriptedChiefMac: @unchecked Sendable {
         #expect(failure.kind == .modelBusy)
 
         session.retryFailedTurn()
+        session.retryFailedTurn() // A second tap must not send another copy.
         try await waitUntil("Try Again to resend") { mac.daemon.ops.filter({ $0["kind"] as? String == "message.send" }).count >= 2 }
         let sends = mac.daemon.ops.filter { $0["kind"] as? String == "message.send" }
-        let resent = (sends.last?["parts"] as? [[String: Any]])?.first?["text"] as? String
-        #expect(resent == "summarize the open PRs")
+        #expect(sends.count == 2)
+        let parts = try #require(sends.last?["parts"] as? [[String: Any]])
+        let resent = parts.first(where: { $0["type"] as? String == "text" })?["text"] as? String ?? ""
+        #expect(resent == text)
+        let attachments = parts.filter { $0["type"] as? String == "attachment" }
+        #expect(attachments.count == (kind == "text" ? 0 : 1))
+        if let attachment = attachments.first {
+            let hash = try #require(attachment["hash"] as? String)
+            #expect(mac.daemon.stored[hash] == (kind.hasPrefix("photo") ? photo : file))
+            if kind.hasPrefix("photo") { #expect(attachment["mime_type"] as? String == "image/png") }
+            if kind.hasPrefix("file") { #expect(attachment["name"] as? String == "table.csv") }
+        }
         // Once tried again, the bar no longer offers it.
         if case .failure? = session.barItem { Issue.record("Try Again offered twice") }
     }

@@ -344,6 +344,21 @@ public final class ActionRegistry {
         return isAvailable(id, in: base.union(facts))
     }
 
+    /// `isAvailable(_:for:)` for a run from outside the app (the CLI, MCP): a `pane:` or `tab:`
+    /// target decides the facts it brings (`ActionContext.decidedByPaneOrTabTarget`) itself, so
+    /// another agent chat or canvas that has the keyboard never stands in for the target's. A
+    /// script's Set Agent Chat Model on a terminal pane is refused here, before anything runs,
+    /// whatever the person focuses. The App's own runs on a chat's tab (its header, from a chat
+    /// that may sit in no pane) keep `isAvailable(_:for:)`.
+    public func isAvailable(_ id: ActionID, forScript invocation: ActionInvocation) -> Bool {
+        guard let kind = invocation.target?.kind, kind == .pane || kind == .tab,
+              let required = descriptor(for: id)?.requires, !required.isDisjoint(with: .decidedByPaneOrTabTarget),
+              let targetContext else { return isAvailable(id, for: invocation) }
+        let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
+            .subtracting(.decidedByPaneOrTabTarget)
+        return isAvailable(id, in: base.union(targetContext(invocation).intersection(.decidedByPaneOrTabTarget)))
+    }
+
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
         if descriptor.isDebugOnly && !DevTools.isEnabled { return false }
         return context.isSuperset(of: descriptor.requires)
