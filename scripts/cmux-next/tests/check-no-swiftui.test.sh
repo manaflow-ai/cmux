@@ -246,6 +246,24 @@ code=0; python3 -I "$CHECK" --base "$base4f" "$repo" >/dev/null 2>"$tmp/err" || 
 git -C "$repo" rm -q -f "$SRC/Q/View.swift" "$SRC/R/View.swift"
 printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
 git -C "$repo" add -A
+# A renamed importer cannot also vouch for a stale entry of its name.
+mkdir -p "$repo/$SRC/W" "$repo/$SRC/X" "$repo/$SRC/Y"
+printf 'import SwiftUI\nstruct W {}\n' > "$repo/$SRC/W/View.swift"
+printf 'import AppKit\nstruct Y { let y = "other" }\n' > "$repo/$SRC/Y/View.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/W/View.swift" "$SRC/Y/View.swift" > "$repo/$LIST"
+commit base4g-rename-and-stale
+base4g=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" mv "$SRC/W/View.swift" "$SRC/X/View.swift"
+printf 'import SwiftUI\nstruct Y { let y = "other" }\n' > "$repo/$SRC/Y/View.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/X/View.swift" "$SRC/Y/View.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base4g" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/Y/View.swift: imports SwiftUI, which it did not" "$tmp/err" \
+  && ! grep -q "^NO-SWIFTUI: $SRC/X/View.swift" "$tmp/err" \
+  || { echo "FAIL: must fail on the refilled entry only: a rename source vouches for nothing else (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" rm -q -f "$SRC/X/View.swift" "$SRC/Y/View.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
 # A base source that is not UTF-8 is read, not a crash.
 mkdir -p "$repo/$SRC/U"; printf 'import SwiftUI\n// caf\xe9\nstruct U {}\n' > "$repo/$SRC/U/Latin.swift"
 printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/U/Latin.swift" > "$repo/$LIST"

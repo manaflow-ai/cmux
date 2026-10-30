@@ -197,7 +197,9 @@ def main() -> int:
             added = sorted(allowed_set - old_allowed)
             # A move that also rewrote the file: pair one gone entry with one added entry of the
             # same file name, only when the name is unique on both sides.
-            dropped = by_name(f for f in old_allowed - allowed_set if not (root / f).exists())
+            # A git rename's source is that rename's origin already: it pairs with nothing else.
+            renamed_from = set(moves.values())
+            dropped = by_name(f for f in old_allowed - allowed_set if not (root / f).exists() and f not in renamed_from)
             added_names = by_name(added)
             for f in added:
                 name = pathlib.PurePosixPath(f).name
