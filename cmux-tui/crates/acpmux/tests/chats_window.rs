@@ -347,3 +347,56 @@ async fn the_last_spec_sent_wins_whatever_order_the_requests_run_in() {
         c.ok("_acpmux/chats_window_close", json!({"window": window, "gen": 6})).await;
     }
 }
+
+/// Review of #28090 (no regression): the palette's chats page found a chat by its harness and by
+/// words anywhere in its title or folder, with the palette's ranker. A query window ranks the same
+/// way, and says how many chats matched in all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_query_window_ranks_like_the_palette_and_reports_how_many_matched() {
+    const N: usize = 30;
+    let base = PathBuf::from("/tmp").join(format!("acpmux-window-rank-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    // Chat i's first prompt (its title) is "fix the flaky build i" for even i, "write docs i" else.
+    for i in 0..N {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let text =
+            if i % 2 == 0 { format!("fix the flaky build {i}") } else { format!("write docs {i}") };
+        std::fs::write(&file, format!("{}\n", record(i, i, &text))).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0, VecDeque::new());
+
+    let spec = |window: &str, query: &str, limit: usize| json!({"window": window, "gen": 1, "query": query, "limit": limit});
+    // The harness: no title or folder holds "claude", every chat is a claude-code chat.
+    c.ok("_acpmux/chats_window", spec("harness", "claude", 5)).await;
+    let full = c.next_window().await;
+    assert_eq!(full["window"], "harness");
+    assert_eq!(keys(&full).len(), 5, "the harness name finds its chats: {full}");
+    assert_eq!(full["total"], N, "every chat matched: {full}");
+    assert_eq!(full["hasMore"], true, "{full}");
+    // Two words that are not next to each other: only the even chats hold both.
+    c.ok("_acpmux/chats_window", spec("words", "fix build", 100)).await;
+    let full = c.next_window().await;
+    assert_eq!(full["window"], "words");
+    assert_eq!(full["total"], N / 2, "the even chats: {full}");
+    let index = |key: &String| key.rsplit('-').next().unwrap().parse::<usize>().unwrap();
+    assert!(
+        row_keys(&full).iter().all(|k| index(k) % 2 == 0),
+        "only chats that hold both words: {full}"
+    );
+}
