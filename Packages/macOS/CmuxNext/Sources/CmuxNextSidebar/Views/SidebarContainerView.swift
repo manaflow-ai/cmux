@@ -133,7 +133,8 @@ public final class SidebarContainerView: NSView {
     var mountedBand: SidebarResizeBand?
     /// The pane reach used when the handle's line offset was last mounted. Card and flat styles
     /// share the same resize band, so the reach is tracked separately for style switches.
-    private var mountedPaneReach: CGFloat = 0
+    // Internal because mountHandle() writes it from SidebarContainerView+Side.swift.
+    var mountedPaneReach: CGFloat = 0
 
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
