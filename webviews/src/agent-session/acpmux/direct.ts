@@ -327,6 +327,15 @@ const OLDER_PAGES_PER_ASK = 8;
 /// Publish a bounded batch of older pages together so each prepend does not redraw the bottom stack.
 /// This keeps the reader responsive while preserving the eight-page cap for large turns.
 const OLDER_MIN_PAGES_PER_ASK = 4;
+/// A chat adopted or watched from Claude Code has older turns in its transcript, past the newest
+/// page its log was seeded with: acpmux logs a `native_history` record (its `before` cursor, a byte
+/// offset into the transcript) and serves the pages before it (acpmux hub/native_history.rs).
+const NATIVE_HISTORY_KIND = "native_history";
+/// Native pages one older read takes at most when the ones it reads hold no turn the pane lacks
+/// (pages it already holds, after its kept tail drew them). Each reads at most 16 MiB of transcript.
+const NATIVE_PAGES_PER_ASK = 4;
+/// The JSON-RPC code of a method a daemon does not serve: an older peer's daemon.
+const METHOD_NOT_FOUND = -32601;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
@@ -1510,6 +1519,11 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
+  private nativeSeed?: { seq: number; before: number };
+  /// Where the next older native page ends, once one was read, for the held transcript
+  /// (`historyEpoch`): 0 when nothing older holds a turn or the daemon serves no pages.
+  private nativeNext?: { epoch: number; before: number };
   /// Bumped when the held transcript's older end moves on its own: a kept tail dropped because the
   /// attach page did not continue it. An older page in flight from before belongs to a transcript
   /// the chat no longer holds, so it is dropped instead of merged above the new one.
@@ -1929,6 +1943,8 @@ export class AcpmuxDirectClient {
     this.events = [];
     this.turnOpener = undefined;
     this.historyExhausted = false;
+    this.nativeSeed = undefined;
+    this.nativeNext = undefined;
     this.olderRetryAt = 0;
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
@@ -3637,6 +3653,8 @@ export class AcpmuxDirectClient {
     this.steerRows.clear();
     this.promptsShown.clear();
     this.firstSeq = undefined;
+    // Found again as the held events are reduced (`reduceEvent`).
+    this.nativeSeed = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
     this.silentTurn = false;
@@ -4029,6 +4047,14 @@ export class AcpmuxDirectClient {
 
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
+    if (event.dir === "mux" && event.kind === NATIVE_HISTORY_KIND) {
+      // Draws nothing: where the transcript's older turns end. The oldest one held is the seeded
+      // page's (a page of the log seq order puts first).
+      const before = Number(msg.before);
+      if (event.seq >= 1 && before > 0 && (this.nativeSeed === undefined || event.seq < this.nativeSeed.seq))
+        this.nativeSeed = { seq: event.seq, before };
+      return;
+    }
     const update = sessionUpdate(event);
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
@@ -4911,7 +4937,7 @@ export class AcpmuxDirectClient {
       asks: this.asks.list(),
       catalog: [],
       commands: this.commands,
-      canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
+      canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -6848,7 +6874,22 @@ export class AcpmuxDirectClient {
     this.loadingOlder = loading;
     return loading;
   }
+  /// Whether the log holds records older than the held ones.
+  private seqHistoryLeft(): boolean {
+    return !this.historyExhausted && (this.firstSeq ?? 1) > 1;
+  }
+
+  /// Where the next older page of the chat's Claude Code transcript ends, once the log's own
+  /// history is all held; undefined when there is none to read, or the daemon serves none.
+  private nativeBefore(): number | undefined {
+    if (!this.extensions.includes("_acpmux/native_history") || this.seqHistoryLeft()) return undefined;
+    const next = this.nativeNext?.epoch === this.historyEpoch ? this.nativeNext.before : this.nativeSeed?.before;
+    return next !== undefined && next > 0 ? next : undefined;
+  }
+
   private async fetchOlder(): Promise<void> {
+    if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
+      return this.fetchNativeOlder();
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
@@ -6895,6 +6936,57 @@ export class AcpmuxDirectClient {
     if (foldsAbove) this.foldOlder(older);
     else this.rebuildKeepingLiveState();
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
+    this.emit("history");
+  }
+
+  /// Pages older turns in from the chat's Claude Code transcript, past the newest page its log was
+  /// seeded with (`nativeBefore`). acpmux sends them as the records adopting logs, numbered below 1
+  /// (oldest first, the same numbers for the same cursor), so they sort above every logged record
+  /// and stay out of the log's own bookkeeping: `seqHistoryLeft` is false once one is held. Records
+  /// the pane already holds (a kept tail drew them) are dropped, and the read goes on to an older
+  /// page. Each page is whole turns that end, so it folds above the held rows (`foldOlder`) and
+  /// the transcript keeps the reader's place as for any older page.
+  private async fetchNativeOlder(): Promise<void> {
+    const sessionId = this.selectedSessionId!;
+    const generation = this.selectionGeneration;
+    const epoch = this.historyEpoch;
+    let before = this.nativeBefore();
+    // A kept tail cut inside a native turn holds that turn's end only (KEPT_EVENTS): the turn comes
+    // again whole with its page, so the part held goes and the rows are drawn again.
+    const cut = this.events[0] !== undefined && this.events[0].seq < 1 && this.events[0].kind !== "turn_started";
+    const whole = cut ? this.events.find((event) => event.seq >= 1 || event.kind === "turn_started") : this.events[0];
+    const heldFrom = whole?.seq ?? Infinity;
+    let older: EventRecord[] = [];
+    for (let pages = 0; before !== undefined && before > 0 && pages < NATIVE_PAGES_PER_ASK; pages++) {
+      let result: any;
+      try {
+        result = await this.request("_acpmux/native_history", { sessionId, before }, 15_000);
+      } catch (error) {
+        // An older daemon (a peer's) serves no pages, and an older host relays none: the chat stops
+        // paging, as at its first turn.
+        const code = (error as { code?: unknown } | undefined)?.code;
+        if (code !== METHOD_NOT_FOUND && code !== "transport.method_refused") throw error;
+        result = { events: [], before: 0 };
+      }
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (epoch !== this.historyEpoch) return;
+      const page = records(result?.events).filter(
+        (event) => typeof event?.seq === "number" && event.seq < 1 && event.seq < heldFrom,
+      );
+      older = [...page, ...older];
+      const next = Number(result?.before);
+      // A cursor moves back, or the transcript is done.
+      before = Number.isFinite(next) && next > 0 && next < before ? next : 0;
+      if (older.some(startsTurn)) break;
+    }
+    this.nativeNext = { epoch, before: before ?? 0 };
+    if (cut) this.events = this.events.filter((event) => event.seq >= heldFrom);
+    if (older.length > 0) {
+      this.events = mergeEventRecords(older, this.events);
+      this.sawPrompts(older);
+    }
+    if (cut) this.rebuildKeepingLiveState();
+    else if (older.length > 0) this.foldOlder(older);
     this.emit("history");
   }
 
