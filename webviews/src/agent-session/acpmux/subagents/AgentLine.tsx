@@ -129,6 +129,7 @@ export function AgentLine({
       </span>
       <span className="acpmux-summary-text">
         {kindIcon ? (
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon glyph with a spoken name, not an image file.
           <span className="acpmux-agent-line__kind-icon" role="img" aria-label={kind}>
             <Icon name={kindIcon} size={iconSize} row />
           </span>

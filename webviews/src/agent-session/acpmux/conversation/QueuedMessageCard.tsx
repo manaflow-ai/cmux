@@ -86,9 +86,12 @@ export function QueuedMessageCard({
   const [sentAt, setSentAt] = useState<number>();
   const queued = row.queuedMessage;
   if (!queued || row.incoming?.kind !== "message") return null;
-  const { promptId } = queued;
+  const { promptId, twins = [] } = queued;
   const message = row.incoming.message;
   const fail = () => undefined;
+  // The hidden copies of this message (pendingMessages.ts) go with it: never delivered again after
+  // Send now, never back after Dismiss.
+  const dropTwins = () => Promise.all(twins.map((id) => act!.remove(id))).catch(fail);
   // The same group as a delivered message's (MessageActions.tsx ReceivedActions): Copy, then ⋯.
   const actions = (
     <span className="cv-received-actions">
@@ -97,10 +100,15 @@ export function QueuedMessageCard({
         <WaitingMessageMenu
           sendNow={
             act && !queued.next && sentAt !== row.version
-              ? () => void act.steer(promptId).then((ok) => ok && setSentAt(row.version), fail)
+              ? () =>
+                  void act.steer(promptId).then((ok) => {
+                    if (!ok) return;
+                    setSentAt(row.version);
+                    void dropTwins();
+                  }, fail)
               : undefined
           }
-          dismiss={act ? () => void act.remove(promptId).catch(fail) : undefined}
+          dismiss={act ? () => void act.remove(promptId).then(dropTwins, fail) : undefined}
         />
       </MessageFooterRow>
     </span>

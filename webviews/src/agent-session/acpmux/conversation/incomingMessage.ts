@@ -155,7 +155,8 @@ const LINE_LEAD = /^(?:\s*(?:>\s?|#{1,6}(?:\s+|$)|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1
 
 /// A bare GitHub pull request or issue address, which a one-line preview names as `owner/repo#N`
 /// (the chip's label, LinkChips.tsx `githubRefLabel`) instead of the raw URL.
-const GITHUB_REF_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)(?:[/?#](?:[^\s)\]>]*[^\s)\]>.,;:!?'"])?)?/g;
+const GITHUB_REF_URL =
+  /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)(?:[/?#](?:[^\s)\]>]*[^\s)\]>.,;:!?'"])?)?/g;
 
 /// A line's words without inline Markdown: links and images read as their labels, emphasis (strong,
 /// `*italic*` and `_italic_`, never a snake_case word's underscores) and code ticks dropped.

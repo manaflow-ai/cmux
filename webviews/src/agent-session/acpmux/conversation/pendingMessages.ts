@@ -11,7 +11,9 @@
 // sent them, in the order each session first wrote; each is its own received line (its ⋯ menu kept).
 // Once the agent reads a message it leaves the group and draws where it was read.
 // The same message is shown once (Leo: "nx-sidebar #27128 own red fixed..." twice): by its prompt
-// id, else by its sender and text (a relay retried under a new id) when it carries no images.
+// id, else by its sender and text (a relay retried under a new id) when it carries no images. The
+// copy that shows carries the hidden copies' queue entries (`queuedMessage.twins`), so its Dismiss
+// takes back every copy and none comes back after it.
 //
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
@@ -69,19 +71,45 @@ export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: Acpmu
   return [...groups].map(([key, list]) => ({ key, rows: list }));
 }
 
+/// The shown message of `members` a hidden copy was folded into (the same prompt id, or the same
+/// sender and words).
+function shownCopy(members: readonly AcpmuxRow[], hidden: AcpmuxRow): AcpmuxRow | undefined {
+  const id = promptIdOf(hidden);
+  const text = contentKey(hidden);
+  return members.find(
+    (row) => (id !== undefined && promptIdOf(row) === id) || (text !== undefined && contentKey(row) === text),
+  );
+}
+
 /// The shown message in `group` that draws waiting row `rowId`: itself, or the first copy a
-/// duplicate was folded into (the same prompt id, or the same sender and words).
+/// duplicate was folded into.
 export function pendingMemberId(group: AcpmuxRow, rowId: string): string {
   const members = group.pendingMessages?.rows ?? [];
   if (members.some((row) => row.id === rowId)) return rowId;
   const hidden = (group.pendingMessages?.all ?? []).find((row) => row.id === rowId);
-  if (!hidden) return rowId;
-  const id = promptIdOf(hidden);
-  const text = contentKey(hidden);
-  const shown = members.find(
-    (row) => (id !== undefined && promptIdOf(row) === id) || (text !== undefined && contentKey(row) === text),
-  );
-  return shown?.id ?? rowId;
+  return (hidden && shownCopy(members, hidden)?.id) ?? rowId;
+}
+
+/// `members` with each queued one carrying the queue entries of its hidden copies in `waiting`
+/// (`queuedMessage.twins`); the same array when nothing was folded.
+function withTwins(members: readonly AcpmuxRow[], waiting: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  if (members.length === waiting.length) return members;
+  const shown = new Set(members);
+  const twins = new Map<AcpmuxRow, string[]>();
+  for (const row of waiting) {
+    const promptId = row.queuedMessage?.promptId;
+    if (shown.has(row) || promptId === undefined) continue;
+    const copy = shownCopy(members, row);
+    if (!copy?.queuedMessage || copy.queuedMessage.promptId === promptId) continue;
+    const list = twins.get(copy) ?? [];
+    if (!list.includes(promptId)) list.push(promptId);
+    twins.set(copy, list);
+  }
+  if (twins.size === 0) return members;
+  return members.map((row) => {
+    const list = twins.get(row);
+    return list && row.queuedMessage ? { ...row, queuedMessage: { ...row.queuedMessage, twins: list } } : row;
+  });
 }
 
 let version = 0;
@@ -95,7 +123,7 @@ export function pendingMessagesRow(
 ): AcpmuxRow | undefined {
   const all = steers.length === 0 ? queued : queued.length === 0 ? steers : [...steers, ...queued];
   const waiting = all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
-  const members = dedupeMessages(waiting);
+  const members = withTwins(dedupeMessages(waiting), waiting);
   if (members.length === 0) return undefined;
   const held = last?.pendingMessages?.all;
   if (held && held.length === waiting.length && held.every((row, index) => row === waiting[index])) return last;

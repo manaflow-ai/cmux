@@ -257,8 +257,9 @@ export type AcpmuxRow = {
   /// queue entry's promptId, which its ⋯ menu steers, edits or deletes, and whether it was sent
   /// now already (acpmux marks it `next`; it runs right after the turn).
   /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`); the group says so
-  /// (PendingMessagesCard.tsx).
-  queuedMessage?: { promptId: string; next?: boolean; heldByStop?: boolean };
+  /// (PendingMessagesCard.tsx). `twins`: the queue entries of the same message the group folded
+  /// into this one (pendingMessages.ts), which Dismiss and Send now take back with it.
+  queuedMessage?: { promptId: string; next?: boolean; heldByStop?: boolean; twins?: readonly string[] };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
@@ -1472,7 +1473,10 @@ function measuredRowHeight(
     const senders = new Set<string>();
     let height = head;
     for (const member of row.pendingMessages.rows) {
-      const from = member.incoming?.kind === "message" ? (member.incoming.message.sessionId ?? member.incoming.message.name) : member.id;
+      const from =
+        member.incoming?.kind === "message"
+          ? (member.incoming.message.sessionId ?? member.incoming.message.name)
+          : member.id;
       if (!senders.has(from)) {
         senders.add(from);
         height += 22;

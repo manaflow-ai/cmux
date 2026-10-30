@@ -184,8 +184,13 @@ const item = (label: string) =>
     (each) => each.textContent?.trim() === label,
   )!;
 
-async function card(entry: ReturnType<typeof agent> & { next?: boolean; images?: unknown[] }, calls: string[]) {
-  const [row] = queuedMessageRows([entry as never]);
+async function card(
+  entry: ReturnType<typeof agent> & { next?: boolean; images?: unknown[] },
+  calls: string[],
+  twins?: readonly string[],
+) {
+  const [made] = queuedMessageRows([entry as never]);
+  const row = twins ? { ...made!, queuedMessage: { ...made!.queuedMessage!, twins } } : made;
   const actions = {
     steer: async (id: string) => (calls.push(`steer ${id}`), true),
     edit: async (id: string, text: string, images: readonly unknown[]) => (
@@ -254,6 +259,21 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   expect(calls.at(-1)).toBe("remove a1");
 });
 
+test("a message shown once for its copies takes every copy back with Dismiss and Send now", async () => {
+  const calls: string[] = [];
+  await card(agent(1), calls, ["a1-retry", "a1-again"]);
+  await openMenu();
+  await act(async () => item(t("message.dismiss")).click());
+  await settle();
+  expect(calls).toEqual(["remove a1", "remove a1-retry", "remove a1-again"]);
+  calls.length = 0;
+  await card(agent(1), calls, ["a1-retry"]);
+  await openMenu();
+  await act(async () => item(t("steer.sendNow")).click());
+  await settle();
+  expect(calls).toEqual(["steer a1", "remove a1-retry"]);
+});
+
 test("queued message actions stay revealed for either open-menu marker", async () => {
   await card(agent(1), []);
   const slot = host.querySelector<HTMLElement>(".cv-received__hover")!;
@@ -307,7 +327,11 @@ test("a delivered steer's ⋯ is in the same action group as Pin, with no Read a
       message={message}
       onOpen={() => {}}
       actions={
-        <ReceivedActions row={row as never} text={message.text} more={<SteerWaitingActions promptId="p-8" send={() => {}} />} />
+        <ReceivedActions
+          row={row as never}
+          text={message.text}
+          more={<SteerWaitingActions promptId="p-8" send={() => {}} />}
+        />
       }
     />,
   );
