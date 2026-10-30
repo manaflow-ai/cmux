@@ -40,10 +40,12 @@ extension WindowManager {
     /// another membership change.
     func retryPendingPlacements() {
         guard !pendingPlacements.isEmpty else { return }
-        applyPendingPlacements(live: Set(pendingPlacements.keys))
+        // This is called from SidebarSameTurn's rows-pass callback. The projection is already
+        // current; refreshing rows here would synchronously re-enter that callback.
+        applyPendingPlacements(live: Set(pendingPlacements.keys), refreshRows: false)
     }
 
-    func applyPendingPlacements(live: Set<String>) {
+    func applyPendingPlacements(live: Set<String>, refreshRows: Bool = true) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         pendingPlacementOrder.removeAll { pendingPlacements[$0] == nil }
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
@@ -74,7 +76,7 @@ extension WindowManager {
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             // One store-backed rows pass per window; each following placement
             // reads the model with the preceding optimistic moves applied.
-            let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
+            let sections = Self.placementSections(in: bridge, refresh: refreshRows && refreshed.insert(window).inserted)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             // The daemon can report a created workspace before this window's
