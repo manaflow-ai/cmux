@@ -19,6 +19,9 @@ const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
 mod withdraw;
+// `_acpmux/queue_text`, one queued prompt's whole text (`hub/mod.rs` is at its size budget).
+#[path = "queue_text.rs"]
+mod queue_text;
 
 /// The Full-access machine an edited prompt keeps (`PromptRun::full_access_device`): its own,
 /// only when the edit comes from that same machine.

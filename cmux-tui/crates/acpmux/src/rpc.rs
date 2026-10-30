@@ -278,6 +278,10 @@ pub mod method {
     /// The owner drops a person's prompt that waits for them, `{sessionId, promptId}`: its
     /// `session/prompt` answers `queue.declined`. `{sessionId, promptId, declined}`.
     pub const MUX_QUEUE_DECLINE: &str = "_acpmux/queue_decline";
+    /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
+    /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
+    /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
+    pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.

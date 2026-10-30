@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -18,7 +19,7 @@ import Testing
 /// the other faded in. These tests show both in a real window and check that there is one card
 /// on screen at any time, and that going between them morphs that one card: it moves and resizes
 /// from where the last card was to where the next one goes.
-@MainActor @Suite(.serialized) struct SidebarOneMorphingCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarOneMorphingCardTests {
     /// The highlights page, measured and drawn (as the App's React surface reports it).
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 220))
@@ -76,7 +77,14 @@ import Testing
             card.hideNotes()
             cards.dismiss(.action)
             cards.unregister(row)
-            for child in window.childWindows ?? [] { child.orderOut(nil) }
+            // The hover card window too when its fade-out already took it off the sidebar's window.
+            var children = window.childWindows ?? []
+            if let panel = cards.panel, !children.contains(panel) { children.append(panel) }
+            for child in children {
+                window.removeChildWindow(child)
+                child.isReleasedWhenClosed = false
+                child.close()
+            }
             window.close()
         }
     }

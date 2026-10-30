@@ -101,6 +101,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "queue-approval-v1",
         wire: &[method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE],
     },
+    // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
+    Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",
