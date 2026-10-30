@@ -1,13 +1,19 @@
-// The chat's pull requests in the bottom stack (bottomStack.css): one line, "N PRs", whose
-// disclosure opens the chips under it at the card's full width (Leo, 2026-10-30: "you guys fucking
-// removed the # prs thing entirely instead of just simply fucking doing it"). It is the collapsed
-// count line the dock had before cmux#26082 moved the pills into each message's action row (#26441
-// aligned it last); those pills stay. The row's columns are the running tray header's
-// (subagents.css): the mark on the stack's lead, the count on its text column, the chevron on its
-// trailing column, so the two read as one list. The list opens on the click, with no fade-in (Leo,
-// 2026-10-24: "You click, you get a response, period"), and its chips keep the reply links' hover
-// card and the dock's × dismissal.
-import { useId, useRef, useState, type ReactNode } from "react";
+// The chat's pull requests over the composer: a compact "N PRs" control that opens the chips (Leo,
+// 2026-10-30: "you guys fucking removed the # prs thing entirely instead of just simply fucking
+// doing it", then "BUT IF IT'S ONLY N PRS DON'T FUCKIGN TAKE THE ENTIRE ROW AND FUCKING BLANK IT
+// OUT"). It is the collapsed count the dock had before cmux#26082 moved the pills into each
+// message's action row (#26441 aligned it last); those pills stay.
+//
+// Folded, the count is one content-sized control on a row that is already there: the composer's
+// quiet row, beside the permission mode (Composer.tsx draws it through PullRequestCountSlot), so it
+// adds no row, with or without the running tray. Its highlight covers only itself, and it opens on
+// the click, with no fade-in (Leo, 2026-10-24: "You click, you get a response, period"). Opened,
+// the chips stand in the bottom stack right over the composer (PullRequestList), one per pull
+// request at the card's full width, each with the reply links' hover card and the dock's ×
+// dismissal: a row's × shows only while that row is hovered or holds focus, and Delete or Backspace
+// on a focused row dismisses it too. The gallery compares other places for the count
+// (bottomStackStyles.gallery.ts, `data-pr-control`).
+import { createContext, useContext, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useHeaderState } from "../header/headerState";
@@ -20,11 +26,27 @@ import type { SummaryPullRequest } from "./transcriptPullRequests";
 
 const ROW_ICON = rowIconSize(12);
 
-/// The gallery's comparison looks set this document attribute (bottomStack.css); the live pane has
-/// none and draws the selected look.
-function stackLook(): string | undefined {
-  return typeof document === "undefined" ? undefined : document.documentElement.dataset.bottomStack;
+/// Where the folded count sits: the composer's quiet row (the live pane), or a gallery comparison
+/// (`data-pr-control` on the document): on the running tray's header line, or over the composer's
+/// left edge. The tray placement falls back to the quiet row when no tray shows.
+export type PullRequestControlPlacement = "quiet" | "tray" | "above";
+
+export function pullRequestControlLook(): PullRequestControlPlacement {
+  const value = typeof document === "undefined" ? undefined : document.documentElement.dataset.prControl;
+  return value === "tray" || value === "above" ? value : "quiet";
 }
+
+type Stack = {
+  prs: readonly SummaryPullRequest[];
+  chips: readonly SummaryPullRequest[];
+  open: boolean;
+  toggle(): void;
+  dismiss(url: string, index: number): void;
+  listId: string;
+  placement: PullRequestControlPlacement;
+};
+
+const StackContext = createContext<Stack | undefined>(undefined);
 
 const storageKey = (sessionId: string) => `acpmux.prDock.dismissed.${sessionId}`;
 
@@ -49,120 +71,144 @@ function writeDismissed(sessionId: string | undefined, urls: readonly string[]):
   }
 }
 
-/// Mount keyed by the chat: whether the list is open, and what was dismissed, belong to one chat.
-/// The count is Session Info's Changes (session-info.md, "Leo's PR dock decision"): it opens them
-/// with `onOpenChanges`, and counts a dismissed or ended change too; the disclosure beside it opens
-/// the chips, and a chip's × hides only that shortcut.
-export function PullRequestStack({
+/// The chat's pull requests for the count and the list under it. Whether the list is open, and what
+/// was dismissed, belong to one chat. The count names every pull request
+/// Session Info's Changes names, a dismissed one too; a chip's × hides only that shortcut.
+export function PullRequestStackProvider({
   prs,
   sessionId,
-  onOpenChanges,
+  placement,
+  children,
 }: {
   prs: readonly SummaryPullRequest[];
   sessionId?: string;
-  onOpenChanges?: () => void;
+  placement: PullRequestControlPlacement;
+  children: ReactNode;
 }) {
+  const [opened, setOpened] = useState(false);
+  const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
+  // Another chat: its own fold and dismissals (the composer under this keeps its element).
+  const [chat, setChat] = useState(sessionId);
+  if (chat !== sessionId) {
+    setChat(sessionId);
+    setOpened(false);
+    setDismissed(readDismissed(sessionId));
+  }
+  const listId = useId();
+  const chips = prs.filter((pr) => !dismissed.includes(pr.url));
+  const open = opened && chips.length > 0;
+  const value: Stack | undefined =
+    prs.length === 0
+      ? undefined
+      : {
+          prs,
+          chips,
+          open,
+          listId,
+          placement,
+          toggle: () => setOpened(!open),
+          dismiss: (url, index) => {
+            const next = [...dismissed, url];
+            setDismissed(next);
+            writeDismissed(sessionId, next);
+            // Focus moves to the row now in that place, or back to the count when none is left.
+            requestAnimationFrame(() => {
+              const rows = document.querySelectorAll<HTMLElement>(".acpmux-pr-stack__link");
+              (
+                rows[Math.min(index, rows.length - 1)] ?? document.querySelector<HTMLElement>(".acpmux-pr-count")
+              )?.focus();
+            });
+          },
+        };
+  return <StackContext.Provider value={value}>{children}</StackContext.Provider>;
+}
+
+/// The folded count, "2 PRs" and its chevron, as one content-sized button.
+export function PullRequestCount() {
+  const t = useT();
+  const stack = useContext(StackContext);
+  if (!stack) return null;
+  const count = t(stack.prs.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(stack.prs.length) });
+  return (
+    <button
+      type="button"
+      className="acpmux-pr-count"
+      aria-expanded={stack.open}
+      aria-controls={stack.open ? stack.listId : undefined}
+      disabled={stack.chips.length === 0}
+      onClick={stack.toggle}
+    >
+      <Icon name="git.pullrequest" size={ROW_ICON} row />
+      <span className="acpmux-pr-count__label">{count}</span>
+      <Icon name={stack.open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+    </button>
+  );
+}
+
+/// The count where it sits in the composer's quiet row (Composer.tsx): only for that placement.
+export function PullRequestCountSlot() {
+  const stack = useContext(StackContext);
+  return stack?.placement === "quiet" ? <PullRequestCount /> : null;
+}
+
+/// The count for a gallery comparison that sits in the bottom stack itself, `at` its place.
+export function PullRequestCountInStack({ at }: { at: Exclude<PullRequestControlPlacement, "quiet"> }) {
+  const stack = useContext(StackContext);
+  if (stack?.placement !== at) return null;
+  return (
+    <div className="acpmux-pr-count-host" data-placement={stack.placement}>
+      <PullRequestCount />
+    </div>
+  );
+}
+
+/// The opened list: one full-width chip per pull request, in the bottom stack over the composer.
+export function PullRequestList() {
+  const stack = useContext(StackContext);
   const t = useT();
   const { pullRequest: live } = useHeaderState();
-  const [open, setOpen] = useState(false);
-  const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
-  const listId = useId();
-  const disclosure = useRef<HTMLButtonElement>(null);
-  const list = useRef<HTMLUListElement>(null);
-  if (prs.length === 0) return null;
-  const chips = prs.filter((pr) => !dismissed.includes(pr.url));
-  const expanded = open && chips.length > 0;
-  const count = t(prs.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(prs.length) });
-  const shown = (pr: SummaryPullRequest) => {
-    const followed = live?.url === pr.url;
-    return {
-      state: followed ? live.state : pr.state,
-      title: (followed ? live.title : undefined) || pr.title || "",
-    };
-  };
-  const dismiss = (url: string, index: number) => {
-    const next = [...dismissed, url];
-    setDismissed(next);
-    writeDismissed(sessionId, next);
-    // Focus moves to the × now in that place, or back to the disclosure when none is left.
-    requestAnimationFrame(() => {
-      const buttons = list.current?.querySelectorAll<HTMLElement>(".acpmux-pr-stack__dismiss");
-      (buttons?.[Math.min(index, buttons.length - 1)] ?? disclosure.current)?.focus();
-    });
-  };
-  const toggle = () => setOpen(!expanded);
+  if (!stack?.open) return null;
   return (
-    <section className="acpmux-pr-stack" aria-label={t("prDock.label")} data-open={expanded || undefined}>
-      <div className="acpmux-pr-stack__head">
-        <button
-          type="button"
-          className="acpmux-summary-row acpmux-summary-link acpmux-pr-stack__row"
-          onClick={onOpenChanges ?? toggle}
-        >
-          <span className="acpmux-pr-stack__mark" aria-hidden="true">
-            <Icon name="git.pullrequest" size={14} />
-          </span>
-          <span className="acpmux-summary-text acpmux-pr-stack__count">{count}</span>
-        </button>
-        {/* The compact strip (a gallery comparison): the links on the count's own line. */}
-        {stackLook() === "strip" && (
-          <span className="acpmux-pr-stack__inline">
-            {chips.map((pr) => (
-              <PullRequestChip key={pr.url} pr={pr} {...shown(pr)} className="acpmux-pr-stack__inline-link">
-                <span className="acpmux-pr-stack__number">#{pr.number}</span>
-                <span className="acpmux-pr-stack__repo">{pr.repo.split("/").pop()}</span>
+    <section className="acpmux-pr-stack" aria-label={t("prDock.label")}>
+      <ul id={stack.listId} className="acpmux-pr-stack__list">
+        {stack.chips.map((pr, index) => {
+          const followed = live?.url === pr.url;
+          const state = followed ? live.state : pr.state;
+          const title = (followed ? live.title : undefined) || pr.title || "";
+          return (
+            <li key={pr.url} className="acpmux-pr-stack__chip">
+              <PullRequestChip
+                pr={pr}
+                state={state}
+                title={title}
+                // Delete or Backspace on a focused row dismisses it, as its × does.
+                onKeyDown={(event) => {
+                  if (event.key !== "Delete" && event.key !== "Backspace") return;
+                  event.preventDefault();
+                  stack.dismiss(pr.url, index);
+                }}
+              >
+                <span className="acpmux-pr-stack__mark" aria-hidden="true">
+                  <Icon name="git.pullrequest" size={14} />
+                </span>
+                <span className="acpmux-pr-stack__label">
+                  <span className="acpmux-pr-stack__number">#{pr.number}</span>
+                  <span className="acpmux-pr-stack__repo">{pr.repo.split("/").pop()}</span>
+                  {title && <span className="acpmux-pr-stack__title">{title}</span>}
+                </span>
               </PullRequestChip>
-            ))}
-          </span>
-        )}
-        {chips.length > 0 && (
-          <button
-            ref={disclosure}
-            type="button"
-            className="acpmux-summary-link acpmux-pr-stack__disclosure"
-            aria-label={t("prDock.label")}
-            aria-expanded={expanded}
-            aria-controls={expanded ? listId : undefined}
-            onClick={toggle}
-          >
-            <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-          </button>
-        )}
-      </div>
-      {expanded && (
-        <ul ref={list} id={listId} className="acpmux-pr-stack__list">
-          {chips.map((pr, index) => {
-            const { state, title } = shown(pr);
-            return (
-              <li key={pr.url} className="acpmux-pr-stack__chip">
-                <PullRequestChip
-                  pr={pr}
-                  state={state}
-                  title={title}
-                  className="acpmux-summary-row acpmux-summary-link acpmux-pr-stack__link"
-                >
-                  <span className="acpmux-pr-stack__mark" aria-hidden="true">
-                    <Icon name="git.pullrequest" size={14} />
-                  </span>
-                  <span className="acpmux-pr-stack__label">
-                    <span className="acpmux-pr-stack__number">#{pr.number}</span>
-                    <span className="acpmux-pr-stack__repo">{pr.repo.split("/").pop()}</span>
-                    {title && <span className="acpmux-pr-stack__title">{title}</span>}
-                  </span>
-                </PullRequestChip>
-                <button
-                  type="button"
-                  className="cv-iconbtn cv-iconbtn--compact acpmux-pr-stack__dismiss"
-                  aria-label={t("prDock.dismiss", { number: pr.number })}
-                  onClick={() => dismiss(pr.url, index)}
-                >
-                  <Close size={12} />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact acpmux-pr-stack__dismiss"
+                aria-label={t("prDock.dismiss", { number: pr.number })}
+                onClick={() => stack.dismiss(pr.url, index)}
+              >
+                <Close size={12} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
@@ -172,13 +218,13 @@ function PullRequestChip({
   pr,
   state,
   title,
-  className,
+  onKeyDown,
   children,
 }: {
   pr: SummaryPullRequest;
   state: string;
   title: string;
-  className: string;
+  onKeyDown: (event: KeyboardEvent<HTMLAnchorElement>) => void;
   children: ReactNode;
 }) {
   const hover = useHoverCard();
@@ -189,10 +235,11 @@ function PullRequestChip({
     <>
       <a
         ref={setChip}
-        className={className}
+        className="acpmux-summary-row acpmux-summary-link acpmux-pr-stack__link"
         href={pr.url}
         data-state={state}
         aria-describedby={hover.open ? card : undefined}
+        onKeyDown={onKeyDown}
         {...hover.trigger}
       >
         {children}

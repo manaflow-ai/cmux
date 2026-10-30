@@ -51,35 +51,44 @@ const create = (title: string, number: number) =>
   });
 
 /** The stack's data: `working` is whether the turn still runs (its tray header then counts what
- *  runs; after it, "Running in background · …"). */
-function stack(working: boolean) {
+ *  runs; after it, "Running in background · …"); `prs` whether the chat opened its two pull
+ *  requests; `tray` whether subagents run in the background. */
+function stack(working: boolean, { prs = true, tray = true }: { prs?: boolean; tray?: boolean } = {}) {
   const base = chat(
     [
       user("Fan out on the picker and the composer, and open the two PRs", 14),
-      activity([create("fix(picker): keep the model list in view", 128), create("Composer: one edge", 129)], 13),
-      row(SUBAGENTS, 12, { subagents: agents }),
-      assistant("Both PRs are open. Nine subagents are still checking in the background.", 2),
+      ...(prs
+        ? [activity([create("fix(picker): keep the model list in view", 128), create("Composer: one edge", 129)], 13)]
+        : []),
+      ...(tray ? [row(SUBAGENTS, 12, { subagents: agents })] : []),
+      assistant(
+        tray
+          ? "Both PRs are open. Nine subagents are still checking in the background."
+          : "Both PRs are open and the checks are done.",
+        2,
+      ),
     ],
     { isWorking: working },
   );
-  return {
-    ...base,
-    sessions: [
-      ...base.sessions,
-      session({
-        sessionId: "stack-child-waiting",
-        title: "Review the resize fix",
-        spawnedBy: SESSION_ID,
-        indicator: "input",
-        status: "waiting",
-        createdAt: minutesAgo(6),
-      }),
-    ],
-  };
+  return tray
+    ? {
+        ...base,
+        sessions: [
+          ...base.sessions,
+          session({
+            sessionId: "stack-child-waiting",
+            title: "Review the resize fix",
+            spawnedBy: SESSION_ID,
+            indicator: "input",
+            status: "waiting",
+            createdAt: minutesAgo(6),
+          }),
+        ],
+      }
+    : base;
 }
 
 async function settled(ctx: PlayContext) {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-dock .acpmux-running-tray"));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
   await ctx.waitFor(() =>
     [...ctx.document.querySelectorAll(".acpmux-dock *")].every((node) =>
@@ -91,24 +100,34 @@ const collapsed = settled;
 async function expanded(ctx: PlayContext) {
   await settled(ctx);
   const head = ctx.document.querySelector(".acpmux-running-tray__head");
-  if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+  if (head && head.getAttribute("aria-expanded") !== "true")
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
   await settled(ctx);
 }
-
 async function prsOpen(ctx: PlayContext) {
   await settled(ctx);
-  const disclosure = ctx.document.querySelector(".acpmux-pr-stack__disclosure");
-  if (disclosure && disclosure.getAttribute("aria-expanded") !== "true")
-    await ctx.click({ selector: ".acpmux-pr-stack__disclosure" });
+  const count = ctx.document.querySelector(".acpmux-pr-count");
+  if (count && count.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-pr-count" });
   await settled(ctx);
+  // One row hovered: its × shows, the other row's stays out of sight.
+  await ctx.hover({ selector: ".acpmux-pr-stack__chip:first-child .acpmux-pr-stack__link" });
 }
 
-const variant = (note: string, working: boolean, fields: Partial<AgentPaneVariant> = {}): AgentPaneVariant => ({
-  note,
-  snapshot: stack(working),
-  play: working ? expanded : collapsed,
-  ...fields,
-});
+const variant = (
+  note: string,
+  working: boolean,
+  fields: Partial<AgentPaneVariant> & { prs?: boolean; tray?: boolean } = {},
+): AgentPaneVariant => {
+  const { prs, tray, ...rest } = fields;
+  return {
+    note,
+    snapshot: stack(working, { ...(prs === undefined ? {} : { prs }), ...(tray === undefined ? {} : { tray }) }),
+    play: working ? expanded : collapsed,
+    ...rest,
+  };
+};
+const inTray = { documentAttributes: { "pr-control": "tray" } };
+const above = { documentAttributes: { "pr-control": "above" } };
 
 export default agentPaneEntry({
   id: "agent-pane.bottom-stack-styles",
@@ -119,22 +138,45 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/summary/PullRequestStack.tsx"],
   variants: {
     collapsed: variant(
-      "Selected (one glass stack): the turn ended, the tray folded to its Running in background header; the N PRs row, the tray and the composer share one rim and two edges, with no gap and no notch.",
+      "Selected (count in the quiet row): the turn ended, the tray folded to its Running in background header; \"2 PRs\" sits beside the mode in the composer's quiet row and adds no row. The tray and the composer are one glass stack on the card's two edges.",
       false,
+    ),
+    "no-tray": variant(
+      "Selected, no subagents: the count stays in the quiet row; nothing stands over the composer.",
+      false,
+      {
+        tray: false,
+      },
     ),
     expanded: variant("Selected, the turn running: the tray open, a line each.", true),
-    "prs-open": variant("Selected, the N PRs row opened: a chip per pull request at the card's full width.", false, {
-      play: prsOpen,
+    "prs-open": variant(
+      "Selected, the count opened: a chip per pull request at the card's full width, right over the composer; the hovered row shows its ×.",
+      false,
+      { play: prsOpen },
+    ),
+    "no-prs": variant("No pull requests: the same stack, for the height the count must not add.", false, {
+      prs: false,
     }),
+    "no-tray-no-prs": variant("No pull requests and no tray: the composer alone.", false, { prs: false, tray: false }),
+    "in-tray": variant(
+      "Alternative (on the tray's header line): the count trails on the Running in background line, before its time; with no tray it falls back to the quiet row.",
+      false,
+      inTray,
+    ),
+    "in-tray-no-tray": variant("Alternative (on the tray's header line), no tray: the quiet row.", false, {
+      ...inTray,
+      tray: false,
+    }),
+    above: variant(
+      "Alternative (over the composer's left edge): a bare count with no row background over the card; it adds its own line.",
+      false,
+      above,
+    ),
+    "above-no-tray": variant("Alternative (over the composer's left edge), no tray.", false, { ...above, tray: false }),
     cards: variant(
-      "Alternative (separate cards): every part keeps its own rounded card on the composer's two edges, one 4px step apart.",
+      "Alternative stack look (separate cards): the tray and the opened chips keep their own rounded cards on the composer's two edges, one 4px step apart.",
       false,
       { documentAttributes: { "bottom-stack": "cards" } },
-    ),
-    strip: variant(
-      "Alternative (compact strip): the one glass stack, with the pull requests' links on their count's own line.",
-      false,
-      { documentAttributes: { "bottom-stack": "strip" } },
     ),
     "legacy-bars": variant(
       "Before cmux#26082 (comparison): the pull request bars stacked over the composer, each its own width.",
