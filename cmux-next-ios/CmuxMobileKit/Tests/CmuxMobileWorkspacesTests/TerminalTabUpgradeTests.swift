@@ -42,6 +42,27 @@ import Testing
         #expect(store.load("s/12:tab") == nil)
     }
 
+    @Test func cooledFrameNeverCrossesMacsAcrossRelaunch() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = TerminalFrameStore(directory: dir)
+        let account = "account-a"
+        let macA = TerminalFrameKey(accountID: account, macID: "mac-a", surfaceID: "s1")
+        let macB = TerminalFrameKey(accountID: account, macID: "mac-b", surfaceID: "s1")
+        let frameA = Data([0xA1])
+
+        // Mac A's frame is saved before its host cools out of the warm set.
+        store.save(frameA, for: macA)
+        // Mac B opens its same-numbered tab before live output arrives.
+        #expect(store.load(macB) == nil)
+        #expect(store.load(macA) == frameA)
+
+        // A relaunch keeps A's frame for A and never assigns it to B.
+        let relaunched = TerminalFrameStore(directory: dir)
+        #expect(relaunched.load(macB) == nil)
+        #expect(relaunched.load(macA) == frameA)
+    }
+
     /// Round 11 A5: a frame rendered off the main thread and written late
     /// must not replace a newer frame, nor bring back a closed tab's file.
     @Test func aLateFrameNeverReplacesANewerOneOrAClosedTab() throws {
