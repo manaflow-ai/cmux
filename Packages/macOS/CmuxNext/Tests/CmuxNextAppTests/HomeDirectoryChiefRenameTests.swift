@@ -15,6 +15,10 @@ import Testing
         var updates: [[String: Any]] = []
         var refuse: [String] = []
         var signedOut = false
+        /// Answers lost after the save (issue 27915), and each update's idempotency key.
+        var loseAnswers = 0
+        var keys: [String] = []
+        var saved: [String: [String: Any]] = [:]
 
         func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
             if signedOut { throw FeedServiceError.signedOut }
@@ -24,6 +28,9 @@ import Testing
                                                          "main_conversation": "conv_ada", "archived_at": NSNull()]]]]
             }
             guard op == "chief.update", let params = body["params"] as? [String: Any] else { return ["ok": true] }
+            let key = body["idempotency_key"] as? String ?? ""
+            keys.append(key)
+            if let answer = saved[key] { return answer }
             updates.append(params)
             if !refuse.isEmpty {
                 let code = refuse.removeFirst()
@@ -32,8 +39,14 @@ import Testing
             }
             rev += 1
             name = params["display_name"] as? String ?? name
-            return ["ok": true, "value": ["id": "agent_ada", "display_name": name, "is_default": true, "rev": rev,
-                                          "main_conversation": "conv_ada", "archived_at": NSNull()]]
+            let answer: [String: Any] = ["ok": true, "value": ["id": "agent_ada", "display_name": name, "is_default": true, "rev": rev,
+                                                               "main_conversation": "conv_ada", "archived_at": NSNull()]]
+            saved[key] = answer
+            if loseAnswers > 0 {
+                loseAnswers -= 1
+                throw URLError(.networkConnectionLost)
+            }
+            return answer
         }
     }
 
@@ -63,6 +76,31 @@ import Testing
         let failure = await directory.renameChief(conversation: "conv_ada", to: "Ada")
         #expect(failure == nil)
         #expect(account.updates.map { $0["expected_rev"] as? Int } == [3, 4])
+    }
+
+    /// Issue 27915: UserDO saved the name but its answer was lost, and the card said "could not
+    /// be changed". The same op (its idempotency key) is asked once more and answers the save.
+    @Test func aLostAnswerIsAskedAgainWithTheSameKey() async {
+        let account = FakeAccount()
+        account.loseAnswers = 1
+        let directory = Self.directory(account)
+        await directory.refreshChiefs()
+        let failure = await directory.renameChief(conversation: "conv_ada", to: "Ada")
+        #expect(failure == nil)
+        #expect(account.updates.count == 1)
+        #expect(account.keys.count == 2)
+        #expect(Set(account.keys).count == 1)
+        #expect(directory.chiefs.first?.name == "Ada")
+    }
+
+    /// Two lost answers: then it says "try again in a moment".
+    @Test func twoLostAnswersSayTryAgain() async {
+        let account = FakeAccount()
+        account.loseAnswers = 2
+        let directory = Self.directory(account)
+        await directory.refreshChiefs()
+        #expect(await directory.renameChief(conversation: "conv_ada", to: "Ada") == .noConnection)
+        #expect(account.keys.count == 2)
     }
 
     /// The card names the real reason, not "Try again in a moment".
