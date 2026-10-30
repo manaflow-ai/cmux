@@ -583,7 +583,7 @@ enum PartRenderer {
     /// cmux: a group quote (`ThreadPreview.cmuxGroup`, 2026-10-29 Messages group reference) sits at the bubble column with
     /// the quoted person's avatar small and faded in the avatar column, and a line from under it down to the reply's bubble
     /// (`cmuxLineBelow` under the row's `rowHeight`) instead of the stub.
-    static func drawThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, width: CGFloat, rowHeight: CGFloat) {
+    static func drawThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, width: CGFloat, rowHeight: CGFloat? = nil) {
         let box = CGRect(x: pv.cmuxLeft, y: top, width: pv.box.width, height: pv.box.height)
         drawQuoteBubble(ctx, pv, box: box)
         Fixture.connector.setFill()
@@ -601,7 +601,7 @@ enum PartRenderer {
                 ctx.restoreGState()
             }
             let lineTop = disc.maxY + ThreadPreview.cmuxLineGap
-            let lineEnd = top + rowHeight + pv.cmuxLineBelow
+            let lineEnd = top + (rowHeight ?? pv.height) + pv.cmuxLineBelow
             if pv.cmuxLineBelow > 0, lineEnd > lineTop {
                 let w = ThreadPreview.cmuxLineWidth
                 Fixture.connector.setFill()
