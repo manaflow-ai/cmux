@@ -492,13 +492,7 @@ final class CloudService {
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                let wasLive = session.machine.status.isLive
-                session.machine = machine
-                if wasLive, !machine.status.isLive {
-                    session.suspend()
-                } else if !wasLive, machine.status.isLive {
-                    session.connect()
-                }
+                session.applyRecord(machine)
             } else {
                 addSession(machine)
             }
@@ -633,8 +627,8 @@ final class CloudService {
 
     /// Kill, Pause and Resume show their transition from the click until the next list settles it.
     func deleteMachine(_ machineID: String) async throws {
-        let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
-        if let brokerScope { try? await codexBroker.revoke(machineID: machineID, scope: brokerScope) }
+        // Retain credentials and broker registration until a list confirms removal. Both
+        // the request and the asynchronous provider deletion can still fail.
         try await CloudMachineChanges.run(.deleting, of: { machines.session(machineID) }) { try await api.deleteMachine(machineID) }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1

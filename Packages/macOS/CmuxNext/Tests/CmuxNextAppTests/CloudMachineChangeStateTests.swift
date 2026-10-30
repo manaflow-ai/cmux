@@ -29,6 +29,44 @@ struct CloudMachineChangeStateTests {
         return session
     }
 
+    private actor StartingLinkResolver: CloudLinkResolver {
+        private(set) var attempts = 0
+        private var waiting: (Int, CheckedContinuation<Void, Never>)?
+        func waitForAttempts(_ count: Int) async {
+            if attempts >= count { return }
+            await withCheckedContinuation { waiting = (count, $0) }
+        }
+        func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+            attempts += 1
+            if let (count, continuation) = waiting, attempts >= count {
+                waiting = nil
+                continuation.resume()
+            }
+            throw CloudLinkError.disconnected(reason: "provider still starting")
+        }
+        func close(_ key: CloudLinkKey) async {}
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runningRetriesAnAppLinkThatFailedWhileStarting() async throws {
+        let services = MachineIconTests.services()
+        let resolver = StartingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "resume-retry", status: .starting),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "resume-retry"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        session.connect()
+        try await CloudIdlePauseTests.waitUntil { session.linkEnded != nil }
+        #expect(await resolver.attempts == 1)
+        session.applyRecord(CloudMachine(id: session.machineID, status: .running))
+        await resolver.waitForAttempts(2)
+        try await CloudIdlePauseTests.waitUntil { session.linkEnded != nil }
+        #expect(await resolver.attempts == 2)
+        session.applyRecord(CloudMachine(id: session.machineID, status: .running))
+        await Task.yield()
+        #expect(await resolver.attempts == 2, "repeated running lists do not retry a settled failure")
+    }
+
     // MARK: The record
 
     @Test func everyBackendStatusKeepsItsOwnState() throws {

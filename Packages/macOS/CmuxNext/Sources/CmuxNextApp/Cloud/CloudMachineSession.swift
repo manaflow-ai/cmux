@@ -92,6 +92,20 @@ final class CloudMachineSession {
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 
+    /// Apply an authoritative record and reconcile the transport. A connection attempted while
+    /// the provider was starting may fail before the VM is ready; running supplies a new retry signal.
+    func applyRecord(_ record: CloudMachine) {
+        let previous = machine.status
+        machine = record
+        if previous.isLive, !record.status.isLive {
+            suspend()
+        } else if !previous.isLive, record.status.isLive {
+            connect()
+        } else if previous == .starting, record.status == .running, daemon.connection == nil {
+            retryNow()
+        }
+    }
+
     /// Connects (a click passes origin `user`; launch and a resumed machine
     /// connect as `script`). Serializes lifecycle hops so a late pause cannot
     /// kill a resumed link. An app link connects only when it is not up: a
