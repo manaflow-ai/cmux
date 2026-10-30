@@ -63,10 +63,24 @@ INTERNAL = [
     (re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum)\b", re.I), "a placeholder"),
 ]
 SENTENCE_END = re.compile(r"[.!?。！？](?=\s|$)")
+ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
 # Conductor-quality notes (2026-10-20): text written for people, never a commit subject such as
 # "fix(sidebar): ..." or "sidebar: ...". See release-notes/next/WRITING.md.
 COMMIT_STYLE = re.compile(r"^[a-z][\w./-]*(\([^)]*\))?!?:\s")
-WHOLE_SENTENCE = re.compile(r"[.!?。！？][)\"”’»]*$")
+WHOLE_SENTENCE = re.compile(r"[.!?。！？][)'\"”’»]*$")
+
+
+def sentence_end_count(text):
+    """Count sentence punctuation while ignoring abbreviations and ellipses."""
+    count = 0
+    for match in SENTENCE_END.finditer(text):
+        index = match.start()
+        if (index and text[index - 1] == ".") or (index + 1 < len(text) and text[index + 1] == "."):
+            continue
+        if ABBREVIATED_SENTENCE.search(text[:index + 1]):
+            continue
+        count += 1
+    return count
 
 
 class Problems:
@@ -99,7 +113,7 @@ def check_text(problems, where, text, kind, language):
         problems.add(where, f"{language} reads like a commit subject ({text.split(':', 1)[0]!r}:); write what people can do now")
     if kind == "summary" and language == "en" and not WHOLE_SENTENCE.search(text):
         problems.add(where, f"{language} does not end a sentence; a summary is one or two whole sentences")
-    if kind == "summary" and language == "en" and len(SENTENCE_END.findall(text)) > 2:
+    if kind == "summary" and language == "en" and sentence_end_count(text) > 2:
         problems.add(where, "en has more than 2 sentences")
     if kind in ("title", "headline") and text.endswith("."):
         problems.add(where, f"{language} ends with a period")

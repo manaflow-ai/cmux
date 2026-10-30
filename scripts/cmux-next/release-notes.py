@@ -176,25 +176,31 @@ def summary_entry(subject):
 CHANGELOG_LINE = re.compile(r"^(?:[-*+]\s*)?(?:Added|Changed|Fixed|Removed)\s*:\s*(?P<text>.+?)\s*$", re.I)
 HEADING = re.compile(r"^#{1,6}\s*(?P<name>[^#].*?)\s*#*\s*$")
 MARKDOWN_LINK = re.compile(r"\[([^]]+)\]\([^)]*\)")
+MARKDOWN_LINK_URL = re.compile(r"\[([^]]+)\]\(([^)\s]+)\)")
 INLINE_MARKUP = re.compile(r"[`*_~]")
 HTML_COMMENT = re.compile(r"<!--.*?(?:-->|$)", re.S)
+PUBLIC_URL = re.compile(r"https?://(?:www\.)?(?:github\.com/manaflow-ai(?:/|$)|cmux\.com(?:/|$))", re.I)
 UNSAFE_DESCRIPTION = re.compile(
-    r"(?:\b(?:https?|file|ssh|git|ftp)://|deeplink/agent|\b(?:aid-[a-z0-9-]{8,}|"
-    r"(?:session|agent)[_-](?:id[_-])?[a-z0-9-]{8,}|[a-f0-9]{16,}|"
+    r"(?:\b(?:https?|file|ssh|git|ftp)://|(?<!\w)//|deeplink/agent|\b(?:aid-[a-z0-9-]{8,}|"
+    r"(?:session|agent)[_-](?:id[_-])?[a-z0-9_-]{8,}|[a-f0-9]{16,}|"
     r"[0-9a-f]{8}-[0-9a-f-]{17,})\b|"
     r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b|"
-    r"\b(?:cmux-platform|manaflow-ai/cmux|cosmic-gray|air-blue|big-red|huge-blue|"
-    r"blacksmith|cmux-lawrence|cmux\d+|(?:gcp|aws|cmuxs|austin)-[a-z0-9-]+)\b)",
+    r"\b(?:cmux\d+s?-|gcp-|aws-|austin-|cosmic-|air-|big-|huge-|blacksmith)[a-z0-9-]+\b)",
     re.I,
 )
 ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
 DESCRIPTION_QUOTES = "\"'”’»)]}"
+DESCRIPTION_LABEL = re.compile(r"^(?:added|changed|fixed|removed|summary|changelog)\s*:\s*", re.I)
+DESCRIPTION_PLACEHOLDER = re.compile(r"^(?:none|n/?a|no\s+changes?|no\s+user[- ]facing\s+changes?|tbd|todo)[.!…]*$", re.I)
 
 
 def _first_sentence(text):
     """Return the first complete sentence, preserving closing quotes and abbreviations."""
     for index, char in enumerate(text):
         if char not in ".!?。！？":
+            continue
+        if char == "." and ((index and text[index - 1] == ".") or
+                             (index + 1 < len(text) and text[index + 1] == ".")):
             continue
         prefix = text[: index + 1]
         if char == "." and ABBREVIATED_SENTENCE.search(prefix):
@@ -226,7 +232,11 @@ def _safe_description(text):
     if validator_path not in sys.path:
         sys.path.insert(0, validator_path)
     import validate
-    return (bool(text) and not UNSAFE_DESCRIPTION.search(text)
+    for _, url in MARKDOWN_LINK_URL.findall(text):
+        if not PUBLIC_URL.match(url):
+            return False
+    prose = MARKDOWN_LINK_URL.sub(r"\1", text)
+    return (bool(prose) and not UNSAFE_DESCRIPTION.search(prose)
             and not any(pattern.search(text) for pattern, _ in validate.INTERNAL))
 
 
@@ -238,6 +248,16 @@ def _validated_description(text):
     problems = validate.Problems("PR description")
     validate.check_text(problems, "summary", text, "summary", "en")
     return "" if problems.items else text
+
+
+def _candidate_description(text):
+    """Normalize a body candidate after removing its Markdown/list and section label."""
+    text = text.strip()
+    text = re.sub(r"^[-*+]\s+", "", text)
+    text = DESCRIPTION_LABEL.sub("", text).strip()
+    if not text or DESCRIPTION_PLACEHOLDER.fullmatch(text):
+        return ""
+    return _plain_line(text)
 
 
 def _plain_line(text):
@@ -256,7 +276,7 @@ def _plain_line(text):
 
 def pr_description(body, fallback=""):
     """Extract one plain-language sentence from a PR body, without headings or markup."""
-    fallback = _plain_line(fallback) or ("Fixes and improvements." if fallback else "")
+    fallback = _candidate_description(fallback) or ("Fixes and improvements." if fallback else "")
     if not body:
         return fallback
     body = HTML_COMMENT.sub("", body.replace("\r", ""))
@@ -271,19 +291,18 @@ def pr_description(body, fallback=""):
         if line.startswith("<!--") or not line:
             continue
         if section == "changelog":
-            if re.fullmatch(r"(?:none|n/a)[.!]?", line.lstrip("-*+ "), re.I):
-                return fallback
+            line = line.lstrip("-*+ ")
             match = CHANGELOG_LINE.match(line)
             if match:
-                description = _plain_line(match["text"])
+                description = _candidate_description(match["text"])
                 return description or fallback
             if not line.startswith(("##", "###")):
-                candidates.append(line.lstrip("-*+ "))
+                candidates.append(line)
         elif section == "summary":
-            candidates.append(line.lstrip("-*+ "))
+            candidates.append(line)
     for candidate in candidates:
-        text = _plain_line(candidate)
-        if text and _safe_description(text) and not text.lower().startswith(("none", "generated with", "agent session")):
+        text = _candidate_description(candidate)
+        if text and not text.lower().startswith(("none", "generated with", "agent session")):
             return text
     return fallback
 
@@ -585,6 +604,8 @@ def summary_whats_new_digest(args, lines):
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
         description = _validated_description(line.get("description", ""))
+        if not description:
+            description = _validated_description(sentence(full))
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
                  "title": {"en": title},
                  "summary": {"en": sentence(description or (title_tail(full, title) if title != full else full))},

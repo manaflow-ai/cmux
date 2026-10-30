@@ -21,9 +21,12 @@ class ReleaseNotesTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
         notes = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(notes)
-        body = """## Summary\n\nInternal implementation details.\n\n## Changelog\n\nFixed: [Tabs](https://example.test/tabs) keep their position after restart\n\n## Testing\n\n- not user copy\n"""
+        body = """## Summary\n\nInternal implementation details.\n\n## Changelog\n\nFixed: [Tabs](https://cmux.com/tabs) keep their position after restart\n\n## Testing\n\n- not user copy\n"""
         self.assertEqual(notes.pr_description(body), "Tabs keep their position after restart.")
         self.assertEqual(notes.pr_description("## Changelog\n\nnone\n"), "")
+        for placeholder in ("Fixed: none", "Fixed: N/A", "Fixed:", "N/A"):
+            with self.subTest(placeholder=placeholder):
+                self.assertEqual(notes.pr_description("## Summary\n" + placeholder, "Tabs stay put"), "Tabs stay put.")
         self.assertEqual(
             notes.pr_description("## Summary\n\nTabs stay put after restart. The next sentence is implementation detail."),
             "Tabs stay put after restart.",
@@ -38,6 +41,7 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(
             notes.pr_description("## Summary\n\nTabs restore e.g. pinned panes after restart."),
             "Tabs restore e.g. pinned panes after restart.",
+            "Tabs restore e.g. pinned panes etc. after restart.",
         )
         self.assertEqual(
             notes.pr_description("## Summary\n\nChoose “Keep tabs.” after restart."),
@@ -87,6 +91,7 @@ class ReleaseNotesTests(unittest.TestCase):
             'Choose "Keep tabs." after restart.',
             "Choose “Keep tabs.” after restart.",
             "Zoom stays at 1.5 after restart.",
+            "Tabs wait... then restore after restart.",
         ):
             with self.subTest(text=text):
                 description = notes.pr_description(f"## Summary\n{text} More detail.")
@@ -96,6 +101,31 @@ class ReleaseNotesTests(unittest.TestCase):
                     {"group": "fixed", "title": "Tabs stay put", "description": description}])
                 self.assertIsNotNone(digest)
                 self.assertEqual(digest["entries"][0]["summary"]["en"], text)
+
+    def test_private_sources_are_rejected_before_markdown_normalization(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        unsafe = (
+            "The run is on cmux12s-mac-mini.",
+            "See //10.0.0.1/private for details.",
+            "See [the run](https://private.example/run) for details.",
+            "The value is session_id_abcdefghij.",
+        )
+        for text in unsafe:
+            with self.subTest(text=text):
+                self.assertEqual(notes.pr_description("## Summary\n" + text, "Tabs stay put"), "Tabs stay put.")
+
+    def test_public_links_remain_allowed(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertEqual(
+            notes.pr_description("## Summary\nSee [the changelog](https://github.com/manaflow-ai/cmux/pull/12345) for details."),
+            "See the changelog for details.",
+        )
 
     def test_pr_body_timeout_returns_media_style_empty_fallback(self):
         import importlib.util
