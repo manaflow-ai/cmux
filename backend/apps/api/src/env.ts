@@ -20,8 +20,6 @@ import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
-import type { HandoffDO } from "./handoffs/handoff-do.ts"
-import type { HandoffIndexDO } from "./handoffs/index-do.ts"
 
 export interface Env {
   /** production | staging | development | preview | test */
@@ -45,9 +43,6 @@ export interface Env {
   readonly FEED_DO: DurableObjectNamespace<FeedDO>
   /** One AccountIndexDO per provider account key: which team connections a webhook goes to. */
   readonly ACCOUNT_INDEX_DO: DurableObjectNamespace<AccountIndexDO>
-  /** Cloud work mode's hand-offs (handoffs/): one HandoffDO per handed-off session, one HandoffIndexDO per owner. Unbound in production until hand-off ships there. */
-  readonly HANDOFF_DO?: DurableObjectNamespace<HandoffDO>
-  readonly HANDOFF_INDEX_DO?: DurableObjectNamespace<HandoffIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
