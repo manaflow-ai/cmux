@@ -346,6 +346,10 @@ path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_owned_mini_caches.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_acpmux_job_home.py"
 lane = "linux-guard"
 
