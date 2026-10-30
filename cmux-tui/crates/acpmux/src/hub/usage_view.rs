@@ -127,7 +127,8 @@ impl Hub {
             if whole {
                 trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
                 let before = stats.len();
-                stats.retain(|id, _| fresh.iter().any(|(f, _)| f == id));
+                // A chat still listed keeps what the last pass found until a pass finds more.
+                stats.retain(|id, _| sources.iter().any(|(s, _)| s == id));
                 gone = stats.len() != before;
             }
             // A turn's own read announces its chat's whether or not a list's pass read the

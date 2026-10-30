@@ -92,7 +92,8 @@ fn a_claude_transcript_counts_each_message_once_and_reads_only_what_was_appended
     let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
     write!(f, "{}", assistant("msg_3", "2026-10-30T11:59:30Z", usage(1, 0, 0, 1), false)).unwrap();
     let second = tracker.refresh(&source, now, &models()).unwrap();
-    assert_eq!(second.tokens24h, Some(1110 + 1065));
+    // The line still being written is not known yet: the day's count is unknown, not short.
+    assert_eq!(second.tokens24h, None);
     assert_eq!(second.context_tokens, Some(1015));
     writeln!(f).unwrap();
     // A subagent's line in the chat's own file (a sidechain) is spend, not the chat's context.
@@ -253,6 +254,107 @@ fn a_chat_whose_calls_are_all_older_than_the_day_keeps_its_last_calls_context() 
     let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models()).unwrap();
     assert_eq!(stats.context_tokens, Some(303));
     assert_eq!((stats.tokens24h, stats.cost_usd24h), (Some(0), None));
+}
+
+/// Review of #28015: a first read cut exactly at a line start keeps that line.
+#[test]
+fn a_first_read_cut_at_a_line_start_keeps_that_line() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    let old = assistant("msg_0", "2026-10-28T09:00:00Z", usage(1, 0, 0, 1), false);
+    let kept = assistant("msg_1", "2026-10-28T10:00:00Z", usage(3, 0, 0, 4), false);
+    append(&path, &[old, kept.clone()]);
+    // The cut falls on the last line's first byte.
+    let first = format!("{kept}\n").len() as u64;
+    let mut tracker = Tracker { limits: Some((first, u64::MAX)), ..Tracker::default() };
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.context_tokens, Some(3), "the line at the cut was read");
+    assert_eq!(stats.tokens24h, Some(0), "it starts before the day: the day's count is known");
+}
+
+/// Review of #28015: a line still being written, or one longer than a read step, never reads
+/// as a known count, and a long line does not stop the reads after it.
+#[test]
+fn a_line_being_written_or_too_long_leaves_the_counts_unknown() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    append(&path, &[assistant("msg_1", "2026-10-30T11:00:00Z", usage(1, 0, 0, 1), false)]);
+    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    write!(f, "{}", assistant("msg_2", "2026-10-30T11:01:00Z", usage(5, 0, 0, 5), false)).unwrap();
+    let mut tracker = Tracker::default();
+    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, None);
+    writeln!(f).unwrap();
+    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, Some(12));
+
+    // A line longer than a read step: skipped, and the day it may fall in is unknown.
+    let mut long = assistant("msg_3", "2026-10-30T11:02:00Z", usage(7, 0, 0, 7), false);
+    long["message"]["content"] = json!([{"type": "text", "text": "x".repeat(4096)}]);
+    append(&path, &[long, assistant("msg_4", "2026-10-30T11:03:00Z", usage(2, 0, 0, 0), false)]);
+    let mut stepped = Tracker { limits: Some((u64::MAX, 1024)), ..Tracker::default() };
+    let mut last = None;
+    for _ in 0..12 {
+        last = Some(stepped.refresh(&source, now, &models()).unwrap());
+    }
+    let last = last.unwrap();
+    assert_eq!(last.context_tokens, Some(2), "the line after the long one was read");
+    assert_eq!(last.tokens24h, None, "the long line's tokens are unknown, not 0");
+    // A day after it was lost (at the refresh's `now`), the day's counts are known again.
+    let later = stepped.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(later.tokens24h, Some(0));
+}
+
+/// Review of #28015: a record that should count but cannot be read (not JSON, no time, no
+/// token counts) makes the day's counts unknown while it is in the day, never 0 or now.
+#[test]
+fn a_record_that_cannot_be_read_is_unknown_not_zero() {
+    let now = ms("2026-10-30T12:00:00Z");
+    let reply = |at: &str| assistant(&format!("msg_{at}"), at, usage(1, 0, 0, 1), false);
+    let mut untimed = reply("x");
+    untimed.as_object_mut().unwrap().remove("timestamp");
+    let mut countless = reply("2026-10-30T11:00:00Z");
+    countless["message"]["usage"] = json!({"cache_read_input_tokens": 9});
+    let mut old_countless = reply("2026-10-28T11:00:00Z");
+    old_countless["message"]["usage"] = json!({});
+    let cases: Vec<(&str, String, Option<u64>)> = vec![
+        ("not JSON", "{\"type\":\"assistant\",\"message\":{\"usage\":".to_owned(), None),
+        ("no time", untimed.to_string(), None),
+        ("no token counts", countless.to_string(), None),
+        // Older than the day: it cannot be in the day's counts, so they are known.
+        ("no counts, days old", old_countless.to_string(), Some(2)),
+    ];
+    for (what, bad, want) in cases {
+        let home = tempfile::tempdir().unwrap();
+        let (source, path) = claude(home.path());
+        append(&path, &[reply("2026-10-30T10:00:00Z")]);
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(f, "{bad}").unwrap();
+        let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+        assert_eq!(stats.tokens24h, want, "{what}");
+    }
+
+    // Codex: a token report without its counts is unknown; a rate-limit update is not one.
+    let home = tempfile::tempdir().unwrap();
+    let mut env = BTreeMap::new();
+    env.insert("CODEX_HOME".to_owned(), home.path().display().to_string());
+    let source = Source {
+        family: "codex".into(),
+        agent_session_id: SID.into(),
+        cwd: "/w".into(),
+        created_at: now,
+        argv: Some(vec!["codex-acp".into()]),
+        env,
+    };
+    let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
+    let rate = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg",
+        "payload": {"type": "token_count", "info": null, "rate_limits": {}}});
+    append(&path, &[rate]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(0));
+    let broken = json!({"timestamp": "2026-10-30T11:01:00Z", "type": "event_msg",
+        "payload": {"type": "token_count", "info": {"total_token_usage": {"total_tokens": 5}}}});
+    append(&path, &[broken]);
+    assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, None);
 }
 
 #[test]

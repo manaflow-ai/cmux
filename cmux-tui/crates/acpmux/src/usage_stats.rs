@@ -155,12 +155,24 @@ struct Tail {
     /// Since when (unix ms) what was read covers the file: 0 from its start; None before a read,
     /// or when a first read began mid-file at a line with no time.
     covered_from: Option<u64>,
+    /// The newest time (unix ms) of a record that should have counted but could not be read
+    /// (not JSON, no time, no token counts, longer than a read step): the day's counts are
+    /// unknown until it is older than the day.
+    lost_at: Option<u64>,
+    /// The read stopped inside a line longer than a read step: the next drops the rest of it.
+    in_long_line: bool,
 }
 
 impl Tail {
-    /// Whether what was read covers the day before `now`.
+    /// Whether what was read covers the day before `now`, with nothing in it lost.
     fn covers_day(&self, now: u64) -> bool {
         self.covered_from.is_some_and(|from| from == 0 || from + DAY_MS <= now)
+            && self.lost_at.is_none_or(|at| at + DAY_MS <= now)
+    }
+
+    /// A record that should have counted could not be read: `at` is its time, else now.
+    fn lose(&mut self, at: u64) {
+        self.lost_at = Some(self.lost_at.map_or(at, |lost| lost.max(at)));
     }
 }
 
@@ -208,7 +220,7 @@ impl Tracker {
         let codex = source.family == "codex";
         let limits = self.limits.unwrap_or((FIRST_READ_BYTES, READ_STEP_BYTES));
         if let Some(mut tail) = self.main.take() {
-            let read = read_new(&mut tail, limits, |line, tail| {
+            let read = read_new(&mut tail, limits, now, |line, tail| {
                 if codex {
                     self.codex_line(line, tail, now, models);
                 } else {
@@ -309,8 +321,18 @@ impl Tracker {
         main: bool,
         models: &Models,
     ) {
-        let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
-        let at = timestamp(&record).unwrap_or(now);
+        let Ok(record) = serde_json::from_slice::<Value>(line) else {
+            // It named an assistant reply or a compaction (`claude_line`) and is not JSON.
+            return tail.lose(quick_timestamp(line).unwrap_or(now));
+        };
+        let Some(at) = timestamp(&record) else {
+            let counts = record["type"] == "assistant" && record["message"]["usage"].is_object()
+                || main && record["subtype"] == "compact_boundary";
+            if counts {
+                tail.lose(now);
+            }
+            return;
+        };
         match record.get("type").and_then(Value::as_str) {
             Some("system") if main && record["subtype"] == "compact_boundary" => {
                 if let Some(b) = self.bucket(at, now) {
@@ -333,8 +355,14 @@ impl Tracker {
                     }
                     tail.recent.push_back(id.to_owned());
                 }
+                // A reply without its token counts cannot be counted: never as 0.
+                let (Some(input), Some(output)) =
+                    (usage["input_tokens"].as_u64(), usage["output_tokens"].as_u64())
+                else {
+                    return tail.lose(at);
+                };
+                // The API leaves a cache count out when it is 0.
                 let n = |k: &str| usage[k].as_u64().unwrap_or(0);
-                let (input, output) = (n("input_tokens"), n("output_tokens"));
                 let (read, write) =
                     (n("cache_read_input_tokens"), n("cache_creation_input_tokens"));
                 // An hour's cache write is billed at twice the input price, five minutes' at the catalog's.
@@ -370,9 +398,16 @@ impl Tracker {
         if !wanted.iter().any(|w| contains(line, w)) {
             return;
         }
-        let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
-        let at = timestamp(&record).unwrap_or(now);
+        let Ok(record) = serde_json::from_slice::<Value>(line) else {
+            return tail.lose(quick_timestamp(line).unwrap_or(now));
+        };
         let payload = &record["payload"];
+        let Some(at) = timestamp(&record) else {
+            if record["type"] != "turn_context" {
+                tail.lose(now);
+            }
+            return;
+        };
         match (record["type"].as_str(), payload["type"].as_str()) {
             (Some("turn_context"), _) => {
                 if let Some(model) = payload["model"].as_str() {
@@ -393,19 +428,26 @@ impl Tracker {
             }
             (Some("event_msg"), Some("token_count")) => {
                 let info = &payload["info"];
+                // A rate-limit update alone carries no info.
+                if info.is_null() {
+                    return;
+                }
                 let total = info.pointer("/total_token_usage/total_tokens").and_then(Value::as_u64);
-                if total.is_none() || total == tail.last_total {
+                let last = &info["last_token_usage"];
+                let (Some(_), Some(input), Some(output)) =
+                    (total, last["input_tokens"].as_u64(), last["output_tokens"].as_u64())
+                else {
+                    return tail.lose(at);
+                };
+                if total == tail.last_total {
                     return;
                 }
                 tail.last_total = total;
                 if let Some(window) = info["model_context_window"].as_u64() {
                     self.context_window = Some(window);
                 }
-                let last = &info["last_token_usage"];
-                let n = |k: &str| last[k].as_u64().unwrap_or(0);
-                // OpenAI counts cached input inside input_tokens.
-                let (input, cached, output) =
-                    (n("input_tokens"), n("cached_input_tokens"), n("output_tokens"));
+                // OpenAI counts cached input inside input_tokens, and leaves out a 0 cache count.
+                let cached = last["cached_input_tokens"].as_u64().unwrap_or(0);
                 if at >= self.context_at {
                     self.context_tokens = Some(input);
                     self.context_at = at;
@@ -417,6 +459,7 @@ impl Tracker {
                         + output as f64 * p.output)
                         / 1e6
                 });
+                // OpenAI's total_tokens is input + output (cached and reasoning are inside them).
                 let tokens = last["total_tokens"].as_u64().unwrap_or(input + output);
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens += tokens;
@@ -473,7 +516,7 @@ impl Tracker {
             }
             let mut tail = std::mem::take(&mut agent.tail);
             let mut first = None;
-            let read = read_new(&mut tail, limits, |line, tail| {
+            let read = read_new(&mut tail, limits, now, |line, tail| {
                 if first.is_none() && !agent.spawned {
                     first = serde_json::from_slice::<Value>(line).ok().and_then(|r| timestamp(&r));
                 }
@@ -497,13 +540,16 @@ impl Tracker {
     }
 }
 
-/// Feeds each complete line appended to `tail.path` since `tail.offset` to `each`, at most
-/// `step` bytes a call; a first read starts at most `first` bytes before the end, at a line
-/// start. A file that shrank (rewritten) is read again from its start. Returns whether the
-/// read reached the end of the file as it was (false on any error or a backlog left).
+/// Feeds each complete line appended to `tail.path` since `tail.offset` to `each` (`now` is
+/// when, for a line it has to skip), at most
+/// `step` bytes a call; a first read starts at most `first` bytes before the end, at the
+/// first line that starts there. A file that shrank (rewritten) is read again from its start.
+/// Returns whether the read reached the end of the file as it was, at a line's end (false on
+/// any error, a backlog left, or a line still being written).
 fn read_new(
     tail: &mut Tail,
     (first, step): (u64, u64),
+    now: u64,
     mut each: impl FnMut(&[u8], &mut Tail),
 ) -> bool {
     let Ok(mut file) = std::fs::File::open(&tail.path) else { return false };
@@ -511,11 +557,13 @@ fn read_new(
     if len < tail.offset {
         *tail = Tail { path: std::mem::take(&mut tail.path), ..Tail::default() };
     }
-    let mut skip_partial = false;
+    // Bytes to drop through the first newline: the rest of a line the read starts inside.
+    let mut skip_to_line = std::mem::take(&mut tail.in_long_line);
     if tail.offset == 0 {
         if len > first {
-            tail.offset = len - first;
-            skip_partial = true;
+            // One byte early: a cut that falls on a line start drops only that newline.
+            tail.offset = len - first - 1;
+            skip_to_line = true;
         } else {
             tail.covered_from = Some(0);
         }
@@ -532,10 +580,20 @@ fn read_new(
     if file.take(step.min(len - tail.offset)).read_to_end(&mut buf).is_err() {
         return false;
     }
-    // None: a line still being written, or (not to the end) one longer than the step.
-    let Some(end) = memchr::memrchr(b'\n', &buf) else { return to_end };
+    let Some(end) = memchr::memrchr(b'\n', &buf) else {
+        if !to_end {
+            // A line longer than a step: it cannot be read, so the day it falls in is unknown.
+            tail.offset += buf.len() as u64;
+            tail.in_long_line = true;
+            tail.lose(now);
+        } else if skip_to_line {
+            tail.in_long_line = true;
+        }
+        // Else a line still being written: read again, whole, next time.
+        return false;
+    };
     let mut lines = buf[..end].split(|b| *b == b'\n');
-    if skip_partial {
+    if skip_to_line {
         lines.next();
     }
     for line in lines {
@@ -546,7 +604,8 @@ fn read_new(
         each(line, tail);
     }
     tail.offset += end as u64 + 1;
-    to_end
+    // Bytes past the last newline: a line still being written, read next time.
+    to_end && end + 1 == buf.len()
 }
 
 /// The chat's transcript: Claude's under its project folder (else any project
