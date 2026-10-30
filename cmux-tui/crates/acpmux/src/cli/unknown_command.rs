@@ -116,8 +116,9 @@ pub(crate) fn stdin_dash(
 ) -> Option<AppError> {
     let prompt = new.get_many::<String>("prompt").into_iter().flatten();
     let indices = new.indices_of("prompt").into_iter().flatten();
+    // A subcommand's indices count from its own word (index 0), which is `argv[at]`.
     let dashes: Vec<usize> =
-        prompt.zip(indices).filter(|(w, _)| *w == "-").map(|(_, i)| i).collect();
+        prompt.zip(indices).filter(|(w, _)| *w == "-").map(|(_, i)| at + i).collect();
     if dashes.is_empty() {
         return None;
     }
@@ -209,7 +210,8 @@ mod tests {
         let matches =
             cli.try_get_matches_from(argv.clone()).unwrap_or_else(|e| panic!("{args:?}: {e}"));
         let (_, new) = matches.subcommand()?;
-        let refusal = stdin_dash(new, &argv, 1, "acpmux")?;
+        let at = argv.iter().skip(1).position(|a| a != "--json").map(|i| i + 1)?;
+        let refusal = stdin_dash(new, &argv, at, "acpmux")?;
         Some(refusal.data.unwrap()["try"].as_str().unwrap().to_owned())
     }
 
@@ -227,6 +229,11 @@ mod tests {
         assert_eq!(
             try_for(&["new", "-dp", "-", "foo", "-"]).as_deref(),
             Some("acpmux new --prompt-file - -dp - foo")
+        );
+        // A global flag before the command word.
+        assert_eq!(
+            try_for(&["--json", "new", "fix", "-"]).as_deref(),
+            Some("acpmux new --prompt-file - fix")
         );
         // `--prompt-file` already given: it is kept, not added again.
         assert_eq!(
