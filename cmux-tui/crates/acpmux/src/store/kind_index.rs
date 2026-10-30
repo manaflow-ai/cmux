@@ -19,7 +19,7 @@
 use super::*;
 
 /// The kinds a chat's log load reads (`hub/queue.rs` `QUEUE_KINDS`, which a test keeps within
-/// these, and `hub/log_load.rs` `mark_unknown_outcome`): a scan for these only reads the copies.
+/// these, `hub/log_load.rs` `mark_unknown_outcome` and `hub/message_events.rs`): a scan for these only reads the copies.
 pub const INDEXED_KINDS: &[&str] = &[
     "git",
     "queued",
@@ -41,6 +41,10 @@ pub const INDEXED_KINDS: &[&str] = &[
     "agent_pair_dropped",
     "agent_pair_paused",
     "agent_pair_resumed",
+    // A log load's recovery of agent message projections (`hub/message_events.rs`), and the
+    // projections' ids, read once per chat (`hub/mod.rs`).
+    "forked",
+    "_acpmux/message",
 ];
 
 /// The folder of a chat's copies, beside its `events`.

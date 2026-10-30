@@ -117,7 +117,12 @@ fn a_copy_that_no_longer_matches_its_segment_is_made_again() {
 /// The kinds the log load reads are all copied.
 #[test]
 fn the_log_loads_kinds_are_indexed() {
-    for kind in crate::hub::Hub::QUEUE_KINDS.iter().chain(&["turn_started", "turn_result"]) {
+    for kind in crate::hub::Hub::QUEUE_KINDS.iter().chain(&[
+        "turn_started",
+        "turn_result",
+        "forked",
+        "_acpmux/message",
+    ]) {
         assert!(INDEXED_KINDS.contains(kind), "{kind}");
     }
 }
