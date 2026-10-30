@@ -130,7 +130,13 @@ final class SettingsPageProvider: PageProvider {
                   event != spentFullAccessGesture else { throw refusal }
             spentFullAccessGesture = event
         }
-        let confirm: (@MainActor () async -> Bool)? = ownerConfirm.map { owner in { await owner.authenticate(reason: reason) } }
+        let confirm: (@MainActor () async -> Bool)?
+        if let owner = ownerConfirm {
+            let confirmReason = reason
+            confirm = { @MainActor in await owner.authenticate(reason: confirmReason) }
+        } else {
+            confirm = nil
+        }
         return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { await write(id, $0) }
     }
 
