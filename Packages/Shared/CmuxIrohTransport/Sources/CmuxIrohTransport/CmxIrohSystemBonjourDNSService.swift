@@ -222,18 +222,14 @@ private let cmxIrohBonjourResolveCallback: DNSServiceResolveReply = {
     }
 }
 
-/// A DNS-SD service reference (an `OpaquePointer` to the daemon connection).
-// crash-allow: used only on the DNS-SD queue it is bound to; the operation hands it out of its lock once, to deallocate it there.
-@safe
-private struct CmxIrohDNSServiceHandle: @unchecked Sendable {
-    let ref: DNSServiceRef
-}
-
 // The ref and the release of its +1 context box (context ownership above). cancel()
 // takes both out of `registration` under the lock, so they are released exactly once.
 private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
-    private struct Registration: Sendable {
-        let handle: CmxIrohDNSServiceHandle
+    /// Not Sendable: a DNSServiceRef is a raw pointer to the daemon connection. It enters the
+    /// mutex `sending` (init) and leaves it once, `sending`, in cancel(), so the compiler
+    /// checks that no other reference to it remains; the mutex keeps the operation Sendable.
+    private struct Registration {
+        let ref: DNSServiceRef
         let releaseCallback: @Sendable () -> Void
     }
 
@@ -243,7 +239,7 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
     /// - Parameter releaseCallback: Balances the retain that keeps the callback box alive as the
     ///   C context; runs once, after the ref is deallocated, so no callback can still reach it.
     init(
-        ref: DNSServiceRef,
+        ref: sending DNSServiceRef,
         queue: DispatchQueue,
         releaseCallback: @escaping @Sendable () -> Void
     ) {
@@ -252,7 +248,7 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
         // the only place that deallocates it.
         registration = Mutex(
             Registration(
-                handle: unsafe CmxIrohDNSServiceHandle(ref: ref),
+                ref: ref,
                 releaseCallback: releaseCallback
             )
         )
@@ -267,7 +263,7 @@ private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
         guard let current else { return }
         // SAFETY: the ref is live and taken out of `registration` once; deallocating it on
         // the reply queue means no reply runs after this returns.
-        queue.sync { unsafe DNSServiceRefDeallocate(current.handle.ref) }
+        queue.sync { unsafe DNSServiceRefDeallocate(current.ref) }
         // No reply can read the context any more (above); this drops its +1 once.
         current.releaseCallback()
     }
