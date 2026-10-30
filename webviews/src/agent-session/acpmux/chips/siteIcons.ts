@@ -18,6 +18,11 @@ const MAX_KEPT = 512;
 /// can carry other text into the `url("...")` the mark draws it with (SiteIcon.tsx).
 const PNG_DATA_URL = /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/;
 
+/// `icon` when it is an inline PNG (the only icon the page draws), else undefined.
+export function pngIcon(icon: string | undefined): string | undefined {
+  return icon && PNG_DATA_URL.test(icon) ? icon : undefined;
+}
+
 /// A site's icon: a data URL, `null` once the host had none, absent until asked.
 const icons = new Map<string, string | null>();
 /// Sites queued or in flight: kept through a reset of the store, so each still gets its answer.

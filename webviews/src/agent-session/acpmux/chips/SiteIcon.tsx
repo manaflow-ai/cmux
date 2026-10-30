@@ -5,7 +5,7 @@
 // paragraph (Leo 2026-10-21, chips/LinkChips.tsx). A local or private address keeps the globe and
 // is never asked about.
 import { ArxivMark, GitHubMark, Globe } from "../conversation/icons";
-import { siteIconHost, useSiteIcon } from "./siteIcons";
+import { pngIcon, siteIconHost, useSiteIcon } from "./siteIcons";
 
 /// Which brand mark a site's links draw instead of a fetched favicon.
 export function siteBrand(host: string | undefined): "github" | "arxiv" | undefined {
@@ -22,7 +22,7 @@ export function SiteIcon({ href, known, size = "inline" }: { href: string; known
   const brand = siteBrand(host);
   // A brand mark needs no favicon: its site is never asked about.
   const fetched = useSiteIcon(brand ? undefined : host);
-  const icon = brand ? undefined : (known ?? fetched);
+  const icon = brand ? undefined : (pngIcon(known) ?? fetched);
   const px = size === "row" ? 16 : 14;
   return (
     <span className={`cv-chip__icon cv-site-icon cv-site-icon--${size}`} aria-hidden="true">

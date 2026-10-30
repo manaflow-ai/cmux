@@ -172,17 +172,18 @@ test("a host that cannot answer leaves the globe", async () => {
 
 test("a prompt's pasted address is a link with its site's mark", async () => {
   const calls = await setup((hosts) => Object.fromEntries(hosts.map((host) => [host, ICON])));
-  const { linkedUrls } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  // The bubble's own path: a prompt holding an address renders through Markdown, whose web links are
+  // UrlChip (PromptText.tsx PromptTyped).
+  const { PromptTyped } = await import("../src/agent-session/acpmux/conversation/PromptText");
   const view = await render(
-    <span>{linkedUrls("Compare https://react.dev/learn, and src/app.ts with http://localhost:3000/", "t")}</span>,
+    <PromptTyped text="Compare https://react.dev/learn with http://localhost:3000/" show={(text) => text} />,
   );
   const links = [...view.element.querySelectorAll<HTMLAnchorElement>("a.cv-chip.is-web")];
   expect(links.map((link) => link.getAttribute("href"))).toEqual(["https://react.dev/learn", "http://localhost:3000/"]);
-  // The path stays text; the sentence reads as typed.
-  expect(view.element.querySelector(".cv-chip.is-path")).toBeNull();
-  expect(view.element.textContent).toBe("Compare https://react.dev/learn, and src/app.ts with http://localhost:3000/");
+  // Only the public site is asked; the local address keeps the globe.
   expect(favicons(calls)).toEqual([["react.dev"]]);
   expect(links[0]!.querySelector(".cv-site-icon .cv-site-icon__img")).not.toBeNull();
+  expect(links[1]!.querySelector(".cv-site-icon .cv-site-icon__img")).toBeNull();
   await view.unmount();
 });
 

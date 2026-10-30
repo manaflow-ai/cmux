@@ -183,27 +183,6 @@ export function linkedText(text: string, key: string): ReactNode[] {
   return out;
 }
 
-/// A prompt's text with each web address the person pasted as a web link (UrlChip: its site's mark
-/// and the hover card), the rest as written. Paths stay text: a prompt is what was typed, not a
-/// reply to act on.
-export function linkedUrls(text: string, key: string): ReactNode[] {
-  const links = textLinks(text).filter((link) => link.kind === "url");
-  if (!links.length) return [text];
-  const out: ReactNode[] = [];
-  let at = 0;
-  links.forEach((link, index) => {
-    if (link.start > at) out.push(text.slice(at, link.start));
-    out.push(
-      <UrlChip key={`${key}-${index}`} href={link.value}>
-        {githubRefLabel(link.value) ?? link.value}
-      </UrlChip>,
-    );
-    at = link.end;
-  });
-  if (at < text.length) out.push(text.slice(at));
-  return out;
-}
-
 const GITHUB_REF = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)\/?(?:[?#].*)?$/;
 
 /// `owner/repo#N` for a GitHub pull request or issue address, else undefined.
