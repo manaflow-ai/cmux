@@ -13,6 +13,7 @@ import UIKit
 /// the layers' animations, not only the end point.
 @MainActor
 @Suite(.serialized) struct JumpReduceMotionTests {
+    @MainActor
     struct Transcript {
         let controller: ChatTranscriptController
         let scroll: UIScrollView
@@ -47,6 +48,13 @@ import UIKit
         let content = try #require(controller.children.first?.view)
         // Up at the first turn, no longer following the newest one.
         controller.scrollTranscript(toContentY: 0, animated: false)
+        #expect(scroll.contentOffset.y < scroll.bounds.height)
+        // A reader rests at the top for frames before tapping the button. UIKit
+        // starts an animation from what was last committed, so commit the top:
+        // otherwise the jump animates from the bottom the transcript opened at
+        // to the bottom, which adds no animation and hides the motion.
+        CATransaction.flush()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         #expect(scroll.contentOffset.y < scroll.bounds.height)
         return Transcript(controller: controller, scroll: scroll, content: content, window: window)
     }

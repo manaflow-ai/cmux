@@ -12,6 +12,7 @@ import UIKit
 /// animations.
 @MainActor
 @Suite(.serialized) struct DrawerReduceMotionTests {
+    @MainActor
     struct Drawer {
         let controller: SidebarContainerViewController
         let model: SidebarModel
@@ -83,16 +84,33 @@ import UIKit
         expectClosed(drawer)
     }
 
+    /// UIKit starts an animation from what was last committed: commit the
+    /// drawer at rest, as it is for frames before a tap.
+    func commit() {
+        CATransaction.flush()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
     /// The oracle sees motion: with Reduce Motion off the drawer still
     /// slides, and only settles when the animation ends.
     @Test func withoutReduceMotionTheDrawerStillSlides() {
-        let drawer = drawer(reducesMotion: false)
-        defer { drawer.window.isHidden = true }
-        drawer.model.open()
-        #expect(drawer.moving)
-        drawer.model.close()
-        #expect(drawer.moving)
-        #expect(!drawer.sidebar.view.isHidden, "the sidebar stays until the card has slid closed")
+        let closed = drawer(reducesMotion: false)
+        defer { closed.window.isHidden = true }
+        commit()
+        closed.model.open()
+        #expect(closed.moving, "the card slides open")
+
+        // Closing from an open drawer at rest (opened in place, then
+        // committed), not mid-open: a close right after an open in the same
+        // turn starts from the uncommitted closed position and adds nothing.
+        let open = drawer(reducesMotion: true)
+        defer { open.window.isHidden = true }
+        open.model.open()
+        commit()
+        open.controller.reducesMotion = { false }
+        open.model.close()
+        #expect(open.moving, "the card slides closed")
+        #expect(!open.sidebar.view.isHidden, "the sidebar stays until the card has slid closed")
     }
 }
 #endif
