@@ -291,6 +291,34 @@ test("a message sent now offers no second Send now, and never the person's queue
   for (const key of PERSON_QUEUE_ITEMS) expect(items()).not.toContain(t(key));
 });
 
+// Leo, 2026-10-29: "removing the \"read after this step\" maybe and the odd gap betwene the pin and
+// the ellipsis and the redundant \"open chat\"". A delivered message with a steer the agent has not
+// read: its age, Copy, Retry, Pin and ⋯ are ONE group, so ⋯ sits one gap after Pin, not a second
+// group's margin away; no Read after this step, no Open chat.
+test("a delivered steer's ⋯ is in the same action group as Pin, with no Read after this step or Open chat", async () => {
+  const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
+  const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
+  const { ReceivedActions } = await import("../src/agent-session/acpmux/conversation/MessageActions");
+  const message = agent(8).message;
+  const row = { id: "steer-row", version: 1, at: Date.now(), kind: "user", text: message.text };
+  await show(
+    <IncomingMessageLine
+      id="steer-row"
+      message={message}
+      onOpen={() => {}}
+      actions={
+        <ReceivedActions row={row as never} text={message.text} more={<SteerWaitingActions promptId="p-8" send={() => {}} />} />
+      }
+    />,
+  );
+  const groups = host.querySelectorAll(".cv-received-actions");
+  expect(groups).toHaveLength(1);
+  const footer = groups[0]!.querySelector(".cv-message-footer-row")!;
+  expect(footer.querySelector('[data-menu="waiting-message"]')?.closest(".cv-message-footer-row")).toBe(footer);
+  expect(host.textContent).not.toContain("Read after this step");
+  expect(host.querySelector(".cv-disclosure__open, .cv-received__queued")).toBeNull();
+});
+
 test("a steer the agent has not read: no Read after this step, Send now in its ⋯ menu", async () => {
   const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
   const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");

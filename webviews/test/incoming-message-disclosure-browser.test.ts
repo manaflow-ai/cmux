@@ -466,6 +466,16 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
           right: Math.round(line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect().right),
         };
       });
+      // The trailing controls share the row's one gap (Leo, 2026-10-29: "the odd gap betwene the pin
+      // and the ellipsis"): every visible control is the same distance from the next.
+      const gaps = await rows.nth(1).evaluate((row) => {
+        const controls = [...row.querySelectorAll<HTMLElement>(".cv-received__hover .cv-message-footer-row > *")]
+          .filter((node) => getComputedStyle(node).display !== "none" && node.getBoundingClientRect().width > 0)
+          .map((node) => node.getBoundingClientRect());
+        return controls.slice(1).map((box, index) => Math.round(box.left - controls[index]!.right));
+      });
+      expect(gaps.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(gaps).size).toBe(1);
       expect(hovered.plate).not.toBe("rgba(0, 0, 0, 0)");
       expect(hovered.shown).toBe("1");
       expect(hovered.right).toBe(lines[1]!.right);

@@ -34,7 +34,9 @@ export type FindMatchesResult = {
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
 
-const SEARCHED_KINDS = new Set(["user", "assistant"]);
+/// Prompts, replies, and another agent's message waiting in the queue (QUEUED_MESSAGE, its text),
+/// which the transcript draws in the group of waiting messages (pendingMessages.ts).
+const SEARCHED_KINDS = new Set(["user", "assistant", "queuedMessage"]);
 
 /** What a tool call or thought draws: a thought's text, or a call's command (else its title) and
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */

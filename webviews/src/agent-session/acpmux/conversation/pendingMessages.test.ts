@@ -71,3 +71,16 @@ test("every waiting message is in one group, and a later one joins it under the 
   // Nothing waits: no group.
   expect(pendingMessagesRow([], [])).toBeUndefined();
 });
+
+// Review at 1fbcdcc8: Find never saw a queued message's text, so a search could not reach one in
+// the collapsed group. A queued message is a searched row, and its match lands on the group, which
+// draws it.
+test("Find counts a queued message's words and lands on the group that draws it", async () => {
+  const { findMatches, findRowIndex } = await import("./chatFind");
+  const waiting = queued("q9", "docs-lane", "Docs are rebuilt for the zebra release.");
+  const group = pendingMessagesRow([], [waiting])!;
+  const matches = findMatches([waiting], "zebra");
+  expect(matches.map((match) => match.rowId)).toEqual([waiting.id]);
+  const transcript = [queued("x", "a", "unrelated"), group].slice(1);
+  expect(findRowIndex(transcript, waiting.id)).toBe(0);
+});
