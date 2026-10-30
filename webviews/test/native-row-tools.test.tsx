@@ -1,7 +1,10 @@
 // l10n-allow-file: native toolbar descriptors and synthetic test labels, not shipped UI.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
+import { readFileSync } from "node:fs";
+import type { HeaderPullRequest } from "../src/agent-session/acpmux/header/headerState";
+import type { NativeRowMenuItem } from "../src/agent-session/acpmux/header/nativeRowTools";
 import { createRoot, type Root } from "react-dom/client";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { HEADER_ACTIONS } from "../src/agent-session/acpmux/header/headerActions";
@@ -11,10 +14,12 @@ import {
   dispatchNativeRowTool,
   nativeRowToolBindings,
   boundedNativeText,
+  NATIVE_MAX_TOOLS,
+  NATIVE_MAX_MENU_ITEMS,
+  NATIVE_MAX_DEPTH,
   NATIVE_MAX_TOTAL_MENU_ITEMS,
   NATIVE_MAX_TEXT_BYTES,
   NATIVE_MAX_TEXT_GRAPHEMES,
-  type NativeRowExtras,
   type NativeRowTool,
 } from "../src/agent-session/acpmux/header/nativeRowTools";
 import { configureQuickActions, quickActions } from "../src/agent-session/acpmux/header/quickActions";
@@ -25,6 +30,383 @@ import { applyHostEvent } from "../src/agent-session/acpmux/pageHost";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
+
+function deferred<T = unknown>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+const request = (number: number): HeaderPullRequest => ({
+  url: `https://github.com/example/repo/pull/${number}`,
+  number,
+  title: "Fix",
+  state: "open",
+  review: "approved",
+  mergeable: "mergeable",
+  checks: { state: "passing", passed: 2, total: 2 },
+  checkList: [],
+});
+const ask = (id: string, text = "Approve?") => ({
+  id,
+  kind: "approval" as const,
+  sessionId: "chat",
+  permissionId: id,
+  ask: text,
+  who: { name: "A", chief: false },
+  answers: [{ id: "yes", label: "Allow", tone: "allow" as const }],
+});
+const flatten = (menu: readonly NativeRowMenuItem[]): NativeRowMenuItem[] =>
+  menu.flatMap((item) => [item, ...flatten(item.children ?? [])]);
+function nativeHarness() {
+  const container = mount();
+  let tools: NativeRowTool[] = [];
+  const host = {
+    enabled: true,
+    callNative: async (_method: string, params: Record<string, unknown>) => {
+      tools = params.tools as NativeRowTool[];
+    },
+  };
+  const render = async (props: Partial<ComponentProps<typeof ChatHeaderTools>> = {}) => {
+    await act(async () =>
+      root!.render(
+        <ChatHeaderTools
+          onTerminal={() => {}}
+          onBrowser={() => {}}
+          summary={null}
+          menu={() => []}
+          nativeRowTools={host}
+          {...props}
+        />,
+      ),
+    );
+  };
+  const tool = (id: string) => {
+    const found = tools.find((item) => item.id === id);
+    expect(found).toBeDefined();
+    return found!;
+  };
+  const row = (id: string, prefix: string) => {
+    const found = flatten(tool(id).menu ?? []).find((item) => item.id.startsWith(prefix));
+    expect(found).toBeDefined();
+    return found!;
+  };
+  const invoke = (id: string, menuItemId: string) =>
+    applyHostEvent({ kind: "tabRowToolInvoked", value: { id, menuItemId } });
+  const click = async (id: string, prefix: string) => {
+    const item = row(id, prefix);
+    await act(async () => invoke(id, item.id));
+    return item.id;
+  };
+  return { container, render, tool, row, invoke, click };
+}
+
+test("native worktree uses the DOM refusal, retry, exclusion and removed state machine", async () => {
+  const h = nativeHarness();
+  const removes: { key: string; discard: boolean; reply: ReturnType<typeof deferred> }[] = [];
+  const applies: { key: string; reply: ReturnType<typeof deferred> }[] = [];
+  const props = {
+    folder: "/worktrees/ops",
+    readStatus: async () => ({ branch: "feature", base: "main", worktree: { main_root: "/repo" } }),
+    onRemoveWorktree: (key: string, discard: boolean) => {
+      const reply = deferred();
+      removes.push({ key, discard, reply });
+      return reply.promise;
+    },
+    onApplyWorktree: (key: string) => {
+      const reply = deferred();
+      applies.push({ key, reply });
+      return reply.promise;
+    },
+  };
+  await h.render(props);
+  expect(h.tool("worktree").badge).toBe("feature");
+  const applyId = h.row("worktree", "worktree.apply:").id;
+  await act(async () => {
+    h.invoke("worktree", h.row("worktree", "worktree.remove:").id);
+    h.invoke("worktree", applyId);
+  });
+  expect(removes).toHaveLength(1);
+  expect(applies).toHaveLength(0);
+  expect(h.row("worktree", "worktree.apply:").enabled).toBe(false);
+  await act(async () => removes[0]!.reply.reject({ details: { reason: "uncommitted_changes" } }));
+  expect(h.row("worktree", "worktree.removeAnyway:").label).toBe(translate("header.worktreeRemoveAnyway"));
+  expect(h.tool("worktree").menu).toContainEqual(
+    expect.objectContaining({ label: translate("header.worktreeRemoveUncommittedAny"), enabled: false }),
+  );
+  await h.click("worktree", "worktree.removeAnyway:");
+  expect(removes[1]!.discard).toBe(true);
+  expect(removes[1]!.key).not.toBe(removes[0]!.key);
+  await act(async () => removes[1]!.reply.reject(new Error("network")));
+  await h.click("worktree", "worktree.removeAnyway:");
+  expect(removes[2]!.key).toBe(removes[1]!.key);
+  await act(async () => removes[2]!.reply.resolve({ value: { root: "/worktrees/ops" } }));
+  expect(flatten(h.tool("worktree").menu ?? []).filter((item) => item.enabled)).toEqual([]);
+
+  await h.render({ ...props, folder: "/worktrees/new" });
+  await h.click("worktree", "worktree.remove:");
+  await act(async () => removes[3]!.reply.reject(new Error("network")));
+  expect(h.tool("worktree").menu?.some((item) => item.id.startsWith("worktree.removeAnyway:"))).toBe(false);
+  expect(h.tool("worktree").menu).toContainEqual(
+    expect.objectContaining({ label: translate("header.worktreeRemoveFailed"), enabled: false }),
+  );
+  await h.click("worktree", "worktree.remove:");
+  expect(removes[4]!.key).toBe(removes[3]!.key);
+  await act(async () => removes[4]!.reply.reject(new Error("network")));
+  await h.click("worktree", "worktree.apply:");
+  expect(h.row("worktree", "worktree.remove:").enabled).toBe(false);
+  const removeCount = removes.length;
+  await h.click("worktree", "worktree.remove:");
+  expect(removes).toHaveLength(removeCount);
+  await act(async () => applies[0]!.reply.reject(new Error("network")));
+  expect(h.tool("worktree").menu).toContainEqual(
+    expect.objectContaining({ label: translate("header.worktreeApplyFailed"), enabled: false }),
+  );
+  await h.click("worktree", "worktree.apply:");
+  expect(applies[1]!.key).toBe(applies[0]!.key);
+  await act(async () => applies[1]!.reply.resolve({ value: { files: ["file"] } }));
+});
+
+test("switching native tools off keeps the pending worktree operation in its DOM popover", async () => {
+  const h = nativeHarness(),
+    reply = deferred();
+  const props = {
+    folder: "/worktrees/toggle",
+    readStatus: async () => ({ branch: "feature", worktree: { main_root: "/repo" } }),
+    onApplyWorktree: () => reply.promise,
+    onRemoveWorktree: async () => ({ value: { root: "/worktrees/toggle" } }),
+  };
+  await h.render(props);
+  await h.click("worktree", "worktree.apply:");
+  await h.render({ ...props, nativeRowTools: undefined });
+  await act(async () => h.container.querySelector<HTMLButtonElement>(".acpmux-header-worktree")!.click());
+  const apply = document.querySelector<HTMLButtonElement>(".acpmux-worktree-apply button")!;
+  const remove = document.querySelector<HTMLButtonElement>(".acpmux-worktree-remove button")!;
+  expect(apply.disabled).toBe(true);
+  expect(remove.disabled).toBe(true);
+  await act(async () => reply.reject(new Error("network")));
+  expect(document.querySelector(".acpmux-worktree-apply [role=alert]")?.textContent).toBe(
+    translate("header.worktreeApplyFailed"),
+  );
+});
+
+test("worktree target switches reject stale menu ids and late unsaved authorization", async () => {
+  const h = nativeHarness(),
+    pending = deferred();
+  let calls = 0;
+  const props = {
+    readStatus: async () => ({ branch: "same", worktree: { main_root: "/repo" } }),
+    onRemoveWorktree: async () => {
+      calls++;
+      return pending.promise;
+    },
+  };
+  await h.render({ ...props, folder: "/worktrees/A" });
+  const oldId = await h.click("worktree", "worktree.remove:");
+  await h.render({ ...props, folder: "/worktrees/B" });
+  await act(async () => h.invoke("worktree", oldId));
+  expect(calls).toBe(1);
+  await act(async () => pending.reject({ details: { reason: "unpushed_commits" } }));
+  expect(h.tool("worktree").menu?.some((item) => item.id.startsWith("worktree.removeAnyway:"))).toBe(false);
+  expect(h.row("worktree", "worktree.remove:").enabled).toBe(true);
+});
+
+test("native PR confirmation and completion stay scoped to the PR and share failure text", async () => {
+  const h = nativeHarness(),
+    pending = deferred<{ queued: boolean }>();
+  const merged: number[] = [];
+  const props = {
+    onMergePullRequest: async ({ number }: { number: number; url: string }) => {
+      merged.push(number);
+      return pending.promise;
+    },
+  };
+  await act(async () => setHeaderState({ pullRequest: request(1) }));
+  await h.render(props);
+  const oldId = await h.click("pullRequest", "pullRequest.merge:");
+  expect(merged).toEqual([]);
+  const confirmId = await h.click("pullRequest", "pullRequest.confirm:");
+  await act(async () => h.invoke("pullRequest", confirmId));
+  expect(merged).toEqual([1]);
+  expect(h.row("pullRequest", "pullRequest.confirm:").enabled).toBe(false);
+  await act(async () => setHeaderState({ pullRequest: request(2) }));
+  await act(async () => {
+    h.invoke("pullRequest", oldId);
+    h.invoke("pullRequest", confirmId);
+  });
+  await act(async () => pending.resolve({ queued: false }));
+  expect(h.row("pullRequest", "pullRequest.merge:").enabled).toBe(true);
+  expect(merged).toEqual([1]);
+  const failure = deferred<{ queued: boolean }>();
+  await h.render({ onMergePullRequest: () => failure.promise });
+  await h.click("pullRequest", "pullRequest.merge:");
+  await h.click("pullRequest", "pullRequest.confirm:");
+  await act(async () => failure.reject(new Error("Host refused this merge")));
+  expect(h.tool("pullRequest").menu).toContainEqual(
+    expect.objectContaining({ label: "Host refused this merge", enabled: false }),
+  );
+  await h.click("pullRequest", "pullRequest.merge:");
+  expect(h.row("pullRequest", "pullRequest.cancel:").enabled).toBe(true);
+  await h.click("pullRequest", "pullRequest.cancel:");
+  expect(h.row("pullRequest", "pullRequest.merge:").enabled).toBe(true);
+});
+
+test("native PR status uses aggregate checks, preserves Merge and rejects replaced check selections", async () => {
+  const h = nativeHarness(),
+    opened: string[] = [];
+  dom!.window.open = ((url: string) => {
+    opened.push(url);
+    return null;
+  }) as Window["open"];
+  const checks = Array.from({ length: 31 }, (_, i) => ({
+    name: `Check ${i}`,
+    state: "passed",
+    url: `https://example.test/check/${i}`,
+  }));
+  const pr = { ...request(42), checks: { state: "passing", passed: 31, total: 31 }, checkList: checks };
+  await act(async () => setHeaderState({ pullRequest: pr }));
+  await h.render({ onMergePullRequest: async () => ({ queued: false }) });
+  expect(h.row("pullRequest", "pullRequest.merge:").enabled).toBe(true);
+  expect(h.tool("pullRequest").menu).toHaveLength(32);
+  expect(h.tool("pullRequest").menu?.some((item) => item.label.includes("more"))).toBe(true);
+  const oldId = h.row("pullRequest", "pullRequest.check:").id;
+  await act(async () =>
+    setHeaderState({
+      pullRequest: {
+        ...pr,
+        checks: { state: "pending", passed: 30, total: 31 },
+        checkList: [{ name: "Check 0", state: "pending" }, ...checks.slice(1)],
+      },
+    }),
+  );
+  expect(h.tool("pullRequest").badge).not.toContain("✓");
+  expect(h.row("pullRequest", "pullRequest.check:").enabled).toBe(false);
+  await act(async () => h.invoke("pullRequest", oldId));
+  expect(opened).toEqual([]);
+  await act(async () =>
+    setHeaderState({
+      pullRequest: {
+        ...pr,
+        checks: { state: "failing", passed: 30, total: 31, failingOnBase: 1 },
+        checkList: [{ name: "Check 0", state: "failed", onBase: true }, ...checks.slice(1)],
+      },
+    }),
+  );
+  expect(h.tool("pullRequest").badge).not.toContain("✓");
+  expect(h.tool("pullRequest").badge).toContain("30/31");
+  expect(h.row("pullRequest", "pullRequest.check:").label).toContain(translate("header.prCheckOnBase"));
+  for (const state of ["failing", "pending"]) {
+    await act(async () =>
+      setHeaderState({ pullRequest: { ...pr, checks: { state, passed: 2, total: 2 }, checkList: [] } }),
+    );
+    expect(h.tool("pullRequest").badge).not.toContain("✓");
+    expect(h.tool("pullRequest").badge).toContain("2/2");
+  }
+});
+
+test("native Needs You compact policy and same-target replacements use the DOM action set", async () => {
+  const h = nativeHarness(),
+    calls: string[] = [];
+  const items = [ask("one"), ask("two")];
+  const actions = {
+    answer: async (item: (typeof items)[number]) => {
+      calls.push("answer:" + item.id);
+    },
+    ask: async (item: (typeof items)[number]) => {
+      calls.push("ask:" + item.id);
+    },
+    goTo: (item: (typeof items)[number]) => {
+      calls.push("go:" + item.id);
+    },
+  };
+  await h.render({ nativeNeedsYou: { items, mode: "pinned", actions } });
+  const first = h.tool("needsYou").menu![0]!.children!;
+  const second = h.tool("needsYou").menu![1]!.children!;
+  for (const entry of [first[0]!, second[0]!, first[1]!, second[2]!])
+    await act(async () => h.invoke("needsYou", entry.id));
+  expect(calls).toEqual(["answer:one", "answer:two", "go:one", "ask:two"]);
+  await h.render({
+    nativeNeedsYou: { items: [ask("one", "A different request"), ask("two")], mode: "pinned", actions },
+  });
+  await act(async () => h.invoke("needsYou", first[0]!.id));
+  expect(calls).toHaveLength(4);
+  await h.render({ nativeNeedsYou: { items, mode: "compact", actions } });
+  for (const entry of h.tool("needsYou").menu!) expect(entry.children).toHaveLength(1);
+  await act(async () => h.invoke("needsYou", first[0]!.id));
+  expect(calls).toHaveLength(4);
+  await act(async () => h.invoke("needsYou", h.tool("needsYou").menu![1]!.children![0]!.id));
+  expect(calls.at(-1)).toBe("go:two");
+});
+
+test("component descriptors meet the Swift decoder's text and global menu limits", async () => {
+  const h = nativeHarness();
+  const swift = readFileSync(
+    new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTabRowTools.swift", import.meta.url),
+    "utf8",
+  );
+  const limit = (name: string) => Number(swift.match(new RegExp(`static let ${name} = (\\d+)`))![1]);
+  expect(NATIVE_MAX_TOOLS).toBe(limit("maximumTools"));
+  expect(NATIVE_MAX_MENU_ITEMS).toBe(limit("maximumMenuItems"));
+  expect(NATIVE_MAX_DEPTH).toBe(limit("maximumDepth"));
+  expect(NATIVE_MAX_TOTAL_MENU_ITEMS).toBe(limit("maximumTotalMenuItems"));
+  expect(NATIVE_MAX_TEXT_BYTES).toBe(limit("maximumTextBytes"));
+  expect(NATIVE_MAX_TEXT_GRAPHEMES).toBe(limit("maximumText"));
+  const emoji = "👨‍👩‍👧‍👦".repeat(64);
+  const items = Array.from({ length: 40 }, (_, i) => ({
+    ...ask(String(i), i ? emoji : ""),
+    answers: Array.from({ length: 4 }, (_, j) => ({ id: String(j), label: j ? emoji : "", tone: "allow" as const })),
+  }));
+  await act(async () =>
+    setHeaderState({
+      pullRequest: {
+        ...request(2),
+        checkList: Array.from({ length: 31 }, (_, i) => ({
+          name: i ? emoji : "",
+          state: "passed",
+          url: `https://example.test/${i}`,
+        })),
+      },
+    }),
+  );
+  await h.render({
+    folder: "/worktrees/budget",
+    readStatus: async () => ({ branch: emoji, worktree: { main_root: "/repo" } }),
+    onApplyWorktree: async () => ({ value: { files: [] } }),
+    onRemoveWorktree: async () => ({ value: { root: "/worktrees/budget" } }),
+    onMergePullRequest: async () => ({ queued: false }),
+    nativeNeedsYou: { items, mode: "pinned", actions: { answer: async () => {}, ask: async () => {}, goTo: () => {} } },
+  });
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  const checkText = (value: string) => {
+    expect(value.length).toBeGreaterThan(0);
+    expect(new TextEncoder().encode(value).length).toBeLessThanOrEqual(limit("maximumTextBytes"));
+    expect(Array.from(segmenter.segment(value)).length).toBeLessThanOrEqual(limit("maximumText"));
+  };
+  let total = 0;
+  const checkMenu = (rows: NativeRowMenuItem[], depth = 0) => {
+    expect(depth).toBeLessThanOrEqual(limit("maximumDepth"));
+    expect(rows.length).toBeLessThanOrEqual(limit("maximumMenuItems"));
+    for (const row of rows) {
+      total++;
+      checkText(row.id);
+      checkText(row.label);
+      if (row.children) checkMenu(row.children, depth + 1);
+    }
+  };
+  for (const id of ["worktree", "pullRequest", "needsYou"]) {
+    const tool = h.tool(id);
+    for (const value of [tool.id, tool.symbol, tool.label, tool.badge!]) checkText(value);
+    checkMenu(tool.menu!);
+  }
+  expect(total).toBeLessThanOrEqual(limit("maximumTotalMenuItems"));
+  expect(total).toBeGreaterThan(240);
+  expect(h.row("pullRequest", "pullRequest.merge:").enabled).toBe(true);
+  expect(h.tool("needsYou").menu?.some((item) => item.label.includes("more"))).toBe(true);
+  expect(boundedNativeText("")).toBe("…");
+});
 
 const ids = ["newTab", "changes", "files", "preview", "splitDown", "terminal", "browser"] as const;
 function quickInput(calls: string[]): HeaderQuickToolsInput {
@@ -128,88 +510,6 @@ test("every native id dispatches the shared handler; invalid, disabled and menu 
   expect(calls.at(-1)).toBe("inspector");
 });
 
-test("native bindings describe worktree, pull request and Needs You menus", async () => {
-  const calls: string[] = [];
-  const item = {
-    id: "acpmux:permission-1",
-    kind: "approval" as const,
-    sessionId: "chat-1",
-    ask: "Allow the deploy command?",
-    who: { name: "Claude", chief: false },
-    answers: [{ id: "allow", label: "Allow once", tone: "allow" as const }],
-    permissionId: "permission-1",
-  };
-  const extras: NativeRowExtras = {
-    worktree: {
-      value: { branch: "fix/login", base: "main", mainRoot: "/repo" },
-      onApply: async (key) => void calls.push(`apply:${key.length > 0}`),
-      onRemove: async (_key, discard) => void calls.push(`remove:${discard}`),
-    },
-    pullRequest: {
-      value: {
-        url: "https://github.com/manaflow-ai/cmux/pull/42",
-        number: 42,
-        title: "Fix login",
-        state: "open",
-        review: "approved",
-        mergeable: "mergeable",
-        checks: { state: "passing", passed: 2, total: 2 },
-        checkList: [],
-      },
-      onMerge: async ({ number }) => {
-        calls.push(`merge:${number}`);
-        return { queued: false };
-      },
-    },
-    needsYou: {
-      items: [item],
-      mode: "pinned",
-      actions: {
-        answer: async (_item, choice) => void calls.push(`answer:${choice.id}`),
-        goTo: (value) => void calls.push(`go:${value.id}`),
-        ask: async (value) => void calls.push(`ask:${value.id}`),
-      },
-    },
-  };
-  const bindings = nativeRowToolBindings([], undefined, extras);
-  expect(bindings.map(({ tool }) => tool.id)).toEqual(["worktree", "pullRequest", "needsYou"]);
-  const worktreeMenu = bindings[0]!.tool.menu ?? [];
-  expect(worktreeMenu).toHaveLength(2);
-  expect(worktreeMenu[0]!.id).toMatch(/^worktree\.apply:/);
-  expect(worktreeMenu[1]!.id).toMatch(/^worktree\.remove:/);
-  expect(bindings[1]!.tool).toMatchObject({ badge: "#42 ✓2/2", toggled: true });
-  expect(bindings[1]!.tool.menu).toEqual([
-    { id: expect.stringMatching(/^pullRequest\.open:/), label: "Open pull request", enabled: true },
-    { id: expect.stringMatching(/^pullRequest\.merge:/), label: "Merge", enabled: true },
-  ]);
-  expect(bindings[2]!.tool.badge).toBe("1");
-  const needsChildren = bindings[2]!.tool.menu?.[0]?.children ?? [];
-  expect(needsChildren).toHaveLength(3);
-  expect(needsChildren.every(({ id }) => id.length <= 64)).toBe(true);
-
-  dispatchNativeRowTool({ id: "worktree", menuItemId: worktreeMenu[0]!.id }, bindings);
-  dispatchNativeRowTool({ id: "worktree", menuItemId: worktreeMenu[1]!.id }, bindings);
-  const mergeMenuId = bindings[1]!.tool.menu?.find((item) => item.id.startsWith("pullRequest.merge:"))?.id;
-  dispatchNativeRowTool({ id: "pullRequest", menuItemId: mergeMenuId }, bindings);
-  const confirmed = nativeRowToolBindings([], undefined, {
-    pullRequest: { ...extras.pullRequest!, mergeState: { step: "confirm" } },
-  });
-  dispatchNativeRowTool(
-    {
-      id: "pullRequest",
-      menuItemId: confirmed[0]!.tool.menu?.find((item) => item.id.startsWith("pullRequest.merge:"))?.id,
-    },
-    confirmed,
-  );
-  for (const child of needsChildren) dispatchNativeRowTool({ id: "needsYou", menuItemId: child.id }, bindings);
-  await Promise.resolve();
-  expect(calls).toContain("remove:false");
-  expect(calls).toContain("merge:42");
-  expect(calls).toContain("answer:allow");
-  expect(calls).toContain("go:acpmux:permission-1");
-  expect(calls).toContain("ask:acpmux:permission-1");
-});
-
 test("conditional quick actions and Browser's preview delegation keep the web behavior", () => {
   const calls: string[] = [];
   const input = quickInput(calls);
@@ -232,137 +532,6 @@ test("conditional quick actions and Browser's preview delegation keep the web be
   expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(true);
   dispatchNativeRowTool({ id: "browser" }, nativeRowToolBindings(browser));
   expect(calls).toEqual(["preview:toggle:http://localhost:5173/"]);
-});
-
-test("native descriptors honor decoder text and aggregate menu budgets", () => {
-  const emoji = "👨‍👩‍👧‍👦".repeat(64);
-  const longNeeds = Array.from({ length: 32 }, (_, index) => ({
-    id: `needs-${index}`,
-    kind: "approval" as const,
-    sessionId: "chat",
-    ask: index === 0 ? "" : emoji,
-    who: { name: "A", chief: false },
-    answers: Array.from({ length: 5 }, (_, answer) => ({
-      id: `answer-${answer}`,
-      label: answer ? emoji : "",
-      tone: "allow" as const,
-    })),
-    permissionId: `permission-${index}`,
-  }));
-  const checks = Array.from({ length: 31 }, (_, index) => ({
-    name: `check-${index}`,
-    state: index % 2 ? "pending" : "failed",
-    url: index === 0 ? undefined : `https://example.test/${index}`,
-  }));
-  const bindings = nativeRowToolBindings([], undefined, {
-    worktree: {
-      value: { branch: "feature/long-branch-name", base: "main", mainRoot: "/repo" },
-      onApply: async () => {},
-    },
-    pullRequest: {
-      value: {
-        url: "https://example.test/pr/42",
-        number: 42,
-        title: "PR",
-        state: "open",
-        review: "approved",
-        mergeable: "conflicting",
-        checks: { state: "failing", passed: 0, total: checks.length },
-        checkList: checks,
-      },
-    },
-    needsYou: {
-      mode: "pinned",
-      items: longNeeds,
-      actions: { answer: async () => {}, ask: async () => {}, goTo: () => {} },
-    },
-  });
-  const count = (items: readonly { children?: readonly any[] }[]): number =>
-    items.reduce((total, item) => total + 1 + (item.children ? count(item.children) : 0), 0);
-  expect(
-    bindings.flatMap(({ tool }) => tool.menu ?? []).reduce((total, item) => total + count([item]), 0),
-  ).toBeLessThanOrEqual(NATIVE_MAX_TOTAL_MENU_ITEMS);
-  for (const { tool } of bindings) {
-    expect(tool.label.length).toBeGreaterThan(0);
-    expect(new TextEncoder().encode(tool.label).byteLength).toBeLessThanOrEqual(NATIVE_MAX_TEXT_BYTES);
-    for (const item of tool.menu ?? []) expect(item.label.length).toBeGreaterThan(0);
-  }
-  const worktree = bindings.find(({ tool }) => tool.id === "worktree")!.tool;
-  expect(worktree.badge).toContain("feature/");
-  expect(worktree.badge).toContain("branch-name");
-  expect(
-    Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(boundedNativeText(emoji))).length,
-  ).toBeLessThanOrEqual(NATIVE_MAX_TEXT_GRAPHEMES);
-  expect(boundedNativeText("")).toBe("…");
-  expect(bindings.find(({ tool }) => tool.id === "pullRequest")!.tool.menu).toEqual(
-    expect.arrayContaining([expect.objectContaining({ enabled: false })]),
-  );
-});
-
-test("native menu ids reject stale worktree, pull request and Needs You selections", () => {
-  const calls: string[] = [];
-  const item = (id: string) => ({
-    id,
-    kind: "approval" as const,
-    sessionId: "chat",
-    ask: "Approve",
-    who: { name: "A", chief: false },
-    answers: [{ id: "yes", label: "Yes", tone: "allow" as const }],
-    permissionId: id,
-  });
-  const old = nativeRowToolBindings([], undefined, {
-    worktree: {
-      value: { branch: "old", base: "main", mainRoot: "/repo" },
-      onApply: async () => calls.push("old-worktree"),
-    },
-    pullRequest: {
-      value: {
-        url: "https://example.test/old",
-        number: 1,
-        title: "old",
-        state: "open",
-        review: "approved",
-        mergeable: "conflicting",
-        checks: { state: "none", passed: 0, total: 0 },
-        checkList: [],
-      },
-      onMerge: async () => ({ queued: false }),
-    },
-    needsYou: {
-      mode: "pinned",
-      items: [item("old")],
-      actions: { answer: async () => calls.push("old-needs"), ask: async () => {}, goTo: () => {} },
-    },
-  });
-  const current = nativeRowToolBindings([], undefined, {
-    worktree: {
-      value: { branch: "new", base: "main", mainRoot: "/repo" },
-      onApply: async () => calls.push("new-worktree"),
-    },
-    pullRequest: {
-      value: {
-        url: "https://example.test/new",
-        number: 2,
-        title: "new",
-        state: "open",
-        review: "approved",
-        mergeable: "conflicting",
-        checks: { state: "none", passed: 0, total: 0 },
-        checkList: [],
-      },
-      onMerge: async () => ({ queued: false }),
-    },
-    needsYou: {
-      mode: "pinned",
-      items: [item("new")],
-      actions: { answer: async () => calls.push("new-needs"), ask: async () => {}, goTo: () => {} },
-    },
-  });
-  for (const index of [0, 1, 2]) {
-    const oldMenu = old[index]!.tool.menu?.[0];
-    if (oldMenu) dispatchNativeRowTool({ id: old[index]!.tool.id, menuItemId: oldMenu.id }, current);
-  }
-  expect(calls).toEqual([]);
 });
 
 let dom: JSDOM | undefined;

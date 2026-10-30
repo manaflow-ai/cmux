@@ -9,14 +9,9 @@ import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
-import { PullRequestMerge, type MergeResult, type Merging } from "./PullRequestMerge";
+import { PullRequestMerge, type MergeResult } from "./PullRequestMerge";
+import { pullRequestStatus, usePullRequestOps, type PullRequestOps } from "./pullRequestOps";
 
-const STATES: Record<string, StringKey> = {
-  open: "header.prState.open",
-  draft: "header.prState.draft",
-  merged: "header.prState.merged",
-  closed: "header.prState.closed",
-};
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
   draft: "header.prBadge.draft",
@@ -32,28 +27,22 @@ const REVIEWS: Record<string, StringKey> = {
 export function PullRequestChip({
   pullRequest,
   onMerge,
+  ops,
 }: {
   pullRequest: HeaderPullRequest;
   /// Merge (PullRequestMerge.tsx); absent where the chat can't merge from here.
   onMerge?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
+  ops?: PullRequestOps;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // Where Merge stands for this pull request, kept here: the popover's content unmounts on close.
-  const [merge, setMerge] = useState<{ url: string; merging: Merging }>();
-  const merging = merge?.url === pullRequest.url ? merge.merging : { step: "idle" as const };
+  const fallbackOps = usePullRequestOps(ops ? undefined : pullRequest, onMerge);
+  const mergedOps = ops ?? fallbackOps;
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
   const { number, checks } = pullRequest;
-  const state = STATES[pullRequest.state] ? t(STATES[pullRequest.state]!) : pullRequest.state;
-  const failed = pullRequest.checkList.filter((check) => check.state === "failed").length;
-  const label =
-    checks.total === 0
-      ? t("header.pullRequestLabel", { number, state })
-      : failed > 0
-        ? t("header.pullRequestLabelFailing", { number, state, passed: checks.passed, total: checks.total, failed })
-        : t("header.pullRequestLabelChecks", { number, state, passed: checks.passed, total: checks.total });
+  const { label } = pullRequestStatus(pullRequest, t);
   const review = REVIEWS[pullRequest.review];
   return (
     <>
@@ -120,14 +109,7 @@ export function PullRequestChip({
             ))}
           </ul>
         )}
-        {onMerge && (
-          <PullRequestMerge
-            pullRequest={pullRequest}
-            merging={merging}
-            setMerging={(next) => setMerge({ url: pullRequest.url, merging: next })}
-            merge={onMerge}
-          />
-        )}
+        <PullRequestMerge ops={mergedOps} />
       </Popover>
     </>
   );

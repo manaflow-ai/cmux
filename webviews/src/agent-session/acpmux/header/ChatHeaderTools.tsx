@@ -14,7 +14,7 @@ import { HeaderIcon } from "./HeaderIcon";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools } from "./headerQuickTools";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
-import type { NativeOperationState, NativeRowNeedsYou } from "./nativeRowTools";
+import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { onOpenNeedsYou } from "../needsYou/links";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
@@ -23,6 +23,8 @@ import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
 import { useWorktree, WorktreePill } from "./WorktreePill";
+import { useWorktreeOps } from "./worktreeOps";
+import { usePullRequestOps } from "./pullRequestOps";
 import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
@@ -163,16 +165,8 @@ export function ChatHeaderTools({
       ? withShown(quick, "preview", true)
       : quick;
   const worktree = useWorktree(folder, readStatus, statusKey);
-  const worktreeIdentity = worktree ? `${worktree.mainRoot}\u0000${worktree.branch}` : undefined;
-  const [nativeApplyState, setNativeApplyState] = useState<{ identity?: string; state: NativeOperationState }>({
-    state: { step: "idle" },
-  });
-  const [nativeRemoveState, setNativeRemoveState] = useState<{ identity?: string; state: NativeOperationState }>({
-    state: { step: "idle" },
-  });
-  const [nativeMergeState, setNativeMergeState] = useState<NativeOperationState>({ step: "idle" });
-  const worktreeIdentityRef = useRef(worktreeIdentity);
-  worktreeIdentityRef.current = worktreeIdentity;
+  const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
+  const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -290,75 +284,8 @@ export function ChatHeaderTools({
     nativeRowTools,
     tools,
     {
-      worktree: worktree
-        ? {
-            value: worktree,
-            identity: worktreeIdentity,
-            onApply: onApplyWorktree
-              ? async (key) => {
-                  if (worktreeIdentityRef.current !== worktreeIdentity) return;
-                  setNativeApplyState({ identity: worktreeIdentity, state: { step: "pending", key } });
-                  try {
-                    const result = await onApplyWorktree(key);
-                    if (worktreeIdentityRef.current === worktreeIdentity)
-                      setNativeApplyState({ identity: worktreeIdentity, state: { step: "success" } });
-                    return result;
-                  } catch (error) {
-                    if (worktreeIdentityRef.current === worktreeIdentity)
-                      setNativeApplyState({
-                        identity: worktreeIdentity,
-                        state: { step: "failed", key, message: error instanceof Error ? error.message : undefined },
-                      });
-                    throw error;
-                  }
-                }
-              : undefined,
-            applyState: nativeApplyState.identity === worktreeIdentity ? nativeApplyState.state : { step: "idle" },
-            onRemove: onRemoveWorktree
-              ? async (key, discard) => {
-                  if (worktreeIdentityRef.current !== worktreeIdentity) return;
-                  setNativeRemoveState({ identity: worktreeIdentity, state: { step: "pending", key, discard } });
-                  try {
-                    const result = await onRemoveWorktree(key, discard);
-                    if (worktreeIdentityRef.current === worktreeIdentity)
-                      setNativeRemoveState({ identity: worktreeIdentity, state: { step: "success" } });
-                    return result;
-                  } catch (error) {
-                    const reason = (error as { details?: { reason?: unknown } } | null)?.details?.reason;
-                    if (worktreeIdentityRef.current === worktreeIdentity)
-                      setNativeRemoveState({
-                        identity: worktreeIdentity,
-                        state: {
-                          step: "failed",
-                          key,
-                          discard,
-                          unsaved: reason === "uncommitted_changes" || reason === "unpushed_commits",
-                          message: error instanceof Error ? error.message : undefined,
-                        },
-                      });
-                    throw error;
-                  }
-                }
-              : undefined,
-            removeState: nativeRemoveState.identity === worktreeIdentity ? nativeRemoveState.state : { step: "idle" },
-            removeUnsaved:
-              nativeRemoveState.identity === worktreeIdentity &&
-              nativeRemoveState.state.step === "failed" &&
-              nativeRemoveState.state.unsaved === true,
-            onRemoveKeep: () => setNativeRemoveState({ identity: worktreeIdentity, state: { step: "idle" } }),
-          }
-        : undefined,
-      pullRequest:
-        pullRequest && pullRequestChip !== false
-          ? {
-              value: pullRequest,
-              mergeState: nativeMergeState,
-              onMerge: onMergePullRequest,
-              onMergeConfirm: () => setNativeMergeState({ step: "confirm" }),
-              onMergeStart: () => setNativeMergeState({ step: "pending", key: "merge" }),
-              onMergeEnd: setNativeMergeState,
-            }
-          : undefined,
+      worktree: worktree ? { value: worktree, ops: worktreeOps } : undefined,
+      pullRequest: pullRequest && pullRequestChip !== false ? { value: pullRequest, ops: pullRequestOps } : undefined,
       needsYou: nativeNeedsYou,
     },
     t,
@@ -397,10 +324,10 @@ export function ChatHeaderTools({
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {!native && worktree && (
-        <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+        <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
       )}
       {!native && pullRequest && pullRequestChip !== false && (
-        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+        <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && inspector}
