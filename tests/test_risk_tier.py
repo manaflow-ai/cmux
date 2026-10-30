@@ -476,6 +476,25 @@ class RustTestModuleTests(unittest.TestCase):
             with self.subTest(head=sources is not None, base=base_sources is not None):
                 self.assertEqual(self.tier(patch, sources, base_sources), "high")
 
+    def test_a_removed_cleanup_on_a_module_edge_line_does_not_pay_for_a_new_product_delete(self):
+        # The edge lines hold test code too: removing one pays for nothing, while adding one still counts.
+        one_line = "mod tests { fn cleanup(dir: &str) { std::fs::remove_dir_all(dir).unwrap(); } }"
+        base = "\n".join(["#[cfg(test)]", one_line, "fn prune(dir: &str) {", "    let x = 1;", "}"])
+        head = "\n".join(["fn prune(dir: &str) {", "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"])
+        patch = hunk(1, 1, ["-#[cfg(test)]", "-" + one_line] + context("fn prune(dir: &str) {\n    let x = 1;")
+                     + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"])
+        for base_sources in (None, {RS: base}):
+            with self.subTest(base=base_sources is not None):
+                self.assertEqual(self.tier(patch, {RS: head}, base_sources), "high")
+        closing = "} fn cleanup(dir: &str) { std::fs::remove_dir_all(dir).unwrap(); }"
+        base = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {}", closing, "fn prune(dir: &str) {",
+                           "    let x = 1;", "}"])
+        head = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {}", "}", "fn prune(dir: &str) {",
+                           "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"])
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    fn a() {}") + ["-" + closing, "+}"]
+                     + context("fn prune(dir: &str) {\n    let x = 1;") + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"])
+        self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
+
     def test_an_edited_rust_delete_is_not_new_when_the_base_shows_it_was_product_code(self):
         base = "\n".join(["use std::fs;", "", "fn prune(dir: &Path) {", "    fs::remove_dir_all(dir).ok();", "}"])
         head = base.replace("remove_dir_all(dir).ok()", "remove_dir_all(dir)?")

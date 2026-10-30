@@ -304,10 +304,10 @@ def skip_block_comment(text: str) -> str:
     return ""
 
 
-def rust_test_lines(lines: list[str]) -> set[int]:
+def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]:
     """Of a Rust file's lines from its first line on, the indexes of those inside a
-    `#[cfg(test)] mod name { ... }`. The lines that open and close the module count as product
-    code: code can sit before or after the module on them."""
+    `#[cfg(test)] mod name { ... }`. The lines that open and close the module are not inside: code
+    can sit before or after the module on them, and their indexes go to `edges` when given."""
     braces, inside = RustBraces(), set()
     test_attribute = False
     module_depth: int | None = None  # the depth outside the open test module
@@ -337,6 +337,10 @@ def rust_test_lines(lines: list[str]) -> set[int]:
                 test_attribute = False
         if braces.feed(text, module_depth) and module_depth is not None:
             module_depth = None
+            if edges is not None:
+                edges.add(index)
+        elif opened and edges is not None:
+            edges.add(index)
         elif module_depth is not None and not opened:
             inside.add(index)
     return inside
@@ -367,19 +371,22 @@ def rust_test_roles(patch: str, sign: str, source: str | None = None) -> dict[tu
     True in a test module, False in product code. A line is missing when that can't be known: a
     hunk shows a module only if the whole file up to it is there, so each hunk is read against
     `source` (the file on that side) when every line of it matches, else on its own only when it
-    starts at line 1, else not at all."""
+    starts at line 1, else not at all. A line that opens or closes a test module is missing too: it
+    can hold test code and product code at once."""
     whole = source.splitlines() if source else []
-    whole_tests = rust_test_lines(whole)
+    whole_edges: set[int] = set()
+    whole_tests = rust_test_lines(whole, whole_edges)
     roles = {}
     for h, hunk in enumerate(patch_hunks(patch)):
         side = [(i, (old if sign == "-" else new), text) for i, (kind, old, new, text) in enumerate(hunk)
                 if kind in (" ", sign)]
         if whole and all(n is not None and 0 < n <= len(whole) and whole[n - 1].rstrip() == text.rstrip()
                          for _, n, text in side):
-            roles |= {(h, i): n - 1 in whole_tests for i, n, _ in side}
+            roles |= {(h, i): n - 1 in whole_tests for i, n, _ in side if n - 1 not in whole_edges}
         elif side and side[0][1] == 1:
-            tests = rust_test_lines([text for _, _, text in side])
-            roles |= {(h, i): k in tests for k, (i, _, _) in enumerate(side)}
+            edges: set[int] = set()
+            tests = rust_test_lines([text for _, _, text in side], edges)
+            roles |= {(h, i): k in tests for k, (i, _, _) in enumerate(side) if k not in edges}
     return roles
 
 
