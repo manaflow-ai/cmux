@@ -209,7 +209,7 @@ PICKER_JOB = "runner"
 # The jobs that hold a mini's simulator: test-ios.yml's ios-simulator matrix
 # and ios-screenshots.yml's capture. ios-simulator-build carries SIM_LABEL only
 # to land on a mini with the runtime; glaeda runs it as an isolated build job.
-SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots")
+SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots|CmuxMobileKit tests \(macOS swift test, iOS simulator\)")
 # In-flight iOS runs whose jobs are read (one request each), newest first.
 MAX_JOB_READS = 20
 # Job statuses before a runner has taken the job.
@@ -720,15 +720,8 @@ def in_flight_ios_runs(client: Any, since: str, *, exclude_run_id: int | None) -
     Asked for by status, so completed runs never fill the one page of 100 a
     long window would need (505 test-ios.yml runs in 6 hours on 2026-09-25).
     """
-    def runs(workflow: str, status: str) -> Sequence[Mapping[str, Any]]:
-        try:
-            return client.runs_since(workflow, since, status=status)
-        except KeyError:
-            # Lightweight test clients and older API shims may not know a newly
-            # added workflow; an absent listing is equivalent to no runs.
-            return ()
     return [run for workflow in IOS_WORKFLOWS for status in ("in_progress", "queued")
-            for run in runs(workflow, status)
+            for run in client.runs_since(workflow, since, status=status)
             if run.get("id") != exclude_run_id and run.get("status") != "completed"]
 
 
@@ -739,13 +732,8 @@ def ios_runs_since(client: Any, since: str, *, exclude_run_id: int | None,
     Two requests. Each run is charged charged_sim_jobs(); ios-screenshots.yml
     titles never parse, so a capture is charged in full.
     """
-    def runs(workflow: str) -> Sequence[Mapping[str, Any]]:
-        try:
-            return client.runs_since(workflow, since)
-        except KeyError:
-            return ()
     return sum(charged_sim_jobs(run, placements, now)
-               for workflow in IOS_WORKFLOWS for run in runs(workflow)
+               for workflow in IOS_WORKFLOWS for run in client.runs_since(workflow, since)
                if run.get("id") != exclude_run_id and run.get("status") != "completed")
 
 

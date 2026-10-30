@@ -1720,6 +1720,19 @@ class IOSDispatch(unittest.TestCase):
         for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
 
+    def test_kit_stall_is_rescued_without_queue_rounds(self):
+        def jobs(seconds):
+            return [e2e_runner()(seconds), job("CmuxMobileKit tests (macOS swift test, iOS simulator)",
+                                               labels=[MINI, IOS_SIM], created=0)]
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        target = rescue.target_from_event(e2e_event(path=rescue.IOS_KIT_WORKFLOW_PATH), "manaflow-ai/cmux")
+        messages = []
+        rescue.follow(api, target, seconds=600, queue_rounds="2", now=clock.now,
+                      sleep=clock.sleep, log=messages.append)
+        self.assertIn("budget 180s", messages[0])
+        self.assertIn("rerun-failed", api.calls)
+
     def test_a_job_waiting_for_the_simulator_label_moves_to_blacksmith(self):
         # No idle mini carries glaeda-ios-sim yet: the job queues on the owned
         # labels and is re-run on retry_runs_on after the budget.

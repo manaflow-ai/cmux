@@ -3155,7 +3155,7 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
-                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}]}[workflow]
+                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": []}[workflow]
         # Untitled runs are charged in full: two in flight, two simulators each.
         self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
 
@@ -3305,6 +3305,26 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual((ios_pool.charged_jobs(kit), ios_pool.charged_sim_jobs(kit)), (1, 1))
         self.assertEqual(ios_pool.charged_sim_jobs(kit, ios_pool.Placements(frozenset()), NOW), 0)
 
+    def test_kit_workflow_wiring_and_simulator_hold(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-ios-kit.yml").read_text())
+        picker = workflow["jobs"]["runner"]
+        self.assertEqual(picker.get("name", "runner"), ios_pool.PICKER_JOB)
+        steps = picker["steps"]
+        pick = next(step for step in steps if step.get("id") == "pool")
+        self.assertIn("--queue-rounds 0", pick["run"])
+        uploads = [step for step in steps if "upload-artifact@" in step.get("uses", "")]
+        self.assertEqual(len(uploads), 3)
+        for upload in uploads:
+            self.assertEqual(upload["uses"], "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+        kit = {"id": 1, "path": ".github/workflows/cmux-next-ios-kit.yml", "run_attempt": 1}
+        job = {"name": workflow["jobs"]["kit-tests"]["name"], "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "mini-a-glaeda"}
+        self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW),
+                         ios_pool.Hold(0, 0, frozenset({"mini-a"})))
+        job["status"] = "completed"
+        job["conclusion"] = "success"
+        self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW), ios_pool.Hold())
+
     def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
         title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
         runs = [{"id": n, "run_attempt": 1, "display_title": title,
@@ -3420,7 +3440,7 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
                                           "display_title": title, "created_at": old} for n in (1, 2, 3)],
-                        "ios-screenshots.yml": []}[workflow]
+                        "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": []}[workflow]
         since = "2026-09-24T10:00:00Z"
         self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
         placed = ios_pool.Placements(frozenset({2}))
