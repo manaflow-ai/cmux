@@ -319,9 +319,17 @@
 .cv-media.has-short-video > .cv-media__actions {
   top: 0;
 }
+/* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769): in after a
+ * beat under the pointer, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-media__actions {
-    transition: opacity var(--cmux-motion-micro, 120ms);
+    transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+  }
+  .cv-media:hover .cv-media__actions {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
+  }
+  .cv-media__actions:focus-within {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
   }
 }
 .cv-media__action {
