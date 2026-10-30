@@ -303,6 +303,15 @@ def flashes(frames):
     return count
 
 
+def why_empty(record):
+    """For an open with no first content: what the trace and the open said, so a failed run names its cause."""
+    if record.get("first_content_ms") is not None:
+        return ""
+    keep = {key: record.get(key) for key in ("error", "timed_out", "engine", "frame_count", "order", "open_reply")
+            if record.get(key) not in (None, [], {})}
+    return " why=" + json.dumps(keep, default=str)[:600]
+
+
 def first_of(frames, names):
     return next((ms for ms, surface in frames or [] if surface in names), None)
 
@@ -394,7 +403,7 @@ def main():
                     record = measure_case(run, case, sessions[condition], index)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}")
+                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why_empty(record)}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = summarize(records)
             if "restore" in CASES:
@@ -410,7 +419,7 @@ def main():
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"first_image_ms={record.get('first_image_ms')}")
+                        f"first_image_ms={record.get('first_image_ms')}{why_empty(record)}")
                 results["raw"].setdefault(condition, {})["restore"] = records
                 results["cases"].setdefault(condition, {})["restore"] = summarize(records)
             load.stop()
