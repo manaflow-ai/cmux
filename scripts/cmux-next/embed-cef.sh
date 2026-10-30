@@ -6,7 +6,9 @@
 #   Contents/Frameworks/libcmux_cef_shim.dylib                  (CEFShim)
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
 #   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Chromium's browser process behind
-#                                                                browserHost.helper; build-chromium-host.sh)
+#                                                                browserHost.helper; Debug and bench builds,
+#                                                                Release only with CMUX_NEXT_RELEASE_CHROMIUM_HOST=1;
+#                                                                build-chromium-host.sh)
 #   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
 #                                                                cmux loads in host mode)
 #   Contents/Resources/crash_reporter.cfg                       (with the host in Debug and bench builds:
@@ -169,9 +171,16 @@ else
   arch_dists=("$cef_dir")
 fi
 
-# 1b. The Chromium host's executable (every configuration; see 3b), cached by
+# 1b. The Chromium host's executable (Debug and bench builds; see 3b), cached by
 # build-chromium-host.sh apart from the shim, so a host edit changes neither
 # the shim's key nor the runtime pack's.
+#
+# Release, RC and NIGHTLY never start the host (browserHost.helper is off, and the
+# host's Swift side is Debug and bench only), and no Developer ID sign and
+# notarization of a bundle with it has passed yet. So a Release build carries it
+# only with CMUX_NEXT_RELEASE_CHROMIUM_HOST=1, the signed dry run that proves
+# sign-cef.sh's host rules; sign-cef.sh signs and --verify-host checks a host
+# only where the bundle has one.
 #
 # The host is off by default (browserHost.helper). A host that does not build
 # costs this build the host only: a warning, and the app then reports that it
@@ -212,7 +221,14 @@ build_chromium_host() {
   host_out="$dir"
   host_key="$key"
 }
-if ! build_chromium_host; then
+# A bench build (Release with -DCMUX_BENCH_HOOKS) compiles the host's Swift side
+# and `debug.chromium_host` in, so chromium-host-bench.py measures it there too.
+host_build=0
+if [[ "${CONFIGURATION:-}" == "Debug" || " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ||
+  "${CMUX_NEXT_RELEASE_CHROMIUM_HOST:-0}" == "1" ]]; then
+  host_build=1
+fi
+if (( host_build )) && ! build_chromium_host; then
   host_out=""
   host_key=""
   if [[ "${CMUX_NEXT_REQUIRE_CHROMIUM_HOST:-0}" == "1" ]]; then
@@ -401,8 +417,9 @@ done
 # which CEF's main_bundle_path does not change), and only the outer app holds
 # the framework and the helpers. From its own Frameworks/<Product> Chromium
 # Host.app every helper failed to load the framework and the host aborted
-# (2026-10-24). Every configuration carries it: Release, RC and NIGHTLY sign it as
-# nested code before the app and notarize it with the app (sign-cef.sh).
+# (2026-10-24). Debug and bench builds carry it; Release, RC and NIGHTLY only with
+# CMUX_NEXT_RELEASE_CHROMIUM_HOST=1 (see 1b), and then sign it as nested code
+# before the app and notarize it with the app (sign-cef.sh).
 rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
 # The remote shim goes with it: the shim ABI cmux loads instead of
 # libcmux_cef_shim.dylib in host mode (p01-process.md 3.2), from the same build.
@@ -422,8 +439,9 @@ if [[ -n "$host_out" ]]; then
   # Crashpad for the host and its helpers (p01-process.md task 226): CEF reads crash_reporter.cfg from the main
   # bundle's Resources and starts the handler in CefInitialize, in-process Chromium's too. Only with the host, and
   # only in builds whose Swift can run it and read its dumps (Debug, and a bench build: Release with
-  # -DCMUX_BENCH_HOOKS; ChromiumHostSupervisor and the dump collector are compiled out elsewhere). Release, RC and
-  # NIGHTLY carry the host since p01-process-088 but never start it, so they keep Chromium's crash reporting off.
+  # -DCMUX_BENCH_HOOKS; ChromiumHostSupervisor and the dump collector are compiled out elsewhere). A Release, RC or
+  # NIGHTLY with CMUX_NEXT_RELEASE_CHROMIUM_HOST=1 carries the host but never starts it, so it keeps Chromium's crash
+  # reporting off.
   if [[ "${CONFIGURATION:-}" == "Debug" || " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]]; then
     mkdir -p "$app/Contents/Resources"
     if ! cmp -s "$SCRIPT_DIR/chromium-host-crash-reporter.cfg" "$crash_config"; then

@@ -50,7 +50,7 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
   identity for TCC and the keychain (decision 3, Lawrence 2026-10-25: this layout, no fork patch). It loads the app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one
   thread, so no zone race. It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main
   bundle path is the outer app (`--main-bundle`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
-  bundled by `scripts/cmux-next/embed-cef.sh` in every configuration (Release since p01-process-088).
+  bundled by `scripts/cmux-next/embed-cef.sh` in Debug and bench builds, and in Release only with `CMUX_NEXT_RELEASE_CHROMIUM_HOST=1` until a signed and notarized dry run passes (slice 1 review, 2026-10-30).
 - cmux no longer maps the framework. The shim becomes a client library of the wire (Swift, no CEF).
 - One host for every profile, as Chrome has one browser process. A host crash then reloads every Chromium page. One
   host per profile would contain a crash to that profile for about 60-90 MB more per profile (decision below).
@@ -189,7 +189,7 @@ emulation in process is not a substitute: the page view then has no text input c
 
 - Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
   as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
-  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host` in every configuration,
+  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host` in Debug and bench builds (Release only with `CMUX_NEXT_RELEASE_CHROMIUM_HOST=1`),
   signed by `sign-cef.sh`). One Chrome-style page per host.
   Its parent view sits in a transparent, click-through, floating window of the host at the pane's screen rect; its
   `-cmuxOcclusionRects` covers the page, so the fork's tracker never lets the page window take the mouse. It calls
