@@ -328,6 +328,12 @@ impl Peer {
         self.with_link(|l| l.seed(last_seen));
     }
 
+    /// What its last handshake would have said of attachments: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_send_attach(&self, takes: bool) {
+        self.send_attach.store(takes, Ordering::SeqCst);
+    }
+
     /// The refusal for a request while the link is down (`peer_link.rs`).
     pub fn unreachable_error(&self) -> RpcError {
         let error = self.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone();

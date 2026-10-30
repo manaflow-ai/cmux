@@ -116,6 +116,7 @@ pub(super) async fn handle(
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
         state: State::Queued,
         attempts: 0,
+        never_sent: true,
         error: None,
         accepted: None,
         created_at: now,
@@ -377,3 +378,7 @@ fn next(e: &RpcError) -> Next {
         None => Next::Fail,
     }
 }
+
+#[cfg(test)]
+#[path = "outbox_relay_tests.rs"]
+mod relay_tests;

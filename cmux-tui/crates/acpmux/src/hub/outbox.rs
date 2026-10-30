@@ -63,6 +63,12 @@ pub struct Delivery {
     pub state: State,
     #[serde(default)]
     pub attempts: u32,
+    /// No attempt so far could have reached the target: each one failed before the request
+    /// left this daemon (`peer_unreachable`). Only such a delivery may go through the mesh
+    /// relay instead (`server/mesh_send.rs` `relay`), whose message runs under its own prompt
+    /// id. False for a record saved before the field, which may have reached it.
+    #[serde(default)]
+    pub never_sent: bool,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -204,6 +210,7 @@ impl Outbox {
             caller: caller.map(str::to_owned),
             state: State::Delivered,
             attempts: 0,
+            never_sent: false,
             error: None,
             accepted: None,
             created_at: now,
@@ -372,6 +379,7 @@ mod tests {
             caller: None,
             state: State::Queued,
             attempts: 0,
+            never_sent: false,
             error: None,
             accepted: None,
             created_at: now,
@@ -465,6 +473,7 @@ mod tests {
             caller: None,
             state: State::Queued,
             attempts: 0,
+            never_sent: false,
             error: None,
             accepted: None,
             created_at: 0,

@@ -124,6 +124,20 @@ impl Hub {
         self.peer_snapshots.forget_peer(peer);
     }
 
+    /// A peer `name` that is registered but whose link is down, having listed `rows` and taken
+    /// attachments before it went: what a server test sends to while the peer is unreachable.
+    #[cfg(test)]
+    pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
+        use crate::peer::PeerNotice;
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        peer.seed_send_attach(true);
+        self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(rows));
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Disconnected("down".into()));
+        peer
+    }
+
     /// The refusal for `PEER/name` when PEER is a peer that is down and
     /// lists no such session: the session may well be there, so say the
     /// peer is unreachable rather than that the session does not exist.
@@ -272,11 +286,6 @@ mod tests {
         // A name the peer never listed here: still the peer, not no_session.
         let e = hub.peer_down_for("huge-blue/other").expect("peer is down");
         assert!(e.message.starts_with("peer_unreachable: huge-blue"), "{}", e.message);
-        assert!(
-            hub.mesh_may_route("huge-blue/lane"),
-            "a stale known row can fail over to the relay"
-        );
-        assert!(hub.mesh_may_route("huge-blue/other"), "a down peer can fail over to the relay");
         assert!(hub.peer_down_for("nopeer/lane").is_none());
         assert!(hub.peer_down_for("lane").is_none());
     }
