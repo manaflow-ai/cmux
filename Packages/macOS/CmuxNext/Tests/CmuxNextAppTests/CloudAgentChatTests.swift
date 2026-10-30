@@ -90,10 +90,10 @@ struct CloudAgentChatTests {
             let newChat: [String: Any] = ["mcpServers": [Any](), "_meta": ["acpmux": ["harness": "sample"]]]
             let first = try await frames.call(wire, "session/new", newChat)
             #expect(first.errorCode == "agent_session.untrusted_folder", "the default first send: \(first.raw)")
-            // The folder the machine's workspace reports there, never one of this Mac.
+            // The folder the machine's workspace reports there (its terminal's), never one of this Mac.
             let folder = try #require(first.errorData?["cwd"] as? String, "\(first.raw)")
             #expect(folder == world.workspace.firstTabFolder, "the chat's folder is not its workspace's on the machine")
-            #expect(folder != NSHomeDirectory())
+            #expect(folder == world.work.path, "the chat's folder is not the machine's work folder")
             let trusted = try await frames.call(wire, "acp.trust.set", ["cwd": folder, "level": "trusted"])
             #expect(trusted.errorCode == nil, "\(trusted.raw)")
             let started = try await frames.call(wire, "session/new", newChat)
@@ -113,9 +113,10 @@ struct CloudAgentChatTests {
             let refused = try await frames.call(wire, "session/new", ["cwd": world.work.path, "mcpServers": [Any](),
                                                                       "_meta": ["acpmux": ["harness": "sample"]]])
             #expect(refused.errorCode == "agent_session.team_vm_blocked", "\(refused.raw)")
-            #expect(refused.errorMessage == "Agent chats cannot be started from this Mac on a team VM yet.")
+            #expect(refused.errorMessage == AgentRemoteStartRefusal(code: "agent_session.team_vm_blocked", machine: "Move VM").userMessage)
             #expect(world.agentSessions().isEmpty)
-            #expect(world.machineTab(chat.surface)?.agentSession?.session == nil)
+            let tab = try #require(world.machineTab(chat.surface), "the machine's store does not list the chat")
+            #expect(tab.agentSession?.session == nil)
             wire.cancel(code: 1000, reason: "test")
         }
     }
@@ -124,16 +125,18 @@ struct CloudAgentChatTests {
     /// no link runs): the app sends no start there, whatever the machine's own record says (#26323),
     /// and the page says the machine could not be confirmed. No agent runs there.
     @Test func noOwnerAnswerOnTheLinkStartsNoChat() async throws {
-        try await Self.withMachine(ownerLink: false) { world in
+        // The machine's daemon allows any start here (no Cloud kind), so only the app refuses it.
+        try await Self.withMachine(hostKind: nil, ownerLink: false) { world in
             let chat = try await world.openChat()
             let wire = try #require(try await world.page(chat.key).wire)
             let frames = try await Frames.open(wire)
             let refused = try await frames.call(wire, "session/new", ["cwd": world.work.path, "mcpServers": [Any](),
                                                                       "_meta": ["acpmux": ["harness": "sample"]]])
             #expect(refused.errorCode == "agent_session.host_unverified", "\(refused.raw)")
-            #expect(refused.errorMessage == "Move VM could not confirm what kind of Cloud machine it is, so no agent chat starts there.")
+            #expect(refused.errorMessage == AgentRemoteStartRefusal(code: "agent_session.host_unverified", machine: "Move VM").userMessage)
             #expect(world.agentSessions().isEmpty)
-            #expect(world.machineTab(chat.surface)?.agentSession?.session == nil)
+            let tab = try #require(world.machineTab(chat.surface), "the machine's store does not list the chat")
+            #expect(tab.agentSession?.session == nil)
             wire.cancel(code: 1000, reason: "test")
         }
     }
@@ -145,7 +148,7 @@ struct CloudAgentChatTests {
         let services: AppServices
         let machine: CloudMachineSession
         let workspace: WorkspaceModel
-        /// The machine's work folder (under its home), where its terminal runs.
+        /// The machine's work folder (under its home), where its workspace's terminal starts.
         let work: URL
         /// The machine's home folder (its daemon's and agents' `HOME`).
         let home: URL
@@ -198,19 +201,23 @@ struct CloudAgentChatTests {
             machine.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface.rawValue == surface }
         }
 
-        /// The sessions the machine's acpmux holds (`cmux acp --json ls` on its home).
+        /// The sessions the machine's acpmux holds (`cmux acp --json ls` on its home). No acpmux
+        /// socket is none; an answer that is not a session list is an issue, never an empty list.
         func agentSessions() -> [String] {
             guard FileManager.default.fileExists(atPath: acpmuxHome.appendingPathComponent("acpmux.sock").path) else { return [] }
             let output = CloudAgentChatTests.run(binary, ["acp", "--json", "ls"], environment: ["ACPMUX_HOME": acpmuxHome.path])
             let object = (try? JSONSerialization.jsonObject(with: output)) as Any
-            let list = (object as? [[String: Any]]) ?? ((object as? [String: Any])?["sessions"] as? [[String: Any]]) ?? []
+            guard let list = (object as? [[String: Any]]) ?? ((object as? [String: Any])?["sessions"] as? [[String: Any]]) else {
+                Issue.record("`cmux acp --json ls` gave no session list: \(String(decoding: output, as: UTF8.self))")
+                return []
+            }
             return list.compactMap { ($0["sessionId"] ?? $0["id"]) as? String }
         }
 
         /// True once `condition` holds, false after 30 seconds.
         func until(_ condition: @MainActor () -> Bool) async -> Bool {
             let deadline = ContinuousClock.now + .seconds(30)
-            while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            while !condition(), ContinuousClock.now < deadline, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(50)) }
             return condition()
         }
     }
@@ -246,12 +253,13 @@ struct CloudAgentChatTests {
             wire.send(String(decoding: frame, as: UTF8.self)) { _ in }
             let deadline = ContinuousClock.now + .seconds(60)
             while ContinuousClock.now < deadline {
+                try Task.checkCancellation()
                 for line in lines {
                     guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
                           (object["id"] as? Int) == id, object["method"] == nil else { continue }
                     return Reply(raw: line, object: object)
                 }
-                try? await Task.sleep(for: .milliseconds(20))
+                try await Task.sleep(for: .milliseconds(20))
             }
             Issue.record("\(method) got no answer in 60 s")
             throw CancellationError()
@@ -276,10 +284,13 @@ struct CloudAgentChatTests {
 
     /// Runs `body` with this Mac's app connected to a Cloud machine whose daemon's acpmux runs the
     /// test agent. `hostKind`: the machine kind its daemon is told (`CMUX_AGENT_START_HOST`, which
-    /// can only make it stricter); nil is an owner's machine. `ownerLink`: the machine's link runs
-    /// and its attach answer says the signed-in caller owns the machine (`vmKind: "owner"`), as the
-    /// Cloud API answers for a person's own machine; false, no link runs (no owner answer).
-    private static func withMachine(hostKind: String? = nil, ownerLink: Bool = true, _ body: (World) async throws -> Void) async throws {
+    /// can only make it stricter); the default `unknown-cloud` is a Cloud machine with no record of
+    /// its own, as an owner's machine is to its daemon, so a start or a trust answer runs there only
+    /// with the app's `vm_kind: "owner"`; nil is a plain host (its daemon allows any start).
+    /// `ownerLink`: the machine's link runs and its attach answer says the signed-in caller owns the
+    /// machine (`vmKind: "owner"`), as the Cloud API answers for a person's own machine; false, no
+    /// link runs (no owner answer).
+    private static func withMachine(hostKind: String? = "unknown-cloud", ownerLink: Bool = true, _ body: (World) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         var repo = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { repo.deleteLastPathComponent() }
@@ -308,55 +319,71 @@ struct CloudAgentChatTests {
         var vmVariables = base.merging(["HOME": home.path, "ACPMUX_HOME": acpmuxHome.path]) { $1 }
         if let hostKind { vmVariables["CMUX_AGENT_START_HOST"] = hostKind }
         let vmEnvironment: @Sendable () -> [String: String] = { [vmVariables] in vmVariables }
+        // Both owners end with this test process, so a crashed or cancelled run leaves no daemon behind.
+        let pid = ProcessInfo.processInfo.processIdentifier
         let mac = DaemonLauncher(configuration: .init(binary: binary, session: "cn-chat-mac-\(UUID().uuidString.prefix(6).lowercased())",
-                                                      stateDirectory: root.appendingPathComponent("mac-state")), environment: macEnvironment)
+                                                      stateDirectory: root.appendingPathComponent("mac-state"), exitWithProcess: pid),
+                                 environment: macEnvironment)
         let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-chat-vm-\(UUID().uuidString.prefix(6).lowercased())",
-                                                     stateDirectory: root.appendingPathComponent("vm-state")), environment: vmEnvironment)
+                                                     stateDirectory: root.appendingPathComponent("vm-state"), exitWithProcess: pid),
+                                environment: vmEnvironment)
         _ = NSApplication.shared
-        let vmSocket = try await vm.endpointProvider().socketPath
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
-        }
-        services.windows.restoreWhenLoaded()
-        let (cloudMachine, hub) = try Self.machine(root: root)
-        services.machines.add(cloudMachine)
-        cloudMachine.daemon.start(remote: { vmSocket })
-        // The link's attach answer: the app starts a chat on a Cloud machine only on its owner word.
-        if ownerLink {
-            _ = try await cloudMachine.link?.socketPath()
-            try #require(await cloudMachine.link?.ownerLink != nil, "the machine's link gave no owner answer")
-        }
+        var cloudMachine: CloudMachineSession?
+        var hub: CloudTunnelHub?
 
         let result: Result<Void, any Error>
         do {
+            let vmSocket = try await vm.endpointProvider().socketPath
+            services.daemon.start {
+                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
+            }
+            services.windows.restoreWhenLoaded()
+            let (machine, machineHub) = try Self.machine(root: root)
+            cloudMachine = machine
+            hub = machineHub
+            services.machines.add(machine)
+            machine.daemon.start(remote: { vmSocket })
+            // The link's attach answer: the app starts a chat on a Cloud machine only on its owner word.
+            if ownerLink {
+                _ = try await machine.link?.socketPath()
+                try #require(await machine.link?.ownerLink != nil, "the machine's link gave no owner answer")
+            }
+
             let deadline = ContinuousClock.now + .seconds(60)
             func ready() -> Bool {
                 services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } }
-                    && cloudMachine.daemon.connection != nil && AgentTabStore.registryHost(of: cloudMachine.daemon) != nil
+                    && machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon) != nil
             }
-            while !ready(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while !ready(), ContinuousClock.now < deadline, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(100)) }
             try #require(ready(), "the daemons did not come up")
-            let connection = try #require(cloudMachine.daemon.connection)
-            // The Cloud workspace, with its terminal (so a pane), as a person's new workspace there.
-            let created = try await connection.state.createWorkspace(name: "Cloud", ephemeral: false, terminal: true, focus: false)
+            let connection = try #require(machine.daemon.connection)
+            // The Cloud workspace, with its terminal in the machine's work folder (so a pane there),
+            // as a person's new workspace opened on a folder of the machine.
+            let key = WorkspaceKey.generate()
+            try await connection.createWorkspace(name: "Cloud", key: key)
+            try await connection.createTerminal(in: key, cwd: work.path)
             func target() -> WorkspaceModel? {
-                cloudMachine.daemon.store.workspaces.first { $0.resourceID == created.workspaceID && $0.screens.contains { !$0.panes.isEmpty } }
+                machine.daemon.store.workspaces.first { $0.key == key && $0.screens.contains { !$0.panes.isEmpty } }
             }
-            while target() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while target() == nil, ContinuousClock.now < deadline, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the machine's workspace has no pane")
-            try await body(World(services: services, machine: cloudMachine, workspace: workspace, work: work, home: home, acpmuxHome: acpmuxHome, binary: binary))
+            try await body(World(services: services, machine: machine, workspace: workspace, work: work, home: home, acpmuxHome: acpmuxHome, binary: binary))
             result = .success(())
         } catch {
             result = .failure(error)
         }
         await CloudMoveTests.end(services.daemon)
-        await CloudMoveTests.end(cloudMachine.daemon)
-        await cloudMachine.link?.stop()
-        await hub.stop()
+        if let cloudMachine {
+            await CloudMoveTests.end(cloudMachine.daemon)
+            await cloudMachine.link?.stop()
+        }
+        await hub?.stop()
         _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": acpmuxHome.path, "HOME": home.path])
+        // A chat that wrongly ran on this Mac would have started its acpmux here.
+        _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": macAcpmux, "HOME": NSHomeDirectory()])
         for controller in services.windows.controllers { controller.window?.close() }
         try result.get()
     }
@@ -374,12 +401,12 @@ struct CloudAgentChatTests {
               while [ $# -gt 0 ]; do [ "$1" = --socket ] && H=$2; shift; done
               : > "$H"
               printf '{"event":"hub-ready","socket":"%s","routes":[]}\\n' "$H"
-              exec sleep 120 ;;
+              exec sleep 600 ;;
             remote)
               while [ $# -gt 0 ]; do [ "$1" = --local-socket ] && S=$2; shift; done
               : > "$S"
               printf '{"event":"connection-snapshot","local_socket":"%s","connection":{"session_id":"s","generation":1,"state":"connected","lane_bindings":[],"physical_link_count":1,"transport":{"provider":"cloud","route":"ws://10.9.0.2:1337/v1/link"}}}\\n' "$S"
-              exec sleep 120 ;;
+              exec sleep 600 ;;
             esac
             exit 64
 
