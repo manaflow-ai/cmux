@@ -132,6 +132,9 @@ import WebKit
         _ = try await run(BrowserPageScripts.uploadChunk("@e1", id: "R", index: 0, base64: Data("first".utf8).base64EncodedString()))
         _ = try await page.read("(() => { document.getElementById('a').removeAttribute('data-cmux-ref'); document.getElementById('b').setAttribute('data-cmux-ref', 'e1'); return true; })()")
 
+        let duplicate = try await page.read(BrowserPageScripts.startUpload("@e1", id: "R", files: [("other.txt", "text/plain")]))
+        #expect(duplicate["code"] == "upload_id_in_use", "an active id must not be rebound to another input")
+
         _ = try await run(BrowserPageScripts.uploadChunk("@e1", id: "R", index: 0, base64: Data("second".utf8).base64EncodedString()))
         #expect(try await page.read("document.getElementById('a').__cmuxUploads.get('R').files[0].parts.length") == 2,
                 "the chunk after the ref moved missed the upload's own input")
