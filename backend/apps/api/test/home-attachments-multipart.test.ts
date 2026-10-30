@@ -874,3 +874,19 @@ describe("Home attachments: the slot itself ends an upload its owner never recor
     await expect(upload.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
   })
 })
+
+describe("Home attachments: a part row left without its slot's hash never blocks that part", { timeout: 120_000 }, () => {
+  it("a stored row for part 1 whose slot still reads the old hash state: the part uploads again, replaces the row, and the file completes", async () => {
+    const alice = await signIn("att-part-row-orphan")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 23) % 233)
+    const m = await multipart(alice, id, body)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("INSERT INTO home_attachment_parts (slot, part, etag) VALUES (?, 1, 'stale')", m.slot))
+    expect((await m.putPart(1)).status).toBe(200)
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
