@@ -61,15 +61,32 @@ struct PaletteLargeTextTests {
     /// must restyle the labels and placeholder it already has, not only new ones.
     @Test func anOpenPaletteFollowsALiveTextSizeChange() async throws {
         _ = NSApplication.shared
-        let palette = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
-        #expect(palette.show(scope: PaletteScopeID.search))
-        await palette.model.settle()
-        defer { palette.hide() }
+        let search = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
+        #expect(search.show(scope: PaletteScopeID.search))
+        await search.model.settle()
+        defer { search.hide() }
+        try Self.checkLiveTextSizeChange(search.model, rows: 0)
+    }
+
+    /// The same live change on a page with results: rows and section headers already configured
+    /// at the old size pick up the new one through `reloadRows()`.
+    @Test func openPaletteRowsFollowALiveTextSizeChange() async throws {
+        _ = NSApplication.shared
+        let commands = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
+        commands.show(.commands)
+        await commands.model.settle()
+        defer { commands.hide() }
+        try Self.checkLiveTextSizeChange(commands.model, rows: 5)
+    }
+
+    private static func checkLiveTextSizeChange(_ model: PaletteModel, rows: Int) throws {
         var windows: [NSWindow] = []
         defer { windows.forEach { $0.close() } }
         let view = DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
-            let view = PaletteContentView(model: palette.model)
-            Self.host(view, windows: &windows)
+            let view = PaletteContentView(model: model)
+            host(view, windows: &windows)
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
             return view
         }
         var large = DensityPreset.comfortable.tokens
@@ -77,7 +94,7 @@ struct PaletteLargeTextTests {
         try DensityTokens.$scoped.withValue(large) {
             view.render()
             view.window?.setContentSize(PaletteLayout.windowSize)
-            _ = try Self.check(view, "live Compact → Comfortable, 18 pt", rows: 0)
+            _ = try check(view, "live Compact → Comfortable, 18 pt, \(rows) rows", rows: rows)
         }
     }
 

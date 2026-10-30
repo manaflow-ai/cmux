@@ -44,12 +44,14 @@ enum PaletteLayout {
 
     /// The extra line height of `font` over the same face at the density's own text size, on
     /// whole points: a row keeps its density's padding and grows only by the taller line, so a
-    /// roomy row (or a height the person set) is not inflated in proportion.
+    /// roomy row (or a height the person set) is not inflated in proportion. A face's line height
+    /// scales with its point size, so the smaller face is arithmetic, not a font made per row: a
+    /// font made and dropped like that can come back nil (`CheckedFont`, #20557), which would
+    /// silently zero the growth.
     static func textGrowth(_ font: NSFont) -> CGFloat {
         let scale = textScale
         guard scale > 1 else { return 0 }
-        let base = NSFont(descriptor: font.fontDescriptor, size: font.pointSize / scale) ?? font
-        return max(0, ceil(lineHeight(font) - lineHeight(base)))
+        return max(0, ceil(lineHeight(font) * (1 - 1 / scale)))
     }
 
     private static func lineHeight(_ font: NSFont) -> CGFloat {
