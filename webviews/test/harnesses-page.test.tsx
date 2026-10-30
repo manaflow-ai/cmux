@@ -199,6 +199,35 @@ test("a failed sign-in terminal launch shows its error and retries the same logi
   expect(calls.some((call) => call.method === "chat.new" || call.method === "chat.send")).toBe(false);
 });
 
+test("a failed sign-in retries its login after health changes to ready", async () => {
+  const calls: Call[] = [];
+  let attempts = 0;
+  const auth = { codex: "signedOut" as "signedOut" | "signedIn" };
+  const closed: string[] = [];
+  const container = await renderPage(calls, closed, {
+    auth,
+    openTerminal: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error("Terminal could not open")) : Promise.resolve({});
+    },
+  });
+  const codex = row(container, "Codex")!;
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
+  expect(codex.querySelector(".acpmux-harness-spinner")).toBeNull();
+  expect(codex.querySelector("button")?.textContent).toBe("Sign In");
+  auth.codex = "signedIn";
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await settle();
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(attempts).toBe(2);
+  expect(closed).toEqual([]);
+  expect(codex.dataset.harnessStatus).toBe("waiting");
+  const logins = calls.filter((call) => call.method === "tab.open");
+  expect(logins[1]).toEqual(logins[0]);
+  expect(calls.some((call) => call.method === "chat.new" || call.method === "chat.send")).toBe(false);
+});
+
 test("Start Chat starts a chat on that harness in this tab", async () => {
   const calls: Call[] = [];
   const closed: string[] = [];
