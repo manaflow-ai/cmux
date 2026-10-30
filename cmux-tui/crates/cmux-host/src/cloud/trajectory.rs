@@ -33,7 +33,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use super::sender::Answer;
+use super::sender::{Answer, Backoff};
 use crate::json::JsonField;
 
 /// Records per append; the server takes at most 2000.
@@ -158,6 +158,11 @@ pub struct Mirror {
     tracks: HashMap<String, Track>,
     /// Chats of the restore source waiting for an import, with the tries so far.
     pending: Vec<(Remote, u32)>,
+    /// The restore source's list was read; until then it is retried at `parent_retry_at`
+    /// (wall-clock ms) on its own backoff, while this machine's own chats keep syncing.
+    parent_primed: bool,
+    parent_retry_at: u64,
+    parent_backoff: Backoff,
     log: fn(&str),
 }
 
@@ -221,19 +226,26 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                 // be strictly increasing, including the first one.
                 let paginated = v["has_more"].as_bool().is_some();
                 if page.len() != raw.len()
-                    || (paginated && page.windows(2).any(|rows| {
-                        rows[0].session.as_str() >= rows[1].session.as_str()
-                    }))
+                    || (paginated
+                        && page
+                            .windows(2)
+                            .any(|rows| rows[0].session.as_str() >= rows[1].session.as_str()))
                     || cursor.as_deref().is_some_and(|after| {
                         page.first().is_some_and(|row| row.session.as_str() <= after)
                     })
                 {
-                    return Err(Pass::Failed("trajectory list contains invalid or unordered sessions".to_owned()));
+                    return Err(Pass::Failed(
+                        "trajectory list contains invalid or unordered sessions".to_owned(),
+                    ));
                 }
                 let has_more = match v["has_more"].as_bool() {
                     Some(value) => value,
                     None if raw.len() < LIST_PAGE_MAX => false, // Older backend, entire list fits.
-                    None => return Err(Pass::Failed("trajectory list may be truncated on old backend".to_owned())),
+                    None => {
+                        return Err(Pass::Failed(
+                            "trajectory list may be truncated on old backend".to_owned(),
+                        ));
+                    }
                 };
                 let next = if has_more {
                     let Some(next) = v["next_after_session"].as_str() else {
@@ -242,7 +254,9 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                     if page.last().is_none_or(|row| row.session.as_str() != next)
                         || cursor.as_deref().is_some_and(|after| next <= after)
                     {
-                        return Err(Pass::Failed("trajectory list cursor did not advance".to_owned()));
+                        return Err(Pass::Failed(
+                            "trajectory list cursor did not advance".to_owned(),
+                        ));
                     }
                     Some(next.to_owned())
                 } else {
@@ -267,7 +281,15 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
 
 impl Mirror {
     pub fn new(layout: Layout, log: fn(&str)) -> Mirror {
-        Mirror { layout, tracks: HashMap::new(), pending: Vec::new(), log }
+        Mirror {
+            layout,
+            tracks: HashMap::new(),
+            pending: Vec::new(),
+            parent_primed: false,
+            parent_retry_at: 0,
+            parent_backoff: Backoff::new(5_000, 300_000),
+            log,
+        }
     }
 
     /// Reads this machine's copy (every session's track starts from it) and
@@ -297,6 +319,35 @@ impl Mirror {
             );
         }
         Ok(())
+    }
+
+    /// Reads the restore source's copy once, when due: at once at first, then after each
+    /// failure on its own backoff. Answers how many chats wait when it was read now, `None`
+    /// when it was read before or the retry is not yet due. Call after [`Mirror::prime_own`].
+    pub fn prime_parent_when_due(
+        &mut self,
+        api: &mut dyn Api,
+        now: u64,
+        random: f64,
+    ) -> Option<Result<usize, Pass>> {
+        if self.parent_primed || now < self.parent_retry_at {
+            return None;
+        }
+        let read = self.prime_parent(api);
+        if read.is_ok() {
+            self.parent_primed = true;
+            self.parent_backoff.reset();
+        } else {
+            self.parent_retry_at = now.saturating_add(self.parent_backoff.next(0, random));
+        }
+        Some(read)
+    }
+
+    /// Forget the restore source's read (the feature was turned off): read it again at once.
+    pub fn reset_parent(&mut self) {
+        self.parent_primed = false;
+        self.parent_retry_at = 0;
+        self.parent_backoff.reset();
     }
 
     /// Reads, read only, the restore source's copy: the chats to import.

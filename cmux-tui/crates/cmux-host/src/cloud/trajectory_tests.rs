@@ -77,7 +77,9 @@ impl Api for FakeServer {
         let store = if from_parent { self.parent.clone() } else { Some(self.machine.clone()) };
         let Some(store) = store else {
             return match action {
-                "list" => ok(json!({ "sessions": [], "has_more": false, "next_after_session": null })),
+                "list" => {
+                    ok(json!({ "sessions": [], "has_more": false, "next_after_session": null }))
+                }
                 _ => refuse(404, "cloud.trajectory.not_found", Value::Null),
             };
         };
@@ -86,8 +88,8 @@ impl Api for FakeServer {
             "list" => {
                 // Same 500-row, stable id cursor contract as TrajectoryStore.list.
                 let after = body["after_session"].as_str().unwrap_or("");
-                let rows: Vec<_> = sessions.iter().filter(|(id, _)| id.as_str() > after)
-                    .take(501).collect();
+                let rows: Vec<_> =
+                    sessions.iter().filter(|(id, _)| id.as_str() > after).take(501).collect();
                 let has_more = rows.len() > 500;
                 if has_more && body["page_protocol"].as_u64() != Some(2) {
                     return refuse(409, "cloud.trajectory.pagination_required", Value::Null);
@@ -99,7 +101,8 @@ impl Api for FakeServer {
                     "meta": k.meta,
                     "native": k.native.iter().map(|((l, p), b)| json!({ "label": l, "path": p, "size": b.len() })).collect::<Vec<_>>(),
                 })).collect();
-                let next = has_more.then(|| page.last().unwrap()["session"].as_str().unwrap().to_owned());
+                let next =
+                    has_more.then(|| page.last().unwrap()["session"].as_str().unwrap().to_owned());
                 ok(json!({ "sessions": page, "has_more": has_more, "next_after_session": next }))
             }
             "append" => {
@@ -430,14 +433,15 @@ fn first_machine(server: &mut FakeServer) -> Machine {
     first
 }
 
-
 /// A restore must visit every keyset page before declaring its source complete. A single
 /// 500-session response used to silently omit the last chat while its records were intact.
 #[test]
 fn restores_501_trajectories_from_two_pages_without_losing_the_last_session() {
     struct ImportNames(Vec<String>);
     impl Importer for ImportNames {
-        fn ready(&self) -> bool { true }
+        fn ready(&self) -> bool {
+            true
+        }
         fn import(&mut self, bundle: &Path, meta: &Value) -> Result<(), String> {
             assert!(bundle.join("session.json").exists());
             self.0.push(meta["id"].as_str().unwrap().to_owned());
@@ -450,12 +454,15 @@ fn restores_501_trajectories_from_two_pages_without_losing_the_last_session() {
     let store = server.stores.entry("source".to_owned()).or_default();
     for i in 0..501 {
         let id = format!("chat-{i:03}");
-        store.insert(id.clone(), Kept {
-            generation: CREATED,
-            meta: meta(&id, 1, CREATED, &source.layout.home),
-            lines: vec![line(1)],
-            ..Kept::default()
-        });
+        store.insert(
+            id.clone(),
+            Kept {
+                generation: CREATED,
+                meta: meta(&id, 1, CREATED, &source.layout.home),
+                lines: vec![line(1)],
+                ..Kept::default()
+            },
+        );
     }
 
     let restored = Machine::new();
@@ -463,7 +470,9 @@ fn restores_501_trajectories_from_two_pages_without_losing_the_last_session() {
     let mut mirror = restored.mirror();
     assert_eq!(mirror.prime(&mut server).unwrap(), 501);
     assert_eq!(mirror.pending(), 501);
-    let parent_pages: Vec<_> = server.calls.iter()
+    let parent_pages: Vec<_> = server
+        .calls
+        .iter()
         .filter(|(action, body)| action == "list" && body["from"] == "parent")
         .collect();
     assert_eq!(parent_pages.len(), 2);
@@ -503,10 +512,14 @@ fn legacy_500_session_reply_without_cursor_fails_closed() {
     impl Api for LegacyList {
         fn call(&mut self, action: &str, _: &Value) -> Answer {
             assert_eq!(action, "list");
-            let sessions: Vec<_> = (0..500).map(|i| json!({
-                "session": format!("chat-{i:03}"), "generation": CREATED,
-                "last_seq": 1, "meta": { "id": format!("chat-{i:03}") }, "native": [],
-            })).collect();
+            let sessions: Vec<_> = (0..500)
+                .map(|i| {
+                    json!({
+                        "session": format!("chat-{i:03}"), "generation": CREATED,
+                        "last_seq": 1, "meta": { "id": format!("chat-{i:03}") }, "native": [],
+                    })
+                })
+                .collect();
             ok(json!({ "sessions": sessions }))
         }
     }
@@ -517,10 +530,12 @@ fn legacy_500_session_reply_without_cursor_fails_closed() {
 
 #[test]
 fn a_failing_restore_source_list_does_not_stop_this_machines_own_chats() {
-    struct ParentListFails(FakeServer);
+    /// The server, and whether the restore source's list answers yet.
+    struct ParentListFails(FakeServer, bool);
     impl Api for ParentListFails {
         fn call(&mut self, action: &str, body: &Value) -> Answer {
-            if action == "list" && body["from"] == "parent" {
+            if !self.1 && action == "list" && body["from"] == "parent" {
+                self.0.calls.push((action.to_owned(), body.clone()));
                 return refuse(503, "cloud.unavailable", Value::Null);
             }
             self.0.call(action, body)
@@ -529,14 +544,24 @@ fn a_failing_restore_source_list_does_not_stop_this_machines_own_chats() {
     let m = Machine::new();
     m.write_meta("chat-a", 2, CREATED);
     m.append("chat-a", 1, &lines(1, 2));
-    let mut api = ParentListFails(FakeServer::at("m1"));
+    let mut api = ParentListFails(FakeServer::at("m1"), false);
     let mut mirror = m.mirror();
     assert!(mirror.prime(&mut api).is_err());
     // The thread primes its own copy on its own and keeps syncing while the source list is retried.
     mirror.prime_own(&mut api).unwrap();
-    assert!(mirror.prime_parent(&mut api).is_err());
-    assert_eq!(mirror.sync(&mut api, 0), Pass::Idle);
+    assert!(matches!(mirror.prime_parent_when_due(&mut api, 1_000, 0.5), Some(Err(_))));
+    assert_eq!(mirror.sync(&mut api, 1_000), Pass::Idle);
     assert_eq!(kept_lines(&api.0, "chat-a"), (1..=2).map(line).collect::<Vec<_>>());
+    // Not retried before its backoff (5 s, jitter 0.5 adds none), then read once it answers.
+    let parent_lists = |api: &ParentListFails| {
+        api.0.calls.iter().filter(|(a, b)| a == "list" && b["from"] == "parent").count()
+    };
+    let before = parent_lists(&api);
+    assert!(mirror.prime_parent_when_due(&mut api, 5_999, 0.5).is_none());
+    assert_eq!(parent_lists(&api), before);
+    api.1 = true;
+    assert!(matches!(mirror.prime_parent_when_due(&mut api, 6_000, 0.5), Some(Ok(0))));
+    assert!(mirror.prime_parent_when_due(&mut api, 600_000, 0.5).is_none());
 }
 
 #[test]

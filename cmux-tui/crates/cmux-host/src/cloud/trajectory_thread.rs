@@ -124,9 +124,6 @@ fn run<H: Http>(
     let mut client: Option<Box<CloudClient<H>>> = None;
     let mut mirror = Mirror::new(layout.clone(), log);
     let mut primed = false;
-    let mut parent_primed = false;
-    let mut parent_retry_at: u64 = 0;
-    let mut parent_backoff = Backoff::new(5_000, 300_000);
     let mut backoff = Backoff::new(5_000, 300_000);
     let mut wait: Option<Duration> = None;
     loop {
@@ -139,9 +136,6 @@ fn run<H: Http>(
                 client = Some(next);
                 mirror = Mirror::new(layout.clone(), log);
                 primed = false;
-                parent_primed = false;
-                parent_retry_at = 0;
-                parent_backoff.reset();
                 backoff.reset();
             }
             Err(RecvTimeoutError::Disconnected) => return,
@@ -171,21 +165,12 @@ fn run<H: Http>(
         }
         // The restore source's list is retried on its own backoff: a failure there must not
         // stop this machine's own chats from being kept.
-        if !parent_primed && now() >= parent_retry_at {
-            match mirror.prime_parent(&mut api) {
-                Ok(waiting) => {
-                    parent_primed = true;
-                    if waiting > 0 {
-                        log(&format!(
-                            "trajectory: {waiting} chats of the restore source to import"
-                        ));
-                    }
-                }
-                Err(other) => {
-                    log(&format!("trajectory: restore source list failed: {other:?}"));
-                    parent_retry_at = now().saturating_add(parent_backoff.next(0, random()));
-                }
+        match mirror.prime_parent_when_due(&mut api, now(), random()) {
+            Some(Ok(waiting)) if waiting > 0 => {
+                log(&format!("trajectory: {waiting} chats of the restore source to import"));
             }
+            Some(Err(other)) => log(&format!("trajectory: restore source list failed: {other:?}")),
+            _ => {}
         }
         // Imports wait for acpmux to run (the person opens a chat); each pass tries again.
         mirror.restore(&mut api, importer.as_mut());
@@ -200,8 +185,7 @@ fn run<H: Http>(
             }
             Pass::Disabled => {
                 primed = false;
-                parent_primed = false;
-                parent_retry_at = 0;
+                mirror.reset_parent();
                 DISABLED_EVERY
             }
             Pass::Failed(why) => {
