@@ -52,8 +52,17 @@ export class FakeEventWebSocket {
     this.sent.push(data);
   }
 
+  /** When set, `close()` only starts closing, as a browser does; `finishClose()` delivers the event. */
+  holdClose = false;
+
   close(code = 1000): void {
     if (this.readyState >= FakeEventWebSocket.CLOSING) return;
+    this.readyState = FakeEventWebSocket.CLOSING;
+    if (!this.holdClose) this.finishClose(code);
+  }
+
+  finishClose(code = 1000): void {
+    if (this.readyState === FakeEventWebSocket.CLOSED) return;
     this.readyState = FakeEventWebSocket.CLOSED;
     this.emit("close", { code });
   }

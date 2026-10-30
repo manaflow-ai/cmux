@@ -54,3 +54,20 @@ test("the request after a malformed frame reconnects and gets its answer", async
   expect(await second.result).toEqual({ type: "handshake", value: {} } as never);
   transport.close();
 });
+
+test("the dropped socket's late close event leaves the reconnected socket and its request alone", async () => {
+  const transport = new WebSocketDiffTransport("ws://diff.invalid/", 1);
+  const first = await openRequest(transport);
+  first.result.catch(() => {});
+  first.socket.holdClose = true;
+  first.socket.message("null");
+  expect(first.socket.readyState).toBe(FakeEventWebSocket.CLOSING);
+
+  const second = await openRequest(transport);
+  expect(second.socket).not.toBe(first.socket);
+  first.socket.finishClose();
+
+  second.socket.message(JSON.stringify({ id: second.id, result: { type: "handshake", value: {} } }));
+  expect(await second.result).toEqual({ type: "handshake", value: {} } as never);
+  transport.close();
+});
