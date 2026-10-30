@@ -288,4 +288,18 @@ struct SidebarPriorityDragTests {
         row.mouseUp(with: try harness.event(.leftMouseUp, on: "b"))
         #expect(harness.actions == [.open("b")], "a child-window key change must preserve the pending click")
     }
+
+    @Test func clipScrollReportsTheNewOrigin() throws {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        let supported = NSClipView.instancesRespond(to: #selector(NSClipView.scroll(to:)))
+        print("Selector probe: NSClipView call:scroll/1 macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion) = \(supported)")
+        #expect(supported)
+        let clip = ScrollReportingClipView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        clip.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 400))
+        var reported: [NSPoint] = []
+        clip.onScroll = { reported.append(clip.bounds.origin) }
+        clip.scroll(to: NSPoint(x: 0, y: 50))
+        #expect(clip.bounds.origin == NSPoint(x: 0, y: 50))
+        #expect(reported == [NSPoint(x: 0, y: 50)])
+    }
 }

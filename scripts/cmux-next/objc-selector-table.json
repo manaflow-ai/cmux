@@ -424,12 +424,6 @@
    "27.0": true,
    "27.0.1": true
   },
-  "NSClipView call:scroll/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
-   "27.0.1": true
-  },
   "NSScrollView call:scrollWheel/1": {
    "26.5.2": true,
    "26.7": true,
