@@ -6440,7 +6440,18 @@ function AcpmuxPane() {
   // streams text redraws neither the pill nor a subagent row.
   const agentsKey = freshAgents
     .map((agent) =>
-      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+      [
+        agent.id,
+        agent.name,
+        agent.state,
+        agent.action ?? "",
+        agent.endedAt ?? "",
+        agent.agentId ?? "",
+        agent.tokens ?? "",
+        agent.toolUses ?? "",
+        agent.progressVersion ?? "",
+        agent.agents ? `${agent.agents.done}/${agent.agents.started}/${agent.agents.failed ?? 0}/${agent.agents.queued ?? 0}` : "",
+      ].join("\u0000"),
     )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
