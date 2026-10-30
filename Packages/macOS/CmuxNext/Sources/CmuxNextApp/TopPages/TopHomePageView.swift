@@ -620,10 +620,6 @@ final class TopHomePageView: NSView {
             openWhenListed(id)
         }
         guard let window else { return }
-        let panel = NSWindow(contentViewController: sheet)
-        // The sheet draws in this page's scope (a room's own theme), not the app's: its labels
-        // resolved before the sheet had a parent.
-        panel.adoptThemeScope(of: self)
-        window.beginSheet(panel)
+        HomeSheetPresenter().present(sheet, over: window, themeSource: self)
     }
 }
