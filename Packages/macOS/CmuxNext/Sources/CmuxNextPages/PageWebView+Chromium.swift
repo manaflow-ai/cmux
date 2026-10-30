@@ -162,7 +162,6 @@ extension PageWebView {
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
         page.setAnswersFileChooser(onFilesChosen != nil)
-        watchChromiumMenuPaste()
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
@@ -195,7 +194,6 @@ extension PageWebView {
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
         chromiumDragged = nil
-        stopChromiumMenuPaste()
         inputReadiness.editor = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
@@ -217,7 +215,6 @@ extension PageWebView {
         chromiumStart = nil
         chromiumSession?.end()
         chromiumSession = nil
-        stopChromiumMenuPaste()
         inputReadiness.editor = nil
     }
 
@@ -312,41 +309,12 @@ extension PageWebView {
         onFilesDropped?(dragged.urls)
     }
 
-    /// The one entry of a paste into the Chromium page (its Cmd-V, our menu's Paste, the menu
-    /// bar's): ``onPaste``, with the person's event in dispatch.
+    /// The one entry of a paste into the Chromium page (its Cmd-V as `CEFRuntime.routeKey` sees it,
+    /// and our own menu's Paste): ``onPaste``, with the person's event in dispatch. A mouse click on
+    /// the menu bar's Edit > Paste goes to Chromium's view without passing here.
     func chromiumPasted() {
         guard chromiumSession != nil else { return }
         onPaste?()
-    }
-
-    /// Hears the menu bar's Paste while this page's Chromium window has the keys: AppKit sends its
-    /// action to Chromium's view, which no host code sees. Ends with the Chromium session.
-    private func watchChromiumMenuPaste() {
-        stopChromiumMenuPaste()
-        chromiumMenuPaste = NotificationCenter.default.addObserver(
-            forName: NSMenu.didSendActionNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            // The item's action crosses into the main-actor block (an NSMenuItem is not Sendable).
-            let isPaste = (note.userInfo?["MenuItem"] as? NSMenuItem)?.action == #selector(NSText.paste(_:))
-            guard isPaste else { return }
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, self.chromiumHasKeys else { return }
-                self.chromiumPasted()
-            }
-        }
-    }
-
-    func stopChromiumMenuPaste() {
-        if let chromiumMenuPaste { NotificationCenter.default.removeObserver(chromiumMenuPaste) }
-        chromiumMenuPaste = nil
-    }
-
-    /// Whether the key window is this page's Chromium window: a child of this view's window over
-    /// this view.
-    var chromiumHasKeys: Bool {
-        guard let page = chromiumSession?.page, let window, let key = NSApp.keyWindow, key.parent === window else { return false }
-        let shown = window.convertToScreen(page.contentView.convert(page.contentView.bounds, to: nil))
-        return shown.contains(NSPoint(x: key.frame.midX, y: key.frame.midY))
     }
 
     /// The page script handed a drop over. Only the file of a real drag the host took opens, once,

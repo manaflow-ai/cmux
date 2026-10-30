@@ -58,7 +58,7 @@ struct PageChromiumAttachmentSourceTests {
         view.onPaste = { pastes += 1 }
         page.onEvent?(.pasted)
         #expect(pastes == 1)
-        // Our menu's Paste and the menu bar's go through the same entry.
+        // Our own menu's Paste goes through the same entry.
         view.chromiumPasted()
         #expect(pastes == 2)
         view.close()
