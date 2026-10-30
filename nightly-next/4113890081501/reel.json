@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4113890081501",
+  "notes": "notes/4113890081501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28113,
+      "title": "carry of #27602: compact waiting messages and subagent tray grid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28110,
+      "title": "carry of #27734: fix expanded video playback handoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27658,
+      "title": "fix(ios): keep notification registration on the latest preferences",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28530,
+      "title": "cmux NEXT Settings: menus hug and align with their trigger, Check Every in hours",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28546,
+      "title": "ci: cache the listed Linux Swift packages' .build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28535,
+      "title": "acpmux: a restored queue drops subagent retry prompts this daemon never sent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28121,
+      "title": "carry of #27763: use qualified health login commands",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28355,
+      "title": "agent changes view: v marks the picked file viewed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28237,
+      "title": "carry of #27764: verify nightly canary source and DMG signatures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28176,
+      "title": "carry of #28097: retry failed Harnesses sign-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28115,
+      "title": "Keep Codex direct workers out of phantom subagent nesting (carries #24481)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28298,
+      "title": "fix(palette): keep Search Tabs section exhaustion unselected",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26718,
+      "title": "fix(chat): preserve virtualized rows and anchors during upward scrolling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28337,
+      "title": "test(ios): Chief test waits count main-actor time, fixing the MacHomeFeedTests order flake",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
