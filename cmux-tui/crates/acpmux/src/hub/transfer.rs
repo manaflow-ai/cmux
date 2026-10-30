@@ -238,6 +238,8 @@ impl Hub {
         session.meta.lock().unwrap().last_seq = last;
         if live {
             self.restore_queue(&session);
+            // The source's subagent retries stayed there: their prompts do not wait here.
+            self.drop_unsent_subagent_retries(&session);
         }
         // Published frozen: it is not this daemon's chat until its own receipt is logged (a
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
