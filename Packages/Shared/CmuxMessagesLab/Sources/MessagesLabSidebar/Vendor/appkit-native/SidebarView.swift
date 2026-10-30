@@ -71,14 +71,14 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private(set) var snapshot = ConversationListSnapshot(items: [], pinned: [])
     private var baseSnapshot = ConversationListSnapshot(items: [], pinned: [])
     private var baseIndex: [ConversationID: Int] = [:]
-    /// The first row of the extra section (nil: none) and its title.
-    private(set) var extraStart: Int?
-    private var extraTitle = ""
-    private var extraSection: (query: String, section: SidebarSearchSection)?
+    /// The host's extra sections in the rows: each one's first row and title (none: no section).
+    private(set) var sections = SidebarSectionMarks()
+    private var extraSections: (query: String, sections: [SidebarSearchSection])?
     private var extraRequest: SidebarSearchRequest?
-    private let sectionHeader = CALayer()
-    private var sectionHeaderKey = ""
-    /// Room for the extra section's title above its first row.
+    /// One title layer per section, in order; the cache key each was last drawn for.
+    private var sectionHeaders: [CALayer] = []
+    private var sectionHeaderKeys: [String] = []
+    /// Room for an extra section's title above its first row.
     static let sectionHeaderHeight: CGFloat = 28
     /// Extra results' ids inside the list (they never collide with conversation ids).
     static func extraID(_ id: String) -> ConversationID { "\u{1}sidebar.extra:" + id }
@@ -662,8 +662,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var rows: [Int]
         var rowOf: [Int32]
         var searching: Bool
-        var extraStart: Int? = nil
-        var extraTitle = ""
+        var sections = SidebarSectionMarks()
         init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
             self.pinned = pinned; self.rows = rows; self.searching = searching
             rowOf = [Int32](repeating: -1, count: count)
@@ -694,8 +693,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         pinnedItems = list.pinned
         rowItems = list.rows
         rowOfItem = list.rowOf
-        extraStart = list.extraStart
-        extraTitle = list.extraTitle
+        sections = list.sections
         noResults.isHidden = !(list.searching && list.rows.isEmpty)
         layoutSectionHeader()
         for (_, l) in rowLayers { recycle(l) }
@@ -714,41 +712,44 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func rowRect(_ r: Int) -> CGRect {
         CGRect(x: 0, y: rowTop(r), width: metrics.width, height: SidebarMetrics.rowHeight)
     }
-    /// A row's top: rows of the extra section sit below its title.
+    /// A row's top: rows of an extra section sit below its title (and every earlier one's).
     private func rowTop(_ r: Int) -> CGFloat {
-        pinnedHeight + CGFloat(r) * SidebarMetrics.rowHeight + (extraStart.map { r >= $0 ? Self.sectionHeaderHeight : 0 } ?? 0)
+        pinnedHeight + sections.top(of: r, rowHeight: SidebarMetrics.rowHeight, headerHeight: Self.sectionHeaderHeight)
     }
     /// The row at a document y (fractional: the part below the row's top), the inverse of rowTop.
     private func rowPosition(_ y: CGFloat) -> CGFloat {
-        let rh = SidebarMetrics.rowHeight
-        var d = y - pinnedHeight
-        if let e = extraStart, d > CGFloat(e) * rh {
-            d = max(CGFloat(e) * rh, d - Self.sectionHeaderHeight)
+        sections.position(y - pinnedHeight, rowHeight: SidebarMetrics.rowHeight, headerHeight: Self.sectionHeaderHeight)
+    }
+    /// Each extra section's title rect, in order (empty: no section).
+    var sectionHeaderRects: [CGRect] {
+        sections.marks.map {
+            CGRect(x: 0, y: rowTop($0.start) - Self.sectionHeaderHeight, width: metrics.width, height: Self.sectionHeaderHeight)
         }
-        return d / rh
     }
-    /// The extra section's title rect (nil: no section).
-    var sectionHeaderRect: CGRect? {
-        extraStart.map { CGRect(x: 0, y: pinnedHeight + CGFloat($0) * SidebarMetrics.rowHeight, width: metrics.width, height: Self.sectionHeaderHeight) }
-    }
-    /// The section title: one small bitmap, drawn when the title, width or palette changes.
+    /// The section titles: one small bitmap each, drawn when its title, width or palette changes.
     private func layoutSectionHeader() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if sectionHeader.superlayer == nil {
-            sectionHeader.contentsGravity = .topLeft
-            sectionHeader.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull()]
-            document.layer?.addSublayer(sectionHeader)
+        let rects = metrics.compact ? [] : sectionHeaderRects
+        while sectionHeaders.count < rects.count {
+            let layer = CALayer()
+            layer.contentsGravity = .topLeft
+            layer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull()]
+            document.layer?.addSublayer(layer)
+            sectionHeaders.append(layer)
+            sectionHeaderKeys.append("")
         }
-        guard let r = sectionHeaderRect, !metrics.compact else { sectionHeader.isHidden = true; return }
-        sectionHeader.isHidden = false
-        sectionHeader.frame = r
         let ctx = renderContext
-        let key = "\(extraTitle)|\(r.width)|\(ctx.generation)|\(ctx.scale)"
-        guard key != sectionHeaderKey else { return }
-        sectionHeaderKey = key
-        sectionHeader.contentsScale = ctx.scale
-        sectionHeader.contents = SidebarDraw.sectionHeader(extraTitle, width: r.width, ctx: ctx)
+        for (i, layer) in sectionHeaders.enumerated() {
+            guard let r = rects[checked: i], let title = sections.marks[checked: i]?.title else { layer.isHidden = true; continue }
+            layer.isHidden = false
+            layer.frame = r
+            let key = "\(title)|\(r.width)|\(ctx.generation)|\(ctx.scale)"
+            guard sectionHeaderKeys[checked: i] != key else { continue }
+            if let slot = sectionHeaderKeys.checkedIndex(i) { sectionHeaderKeys[slot] = key } // checked
+            layer.contentsScale = ctx.scale
+            layer.contents = SidebarDraw.sectionHeader(title, width: r.width, ctx: ctx)
+        }
     }
     func selectionRect(_ r: Int) -> CGRect { rowRect(r).insetBy(dx: SidebarMetrics.selectionInsetX, dy: 0) }
     func tileRect(_ t: Int) -> CGRect { metrics.tileRect(t) }
@@ -758,7 +759,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             for t in pinnedItems.indices where tileRect(t).contains(p) { return .tile(t) }
             return nil
         }
-        if let h = sectionHeaderRect, h.contains(p) { return nil }
+        if sectionHeaderRects.contains(where: { $0.contains(p) }) { return nil }
         let r = CrashGuard.int(rowPosition(p.y).rounded(.down), in: CrashGuard.rowRange) // no trap on NaN
         return r >= 0 && r < rowItems.count ? .row(r) : nil
     }
@@ -1002,7 +1003,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         // The separator under the text, hidden next to the selection (as NSTableView does).
         let nextSelected = rowItems.dropFirst(r + 1).first.flatMap { snapshot.items[checked: $0] }.map { $0.id == highlightID } ?? false
-        l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
+        l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || sections.starts(at: r + 1)
         let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
         l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
         l.separator.backgroundColor = palette.separator
@@ -1348,25 +1349,25 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         query = trimmed
         extraRequest?.cancel()
         extraRequest = nil
-        if extraSection?.query != trimmed { extraSection = nil }
+        if extraSections?.query != trimmed { extraSections = nil }
         runSearch(trimmed)
         if !trimmed.isEmpty, let provider = searchProvider {
-            let request = SidebarSearchRequest(query: trimmed) { [weak self] section in
-                DispatchQueue.main.async { self?.extraResults(section, for: trimmed) }
+            let request = SidebarSearchRequest(query: trimmed) { [weak self] sections in
+                DispatchQueue.main.async { self?.extraResults(sections, for: trimmed) }
             }
             extraRequest = request
             provider.sidebar(self, search: request)
         }
     }
 
-    /// The provider answered: the section joins the current query's results (built and
+    /// The provider answered: its sections join the current query's results (built and
     /// rendered on the search queue like any result).
-    private func extraResults(_ section: SidebarSearchSection?, for q: String) {
+    private func extraResults(_ sections: [SidebarSearchSection], for q: String) {
         guard q == query else { return }
         extraRequest = nil
-        let s = section.flatMap { $0.results.isEmpty ? nil : $0 }
-        guard s != extraSection?.section || (s != nil && extraSection == nil) else { return }
-        extraSection = s.map { (q, $0) }
+        let s = sections.filter { !$0.results.isEmpty }
+        guard s != (extraSections?.sections ?? []) else { return }
+        extraSections = s.isEmpty ? nil : (q, s)
         runSearch(q)
     }
 
@@ -1379,7 +1380,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let gen = searchGeneration
         stale.set(gen)
         let snap = baseSnapshot, index = baseIndex
-        let extras = q.isEmpty ? nil : extraSection.flatMap { $0.query == q ? $0.section : nil }
+        let extras = q.isEmpty ? [] : extraSections.flatMap { $0.query == q ? $0.sections : nil } ?? []
         let existing = searchIndex
         let stale = stale
         let prerender = prerenderer()
@@ -1391,25 +1392,25 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             if let idx {
                 guard var m = idx.matches(q, cancelled: { stale.get() != gen }) else { return }
                 m = m.filter { snap.items[checked: $0].map(filterNow.includes) ?? false } // checked
-                if let extras {
-                    // The host's rows after the conversations, as summaries of their own.
+                // The host's sections after the conversations, each row a summary of its own.
+                var marks = SidebarSectionMarks()
+                for section in extras {
                     let start = m.count
-                    for r in extras.results {
+                    for r in section.results {
                         var c = ConversationSummary(id: SidebarController.extraID(r.id), title: r.title, participants: [], avatar: r.avatar,
-                                                    preview: r.subtitle, previewSender: nil, lastAt: .distantPast, unreadCount: 0,
+                                                    preview: r.subtitle, previewSender: nil, lastAt: r.date ?? .distantPast, unreadCount: 0,
                                                     pinned: false, muted: false, typing: false, lastReaction: nil)
-                        var h = Hasher(); h.combine(r.title); h.combine(r.subtitle); h.combine(r.avatar)
+                        var h = Hasher(); h.combine(r.title); h.combine(r.subtitle); h.combine(r.avatar); h.combine(r.date)
                         c.version = h.finalize()
                         guard !shownIndex.keys.contains(c.id) else { continue } // dictionary spelled apart from index subscripts
                         shownIndex.updateValue(shown.items.count, forKey: c.id)
                         m.append(shown.items.count)
                         shown.items.append(c)
                     }
-                    list = RowList(pinned: [], rows: m, count: shown.items.count, searching: true)
-                    if m.count > start { list.extraStart = start; list.extraTitle = extras.title }
-                } else {
-                    list = RowList(pinned: [], rows: m, count: snap.items.count, searching: true)
+                    if m.count > start { marks.marks.append(.init(start: start, title: section.title)) }
                 }
+                list = RowList(pinned: [], rows: m, count: shown.items.count, searching: true)
+                list.sections = marks
             } else {
                 list = RowList.full(snap, index, filter: filterNow)
             }
@@ -1452,13 +1453,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             // position as the clip view will clamp it to the new document (a shorter result list
             // pulls a scrolled clip up to its end), with tile()'s own row arithmetic.
             let ph = m.pinnedHeight(count: list.pinned.count)
-            let header = list.extraStart != nil ? SidebarController.sectionHeaderHeight : 0
-            let docHeight = max(ph + CGFloat(list.rows.count) * rh + header + 8, clip.height)
-            func position(_ y: CGFloat) -> CGFloat {
-                var d = y - ph
-                if let e = list.extraStart, d > CGFloat(e) * rh { d = max(CGFloat(e) * rh, d - header) }
-                return d / rh
-            }
+            let header = SidebarController.sectionHeaderHeight
+            let docHeight = max(ph + list.sections.top(of: list.rows.count, rowHeight: rh, headerHeight: header) + 8, clip.height)
+            func position(_ y: CGFloat) -> CGFloat { list.sections.position(y - ph, rowHeight: rh, headerHeight: header) }
             var rows = Set<Int>()
             for top in [0, min(clip.minY, docHeight - clip.height)] {
                 // no trap on NaN or a huge position (CrashGuard.int).

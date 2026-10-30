@@ -12453,6 +12453,33 @@
         }
       }
     },
+    "home.list.searchMessages": {
+      "comment": "Title of the search results section that lists messages whose text matches the search.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "الرسائل"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Poruke"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Beskeder"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nachrichten"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Messages"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mensajes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Messages"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Messaggi"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "メッセージ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សារ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "메시지"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Meldinger"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wiadomości"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mensagens"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сообщения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Mesajlar"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Повідомлення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tin nhắn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "信息"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "訊息"}}
+      }
+    },
     "home.list.teammates": {
       "extractionState": "manual",
       "localizations": {

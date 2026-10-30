@@ -120,10 +120,11 @@ public final class CmuxSidebarView: NSView {
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
     /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
     public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
-    /// An extra search section under the conversations for a query (nil: none), asked once
-    /// per keystroke; a later keystroke cancels the answer.
-    public var searchSection: (String) -> CmuxSidebarSearchSection? = { _ in nil }
-    /// A row of the extra section was chosen (its id).
+    /// Extra search sections under the conversations for a query, in order (empty: none), asked
+    /// once per keystroke. The answer may take its time (a message search on the owner): a later
+    /// keystroke cancels its task, and an answer for an older query is dropped.
+    public var searchSections: @MainActor (String) async -> [CmuxSidebarSearchSection] = { _ in [] }
+    /// A row of an extra section was chosen (its id).
     public var onSelectSearchResult: (String) -> Void = { _ in }
     /// The unread dot (nil: the system blue) and the key-window selection (nil: the system's).
     public var unreadColor: NSColor? {
@@ -308,12 +309,28 @@ public struct CmuxSidebarSearchResult: Hashable, Sendable {
     public var title: String
     public var subtitle: String
     public var initials: String
+    /// Drawn instead of the monogram of `initials` (a Chief's picture); nil draws the monogram.
+    public var avatar: CmuxSidebarEntry.Avatar?
+    /// The row's time (a matching message's), nil for none.
+    public var date: Date?
 
-    public init(id: String, title: String, subtitle: String = "", initials: String) {
+    public init(id: String, title: String, subtitle: String = "", initials: String,
+                avatar: CmuxSidebarEntry.Avatar? = nil, date: Date? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.initials = initials
+        self.avatar = avatar
+        self.date = date
+    }
+
+    var spec: AvatarSpec {
+        switch avatar {
+        case .monogram(let text): .monogram(text)
+        case .image(let path): .image(path)
+        case .emoji(let text): .emoji(text)
+        case nil: .monogram(initials)
+        }
     }
 }
 
@@ -354,14 +371,21 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 
     func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest) {
-        guard !request.isCancelled, let section = owner?.searchSection(request.query), !section.results.isEmpty else {
-            request.complete(nil)
-            return
+        searchTask?.cancel()
+        guard !request.isCancelled, let sections = owner?.searchSections else { request.complete([]); return }
+        // task-owner: one query's sections; the next keystroke cancels it (and the request drops its answer)
+        searchTask = Task { @MainActor in
+            let found = await sections(request.query)
+            guard !Task.isCancelled, !request.isCancelled else { return }
+            request.complete(found.map { section in
+                SidebarSearchSection(title: section.title, results: section.results.map {
+                    SidebarSearchResult(id: $0.id, title: $0.title, subtitle: $0.subtitle, avatar: $0.spec, date: $0.date)
+                })
+            })
         }
-        request.complete(SidebarSearchSection(title: section.title, results: section.results.map {
-            SidebarSearchResult(id: $0.id, title: $0.title, subtitle: $0.subtitle, avatar: .monogram($0.initials))
-        }))
     }
+    /// The newest query's section task.
+    private var searchTask: Task<Void, Never>?
     func sidebar(_ sidebar: SidebarController, didSelectSearchResult id: String) { owner?.onSelectSearchResult(id) }
 }
 

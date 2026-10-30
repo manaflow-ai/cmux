@@ -32,6 +32,13 @@ public final class HomeSidebarView: NSView {
     public var teammates: (String) -> [HomeContact] = { _ in [] }
     /// A teammate from the search section or a teammate row was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
+    /// Messages whose text matches a query, newest first (the list's Messages search section,
+    /// after Teammates, as in Messages). Hits in a conversation the list does not show are left out.
+    public var searchMessages: @MainActor (String) async -> [HomeSearchHit] = { _ in [] }
+    /// A message from the Messages search section was chosen: open its conversation at it.
+    public var onOpenMessage: (HomeSearchHit) -> Void = { _ in }
+    /// The Messages section's hits for the query shown now, by their list id.
+    private var messageHits: [String: HomeSearchHit] = [:]
     public var onNewMessage: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
@@ -126,16 +133,11 @@ public final class HomeSidebarView: NSView {
             guard let self, teammate(for: id) == nil else { return [] }
             return menuItems(ConversationID(id))
         }
-        list.searchSection = { [weak self] query in
-            guard let self else { return nil }
-            let people = teammates(query)
-            guard !people.isEmpty else { return nil }
-            return CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
-                CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
-            })
-        }
+        list.searchSections = { [weak self] query in await self?.searchSections(query) ?? [] }
         list.onSelectSearchResult = { [weak self] id in
-            guard let self, let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
+            guard let self else { return }
+            if let hit = messageHits[id] { onOpenMessage(hit); return }
+            guard let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
             onStartTeammate(person)
         }
         applyColors()
@@ -250,6 +252,45 @@ public final class HomeSidebarView: NSView {
     public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
         CmuxSidebarMenuItem(title: title, handler: handler)
     }
+
+    /// The search sections under the matching conversations: teammates with no DM yet (at once),
+    /// then the messages whose text matches (from the conversation owner).
+    private func searchSections(_ query: String) async -> [CmuxSidebarSearchSection] {
+        var sections: [CmuxSidebarSearchSection] = []
+        let people = teammates(query)
+        if !people.isEmpty {
+            sections.append(CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
+                CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
+            }))
+        }
+        let hits = await searchMessages(query)
+        guard !Task.isCancelled else { return sections }
+        let items = Dictionary((model.pinned + model.rows).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var shown: [String: HomeSearchHit] = [:]
+        var results: [CmuxSidebarSearchResult] = []
+        for hit in hits {
+            guard let item = items[hit.conversation] else { continue }
+            let id = Self.messageResultPrefix + hit.message.id.rawValue
+            guard shown.updateValue(hit, forKey: id) == nil else { continue }
+            results.append(Self.messageResult(hit, in: item, id: id))
+        }
+        messageHits = shown
+        if !results.isEmpty { sections.append(CmuxSidebarSearchSection(title: HomeConversationStrings.messagesSection, results: results)) }
+        return sections
+    }
+
+    /// A matching message as a search row: its conversation's name and avatar, the matched text
+    /// under it, and the message's time (Messages' message results).
+    static func messageResult(_ hit: HomeSearchHit, in item: HomeSidebarItem, id: String) -> CmuxSidebarSearchResult {
+        let entry = entry(item)
+        let snippet = hit.message.plainText.split(whereSeparator: \.isNewline).joined(separator: " ")
+        return CmuxSidebarSearchResult(id: id, title: item.title, subtitle: snippet,
+                                       initials: entry.people.first?.initials ?? initials(item.title),
+                                       avatar: entry.avatar, date: hit.message.createdAt == .distantPast ? nil : hit.message.createdAt)
+    }
+
+    /// Message search rows' list ids (never a teammate's id).
+    static let messageResultPrefix = "message:"
 
     /// The list id of a teammate's row (a person with no DM yet).
     public static func teammateRowID(_ contact: HomeContact) -> String { teammateRowPrefix + contact.id.rawValue }

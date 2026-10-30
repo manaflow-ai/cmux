@@ -69,8 +69,10 @@ struct SidebarSearchResult: Equatable {
     var title: String
     var subtitle: String
     var avatar: AvatarSpec
-    init(id: String, title: String, subtitle: String = "", avatar: AvatarSpec) {
-        self.id = id; self.title = title; self.subtitle = subtitle; self.avatar = avatar
+    /// cmux: the row's time (a matching message's), nil for none.
+    var date: Date?
+    init(id: String, title: String, subtitle: String = "", avatar: AvatarSpec, date: Date? = nil) {
+        self.id = id; self.title = title; self.subtitle = subtitle; self.avatar = avatar; self.date = date
     }
 }
 
@@ -81,21 +83,22 @@ struct SidebarSearchSection: Equatable {
     init(title: String, results: [SidebarSearchResult]) { self.title = title; self.results = results }
 }
 
-/// v1.1: one query to a `SidebarSearchProvider`. Answer once, from any thread, with
+/// v1.1: one query to a `SidebarSearchProvider` (cmux: answered with any number of sections, in
+/// order). Answer once, from any thread, with
 /// `complete(_:)`. The next keystroke cancels it (`isCancelled` turns true and a later answer
 /// is dropped), so a long search should check `isCancelled` and stop.
 final class SidebarSearchRequest: @unchecked Sendable {
     let query: String
     private let lock = NSLock()
     private var cancelled = false
-    private var handler: ((SidebarSearchSection?) -> Void)?
-    init(query: String, handler: @escaping (SidebarSearchSection?) -> Void) { self.query = query; self.handler = handler }
+    private var handler: (([SidebarSearchSection]) -> Void)?
+    init(query: String, handler: @escaping ([SidebarSearchSection]) -> Void) { self.query = query; self.handler = handler }
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     func cancel() { lock.lock(); cancelled = true; handler = nil; lock.unlock() }
-    /// The section for this query (nil or no results: no section). Any thread; once.
-    func complete(_ section: SidebarSearchSection?) {
+    /// The sections for this query, in order (an empty one shows no title). Any thread; once.
+    func complete(_ sections: [SidebarSearchSection]) {
         lock.lock(); let h = cancelled ? nil : handler; handler = nil; lock.unlock()
-        h?(section)
+        h?(sections)
     }
 }
 
@@ -390,5 +393,36 @@ struct SidebarPalette: Equatable {
         }
         appearance.performAsCurrentDrawingAppearance { palette = build() }
         return palette ?? build()
+    }
+}
+
+/// cmux: where the host's search sections start in a row list (each title sits above its first
+/// row) and the row geometry they shift. Values only: the search queue reads it too.
+struct SidebarSectionMarks: Equatable {
+    struct Mark: Equatable {
+        var start: Int
+        var title: String
+    }
+    /// In row order; no two share a start (a section with no rows has no mark).
+    var marks: [Mark] = []
+
+    /// True when a section's title sits above row `r`.
+    func starts(at r: Int) -> Bool { marks.contains { $0.start == r } }
+
+    /// Row `r`'s top below the pinned grid: the rows above it and every title at or above it.
+    func top(of r: Int, rowHeight: CGFloat, headerHeight: CGFloat) -> CGFloat {
+        CGFloat(r) * rowHeight + CGFloat(marks.count { $0.start <= r }) * headerHeight
+    }
+
+    /// The fractional row at `y` below the pinned grid, the inverse of `top(of:)`: a y on a title
+    /// gives its section's first row.
+    func position(_ y: CGFloat, rowHeight: CGFloat, headerHeight: CGFloat) -> CGFloat {
+        var d = y
+        for mark in marks {
+            let start = CGFloat(mark.start) * rowHeight
+            guard d > start else { break }
+            d = max(start, d - headerHeight)
+        }
+        return d / rowHeight
     }
 }
