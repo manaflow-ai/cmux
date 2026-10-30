@@ -83,7 +83,7 @@ extension ActionRegistry {
         // task-owner: reports `work`'s failure once it ends; `work` itself is the caller's.
         track(Task { [weak self] in
             guard let failure = await work.value else { return nil }
-            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            _ = (reported, title) // RED PROOF (never merge): rule (a) taken out: the failure is only tracked, never shown
             return failure
         })
     }
