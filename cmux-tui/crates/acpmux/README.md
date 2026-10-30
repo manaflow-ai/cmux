@@ -109,7 +109,9 @@ lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `st
 WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
 sub-sessions and sessions with only a generated name are hidden and counted on the last line;
 `--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
-adds AGENT, STATUS and LAST (the last prompt). A peer whose link is down never drops out: its
+adds AGENT, STATUS, the usage columns (LAUNCHER, autocompact CAP, CTX, CMP compactions, SUBS
+live/started, TOK24H, $24H; `?` when acpmux could not read one, never 0) and LAST (the last
+prompt). A peer whose link is down never drops out: its
 rows read `unknown`, and an `UNKNOWN <peer>` line says its sessions are last known. Scripts
 read `acpmux --json ls`, which is the daemon's rows, unchanged.
 
@@ -180,6 +182,11 @@ raw.
 
 ## CLI
 
+Every command's `--help` ends with examples. One page per command group gives the common tasks and
+the command for each: [sessions](docs/cli-sessions.md) (new, send, ls, last, wait, retry, session),
+[hosts](docs/cli-hosts.md), [harnesses, presets and defaults](docs/cli-harnesses.md),
+[the daemon](docs/cli-daemon.md), and [tasks, processes, worktrees and messages](docs/cli-work.md).
+
 ### Remote ergonomics
 
 `acpmux host add` saves the peer and returns while connectivity is probed in
@@ -244,9 +251,28 @@ acpmux session cancel worker/review  # cancel its running turn
 acpmux session stop worker/review    # stop its agent; keep the session
 ```
 
-Use the stable `sessionId` from `resolve`, a unique name or prefix, or `HOST/NAME`.
-Resume, retry, cancel and stop refuse ambiguous matches, including a local and remote
-session with the same name, and list qualified IDs to select from. Once resolved, a control
+Use the stable `sessionId` from `resolve`, an id prefix, a bare name, or `HOST/NAME`.
+Every command that takes a session (send, last, retry, wait, attach, `session
+info|cancel|stop|close|rename`) reads a bare name or prefix the same way: it names the one
+live session with that name across this host and its peers, so `acpmux send review "…"`
+reaches `linux-b/review` when no other live session is called `review`. A sub-session (named
+`PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
+`coord/lane-3` when no session on any host has that name or id and none here has a
+name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
+refused with the close matches. Closed sessions count
+only when no live one matches. Several live matches are refused (exit 2,
+`session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
+lists each choice and the exact command for it:
+
+```text
+$ acpmux send review "ship it"
+acpmux: usage: "review" names 2 live sessions: mac-a/review, linux-b/review; name one of them
+  acpmux send mac-a/review 'ship it'
+  acpmux send linux-b/review 'ship it'
+```
+
+With `--json`, `error.data.choices` lists each one's `host`, `name`, `route` and the key to
+`use`. Once resolved, a control
 keeps the owning peer and session ID even if another host has a copy of that session.
 The target daemon decides which start policy and controls the caller may use; a peer link
 does not grant app-only permissions.
@@ -315,14 +341,19 @@ acpmux session deny NAME                                      # an allow is the 
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session turn-cap NAME [--minutes N | --off | --clear]  # past it, other agents' messages wait for the next turn
+acpmux session inbox NAME [--thread T] | --digest [--dry-run]  # other agents' messages, in threads (no turn of their own); --digest: those still queued as one prompt
 acpmux session queue list NAME                                # one row per queued prompt: id, sender, age, first line (--json: whole text)
 acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
 acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
-acpmux ls --all --wide                                        # every session, every column
+acpmux ls --all --wide                                        # every session, every column (with usage)
 acpmux ls --live --host cosmic-gray                           # filters, text and --json alike (--host local: this machine)
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
+acpmux ls 'review-27*' [huge-blue/*] --fields name,status    # sessions whose name matches a glob (`host/glob` for one peer), on any host
+acpmux ls --tag area=acpmux --fields name,turn.activity       # a dotted field reads a nested value (tags.lane.reportsTo too)
+acpmux session info NAME --fields sessionId                   # one field prints its bare value; several print field<TAB>value; --json an object
+acpmux send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
 acpmux ls --since 24h --limit 100 --json                     # sessions changed in the last day
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
@@ -388,6 +419,11 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+
+`agentInbox` (default true): another agent's plain send (`acpmux send`, the MCP `send` tool) goes
+into the receiving chat's inbox, in a thread, and the agent hears of it as one notice at its next
+tool step; it is never a turn or a steer of its own. false puts plain sends back on the queue.
+
 `silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
 (no message, thought, tool call, plan, compaction or request, and no harness line only a
 responding model produces, such as Claude's stream and thinking or Codex's moderation
@@ -438,6 +474,8 @@ and printing the title; env `ACPMUX_TITLE_COMMAND` wins) makes it; unset, `_acpm
 uses the harness's cheap model (Haiku for Claude, a small Codex model where available)
 with no tools, MCP or session file. A harness or manual title always wins, a chat titled
 before this (or adopted) keeps its title, and `titles.generate: false` turns it off.
+A chat started under a name (`acpmux new -n`, a lane) is titled the same way and keeps
+its name; only a rename before a title settles stops the request.
 The daemon logs the title model, elapsed time, and estimated input/output token cost for
 each generated title.
 
@@ -785,6 +823,17 @@ remote chains build their settings from scratch, so it never starts a session wi
 changes or clears a preset that carries `args` or a `systemPrompt`, and a session it created
 never spawns with one later.
 
+A session that takes over another's work keeps that session's harness. `acpmux new` and
+`acpmux ensure` find the predecessor from a `succeeds=P` tag, `--report-to P` or the starting
+session when its name is of the same family, a `NAME-N` name (the newest other `NAME` or
+`NAME-K`), or an `area=A` tag (the newest other session of that area, live or changed in the
+last week). When the new session's profile, launcher, model, effort or autocompact cap differs
+from P's, it prints one warning line naming both. A start with no `-m` or `-p` that would land
+on the default harness where P ran a named profile (`claude-sr2`, not what `claude` resolves to)
+is refused, except when only the area matches (a coordinator's helpers share an area; the same
+`role=` tag too refuses). `--harness-from P` starts on exactly P's profile, preset, model and effort; `-m`
+starts on another harness on purpose.
+
 On Claude Code harnesses, a text block's `cache_control` in `session/prompt` reaches Claude
 Code's stream-json input unchanged (other extra block fields are dropped), so a client can
 place its own cache breakpoint. Claude Code adds up to three breakpoints of its own and the API
@@ -1044,7 +1093,7 @@ missing feature. `host update` skips a peer that already runs the same commit, i
 binary only once it runs on the peer, keeps the binary it replaces as `~/.local/bin/acpmux.prev`, and puts it back when the restarted daemon does
 not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
-A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
+A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it. The exception is a Cloud VM whose `~/.acpmux` daemon is acpmux's own `acpmux.service` running `~/.local/bin/acpmux` (a fleet lane host set up with `host setup`): `cmux link` replaces only cmux Cloud's `~/.cmux/bin/acpmux`, so `host update`, `host self-update` and its timer keep that one current.
 A machine that is not yours to update now (reserved for someone else, or someone else's) is held:
 `acpmux host hold NAME --reason TEXT [--until 2026-10-28T23:59:59Z]` (in `~/.acpmux/update-holds.json`,
 by peer name or ssh host). `host update`, `--all` and the app's update queue then answer `held` for it

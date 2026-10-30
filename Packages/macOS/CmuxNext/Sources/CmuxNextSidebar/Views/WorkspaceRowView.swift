@@ -105,6 +105,18 @@ final class WorkspaceRowView: SidebarRowView {
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
     var onMore: (() -> Void)?
+    /// The menu the more button opened is open (`SidebarRowMenu`): the hover controls stay shown and the more
+    /// button stays lit after the pointer leaves for the menu (Leo 2026-10-26: "you keep it on when you click the
+    /// context menu"). The row's own fill does not change: only the button lights (Leo 2026-10-27).
+    var showsMenu = false {
+        didSet {
+            guard showsMenu != oldValue else { return }
+            moreButton.showsMenu = showsMenu
+            needsLayout = true
+        }
+    }
+    /// The hover controls (more, close, the chevron) show: under the pointer, or while their menu is open.
+    var revealsHoverControls: Bool { isHovered || showsMenu }
     /// nil: the App offers no pin; the pin button does not show.
     var onPin: (() -> Void)?, isPinned: (() -> Bool?)?
     /// Activates this workspace from an accessibility AXPress.
@@ -204,6 +216,7 @@ final class WorkspaceRowView: SidebarRowView {
         isDropTarget = false
         onClose = nil
         onMore = nil
+        showsMenu = false
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTabs = nil
