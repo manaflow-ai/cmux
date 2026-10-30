@@ -533,3 +533,81 @@ describe("Home attachments: a part R2 could not store right now is retryable", {
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
   })
 })
+
+describe("Home attachments: a part keeps its claim until R2 answers, and a recorded part's retry answers its stored result", { timeout: 120_000 }, () => {
+  afterEach(() => void vi.useRealTimers())
+
+  it("a part whose bytes all arrived but whose R2 write is slow keeps renewing its claim: another request for it stays busy, and the slow one records", async () => {
+    const alice = await signIn("att-claim-slow-r2")
+    const { id } = await group(alice)
+    const { PART_CLAIM_MS, PART_RENEW_MS } = await import("../src/home-attachment-store.ts")
+    const { handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 3) % 191)
+    const m = await multipart(alice, id, body)
+    let written!: () => void
+    const wrote = new Promise<void>((r) => (written = r))
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const own = (x: object, q: string | symbol) => {
+      const v = Reflect.get(x, q)
+      return typeof v === "function" ? v.bind(x) : v
+    }
+    const slow = new Proxy(bucket, {
+      get(t, p) {
+        if (p !== "resumeMultipartUpload") return own(t, p)
+        return (key: string, uploadId: string) =>
+          new Proxy(t.resumeMultipartUpload(key, uploadId), {
+            get: (u, q) =>
+              q === "uploadPart"
+                ? async (n: number, value: ReadableStream) => {
+                    const done = await u.uploadPart(n, value)
+                    written()
+                    await gate
+                    return done
+                  }
+                : own(u, q)
+          })
+      }
+    })
+    const t0 = Date.now()
+    const first = handleAttachmentMultipartPart(new Request(m.uploadUrl, { method: "PUT", body: body.subarray(0, m.size), headers: { "content-length": String(m.size), "x-cmux-part-number": "1" } }), { ...testEnv, HOME_ATTACHMENTS: slow }, id, m.token)
+    await wrote
+    // R2 has every byte and has not answered: past one renewal interval the claim is renewed while it waits.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(t0 + PART_RENEW_MS + 1_000)
+    await new Promise((r) => setTimeout(r, 2_500))
+    // Past the first claim's timeout: the part is still this request's.
+    vi.setSystemTime(t0 + PART_CLAIM_MS + 1_000)
+    const busy = await m.putPart(1)
+    expect([busy.status, busy.json.error?.code]).toEqual([409, "attachment.part_busy"])
+    release()
+    expect((await first).status).toBe(200)
+    vi.useRealTimers()
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+
+  it("a part whose record committed but whose answer was lost is sent again: the retry answers the stored part, and the upload goes on", async () => {
+    const alice = await signIn("att-part-ack-lost")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 7) % 197)
+    const m = await multipart(alice, id, body)
+    const lostAnswer = ownerWith({
+      recordMultipartPart: async (stub, ...args: Array<unknown>) => {
+        await stub.recordMultipartPart(...args)
+        throw new Error("Network connection lost.")
+      }
+    })
+    await expect(m.putPart(1, undefined, lostAnswer)).rejects.toThrow("Network connection lost.")
+    const retried = await m.putPart(1)
+    expect([retried.status, retried.json.value?.part_number, retried.json.value?.byte_count]).toEqual([200, 1, m.size])
+    expect(typeof retried.json.value?.etag).toBe("string")
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
