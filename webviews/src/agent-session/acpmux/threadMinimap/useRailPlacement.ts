@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import { useChatDisplay } from "../chatDisplay";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatWidth } from "../chatWidth";
 import { transcriptColumn } from "../model";
@@ -11,11 +11,15 @@ export function useRailPlacement(scroller: RefObject<HTMLElement | null>, paneWi
   const display = useChatDisplay();
   const chatWidth = useChatWidth();
   const [placement, setPlacement] = useState(() => railPlacement(paneWidth));
-  useLayoutEffect(() => {
+  // The layout effect places the rail before paint when the scroller is already attached. On a mount
+  // the child effect runs before the ancestor scroller's ref is set, so the passive effect, which
+  // runs after every ref is attached, measures again and subscribes to the shell's layout event.
+  const measure = () => {
     const node = scroller.current;
-    const shell = node?.closest<HTMLElement>(".acpmux-shell");
+    if (!node) return undefined;
+    const shell = node.closest<HTMLElement>(".acpmux-shell");
     const update = () => {
-      const style = node?.ownerDocument.defaultView?.getComputedStyle(node);
+      const style = node.ownerDocument.defaultView?.getComputedStyle(node);
       const token = (name: string, fallback: number) =>
         Number.parseFloat(style?.getPropertyValue(name) ?? "") || fallback;
       const shift = Number.parseFloat(shell?.style.getPropertyValue("--acpmux-chat-shift") ?? "") || 0;
@@ -30,8 +34,17 @@ export function useRailPlacement(scroller: RefObject<HTMLElement | null>, paneWi
       );
     };
     update();
-    shell?.addEventListener(CHAT_LAYOUT_EVENT, update);
-    return () => shell?.removeEventListener(CHAT_LAYOUT_EVENT, update);
+    return { shell, update };
+  };
+  useLayoutEffect(() => {
+    measure();
+  }, [scroller, paneWidth, columnWidth, chatWidth, display]);
+  useEffect(() => {
+    const placed = measure();
+    if (!placed?.shell) return;
+    const { shell, update } = placed;
+    shell.addEventListener(CHAT_LAYOUT_EVENT, update);
+    return () => shell.removeEventListener(CHAT_LAYOUT_EVENT, update);
   }, [scroller, paneWidth, columnWidth, chatWidth, display]);
   return placement;
 }

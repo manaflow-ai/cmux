@@ -67,6 +67,15 @@ import {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// Whether `node` holds focus the keyboard gave it (`:focus-visible`), not a click's.
+function keyboardFocused(node: HTMLElement): boolean {
+  try {
+    return node.matches(":focus-visible");
+  } catch {
+    return false;
+  }
+}
+
 type Jump = "click" | "step" | "scrub" | "bookmark";
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
@@ -183,7 +192,12 @@ export function ThreadMinimap({
       railHideTimer.current = undefined;
       setRailRevealed(false);
       const active = rail.current?.ownerDocument.activeElement;
-      if (!rail.current?.contains(active ?? null) && !card.current?.contains(active ?? null)) intend(null);
+      const held = rail.current?.contains(active ?? null) || card.current?.contains(active ?? null);
+      // Keyboard focus keeps the rail and its card over the text. Focus a click left on a tick does
+      // not: the pointer has gone, so the occluded rail hides and its card closes with it.
+      if (held && active && !keyboardFocused(active as HTMLElement)) (active as HTMLElement).blur();
+      else if (held) return;
+      intend(null);
     }, 120);
   };
   useEffect(
@@ -729,7 +743,7 @@ export function ThreadMinimap({
         scroller={scroller}
         viewportHeight={viewportHeight}
         scrolls={scrolls}
-        width={width}
+        placement={placement}
         marks={marks}
         jump={jump}
       />

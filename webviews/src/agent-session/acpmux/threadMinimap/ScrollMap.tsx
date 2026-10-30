@@ -20,7 +20,6 @@ import {
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  railPlacement,
   replyPreview,
   ROW_WIDTH,
   THREAD_PADDING_TOP,
@@ -41,6 +40,8 @@ import {
 
 /// A pointer that moves this far after pressing scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// How far the full-height map may lie over the transcript text, as the compact rail could on base.
+const MAP_MAX_OVERLAP = 8;
 /// The drawn lengths, at rest and fully grown: a prompt's tick, and a reply's.
 const USER_LENGTH = [11, TICK_BOX] as const;
 const AGENT_LENGTH = [5, 15] as const;
@@ -58,7 +59,7 @@ export function ScrollMap({
   scroller,
   viewportHeight,
   scrolls,
-  width,
+  placement,
   marks: bookmarks,
   jump,
 }: {
@@ -68,7 +69,8 @@ export function ScrollMap({
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   scrolls: boolean;
-  width: number;
+  /// The compact rail's pane-edge placement (useRailPlacement), measured against the actual text.
+  placement: { left: number; width: number; overlapsText: boolean };
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
@@ -100,8 +102,15 @@ export function ScrollMap({
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
-  const placement = railPlacement(width);
-  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN;
+  // The full-height map keeps its 36 px box and has no reveal strip, so it shows only where that box
+  // overlaps the text by at most MAP_MAX_OVERLAP: past that its click and drag handlers would take
+  // text selection and links (the compact rail compresses and reveals itself instead).
+  const shown =
+    turns.length >= MAP_MIN_PROMPTS &&
+    scrolls &&
+    height > 4 * MAP_MARGIN &&
+    !placement.overlapsText &&
+    placement.width >= ROW_WIDTH - MAP_MAX_OVERLAP;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
