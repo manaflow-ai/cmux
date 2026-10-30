@@ -322,6 +322,7 @@ export const SubagentTray = memo(function SubagentTray({
           <span className="acpmux-running-tray__status">
             <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
+          <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
         </button>
       )}
       {fold.present && (
