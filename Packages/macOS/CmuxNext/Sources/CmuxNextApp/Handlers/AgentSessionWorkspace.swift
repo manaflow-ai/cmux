@@ -48,6 +48,9 @@ enum AgentSessionWorkspace {
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        if let group, !validGroupName(group) {
+            throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
+        }
         let parent = invocation.callerAgentSession.flatMap { caller in
             Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
@@ -184,6 +187,18 @@ enum AgentSessionWorkspace {
             return
         }
         sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
+    }
+
+    /// Sidebar group arguments are labels. Object ids are rejected so an
+    /// automation retry cannot turn an id into a persistent visible title.
+    static func validGroupName(_ name: String) -> Bool {
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return false }
+        let lower = label.lowercased()
+        if ["grp_", "ws_", "tab_", "pane_", "win_", "workspace_group:"].contains(where: lower.hasPrefix) {
+            return false
+        }
+        return UUID(uuidString: label) == nil
     }
 
     /// The first listed group named `name` that may hold workspace `id` (the drag's rule,
