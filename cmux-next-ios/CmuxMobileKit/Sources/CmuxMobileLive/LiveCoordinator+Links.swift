@@ -353,8 +353,10 @@ extension LiveCoordinator {
         // but keep the focused link retryable before its banner is published.
         let macID = banner?.identity ?? focusedMacID
         guard !store.isOffline, let macID else { retry(); return }
-        // An offline Mac needs refreshed discovery, not a dial of stale presence.
-        if sessions[macID]?.link.phase == .macOffline { retry(); return }
+        // Missing or offline targets need registration and refreshed discovery,
+        // not just a touch of the link against stale presence.
+        guard let session = sessions[macID], session.link.target != nil,
+              session.link.phase != .macOffline else { retry(); return }
         retry(macID: macID)
     }
 
