@@ -41,3 +41,9 @@ export const ORIGIN_HEADER = "x-hub-origin";
 export const STACK_TOKEN_HEADER = "x-hub-stack-token";
 /** HKDF info for sealing the Stack token inside the hub session (`stk`). */
 export const STACK_TOKEN_SEAL_INFO = "device-hub stack token v1";
+/** The hub session's scope (`full`, or `host` for a device-key renewal; PROTOCOL.md, Device renewal). */
+export const SCOPE_HEADER = "x-hub-scope";
+/** A host-scoped session's device: every request of that session must be this device's. */
+export const SESSION_DEVICE_HEADER = "x-hub-session-device";
+/** A host-scoped session's cmux relay entitlement, recorded at the last anchor (`1` or `0`). */
+export const HOST_RELAY_HEADER = "x-hub-host-relay";
