@@ -920,10 +920,11 @@ async fn a_no_wait_send_from_a_session_names_its_proven_sender() {
         lane.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000})).await.unwrap();
     assert_eq!(status["status"], "delivered", "{status}");
 
+    // A plain agent send goes into the receiver's inbox (`hub/inbox.rs`): its `inbox` record.
     let mut message = Value::Null;
     for _ in 0..200 {
         let page = person
-            .call("_acpmux/events", json!({"sessionId": receiver, "kinds": ["user_message"]}))
+            .call("_acpmux/events", json!({"sessionId": receiver, "kinds": ["inbox"]}))
             .await
             .unwrap();
         let events = page["events"].as_array().cloned().unwrap_or_default();
