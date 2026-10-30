@@ -632,9 +632,10 @@
     const push = (x) => t.items.push(x);
     switch (kind) {
       case 'queued': {
-        // The prompt id ties this row to the sender's optimistic row, whichever arrives first.
+        // The prompt id ties this row to the sender's optimistic row, whichever arrives first. Text
+        // matches only where one side has no id (an older server): two known ids never merge.
         const byId = msg.promptId ? t.items.findIndex((x) => x.type === 'user' && x.promptId === msg.promptId) : -1;
-        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || ''));
+        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && x.local && !(msg.promptId && x.promptId) && x.text === (msg.text || ''));
         if (local >= 0) { t.items[local].queued = true; if (msg.promptId) t.items[local].promptId = msg.promptId; touch(t, local); }
         else push({ type: 'user', text: msg.text || '', promptId: msg.promptId, steer: false, queued: true });
         break;
@@ -642,7 +643,7 @@
       case 'user_message': {
         const incomingText = msg.text || '';
         const byId = msg.promptId ? t.items.findIndex((x) => x.type === 'user' && x.promptId === msg.promptId && (x.local || x.queued)) : -1;
-        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
+        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && !(msg.promptId && x.promptId) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
         if (local >= 0 && t.items[local].queued) { const [was] = t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', promptId: msg.promptId || was.promptId, images: was.images, steer: !!msg.steer, at: ev.at }); t.reorder = true; }
         else if (local >= 0) { t.items[local].local = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); }
         else push({ type: 'user', text: msg.text || '', promptId: msg.promptId, steer: !!msg.steer, at: ev.at });
