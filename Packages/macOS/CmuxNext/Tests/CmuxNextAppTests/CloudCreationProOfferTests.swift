@@ -18,7 +18,7 @@ import Testing
             startedByPerson: startedByPerson
         )
         let creation = flow.start(in: nil, existing: nil)
-        await creation.task?.value
+        _ = await creation.task?.result
         return (creation, offers)
     }
 

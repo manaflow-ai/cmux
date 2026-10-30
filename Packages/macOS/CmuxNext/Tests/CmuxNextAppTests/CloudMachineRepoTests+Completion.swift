@@ -187,7 +187,7 @@ extension CloudMachineRepoTests {
         let creation = repoCreation(creations)
         // The flow's task, as `CloudCreationFlow.run` makes it: the hook, then the open, then it waits
         // for the workspace's mirror (here: until the row's removal cancels it).
-        let flow = Task { @MainActor in
+        let flow = Task<Void, any Error> { @MainActor in
             await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
             opened.on = true
             try? await Task.sleep(for: .seconds(3600))

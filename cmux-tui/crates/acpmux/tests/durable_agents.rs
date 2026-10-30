@@ -3029,6 +3029,10 @@ async fn a_null_options_answer_is_saved_as_before() {
     let set = json!({"sessionId": session, "configId": "mode", "value": "normal"});
     let r = rpc.reply("session/set_config_option", set).await;
     assert!(r.get("error").is_none(), "{r}");
+    // The chat's record is written on the record writer's thread after the reply; a stop writes
+    // what it holds, so the file is what the next daemon reads.
+    daemon.sigterm();
+    drop(rpc);
     let saved = daemon.home.join("sessions").join(&session).join("session.json");
     let meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
     let kept = meta["configOptions"].as_array().into_iter().flatten();

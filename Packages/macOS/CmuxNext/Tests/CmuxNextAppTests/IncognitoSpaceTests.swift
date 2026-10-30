@@ -46,12 +46,19 @@ struct IncognitoSpaceTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "incognito-workspaces.json"), work = BackgroundWork(label: "test.incognito-space")
         let ledger = IncognitoWorkspaceLedger(url: url, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: url, on: work), work: work)
+        // What the next launch's ledger reads from the file this run left (its launch read).
+        func nextLaunch() async -> IncognitoWorkspaceLedger {
+            let next = IncognitoWorkspaceLedger(url: url, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: url, on: work), work: work)
+            _ = await next.load()
+            return next
+        }
         await ledger.record([], spaces: ["prof_a"])?.value
-        #expect(ledger.hasLeftovers)
-        #expect(await ledger.loadSpaces() == ["prof_a"])
-        #expect(await ledger.load().isEmpty)
+        let crashed = await nextLaunch()
+        #expect(crashed.mayHaveLeftovers)
+        #expect(await crashed.loadSpaces() == ["prof_a"])
+        #expect(await crashed.load().isEmpty)
         // The space deleted: the file goes.
         await ledger.record([], spaces: [])?.value
-        #expect(!ledger.hasLeftovers)
+        #expect(!(await nextLaunch()).mayHaveLeftovers)
     }
 }

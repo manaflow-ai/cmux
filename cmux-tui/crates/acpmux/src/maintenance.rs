@@ -223,7 +223,9 @@ pub fn install_phase(path: &Path) -> u64 {
         return 0;
     }
     let phase = u64::from_le_bytes(bytes);
-    if let Err(e) = std::fs::write(path, format!("{phase}\n")) {
+    // Owner-only, as every file of the daemon's home (`config::write_atomic`: 0600, whatever the
+    // umask).
+    if let Err(e) = crate::config::write_atomic(path, format!("{phase}\n").as_bytes()) {
         tracing::warn!("maintenance: the phase is not kept ({e}); it changes at the next start");
     }
     phase

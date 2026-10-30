@@ -593,9 +593,8 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if !message.contains("\"agent-session-") {
-        return None;
-    }
+    // By the decoded `cmd`, never a substring of the raw line: a `cmd` spelled with a JSON escape
+    // reaches its handler (agent_session_observe_tests.rs).
     let mut object = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-proxy-bind") {
         return Some(proxy::bind(mux, client, object, writer));
