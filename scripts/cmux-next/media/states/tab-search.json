@@ -10,7 +10,7 @@
       "title": "Open Search Tabs",
       "rpc": {
         "method": "action.run",
-        "params": {"action": "palette.open", "args": {"scope": "tabs"}, "origin": "script"}
+        "params": {"action": "tab.search", "focus": true, "origin": "script"}
       },
       "record": "file",
       "wait": 2
