@@ -61,18 +61,19 @@ export const installationToken = async (env: Env, http: Http, installation: numb
   const cached = installationTokens.get(installation)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
-  if (!res.ok) {
-    // The status rides along: a 401 or 404 means the installation is revoked or gone, and a 403
-    // naming a suspension means it is suspended (each a relink, as the token mint treats them).
-    const message = res.status === 403 ? String(((await res.clone().json().catch(() => ({}))) as { message?: unknown }).message ?? "") : ""
-    if (res.status === 403 && /suspend/i.test(message)) throw new ProviderError("needs_reauth", "github installation token failed: the installation is suspended", false, 403)
-    const error = failed("github", res, "installation token")
-    throw new ProviderError(error.code, error.message, error.retryable, res.status)
-  }
+  if (!res.ok) throw new InstallationTokenRefused(res)
   const body = await json(res)
   const token = String(body.token ?? "")
   installationTokens.set(installation, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
   return token
+}
+
+/** GitHub refused an installation token: its response rides along, so a caller can read the refusal (github-tokens.ts). */
+export class InstallationTokenRefused extends ProviderError {
+  constructor(readonly response: Response) {
+    const error = failed("github", response, "installation token")
+    super(error.code, error.message, error.retryable, response.status)
+  }
 }
 
 /** Drops a cached installation token GitHub refused (a 401), so the next ask mints a fresh one. */
