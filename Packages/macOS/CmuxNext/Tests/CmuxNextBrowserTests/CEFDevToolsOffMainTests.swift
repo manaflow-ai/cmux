@@ -117,24 +117,27 @@ import UniformTypeIdentifiers
     }
 
     /// On the fork's renderer paths a page's own scripts go by `tabEvaluate`, not DevTools: they keep the browser's
-    /// order too. A command and then a script, made while a large call still encodes, reach the page after it and in
-    /// the order they were made.
+    /// order too. A command, a Look Up script and a read, made while an earlier call has not left, reach the page
+    /// after it and in the order they were made. Only this test's calls are compared (the tab's attach calls also go
+    /// to browser 7).
     @Test func aForkEvaluationMadeWhileALargeCallEncodesReachesThePageInOrder() async throws {
         let rig = try Rig(forkAPI: 29)
         defer { rig.close() }
         let tab = try rig.attachedTab()
         try #require(rig.runtime.forkFeatures.rendererPaths)
-        DevToolsSpy.calls = []
-        let large = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
-        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
-        try #require(DevToolsSpy.calls.isEmpty, "the large call is still encoding")
+        let hold = rig.runtime.devToolsOrder.take(7)
+        let large = try await rig.largeEvaluateInLine()
         #expect(tab.perform("command()", gesture: .agent))
         rig.runtime.evaluateLatest(7, world: "", script: "lookUp()") { _ in }
+        let inLine = rig.runtime.devToolsOrder.waiting(7)
         let evaluated = Task { try await rig.runtime.evaluate(7, world: "", script: "read()", userGesture: false) }
+        await rig.until { rig.runtime.devToolsOrder.waiting(7) > inLine || DevToolsSpy.calls.contains(where: Self.isOwnScript) }
+        try #require(!DevToolsSpy.calls.contains(where: Self.isLarge), "the large call left before its turn")
+        await rig.release(hold)
         _ = try await large.value
         _ = try await evaluated.value
-        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate", "tabEvaluate", "tabEvaluate", "tabEvaluate"])
-        #expect(DevToolsSpy.calls.dropFirst().map(\.params) == ["command()", "lookUp()", "read()"])
+        #expect(DevToolsSpy.calls.filter { Self.isLarge($0) || Self.isOwnScript($0) }.map { Self.isLarge($0) ? "large" : $0.params }
+            == ["large", "command()", "lookUp()", "read()"])
     }
 
     /// A tab's hover picture is asked for in the turn before its content hides (a pane switch). Queued behind an
@@ -156,6 +159,11 @@ import UniformTypeIdentifiers
 
     /// This suite's large page host script (``largeScript``), not one of the tab's own attach calls.
     fileprivate static func isLarge(_ call: DevToolsSpy.Call) -> Bool { call.params.contains("__cmuxPageReceiveMany") }
+
+    /// One of the fork test's own page scripts (`tabEvaluate`).
+    fileprivate static func isOwnScript(_ call: DevToolsSpy.Call) -> Bool {
+        call.method == "tabEvaluate" && ["command()", "lookUp()", "read()"].contains(call.params)
+    }
 
     // MARK: Fixtures
 
