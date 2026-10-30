@@ -342,7 +342,9 @@ impl Hub {
         next: Option<super::TurnInfo>,
     ) -> Option<super::TurnInfo> {
         #[cfg(test)]
-        if let Some(entered) = session.auto_resume.take_entered.lock().unwrap().take() {
+        if let Some(entered) =
+            session.auto_resume.take_entered.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
             let _ = entered.send(());
         }
         let mut pending = session.auto_resume.lock();
@@ -510,7 +512,9 @@ impl Hub {
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = session.auto_resume.lock();
         #[cfg(test)]
-        if let Some(locked) = session.auto_resume.stop_locked.lock().unwrap().take() {
+        if let Some(locked) =
+            session.auto_resume.stop_locked.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
             let _ = locked.send(());
         }
         // A lazy startup may not have installed the saved retry's mark yet. Journal the
