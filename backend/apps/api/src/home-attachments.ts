@@ -405,6 +405,11 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   if (!partNumberIn(part, plan.parts)) return partInvalid(plan.parts)
   const sha = new ResumableSha256(slot.multipart_hash)
   const next = sha.bytes / plan.partBytes + 1
+  if (part < next) {
+    // A part already recorded (its answer was lost): the stored result again, so the client goes on to the next part.
+    const etag = (await conv.multipartEtags(conversation, id))[part - 1]
+    if (etag !== undefined) return success({ part_number: part, byte_count: Math.min(plan.partBytes, slot.byte_count - (part - 1) * plan.partBytes), etag })
+  }
   if (part !== next) return failure({ status: 409, code: "attachment.part_order", message: Number.isInteger(next) ? `send part ${next} next` : "every part is stored; complete the upload" })
   const length = Math.min(plan.partBytes, slot.byte_count - sha.bytes)
   // The part is this request's before any byte reaches R2: a concurrent PUT of it is refused here,

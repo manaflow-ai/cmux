@@ -128,6 +128,15 @@ export const streamPartInto = async (upload: R2MultipartUpload, part: number, re
   })
   const fixed = new FixedLengthStream(length)
   const piped = request.body.pipeThrough(meter).pipeTo(fixed.writable).catch(() => undefined)
+  // Between chunks, and after the last one while R2 writes the part, the claim keeps renewing: a slow R2
+  // answer never lets another request take the part this one may still write. Stops when uploadPart settles.
+  const heartbeat = renew
+    ? setInterval(() => {
+        if (Date.now() - renewedAt < renew.everyMs) return
+        renewedAt = Date.now()
+        void renew.run().catch(() => false)
+      }, HEARTBEAT_TICK_MS)
+    : undefined
   try {
     const uploaded = await upload.uploadPart(part, fixed.readable)
     await piped
@@ -136,8 +145,13 @@ export const streamPartInto = async (upload: R2MultipartUpload, part: number, re
     await fixed.readable.cancel().catch(() => undefined)
     await piped
     return refused ? null : "unavailable"
+  } finally {
+    if (heartbeat !== undefined) clearInterval(heartbeat)
   }
 }
+
+/** How often a part's heartbeat looks at its claim's age (it renews only once PART_RENEW_MS passed). */
+const HEARTBEAT_TICK_MS = 1_000
 
 /**
  * One verified PUT through the Worker into R2 (home-attachments.ts: a stream slot's file and a

@@ -145,7 +145,7 @@ extension WireHomeSource {
     /// each piece, then streams the ordered objects into one hash-checked file.
     private func putMultipart(_ answer: HomeWireJSON, from file: URL) async throws -> [HomeWireJSON] {
         guard let url = answer["upload_url"].string.flatMap(URL.init(string:)) else { throw HomeRejection.invalid("attachment.bad_answer") }
-        let size = Int(answer["part_size"].double ?? 0)
+        let size = answer["part_size"].int ?? 0
         guard size > 0 else { throw HomeRejection.invalid("attachment.bad_answer") }
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
