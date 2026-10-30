@@ -71,6 +71,22 @@ struct CloudWorkspaceAccountListTests {
                 "the store's list is the previous team's: it says nothing about the new team's machines")
     }
 
+    /// Review of #28393, finding 2: a saved workspace this run never saw on any machine is gone only
+    /// once every machine that could hold it has loaded. During a team switch the store still holds the
+    /// previous team's list, so the new team's machines have not been listed yet: it must wait.
+    @Test func aNeverSeenWorkspaceWaitsForTheNewTeamsList() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local"))
+        services.windows.cloudList = { _ in
+            CloudService.ListFacts(isSignedIn: true, isRestoring: false, hasLoadedMachines: true, hasLoadedCurrentMachines: false)
+        }
+        #expect(!services.windows.isDead("ws-never-seen"),
+                "the store's list is the previous team's: the new team's machines may still hold the workspace")
+        services.windows.cloudList = { _ in Self.signedInWithCurrentList }
+        #expect(services.windows.isDead("ws-never-seen"), "the new team's list loaded without it, and this Mac's tree has none")
+    }
+
     /// Finding 3: the ids the app gives SSH machines and paired servers are never Cloud ids, read
     /// from the types that make them, so a change of their id form cannot make them Cloud machines.
     @Test func sshAndServerMachineIDsAreNeverCloudIDs() throws {
