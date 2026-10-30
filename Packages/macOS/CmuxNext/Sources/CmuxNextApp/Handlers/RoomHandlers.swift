@@ -360,17 +360,27 @@ extension RoomHandlers {
     /// The space whose default session is `session`, else a new one following it, with the next free color.
     private static func space(following session: String, named name: String, services: AppServices) async throws -> ProfileID {
         let local = services.machines.local
-        if let existing = local.store.profiles.first(where: { $0.defaultSessionID?.lowercased() == session.lowercased() }) {
-            return existing.id
-        }
         guard let connection = local.connection else { throw DaemonError.notConnected }
-        let used = Set(local.store.profiles.compactMap(\.color))
-        let id = ProfileID.generate()
-        _ = try await connection.createProfile(name: name, id: id, color: (GroupColor.automatic(used: used) ?? .grey).rawValue, icon: "cloud",
-                                               defaultSessionID: session, follows: [session])
-        // The reply comes before the home store mirrors the space (`personal-changed`); entering it earlier would
-        // fall back as from a deleted space (cx-d8x5).
-        await local.store.mirrored(profile: id)
+        let id: ProfileID
+        if let existing = local.store.profiles.first(where: { $0.defaultSessionID?.lowercased() == session.lowercased() }) {
+            id = existing.id
+        } else {
+            // A space's dot in its own color, like any other space (no icon).
+            let used = Set(local.store.profiles.compactMap(\.color))
+            id = .generate()
+            _ = try await connection.createProfile(name: name, id: id, color: (GroupColor.automatic(used: used) ?? .grey).rawValue,
+                                                   defaultSessionID: session, follows: [session])
+            // The reply comes before the home store mirrors the space (`personal-changed`); entering it earlier would
+            // fall back as from a deleted space (cx-d8x5).
+            await local.store.mirrored(profile: id)
+        }
+        // The home daemon makes `default` follow every session it first records (put-session), so the machine's
+        // workspaces would show on the Mac's space too: the machine is the Cloud space's alone.
+        let defaultFollows = local.store.personal.follows[.defaultProfile] ?? []
+        if let followed = defaultFollows.first(where: { $0.lowercased() == session.lowercased() }) {
+            _ = try await connection.request(SetProfileFollowsRequest(profile: .defaultProfile,
+                                                                      sessionIDs: defaultFollows.subtracting([followed]).sorted()))
+        }
         return id
     }
 }
