@@ -120,6 +120,22 @@ struct AgentShareTests {
         #expect(chat.isLocal)
     }
 
+    /// A surface or target that names nothing answers `not_found`, not `unavailable`.
+    @Test func aMissingChatAnswersNotFound() {
+        let f = Self.fixture()
+        let registry = f.services.registry
+        for (id, arguments) in [(AgentShareActions.share, ["surface": ActionValue.int(99)]), (AgentShareActions.list, ["surface": ActionValue.int(99)])] {
+            let refusal = registry.capturingTypedRefusal {
+                _ = registry.perform(id, invocation: ActionInvocation(target: nil, arguments: arguments, origin: .cli))
+            }
+            #expect(refusal?.isNotFound == true, "\(id) on a missing surface did not answer not_found")
+        }
+        let notAChat = registry.capturingTypedRefusal {
+            _ = registry.perform(AgentShareActions.share, invocation: ActionInvocation(target: nil, arguments: ["surface": .int(3)], origin: .cli))
+        }
+        #expect(notAChat?.isNotFound == false, "a terminal is not a missing target")
+    }
+
     @Test func ttlTakesSecondsOrAUnitWithinOneMinuteToSevenDays() throws {
         #expect(try AgentShareArguments.ttl(nil) == nil)
         #expect(try AgentShareArguments.ttl(" ") == nil)

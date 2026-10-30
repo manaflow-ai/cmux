@@ -24,7 +24,7 @@ public struct AgentShareActions {
             let chat: AgentShareChat
             switch Self.chat(invocation, host: host) {
             case .success(let found): chat = found
-            case .failure(let refusal): return .refused(refusal.reason)
+            case .failure(let refusal): return Self.refused(refusal, registry)
             }
             // The owner's install token goes only to this Mac's daemon: another machine's chat is refused
             // before a token is minted.
@@ -49,7 +49,7 @@ public struct AgentShareActions {
                 // List reads this Mac's shares, so another machine's surface number would name a local chat.
                 case .success(let chat) where !chat.isLocal: return .refused(AgentShareStrings.notThisMac)
                 case .success(let chat): surface = chat.surface
-                case .failure(let refusal): return .refused(refusal.reason)
+                case .failure(let refusal): return Self.refused(refusal, registry)
                 }
             }
             let connection = host.shareLocalConnection
@@ -102,6 +102,14 @@ public struct AgentShareActions {
         guard let tab, AgentShareChat.session(of: tab) != nil else { return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat)) }
         return .success(AgentShareChat(surface: tab.surface.rawValue, connection: host.shareConnection(holding: tab),
                                        isLocal: host.shareIsOnThisMac(tab)))
+    }
+
+    /// A target that names nothing answers `not_found` (``ActionRegistry/refuseNotFound(_:)``); any
+    /// other refusal answers `unavailable`.
+    private static func refused(_ refusal: AgentShareRefusal, _ registry: ActionRegistry) -> ActionEffect {
+        guard refusal.isNotFound else { return .refused(refusal.reason) }
+        registry.refuseNotFound(refusal.reason)
+        return .done
     }
 
     private static func argument(_ invocation: ActionInvocation, _ name: String) -> String? {
