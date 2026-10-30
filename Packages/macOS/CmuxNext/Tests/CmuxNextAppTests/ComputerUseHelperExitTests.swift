@@ -1,4 +1,5 @@
 import CmuxNextAgentActivity
+@testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextComputerUse
 import CmuxNextWakeupsTestSupport
@@ -40,6 +41,43 @@ struct ComputerUseHelperExitTests {
         await daemon.apply(enabled: true)
         #expect(daemon.state == .running(602))
         #expect(launcher.terminated.isEmpty, "the exited helper needs no stop")
+    }
+
+    /// The user's case (2026-10-27, nightly cc0d757): System Settings quit the
+    /// helper after a grant, the app still said `.running`, and Stop / Focus
+    /// Computer Use answered "The Computer Use helper did not answer." until
+    /// cmux restarted. When the exit is missed, the first request that finds
+    /// no listener notices that the process is gone, starts the helper again
+    /// and says so.
+    @Test func aRequestToAHelperThatIsGoneStartsItAgain() async throws {
+        let launcher = ExitingHelperLauncher()
+        let (daemon, root) = makeDaemon(launcher)
+        defer { try? FileManager.default.removeItem(at: root) }
+        await daemon.apply(enabled: true)
+        try #require(daemon.state == .running(601))
+
+        // No listener answers at the socket, and no exit event comes.
+        launcher.vanish(601)
+        let sessions = CuaComputerUseSessions(configuration: { daemon.configuration }, phase: { .ready },
+                                              confirmRunning: { daemon.confirmRunning() })
+        await #expect(throws: ComputerUseSessionError.notRunning(ComputerUseSessionStrings.helperRestarting)) {
+            try await sessions.liveSessions()
+        }
+        #expect(daemon.state != .running(601), "the app must notice that its helper is gone")
+        #expect(daemon.configuration == nil, "no reader gets the gone helper's tokens")
+        #expect(launcher.cancelled == [601], "the missed exit's watch ends")
+
+        await launcher.waitForLaunches(2)
+        await daemon.apply(enabled: true)
+        #expect(daemon.state == .running(602))
+        #expect(launcher.terminated.isEmpty, "the gone helper needs no stop")
+
+        // A live helper that does not answer keeps the old reason, and nothing restarts.
+        await #expect(throws: ComputerUseSessionError.failed(ComputerUseSessionStrings.hostUnreachable)) {
+            try await sessions.liveSessions()
+        }
+        #expect(daemon.state == .running(602))
+        #expect(launcher.launched == [601, 602])
     }
 
     @Test func anExitLoopStopsTheRestartsUntilTheHelperIsRestarted() async throws {
@@ -204,10 +242,18 @@ private final class ExitingHelperLauncher: ComputerUseHelperLaunching {
 
     func terminate(_ pid: pid_t) { terminated.append(pid) }
 
+    /// Helpers that are gone without an exit event (``vanish(_:)``).
+    private var gone: Set<pid_t> = []
+
+    func isRunning(_ pid: pid_t) -> Bool { !gone.contains(pid) }
+
     func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
         exitHandlers[pid] = onExit
         return { [weak self] in self?.cancelled.append(pid) }
     }
+
+    /// The helper `pid` is gone, and its exit event never comes.
+    func vanish(_ pid: pid_t) { gone.insert(pid) }
 
     /// The helper `pid` exits. The handler runs even after a cancel: the
     /// kernel event can already be queued when the daemon cancels its watch.

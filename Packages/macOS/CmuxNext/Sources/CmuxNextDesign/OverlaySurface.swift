@@ -198,6 +198,16 @@ public final class OverlaySurfaceView: NSView {
 
     private func applyShape() {
         rimView?.cornerRadius = cornerRadius
+        // The content takes the surface's shape on every material. The blur and the solid
+        // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never
+        // clips its content view: a content background (`OverlayBackingView`'s veil) painted
+        // square corners past the rounded glass (Lawrence 2026-10-27, the save-password bar).
+        contentView.wantsLayer = true
+        if let layer = contentView.layer {
+            layer.cornerRadius = cornerRadius
+            layer.cornerCurve = .continuous
+            layer.masksToBounds = true
+        }
         if isCard, material == .liquidGlass, let layer = tintView?.layer {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous

@@ -22,6 +22,10 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var machineConfigPath: String?
     /// `--repo OWNER/NAME[@REF]`, cloned before the script (or alone).
     public var repo: CloudMachineRepo?
+    /// The chat's pick (``CloudWorkPick/autosize``): the server sizes the machine for the task
+    /// unless ``memoryMb`` names a size. Not a request option of its own (``isDefault``): a bare
+    /// create from a chat still takes the plain path, sized for that chat.
+    public var autosize: CloudAutosizeRequest?
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString
@@ -35,6 +39,10 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var script: CloudMachineBootstrap?
     /// The loaded `--machine-config` (``loadMachineConfig(work:)``), applied by the create after the bootstrap starts.
     public var machineConfig: CloudMachineConfig?
+    /// A Cloud environment (`env_…`) to boot the machine in (`cloud.environment.boot`, cmux-next
+    /// Cloud only): from its snapshot when it is built, otherwise from the image with its setup started
+    /// on the machine. Not an option of the machine itself, so ``isDefault`` ignores it.
+    public var environment: String?
 
     /// A machine name `cloud new-machine` takes: 1-64 of letters, digits, `.`, `_` and `-`, not
     /// starting with `-`, so it is also a host name and a shell word in the commands it prints.

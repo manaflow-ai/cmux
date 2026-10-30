@@ -308,14 +308,16 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       );
       const text = page.locator(".acpmux-queued-text", { hasText: "alpha one" });
       await text.waitFor();
-      // One 18px line, closed.
+      // A line is the chat font's (#26523 scaled queued prompts with the chat font size).
+      const line = await text.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+      // One line, closed.
       const closed = (await text.boundingBox())!.height;
-      expect(closed).toBeLessThanOrEqual(18 + 1);
+      expect(closed).toBeLessThanOrEqual(line + 1);
       await text.click();
       await expect(text.getAttribute("aria-expanded")).resolves.toBe("true");
       // All five lines once opened.
       const opened = (await text.boundingBox())!.height;
-      expect(opened).toBeGreaterThanOrEqual(5 * 18 - 1);
+      expect(opened).toBeGreaterThanOrEqual(5 * line - 1);
       await page.close();
     });
 
@@ -353,9 +355,18 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.locator(".acpmux-pr-dock").waitFor();
       await page.locator(".acpmux-permission-card").waitFor();
       await page.locator(".acpmux-queued-text", { hasText: "the pr thing" }).click();
-      // The prompt has opened, and a frame has painted with the list fitted to it.
+      // The prompt has opened, and the list has come to rest fitted to it: a frame for the fit,
+      // then its max-height transition (#24718) and any other finite animation run out.
       await page.locator('.acpmux-queued-text[aria-expanded="true"]', { hasText: "the pr thing" }).waitFor();
-      await page.evaluate(() => window.cmuxPaintFrame());
+      await page.evaluate(async () => {
+        await window.cmuxPaintFrame();
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        for (let tries = 0; tries < 20 && finite().some((animation) => animation.playState === "running"); tries++) {
+          await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+          await window.cmuxPaintFrame();
+        }
+      });
       const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
       const list = await box(".acpmux-composer-queue");
       const scroller = await box(".acpmux-scroll");
@@ -376,15 +387,19 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         expect(r.y).toBeGreaterThanOrEqual(list.y - 1);
         expect(r.y + r.height).toBeLessThanOrEqual(list.y + list.height + 1);
       }
-      // The transcript runs under the stack to the pane's bottom (bottomStack.css), and the stack
-      // holds the question above the pull requests, the pull requests above the queue and the
-      // queue above the composer.
+      // The stack holds the question above the queue and the queue above the composer. The pull
+      // requests are no part of it since #26082: with no reply drawn to carry their links, they
+      // stand in a row after the latest one (summary/pullRequestPlacement.ts), in flow right above
+      // the stack; the transcript runs down to that row, and the row down to the stack.
       const card = await box(".acpmux-permission-card");
       const stack = await box(".acpmux-main > .acpmux-dock");
+      const links = await box(".acpmux-transcript-after-latest");
       expect(stack.y).toBeLessThanOrEqual(card.y + 1);
-      expect(Math.abs(scroller.y + scroller.height - (stack.y + stack.height))).toBeLessThanOrEqual(1);
-      expect(card.y + card.height).toBeLessThanOrEqual(dock.y + 1);
-      expect(dock.y + dock.height).toBeLessThanOrEqual(list.y + 1);
+      expect(await page.locator(".acpmux-main > .acpmux-dock .acpmux-pr-dock").count()).toBe(0);
+      expect(Math.abs(scroller.y + scroller.height - links.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(links.y + links.height - stack.y)).toBeLessThanOrEqual(1);
+      expect(dock.y + dock.height).toBeLessThanOrEqual(card.y + 1);
+      expect(card.y + card.height).toBeLessThanOrEqual(list.y + 1);
       // The queue shows its own bottom edge: nothing below tucks it under.
       expect(list.y + list.height).toBeLessThanOrEqual(composer.y + 1);
       await page.close();

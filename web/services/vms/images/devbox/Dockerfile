@@ -347,6 +347,7 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+COPY claude-onboarding.py /etc/cmux/claude-onboarding.py
 # Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
 # own-login mode per launch (agent-auth.sh) and execs
 # /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so

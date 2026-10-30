@@ -246,11 +246,11 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
+        // else at the top; the App's launch sweep removes either after 30 days.
         dictation.chatSession = { [weak model] in model?.sessionId }
         model.onDictationRecording = { [weak self] path, session in self?.dictation.takeRecording(path, session: session) }
         model.onDictationRecordingUnsent = { [weak self] file, session in self?.dictation.giveBackRecording(file, session: session) }
-        // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
-        // else at the top; the App's launch sweep removes either after 30 days.
         dictation.recordingFolder = { [weak model] in
             model.flatMap { ChatUploadFolders.standard?.freshUpload(session: $0.onLocalPaths?() == true ? $0.sessionId : nil) }
         }

@@ -296,8 +296,63 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "The folder popover: a search field over the recent projects (paths on hover), then Add project and Choose folder….",
+      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
       props: baseProps,
+      play: openFolder,
+    },
+    "folder-pinned-search": {
+      note: "Typing a project keeps its row active while the actions stay pinned above it.",
+      props: {
+        ...baseProps,
+        onProject: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowseProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
+      },
+      play: openFolder,
+    },
+    "folder-short-note": {
+      note: "A short pane with a private-folder explanation keeps project rows visible.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "New chats in this workspace start in a private folder.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-de": {
+      note: "A two-line German private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-fr": {
+      note: "A two-line French private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
+      },
+      play: openFolder,
+    },
+    "folder-long-list": {
+      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      props: {
+        ...baseProps,
+        projectChoices: Array.from({ length: 40 }, (_, index) => ({
+          cwd: `/demo/review-${index + 1}`,
+          label: `review-${index + 1}`,
+        })),
+        onNoProject: () => undefined,
+      },
       play: openFolder,
     },
     "folder-favicons": {
@@ -394,19 +449,43 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openFolder,
     },
+    "computer-first-setup": {
+      note: "A fresh home, with Labs off and no other computer: Add a computer opens Add Device, and New Cloud Machine uses the existing creation action.",
+      props: { ...baseProps, sessions: [], peers: [], cloudMachines: [], localName: "Studio Mac" },
+      play: openComputer,
+    },
+    "computer-first-setup-chat": {
+      note: "The same first-computer setup footer in an existing local chat, without enabling Labs or allowing the chat to change its machine.",
+      props: {
+        ...baseProps,
+        started: true,
+        sessions: [],
+        peers: [],
+        cloudMachines: [],
+        localName: "Studio Mac",
+        summary: { sessionId: "gallery-local", harness: "claude", hostKind: "local" },
+      },
+      play: openComputer,
+    },
     "computer-menu": {
       note: "The computer menu keeps local and Cloud destinations together with SSH and cmux Cloud actions.",
       props: baseProps,
       play: openComputer,
     },
     "computer-search": {
+      // The open machine list runs to about y=221, past the entry's 180px stage. On a short stage
+      // the page scrolls to show it, the anchor leaves the view and the popup hides
+      // (`.ui-positioner[data-anchor-hidden]`). When the health runner's step still then sends focus
+      // back to the dialog, focusing the hidden input does nothing and "gpu" goes to the body. A
+      // stage that holds the whole menu keeps the anchor, the popup and the input in view.
+      height: 420,
       note: "The classic machine picker uses the same searchable Combobox as environments and folders; filtering twenty machines leaves gpu-box.",
       props: { ...baseProps, peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)] },
       play: async (ctx) => {
         await openComputer(ctx);
         await ctx.focus({ role: "combobox", name: "Computer" });
         await ctx.type("gpu");
-        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1, { capMs: 8000 });
       },
     },
     "environment-picker": {

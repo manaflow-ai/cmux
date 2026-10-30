@@ -29,7 +29,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
-    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?) async throws
+    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?, _ model: String?) async throws
         -> (client: any AgentSessionRemoteClient, session: String)
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
@@ -228,10 +228,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         }) else { return refuse(id, "session/new") }
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
         let harness = (acpmux?["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let model = (acpmux?["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         // task-owner: the one start of this wire's chat; its reply ends it
         Task { [weak self] in
             do {
-                let (client, session) = try await start(cwd, harness)
+                let (client, session) = try await start(cwd, harness, model)
                 guard let self else { await client.close(); return }
                 let open = state.withLock { state -> Bool in
                     state.starting = false

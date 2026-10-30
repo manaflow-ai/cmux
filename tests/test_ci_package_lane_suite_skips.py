@@ -8,11 +8,19 @@ summary table said `SidebarMultiViewHomeTests passed 10s`, and the lane printed
 ("Test run with 2 tests in 1 suite passed"). CMUX_TEST_REQUIRE_GUI=1 changed
 nothing. A fake `swift` prints each suite's recorded output; a fake `xcrun` names
 an SDK.
+
+2026-10-28: a skipped suite still exited 0 ("2 of 3 suites passed; 1 skipped"), so a
+live-daemon suite (FirstLaunchTests, `.enabled(if: SameTreeDaemonBinary.url != nil,
+"needs the same-tree cmux-tui")`) skipped for a missing cmux-tui left the step green.
+A named suite that ran none of its tests, and any test skipped for a missing cmux-tui,
+is now "no result": the step fails, and test_reds.py never calls it a base red.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +39,7 @@ case "$1" in
   test)
     while [ "$#" -gt 0 ]; do [ "$1" = --filter ] && filter="$2"; shift; done
     cat "$FAKE_SWIFT_OUTPUTS/$filter.out"
+    [ -f "$FAKE_SWIFT_OUTPUTS/$filter.status" ] && exit "$(cat "$FAKE_SWIFT_OUTPUTS/$filter.status")"
     exit 0 ;;
 esac
 exit 0
@@ -60,6 +69,69 @@ RAN_SUITE = """\
 ✔ Test aReleaseOverAnotherRowNavigatesNowhere() passed after 0.014 seconds.
 ✔ Suite SidebarMultiViewPressTests passed after 0.253 seconds.
 ✔ Test run with 2 tests in 1 suite passed after 0.253 seconds.
+"""
+
+# A live-daemon suite with no cmux-tui: XCTest's half ran nothing and Swift Testing skipped the suite.
+NO_DAEMON_SUITE = """\
+Test Suite 'Selected tests' started at 2026-10-28 12:12:08.381.
+Test Suite 'Selected tests' passed at 2026-10-28 12:12:08.381.
+\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+➜ Suite FirstLaunchTests skipped: "needs the same-tree cmux-tui"
+➜ Test freshSessionStartsWithExactlyOneTerminal() skipped: "needs the same-tree cmux-tui"
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+"""
+
+# The same suite with its cmux-tui (cmux-ci step 7e3af8f7, 2026-10-28): XCTest says "Executed 0 tests" because
+# the suite is Swift Testing's, whose test ran. A pass.
+DAEMON_RAN_SUITE = """\
+Test Suite 'Selected tests' started at 2026-10-28 12:12:08.381.
+Test Suite 'CmuxNextPackageTests.xctest' started at 2026-10-28 12:12:08.381.
+Test Suite 'CmuxNextPackageTests.xctest' passed at 2026-10-28 12:12:08.381.
+\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-10-28 12:12:08.381.
+\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+◇ Suite FirstLaunchTests started.
+◇ Test freshSessionStartsWithExactlyOneTerminal() started.
+✔ Test freshSessionStartsWithExactlyOneTerminal() passed after 2.513 seconds.
+✔ Suite FirstLaunchTests passed after 2.514 seconds.
+✔ Test run with 1 test in 1 suite passed after 2.514 seconds.
+"""
+
+# One test of a live-daemon suite skipped for the missing cmux-tui, another ran.
+PARTLY_NO_DAEMON_SUITE = """\
+◇ Test run started.
+✔ Test aLocalCheck() passed after 0.010 seconds.
+➜ Test aDaemonCheck() skipped: "needs the same-tree cmux-tui and app host"
+✔ Test run with 2 tests in 1 suite passed after 0.011 seconds.
+"""
+
+# A test failed while another skipped for the missing cmux-tui: `swift test` exits 1.
+FAILED_AND_NO_DAEMON_SUITE = """\
+◇ Test run started.
+✘ Test aLocalCheck() recorded an issue at A.swift:3:5: Expectation failed
+✘ Test aLocalCheck() failed after 0.010 seconds with 1 issue.
+➜ Test aDaemonCheck() skipped: "needs the same-tree cmux-tui"
+✘ Test run with 2 tests in 1 suite failed after 0.011 seconds with 1 issue.
+"""
+
+# A suite whose only test skipped by its own trait while the suite line says "passed" (cmux-ci step 12b02341,
+# 2026-10-27: on a branch before the skip report, its row read "passed").
+TEST_SKIPPED_SUITE_PASSED = """\
+\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+◇ Suite MotionRootSpeedProbeTests started.
+➜ Test rootSpeedReachesWhichPaths() skipped: "needs an awake display and animations on"
+✔ Suite MotionRootSpeedProbeTests passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+"""
+
+# XCTest's "Executed 0 tests" and nothing else: no test ran at all.
+ZERO_EXECUTED = """\
+Test Suite 'Selected tests' started at 2026-10-28 12:12:06.152.
+Test Suite 'Selected tests' passed at 2026-10-28 12:12:06.153.
+\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
 """
 
 PARTLY_SKIPPED_SUITE = """\
@@ -165,13 +237,17 @@ class SuiteSkipTest(unittest.TestCase):
                           "\t Executed 2 tests, with 2 tests skipped and 0 failures (0 unexpected) in 0.0 (0.0) seconds\n")
         for name, output in (("SidebarMultiViewHomeTests", SKIPPED_SUITE), ("SidebarMultiViewPressTests", RAN_SUITE),
                              ("AAGalleryTests", PARTLY_SKIPPED_SUITE), ("XCSkippedTests", xctest_skipped),
-                             ("EmptyTests", "Build complete!\n")):
+                             ("EmptyTests", "Build complete!\n"), ("FirstLaunchTests", NO_DAEMON_SUITE),
+                             ("DaemonRanTests", DAEMON_RAN_SUITE), ("PartlyDaemonTests", PARTLY_NO_DAEMON_SUITE),
+                             ("ZeroExecutedTests", ZERO_EXECUTED), ("FailedDaemonTests", FAILED_AND_NO_DAEMON_SUITE),
+                             ("MotionRootSpeedProbeTests", TEST_SKIPPED_SUITE_PASSED)):
             (self.outputs / f"{name}.out").write_text(output, encoding="utf-8")
+        (self.outputs / "FailedDaemonTests.status").write_text("1")
         (self.tmp / "sdk").mkdir()
-        self.env = {**{k: v for k, v in os.environ.items() if k not in ("CMUX_TEST_REQUIRE_GUI", "GITHUB_STEP_SUMMARY")},
+        self.env = {**{k: v for k, v in os.environ.items() if k not in ("CMUX_TEST_REQUIRE_GUI", "GITHUB_STEP_SUMMARY", "CMUX_CI_DISPLAY_ROUTED")},
                     "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_OUTPUTS": os.fspath(self.outputs),
                     "FAKE_SDK": os.fspath(self.tmp / "sdk"), "DEVELOPER_DIR": os.fspath(self.tmp),
-                    "RUNNER_TEMP": os.fspath(self.tmp)}
+                    "RUNNER_TEMP": os.fspath(self.tmp), "CMUX_PACKAGE_LANE_TEST_OS": "Darwin"}
 
     def suite(self, *filters, **env):
         return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "suite", "Packages/macOS/Pkg", ",".join(filters)],
@@ -182,22 +258,98 @@ class SuiteSkipTest(unittest.TestCase):
         self.assertEqual(len(rows), 1, out)
         return " ".join(rows[0].split()[1:-1])
 
-    def test_a_skipped_suite_reads_skipped_and_is_not_counted_as_passed(self):
+    def test_a_suite_that_ran_none_of_its_tests_is_no_result_and_fails(self):
         done = self.suite("SidebarMultiViewHomeTests", "SidebarMultiViewPressTests", "AAGalleryTests")
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.row(done.stdout, "SidebarMultiViewHomeTests"), "skipped")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "SidebarMultiViewHomeTests"), "no result (0 ran)")
         self.assertEqual(self.row(done.stdout, "SidebarMultiViewPressTests"), "passed")
         self.assertEqual(self.row(done.stdout, "AAGalleryTests"), "passed, 1 skipped")
-        self.assertNotIn("All 3 suites passed", done.stdout)
-        self.assertIn("2 of 3 suites passed; 1 skipped (none of their tests ran).", done.stdout)
+        self.assertNotIn("suites passed", done.stdout)
+        self.assertIn("1 of 3 suites failed or gave no result.", done.stdout)
         self.assertIn('SidebarMultiViewHomeTests: skipped suite SidebarMultiViewHomeTests: "the drag tests need a display"',
                       done.stdout)
-        self.assertIn("::warning title=Swift suite skipped::SidebarMultiViewHomeTests", done.stdout)
+        self.assertIn("::error title=Swift suite no result::SidebarMultiViewHomeTests", done.stdout)
+        self.assertIn("required tests did not run", done.stdout)
 
-    def test_an_xctest_suite_of_skips_reads_skipped_and_an_empty_run_fails(self):
-        done = self.suite("XCSkippedTests")
+    def test_every_test_skipped_under_a_passed_suite_line_is_no_result(self):
+        done = self.suite("MotionRootSpeedProbeTests", "SidebarMultiViewPressTests")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "MotionRootSpeedProbeTests"), "no result (0 ran)")
+        self.assertIn("::error title=Swift suite no result::MotionRootSpeedProbeTests", done.stdout)
+        self.assertNotIn("suites passed", done.stdout)
+
+    def test_a_suite_skipped_for_want_of_a_display_says_how_to_get_one(self):
+        """The red step tells the lane what to do: the display traits' skips name a display, a screen or a GUI host."""
+        hint = "this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+        for name in ("SidebarMultiViewHomeTests", "MotionRootSpeedProbeTests"):
+            with self.subTest(suite=name):
+                done = self.suite(name)
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                line = next(l for l in done.stdout.splitlines() if l.startswith("::error title=Swift suite no result::"))
+                self.assertIn(hint, line)
+        done = self.suite("SidebarMultiViewHomeTests", CMUX_CI_DISPLAY_ROUTED="1")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn(hint, done.stdout)
+        self.assertIn("was sent to a display worker, whose console session was lost", done.stdout)
+        (self.outputs / "NoReasonTests.out").write_text("↷ Test a() skipped.\n✔ Test run with 1 test passed after 0.1 seconds.\n")
+        for name in ("XCSkippedTests", "NoReasonTests", "FirstLaunchTests"):
+            with self.subTest(suite=name):
+                done = self.suite(name)
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertNotIn(hint, done.stdout)
+
+    def test_a_live_daemon_suite_without_its_cmux_tui_is_no_result(self):
+        for name in ("FirstLaunchTests", "PartlyDaemonTests"):
+            with self.subTest(suite=name):
+                done = self.suite(name, "SidebarMultiViewPressTests")
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(self.row(done.stdout, name), "no result (no cmux-tui)")
+                self.assertIn(f"::error title=Swift suite no result::{name} in Packages/macOS/Pkg: required tests did "
+                              "not run", done.stdout)
+                self.assertIn("this tree's cmux-tui is missing", done.stdout)
+                self.assertNotIn("suites passed", done.stdout)
+
+    def test_a_missing_cmux_tui_is_no_result_beside_a_failure_or_a_gui_skip(self):
+        """Neither a failing test nor CMUX_TEST_REQUIRE_GUI=1 may hide the no-result line the classifier reads."""
+        spec = importlib.util.spec_from_file_location("test_reds", ROOT / "scripts/ci/test_reds.py")
+        reds = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reds)
+        for name, env in (("FailedDaemonTests", {}), ("FirstLaunchTests", {"CMUX_TEST_REQUIRE_GUI": "1"}),
+                          ("PartlyDaemonTests", {"CMUX_TEST_REQUIRE_GUI": "1"})):
+            with self.subTest(suite=name, env=env):
+                done = self.suite(name, **env)
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn(f"::error title=Swift suite no result::{name} in Packages/macOS/Pkg: required tests did "
+                              "not run: tests skipped because this tree's cmux-tui is missing", done.stdout)
+                for log in (done.stdout, re.sub(r"::error title=[^:]*::", "##[error]", done.stdout)):
+                    self.assertTrue(any("required tests did not run" in why for why in reds.read(log).truncated), log)
+
+    def test_xctest_executed_0_is_a_failure_unless_swift_testing_ran(self):
+        done = self.suite("ZeroExecutedTests")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "ZeroExecutedTests"), "failed (exit 1)")
+        self.assertNotIn("suites passed", done.stdout)
+        done = self.suite("DaemonRanTests")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.row(done.stdout, "XCSkippedTests"), "skipped")
+        self.assertEqual(self.row(done.stdout, "DaemonRanTests"), "passed")
+        self.assertIn("All 1 suites passed.", done.stdout)
+
+    def test_the_no_result_line_is_never_a_base_red(self):
+        done = self.suite("FirstLaunchTests")
+        spec = importlib.util.spec_from_file_location("test_reds", ROOT / "scripts/ci/test_reds.py")
+        reds = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reds)
+        # GitHub shows `::error title=T::msg` as `##[error]msg`; the classifier reads both forms.
+        for log in (done.stdout, done.stdout.replace("::error title=Swift suite no result::", "##[error]")):
+            verdict = reds.classify(log, log, "swift package suites")
+            self.assertIsNotNone(verdict)
+            self.assertTrue(verdict.own, verdict.reasons)
+            self.assertIn("required tests did not run", " ".join(verdict.reasons))
+
+    def test_an_xctest_suite_of_skips_is_no_result_and_an_empty_run_fails(self):
+        done = self.suite("XCSkippedTests")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "XCSkippedTests"), "no result (0 ran)")
         done = self.suite("EmptyTests")
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.row(done.stdout, "EmptyTests"), "failed (exit 1)")
@@ -217,6 +369,18 @@ class SuiteSkipTest(unittest.TestCase):
                 self.assertNotIn("suites passed", done.stdout)
         done = self.suite("SidebarMultiViewPressTests", CMUX_TEST_REQUIRE_GUI="1")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
+class LiveDaemonTraitTest(unittest.TestCase):
+    def test_every_live_daemon_trait_names_the_cmux_tui(self):
+        """The lane finds a live-daemon skip by its reason ("same-tree cmux-tui"): every such trait says it."""
+        gated = re.compile(r"\.enabled\(if: SameTreeDaemonBinary\.url != nil(?P<rest>[^)]*)\)")
+        found = 0
+        for path in (ROOT / "Packages").rglob("*.swift"):
+            for match in gated.finditer(path.read_text(encoding="utf-8", errors="replace")):
+                found += 1
+                self.assertIn("same-tree cmux-tui", match["rest"], f"{path}: {match[0]}")
+        self.assertGreater(found, 0)
 
 
 if __name__ == "__main__":

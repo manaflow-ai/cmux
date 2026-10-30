@@ -20,6 +20,8 @@ private final class RecordingHelperLauncher: ComputerUseHelperLaunching {
         stopped.append(pid)
     }
 
+    func isRunning(_ pid: pid_t) -> Bool { true }
+
     func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void { {} }
 }
 

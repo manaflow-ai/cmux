@@ -1,4 +1,10 @@
 //! Disabled provider switches in settings are not evidence of a Claude sign-in.
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// Reads settings files only; starts no process.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::claude_auth;
 use serde_json::json;
 use std::collections::BTreeMap;

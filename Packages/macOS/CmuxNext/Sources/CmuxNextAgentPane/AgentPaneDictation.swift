@@ -57,17 +57,13 @@ final class AgentPaneDictation {
     private var recordsAudio = false
     /// A fresh folder for a long recording (``AgentPaneModel/onDictationFolder``); nil: temporary.
     var recordingFolder: () -> URL? = { nil }
-    /// The chat the pane shows (``AgentPaneModel/sessionId``), kept with each long recording: read
-    /// when its session starts (``recordingChat``), never when it ends.
+    /// Capture the chat at start: closing the recording may outlive a pane navigation.
     var chatSession: () -> String? = { nil }
-    /// The chat the current (or closing) session was started in. A session's recording closes
-    /// asynchronously, and the pane may show another chat by then: its file is still that chat's.
-    /// One session runs at a time (a closing one is not startable), so one value is enough.
-    private var recordingChat: String?
+    private var recordingChat = ""
     /// The long recordings this pane's sessions wrote and handed the page, newest last, each with
     /// the chat it was made in: the only files ``takeRecording(_:session:)`` gives out, so the page
     /// can never have the host send any other file.
-    private var issued: [(file: URL, session: String?)] = []
+    private var issued: [(file: URL, session: String)] = []
     /// How many recordings ``issued`` keeps: the page asks for one as its session ends.
     static let issuedRecordingLimit = 8
     /// Opens a URL (System Settings).
@@ -217,8 +213,7 @@ final class AgentPaneDictation {
         microphone.claims?.claim(self) { [weak self] in self?.session?.stop() }
         let session = activeSession()
         session.recordsAudio = recordsAudio
-        // Only a startable session starts: a session still closing keeps the chat it began in.
-        if session.phase.isStartable { recordingChat = chatSession() }
+        if session.phase.isStartable { recordingChat = chatSession() ?? "" }
         session.start()
         if !phase.isStartable, sleepObserver == nil {
             sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
@@ -253,21 +248,21 @@ final class AgentPaneDictation {
     /// Gives back long recording `file` of chat `session` whose upload failed, so the page's Retry
     /// can take it again (``takeRecording(_:session:)``, still once per try).
     func giveBackRecording(_ file: URL, session: String) {
+        issue(file, session: session)
+    }
+
+    private func issue(_ file: URL, session: String) {
         issued.append((file, session))
         if issued.count > Self.issuedRecordingLimit { issued.removeFirst(issued.count - Self.issuedRecordingLimit) }
     }
 
-    /// One of the session's updates, for the page. A long recording on it is issued to `chat`, the
-    /// chat its session was started in (``recordingChat``), whatever the pane shows now.
-    /// The recording names that chat too (`audio.session` on the page), so the page attaches it only
-    /// while it shows that chat.
-    func deliver(_ update: DictationUpdate, recordedIn chat: String?) {
+    /// One of the session's updates, for the page, named for `chat`, the chat its session was
+    /// started in (``recordingChat``), whatever the pane shows now. A long recording on it is
+    /// issued to that chat.
+    func deliver(_ update: DictationUpdate, recordedIn chat: String) {
         var update = update
-        update.audio?.chat = chat
-        if let file = update.audio?.file {
-            issued.append((file, chat))
-            if issued.count > Self.issuedRecordingLimit { issued.removeFirst(issued.count - Self.issuedRecordingLimit) }
-        }
+        update.chat = chat
+        if let file = update.audio?.file { issue(file, session: chat) }
         if update.phase.isStartable {
             endHold()
             endSleepWatch()
@@ -287,6 +282,7 @@ final class AgentPaneDictation {
             "level": (Double(update.level) * 1000).rounded() / 1000,
             "cancelled": update.cancelled,
         ]
+        if let chat = update.chat { value["session"] = chat }
         switch update.phase {
         case .denied(let permission):
             value["permission"] = permission.rawValue
@@ -303,7 +299,6 @@ final class AgentPaneDictation {
             var sent: [String: any Sendable] = ["mimeType": "audio/wav", "byteCount": audio.byteCount]
             if let data = audio.data { sent["data"] = data.base64EncodedString() }
             if let file = audio.file { sent["path"] = file.path }
-            if let chat = audio.chat { sent["session"] = chat }
             value["audio"] = sent
         }
         if let omitted = update.audioOmitted {
