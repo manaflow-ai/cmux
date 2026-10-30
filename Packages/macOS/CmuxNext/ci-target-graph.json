@@ -272,6 +272,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextDevices",
         "CmuxNextDictation",
         "CmuxNextDiff",
@@ -949,6 +950,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
+        "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
@@ -1044,6 +1046,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
@@ -1096,7 +1099,9 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
       "targets": [
-        "CmuxNextFloating"
+        "CmuxNextDesign",
+        "CmuxNextFloating",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1464,7 +1469,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
-        "CmuxNextPalette"
+        "CmuxNextPalette",
+        "CmuxNextTestSupport"
       ],
       "packages": [
         "CmuxTheme"
@@ -1653,7 +1659,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
         "CmuxNextFileGrid",
-        "CmuxNextFiles"
+        "CmuxNextFiles",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1854,7 +1861,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
-        "CmuxNextTerminal"
+        "CmuxNextTerminal",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []

@@ -46,6 +46,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
+    // So is a chat's inbox drained (`hub/inbox_digest.rs`).
+    method::MUX_INBOX_DIGEST,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -85,13 +87,23 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
 /// proof (`mark_forwarded` drops the provenance), so without it the peer records the agent's
 /// report as the person's (claude-sr2, 2026-10-24: every remote lane's report a plain bubble), and
 /// a keyed prompt could replace another sender's (`hub/supersede.rs`). The person names no one.
+/// That session's id and harness go too (`fromSessionId`, `fromHarness`), this daemon's word on
+/// its proven caller; whatever a client wrote there is dropped first, and only a prompt that came
+/// over a peer link itself keeps what that link said (`prompt_provenance::FROM_SESSION_ID`).
 fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
+    if conn.origin != Origin::Peer {
+        crate::prompt_provenance::drop_sender_fields(p);
+    }
     if conn.is_person() {
         return;
     }
     let Some(caller) = conn.caller() else { return };
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
         crate::hub::merge_mux_meta(p, json!({"fromAgent": hub.session_name(caller)}));
+    }
+    if let Ok(from) = hub.resolve(caller) {
+        let sender = crate::prompt_provenance::BoundSender::of_session(&from.id, &from.meta());
+        crate::hub::merge_mux_meta(p, sender.mux_fields());
     }
 }
 

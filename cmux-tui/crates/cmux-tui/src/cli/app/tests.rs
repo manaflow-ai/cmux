@@ -205,6 +205,53 @@ fn unknown_words_run_the_action_with_that_cli_name() {
 }
 
 #[test]
+fn action_describe_accepts_an_unquoted_cli_name() {
+    let (_, params) =
+        call(parse(&args(&["action", "describe", "cloud", "exec"])).unwrap().unwrap());
+    assert_eq!(params["action"], "cloud exec");
+}
+
+#[test]
+fn cloud_is_an_app_scope() {
+    assert!(APP_SCOPES.contains(&"cloud"));
+}
+
+/// `cmux team invite --email …` runs the app's `team.invite` action, which
+/// waits for the person's answer on the confirmation panel, so the CLI (and
+/// `cmux mcp`) wait as long as the app's person deadline.
+#[test]
+fn team_invite_runs_the_app_action_and_waits_for_the_person() {
+    assert!(APP_SCOPES.contains(&"team"));
+    let parsed = parse(&args(&[
+        "team",
+        "invite",
+        "--email",
+        "leo@cmux.com",
+        "--team",
+        "cmux",
+        "--reason",
+        "user asked",
+    ]));
+    let sent = match parsed {
+        Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+            Some((method, params, timeout))
+        }
+        _ => None,
+    };
+    assert!(sent.is_some(), "expected one action.run call");
+    if let Some((method, params, timeout)) = sent {
+        assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT));
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "team invite");
+        assert_eq!(
+            params["args"],
+            json!({ "email": "leo@cmux.com", "team": "cmux", "reason": "user asked" })
+        );
+    }
+    assert_eq!(waiting_run_timeout("team.invite"), PERSON_RUN_TIMEOUT);
+}
+
+#[test]
 fn action_runs_wait_by_default_and_no_wait_opts_out() {
     let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());
     assert_eq!(params, json!({ "action": "window.new", "wait": true, "origin": "script" }));

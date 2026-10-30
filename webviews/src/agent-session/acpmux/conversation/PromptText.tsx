@@ -108,8 +108,11 @@ export function PromptText({
     resized.current = undefined;
     const bubble = body.current?.parentElement;
     const text = body.current;
-    const ms = foldMs(bubble ?? null);
-    if (from === undefined || !bubble || !text || ms <= 0) return;
+    // A mount has no previous height to animate. Avoid resolving motion styles until a toggle
+    // actually requested a fold; those computed-style reads otherwise flush the cold send layout.
+    if (from === undefined || !bubble || !text) return;
+    const ms = foldMs(bubble);
+    if (ms <= 0) return;
     const to = bubble.getBoundingClientRect().height;
     if (Math.abs(to - from) < 1) return;
     const timing = { duration: ms, easing: foldMotion.easing(bubble) };

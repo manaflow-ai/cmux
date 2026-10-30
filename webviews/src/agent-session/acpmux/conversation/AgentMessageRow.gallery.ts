@@ -288,6 +288,14 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/agentMessages.ts",
   ],
   variants: {
+    "unicode-boundary": {
+      note: "The first line puts an emoji across the 240-code-unit preview boundary in both directions. At wide width the cutoff is visible; narrow width retains the normal CSS ellipsis.",
+      theme: { chatWidth: "wide" },
+      snapshot: chat([
+        activity([sendMessage("Jo", `${"i".repeat(239)}🦊 later`)], 3),
+        received("Jo", `${"i".repeat(239)}🦊 later`, 2),
+      ]),
+    },
     sent: {
       note: 'Sends start collapsed: an envelope, "Sent to" and the recipient as a chip (a subagent by its description, never its agentId), the first line muted, a chevron, and one muted word for how far it got: Queued, Delivered, Sent. A send still going out reads "Sending to" with the working mark.',
       snapshot: sends(),

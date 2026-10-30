@@ -23,6 +23,7 @@ import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import { MessagePlacement } from "./conversation/messagePlacement";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -512,6 +513,9 @@ export type AcpmuxPermission = {
 export type AcpmuxCatalogModel = {
   id: string;
   name?: string;
+  /** Daemon catalog metadata is not proof the account reported this model. */
+  curated?: boolean;
+  declared?: boolean;
   unavailable?: string;
   shortName?: string;
   family?: string;
@@ -827,6 +831,8 @@ export type PreparedRow = {
   lexedLength: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
+  /// A plain user row's final line height, keyed by text, font, line height and width.
+  plainHeight?: { key: string; height: number };
 };
 
 export type ConversationLayout = {
@@ -1367,6 +1373,25 @@ export const onlyQuietThoughts = (row: AcpmuxRow) =>
   (row.items?.length ?? 0) > 0 &&
   mergeThoughts(row.items!).every((item) => isThought(item) && isQuietThought(item));
 
+/**
+ * UserBubble renders this narrow class as literal spans. Keep the fast path deliberately
+ * conservative: anything whose Markdown meaning could differ from its source stays on the
+ * parser-backed estimator until the DOM can measure it. It is a superset of PromptText's
+ * PROMPT_MARKDOWN characters (`$` included), so a row PromptText sends to Markdown never lands here.
+ */
+const PLAIN_MARKDOWN_CHARS = "\\`*_~<>[]{}#|&/$";
+
+function isPlainUserPrompt(text: string): boolean {
+  return (
+    text.length > 0 &&
+    text.trim() === text &&
+    !/[\r\n\t]/.test(text) &&
+    !PLAIN_MARKDOWN_CHARS.split("").some((character) => text.includes(character)) &&
+    !/^- *(?:- *){2,}$/.test(text) &&
+    !/^(?:[-+*]\s|\d+[.)]\s|!\s?)/.test(text)
+  );
+}
+
 function measuredRowHeight(
   row: AcpmuxRow,
   width: number,
@@ -1419,26 +1444,46 @@ function measuredRowHeight(
     cache.set(row.id, entry);
   }
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
-  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
-    lexIncrementally(entry, row.text);
-  }
+  const plainUser =
+    row.kind === "user" &&
+    !pasted &&
+    !row.images?.length &&
+    !row.retryAttachments?.length &&
+    !row.from &&
+    !chiefEnvelope(row.text) &&
+    isPlainUserPrompt(row.text);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
   const usedPrepared = new Set<string>();
   let contentHeight: number;
-  if (pasted) {
-    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
-    // however long it is (conversation/UserBubble.tsx).
-    const { lineHeight } = metrics();
-    contentHeight = 0;
-    for (const part of promptParts(row.text, row.pasted!))
-      contentHeight +=
-        part.kind === "paste"
-          ? PASTE_CHIP_HEIGHT
-          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+  if (plainUser) {
+    // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
+    const plainWidth = Math.min(contentWidth, chatColumn().prose);
+    const { measureFont, lineHeight } = metrics();
+    const plainKey = `${measureFont}\n${lineHeight}\n${plainWidth}\n${row.text}`;
+    if (entry.plainHeight?.key === plainKey) contentHeight = entry.plainHeight.height;
+    else {
+      contentHeight = textHeight(row.text, plainWidth, entry.prepared, usedPrepared);
+      entry.plainHeight = { key: plainKey, height: contentHeight };
+    }
   } else {
-    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+    if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
+      lexIncrementally(entry, row.text);
+    }
+    if (pasted) {
+      // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+      // however long it is (conversation/UserBubble.tsx).
+      const { lineHeight } = metrics();
+      contentHeight = 0;
+      for (const part of promptParts(row.text, row.pasted!))
+        contentHeight +=
+          part.kind === "paste"
+            ? PASTE_CHIP_HEIGHT
+            : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+    } else {
+      if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+      contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+      for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+    }
   }
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
@@ -1473,6 +1518,7 @@ export function layoutConversation(
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
+  const messages = new MessagePlacement(rows, previous?.layout);
   let start = 0;
   if (previous) {
     const limit = Math.min(rows.length, previous.rows.length);
@@ -1496,6 +1542,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
+    messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
@@ -1524,7 +1571,9 @@ export function layoutConversation(
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, totalHeight: top };
+  const layout = { tops, heights, totalHeight: top };
+  messages.finish(rows, layout);
+  return layout;
 }
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
@@ -1638,28 +1687,25 @@ import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 
-/// The pane's fallback accessible name and problem-only header status.
+/// The pane's fallback accessible name and problem-only header status. A handshake that is
+/// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
+/// lasts is the one line above the composer (HostError.tsx HostUnavailableLine), never a header
+/// Reconnecting (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD"). `hostRecovering`: the
+/// pane is asking the host again after its daemon went away, so a dropped socket is quiet too.
 export function paneHeader(
   snapshot: AcpmuxSnapshot,
   t: Translate = translate,
+  { hostRecovering = false }: { hostRecovering?: boolean } = {},
 ): { title: string; status: string; detail?: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
     : t("header.agentChat");
-  // Initial connecting and normal turn events are quiet. The client includes the failure
-  // after `connecting:` while retrying, and keeps it until a successful connection.
+  // Initial connecting, retrying and normal turn events are quiet.
   const connection = snapshot.connection;
-  const retrying = connection.startsWith("connecting:") || connection === "reconnecting";
   const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
   const status =
-    connection === "disconnected"
-      ? t("header.disconnected")
-      : retrying
-        ? t("header.reconnecting")
-        : failed
-          ? t("header.failed")
-          : "";
+    connection === "disconnected" && !hostRecovering ? t("header.disconnected") : failed ? t("header.failed") : "";
   if (!status) return { title, status };
   const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
   let rowError: string | undefined;

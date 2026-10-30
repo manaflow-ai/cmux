@@ -109,7 +109,6 @@ describe("groupVariants", () => {
     expect(providerOf(rows[1]!)).toEqual({
       provider: "OpenRouter",
       key: "deepseek-v4-pro",
-      vendor: "deepseek",
       name: "DeepSeek V4 Pro",
     });
     expect(providerOf(rows[4]!)).toEqual({ key: "claude-opus-5-5", name: "Opus 5.5" });
