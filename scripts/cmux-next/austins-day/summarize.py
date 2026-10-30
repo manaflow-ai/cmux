@@ -324,20 +324,32 @@ def run_metrics(run):
     # The daemon's lock detail after the load (server-stats `locks`, #28147 and later): the top sites of the
     # registry lock and mux.state by total hold and by p99 hold, since the daemon's start. Descriptive.
     detail = next((x.get("locks") for x in reversed(series.get("locks") or []) if x.get("locks")), None)
-    # Named sites (lead 2026-10-30, B3 1d): each one's hold p99 and total hold of the registry lock, from the
-    # post-load lock detail (the sites can appear in either top-20 list). None when the build has no detail
-    # or the site is in neither list.
-    def site_value(lock, suffix, key):
+    # Named sites (lead 2026-10-30, B3 1d): each one's hold p99 and total hold of a lock, from the post-load
+    # lock detail. A site is named by its file and the function that holds the lock (NAMED_LOCK_SITES), so a
+    # fix that moves the lock to another line of the same function still pairs; the line(s) each arm used are
+    # recorded. Several lines of one function add up (total) or take the largest (p99). A site in neither
+    # top-20 list counts as 0 when the lock's `sites` count shows every site was listed; else it is unknown.
+    def site_value(lock, name, key):
         if not detail:
-            return None
+            return None, []
+        lock_detail = detail.get(lock) or {}
+        rows = {}
         for listing in ("by_hold_total", "by_hold_p99"):
-            for s in (detail.get(lock) or {}).get(listing) or []:
-                if (s.get("site") or "").endswith(suffix):
-                    return s.get(key)
-        return None
-    m["lock_sites"] = {f"{lock}:{suffix}": {"hold_p99_us": site_value(lock, suffix, "hold_p99_us"),
-                                            "hold_total_us": site_value(lock, suffix, "hold_total_us")}
-                       for lock in ("registry", "state") for suffix in NAMED_LOCK_SITES}
+            for s in lock_detail.get(listing) or []:
+                rows[s.get("site")] = s
+        lines = NAMED_LOCK_SITES[name]
+        hits = [s for site, s in rows.items() if any((site or "").endswith(f"{path}:{line}") for path, line in lines)]
+        if hits:
+            values = [s.get(key) or 0 for s in hits]
+            return (sum(values) if key == "hold_total_us" else max(values)), sorted(s.get("site") for s in hits)
+        complete = isinstance(lock_detail.get("sites"), int) and lock_detail["sites"] <= len(lock_detail.get("by_hold_total") or [])
+        return (0 if complete else None), []
+    m["lock_sites"] = {}
+    for lock in ("registry",):
+        for name in NAMED_LOCK_SITES:
+            p99, used = site_value(lock, name, "hold_p99_us")
+            total, _ = site_value(lock, name, "hold_total_us")
+            m["lock_sites"][f"{lock}:{name}"] = {"hold_p99_us": p99, "hold_total_us": total, "sites": used}
     m["lock_top_sites"] = None if not detail else {
         name: {"by_hold_total": [{k: s.get(k) for k in ("site", "acquisitions", "hold_total_us", "hold_p99_us", "hold_max_us")}
                                  for s in (detail.get(name) or {}).get("by_hold_total") or []],
@@ -418,8 +430,13 @@ def pick(metrics, path):
 
 
 HARNESS_DIR = "scripts/cmux-next/austins-day"
-# Lock sites reported by name (B3: the terminal revision read and the progress report).
-NAMED_LOCK_SITES = ("mux/frontend_projection.rs:9", "mux/terminal_progress.rs:18")
+# Lock sites reported by name (B3), each a function and the (file, line) of its lock calls in the builds
+# measured: the terminal revision read (line 9 before B3 1d; its fallback at line 20 after) and the progress
+# report.
+NAMED_LOCK_SITES = {
+    "terminal_registry_revision": (("mux/frontend_projection.rs", 9), ("mux/frontend_projection.rs", 20)),
+    "terminal progress report": (("mux/terminal_progress.rs", 18),),
+}
 def scenario_note(runs):
     """The scenario's agent CLI rate, from the runs' own options."""
     rates = sorted({(r.get("opts") or {}).get("cli_every") for r in runs if isinstance(r, dict)} - {None})
@@ -459,20 +476,38 @@ def base_is_ancestor(base_sha, head_sha, repo=REPO):
 
 
 def is_revert_pair(base_sha, head_sha, repo=REPO):
-    """True when the base is the head plus one commit that reverts part of it (a "before" ref made by reverting
-    the fix on the fix's own tree, as for B3 1d): base..head is then the fix alone, read as the revert's
-    inverse. The base's parent must be the head itself."""
+    """True when the base is the head plus exactly one commit that reverts a commit of the head's history (a
+    "before" ref made by reverting the fix on the fix's own tree, as for B3 1d): the base has one parent, the
+    head; its message says "This reverts commit X"; X is an ancestor of the head; and the base-to-head diff is
+    X's own diff. Then base..head is the fix alone."""
     if not base_sha or not head_sha:
         return None
+
+    def git(*args):
+        done = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, timeout=60)
+        return done.stdout if done.returncode == 0 else None
     try:
-        parent = subprocess.run(["git", "-C", repo, "rev-parse", f"{base_sha}^"], capture_output=True, text=True, timeout=60)
-        head = subprocess.run(["git", "-C", repo, "rev-parse", head_sha], capture_output=True, text=True, timeout=60)
-        subject = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s", base_sha], capture_output=True, text=True, timeout=60)
+        parents = git("rev-list", "--parents", "-n", "1", base_sha)
+        head = git("rev-parse", head_sha)
+        body = git("log", "-1", "--format=%B", base_sha)
     except (OSError, subprocess.SubprocessError):
         return None
-    if parent.returncode or head.returncode or subject.returncode:
+    if parents is None or head is None or body is None:
         return None
-    return parent.stdout.strip() == head.stdout.strip() and subject.stdout.startswith("Revert ")
+    ids = parents.split()
+    if len(ids) != 2 or ids[1] != head.strip():
+        return False
+    found = re.search(r"This reverts commit ([0-9a-f]{7,40})", body)
+    if not found:
+        return False
+    reverted = found.group(1)
+    try:
+        ancestor = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", reverted, head_sha], capture_output=True, timeout=60)
+        own = git("diff", f"{reverted}^", reverted)
+        pair = git("diff", base_sha, head_sha)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return ancestor.returncode == 0 and own is not None and pair is not None and own == pair and bool(own)
 
 
 def measured_commits(base_sha, head_sha, repo=REPO):
@@ -619,10 +654,12 @@ def requested_comparisons(runs):
               if "base" in v and "head" in v and v["base"].get("host") == v["head"].get("host")]
     out = {}
     for label, path in REQUESTED:
-        pairs = [(pick(v["base"]["metrics"], path), pick(v["head"]["metrics"], path)) for v in rounds]
-        pairs = [(b, h) for b, h in pairs if isinstance(b, (int, float)) and isinstance(h, (int, float))]
+        raw = [(pick(v["base"]["metrics"], path), pick(v["head"]["metrics"], path)) for v in rounds]
+        pairs = [(b, h) for b, h in raw if isinstance(b, (int, float)) and isinstance(h, (int, float))]
         mean, low, high = paired_t_interval(pairs)
-        out[label] = {"n": len(pairs), "base_median": statistics.median([b for b, _ in pairs]) if pairs else None,
+        # Rounds dropped because a value was unknown (for a lock site: in neither top-20 list while the lock had
+        # more sites than listed). A dropped round can hide a change, so the count is shown next to n.
+        out[label] = {"n": len(pairs), "dropped": len(raw) - len(pairs), "base_median": statistics.median([b for b, _ in pairs]) if pairs else None,
                       "head_median": statistics.median([h for _, h in pairs]) if pairs else None,
                       "mean_diff": mean, "ci_low": low, "ci_high": high}
     return out
@@ -715,7 +752,7 @@ def main():
     if "base" in arms and "head" in arms:
         b, h = arms["base"][0].get("sha"), arms["head"][0].get("sha")
         if is_revert_pair(b, h):
-            summary["measured_commits"] = ["(revert pair) the base reverts on the head: " + (measured_commits(h, b) or ["?"])[0]]
+            summary["measured_commits"] = ["(revert pair) the base reverts on the head:"] + (measured_commits(h, b) or ["?"])
         else:
             summary["measured_commits"] = measured_commits(b, h)
     if aa_mode:
@@ -781,7 +818,8 @@ def main():
         lines.append("requested paired comparisons (no verdict, not A/A-checked; head - base, paired t-interval 95 %):")
         for label, c in summary["requested"].items():
             fmt = lambda v: "?" if v is None else f"{v:.4g}"
-            lines.append(f"   {label}: n={c['n']} base median {fmt(c['base_median'])} head median {fmt(c['head_median'])} "
+            lines.append(f"   {label}: n={c['n']}" + (f" (dropped {c['dropped']}: value unknown)" if c.get("dropped") else "")
+                         + f" base median {fmt(c['base_median'])} head median {fmt(c['head_median'])} "
                          f"diff {fmt(c['mean_diff'])} [{fmt(c['ci_low'])}, {fmt(c['ci_high'])}]")
     if summary.get("aa"):
         aa = summary["aa"]

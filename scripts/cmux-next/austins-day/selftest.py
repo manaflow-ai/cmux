@@ -460,8 +460,9 @@ class AAPerScenario(unittest.TestCase):
 
 
 class RevertPair(unittest.TestCase):
-    def test_a_base_that_reverts_on_the_head_is_valid(self):
-        """B3 1d: before = after + one revert commit. Build such a pair in a scratch repo."""
+    def test_only_the_head_plus_a_real_revert_is_a_revert_pair(self):
+        """B3 1d: before = after + one commit that reverts a commit of after's history. Built in a scratch repo,
+        with the wrong bases the review of 2ea5ef95cc4 found: a merge, and an empty "Revert" commit."""
         sys.path.insert(0, HERE)
         try:
             import importlib
@@ -470,22 +471,60 @@ class RevertPair(unittest.TestCase):
             sys.path.remove(HERE)
         with tempfile.TemporaryDirectory() as tmp:
             g = lambda *a: run("git", "-c", "user.name=a", "-c", "user.email=a@b", *a, cwd=tmp)
-            g("init", "-q")
+            sha = lambda ref="HEAD": run("git", "rev-parse", ref, cwd=tmp).stdout.strip()
+            g("init", "-q", "-b", "main")
             with open(os.path.join(tmp, "f"), "w") as f:
                 f.write("one\n")
             g("add", "f"); g("commit", "-q", "-m", "base")
             with open(os.path.join(tmp, "f"), "w") as f:
                 f.write("two\n")
             g("commit", "-q", "-am", "the fix")
-            head = run("git", "rev-parse", "HEAD", cwd=tmp).stdout.strip()
-            g("revert", "--no-edit", "HEAD")
-            before = run("git", "rev-parse", "HEAD", cwd=tmp).stdout.strip()
+            fix = sha()
+            with open(os.path.join(tmp, "g"), "w") as f:
+                f.write("x\n")
+            g("add", "g"); g("commit", "-q", "-m", "later work")
+            head = sha()
+            g("revert", "--no-edit", fix)
+            before = sha()
             self.assertFalse(sm.base_is_ancestor(before, head, repo=tmp))
             self.assertTrue(sm.is_revert_pair(before, head, repo=tmp))
-            # A plain unrelated commit on top is not a revert pair.
-            g("commit", "-q", "--allow-empty", "-m", "unrelated")
-            other = run("git", "rev-parse", "HEAD", cwd=tmp).stdout.strip()
-            self.assertFalse(sm.is_revert_pair(other, before, repo=tmp))
+            # An empty commit titled "Revert ..." on the head reverts nothing.
+            g("checkout", "-q", head)
+            g("commit", "-q", "--allow-empty", "-m", "Revert \"the fix\"", "-m", f"This reverts commit {fix}.")
+            self.assertFalse(sm.is_revert_pair(sha(), head, repo=tmp))
+            # A merge whose first parent is the head.
+            g("checkout", "-q", "-b", "side", fix)
+            with open(os.path.join(tmp, "h"), "w") as f:
+                f.write("y\n")
+            g("add", "h"); g("commit", "-q", "-m", "side work")
+            g("checkout", "-q", head)
+            g("merge", "-q", "--no-ff", "-m", "Revert by merge", "side")
+            self.assertFalse(sm.is_revert_pair(sha(), head, repo=tmp))
+
+
+class NamedSites(unittest.TestCase):
+    def test_a_site_moved_within_its_function_pairs_and_a_listed_absence_is_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def lock_run(name, registry):
+                run_ = synthetic_run()
+                run_["series"]["locks"] = [{"t": 400.0, "code": None, "locks": {"registry": registry, "state": {}}}]
+                d = os.path.join(tmp, name)
+                os.makedirs(d)
+                with open(os.path.join(d, "run.json"), "w") as f:
+                    json.dump(run_, f)
+                return summarize(os.path.join(tmp, name + ".json"), [d])["runs"][0]["metrics"]["lock_sites"]
+            site = lambda line, total: {"site": f"crates/cmux-tui-core/src/mux/frontend_projection.rs:{line}", "acquisitions": 3,
+                                        "hold_total_us": total, "hold_max_us": 9, "hold_p99_us": 8}
+            before = lock_run("before", {"sites": 2, "by_hold_total": [site(9, 5000), site(13, 1)], "by_hold_p99": []})
+            after = lock_run("after", {"sites": 2, "by_hold_total": [site(20, 40), site(24, 1)], "by_hold_p99": []})
+            listed_absent = lock_run("absent", {"sites": 1, "by_hold_total": [site(24, 1)], "by_hold_p99": []})
+            unknown = lock_run("unknown", {"sites": 30, "by_hold_total": [site(24, 1)], "by_hold_p99": []})
+        key = "registry:terminal_registry_revision"
+        self.assertEqual(before[key]["hold_total_us"], 5000)
+        self.assertEqual(after[key]["hold_total_us"], 40)
+        self.assertEqual(after[key]["sites"], ["crates/cmux-tui-core/src/mux/frontend_projection.rs:20"])
+        self.assertEqual(listed_absent[key]["hold_total_us"], 0)
+        self.assertIsNone(unknown[key]["hold_total_us"])
 
 
 class LockDetail(unittest.TestCase):
