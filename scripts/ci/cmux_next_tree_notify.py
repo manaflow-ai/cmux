@@ -134,6 +134,13 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
             return None
     elif dev_daily is not False:
         return None
+    # The tip daemon suite (cmux-next.yml tip_daemon_suite): a dispatch on feat-cmux-next of the daemon
+    # tier only, which tests its exact commit whatever the tip is by then.
+    tip_suite = marker.get("tip_suite")
+    if tip_suite is not None and (tip_suite != "daemon" or marker.get("origin") != "dispatch" or dev_daily
+                                  or marker.get("branch") != "feat-cmux-next"
+                                  or marker.get("ref_kind", "heads") != "heads" or tiers != ["daemon"]):
+        return None
     if marker.get("origin") in ("push", "dispatch"):
         if dev_daily and marker.get("origin") != "push":
             return None
@@ -171,6 +178,11 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
         # admission signal for this marker. same-tree mode checks out the
         # recorded SHA and the publisher's source gate verifies it again.
         if marker.get("dev_daily"):
+            return True
+        # Likewise the tip daemon suite: it is the base's daemon-test verdict for that commit, and in a
+        # landing burst the tip always moves before its tree publishes (2026-10-30: no base daemon-test
+        # verdict for hours, so no pull request's daemon-test red could be compared with the base).
+        if marker.get("tip_suite"):
             return True
         # A tag has no head to move on (and is not a branch to look up).
         if marker.get("ref_kind") == "tags":
@@ -223,6 +235,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         }
         if marker.get("dev_daily"):
             inputs.update(dev_daily="true", dev_daily_sha=marker["dev_daily_sha"])
+        if marker.get("tip_suite") == "daemon":
+            # Names the run `cmux-next tip daemon suite · <sha>`, which the dispatcher and
+            # base_red_excuse.py look up.
+            inputs.update(tip_daemon_suite="true")
         for ref in dispatch_refs(marker, repo):
             status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", {"ref": ref, "inputs": inputs})
             if status == 204:

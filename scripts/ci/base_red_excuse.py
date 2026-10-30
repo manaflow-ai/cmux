@@ -57,6 +57,16 @@ VERDICTS = frozenset({"success", "failure"})
 # for the job stays bounded.
 BASE_RUNS_PAGE = 100
 BASE_JOB_READS = 40
+# A job no feat-cmux-next push runs gets its base verdict from main's tip suite dispatcher
+# (cmux-next-tip-swift-suite-dispatch.yml): a workflow_dispatch run named `<title><tested sha>`. Base
+# pushes land every minute or two, so the window above can miss the newest tip suite run (2026-10-30:
+# no daemon-test verdict on the base for hours, #27692). When it does, the base's newest tip suite runs
+# for that job are read too, at most TIP_SUITE_JOB_READS of them.
+TIP_SUITES = {
+    "cmux-next swift test": "cmux-next tip Swift suite · ",
+    "cmux-next daemon tests": "cmux-next tip daemon suite · ",
+}
+TIP_SUITE_JOB_READS = 6
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -211,6 +221,25 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
     return list(jobs.values())
 
 
+def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
+                      base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
+    """The newest completed tip suite run of BASE with a verdict for job NAME, and that job."""
+    title = TIP_SUITES[name]
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
+                         f"&status=completed&per_page={BASE_RUNS_PAGE}")
+    suites = [run for run in listed.get("workflow_runs") or []
+              if re.fullmatch(re.escape(title) + r"[0-9a-f]{40}", run.get("display_title") or "")]
+    for run in suites[:TIP_SUITE_JOB_READS]:
+        if run["id"] not in base_jobs:
+            base_jobs[run["id"]] = [found for page in github.json(
+                f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)
+                for found in page.get("jobs") or []]
+        found = next((found for found in base_jobs[run["id"]] if found.get("name") == name), None)
+        if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
+            return run, found
+    return None, None
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not."""
     audit: list[str] = []
@@ -262,9 +291,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
                 base_run, base_job = candidate_run, found
                 break
+        if base_run is None and name in TIP_SUITES:
+            base_run, base_job = tip_suite_verdict(repo, base, workflow, name, github, base_jobs)
         if base_run is None:
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
-                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists)")
+                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
+                          f"and its tip suite runs)")
         if base_job.get("conclusion") != "failure":
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
