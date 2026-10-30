@@ -956,4 +956,41 @@ describe("an authoritative spawnAgent parent repairs agents already recorded", (
       ["grandchild", "child"],
     ]);
   });
+
+  // A page that starts after the sender's own spawn does not know the sender, but the record's
+  // parent agrees with it: Rust wrote it from the whole history, so the grandchild stays nested.
+  test("a grandchild whose sender's spawn is before the page keeps the parent its record names", () => {
+    const fold = new SubagentFold();
+    fold.setRoot("root-native");
+    spawnFrom(fold, "child", { subagents: [{ id: "grandchild", parent: "child" }] });
+    expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["grandchild", "child"]]);
+    expect(fold.takeRows().flatMap((row) => row.subagents ?? [])).toEqual([]);
+  });
+
+  test("an agent already recorded under a sender before the page is not flattened by its spawn", () => {
+    const fold = new SubagentFold();
+    fold.setRoot("root-native");
+    // Its progress came first in the window, under the parent acpmux recorded.
+    feed(fold, { sessionUpdate: "subagent_progress" }, { subagents: [{ id: "grandchild", parent: "child" }] });
+    spawnFrom(fold, "child", { subagents: [{ id: "grandchild", parent: "child" }] });
+    expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["grandchild", "child"]]);
+  });
+});
+
+// A root learned late can be named only as a parent: the agents recorded under it were never in
+// a group row. Learning the root lifts them into the session's own group.
+test("late root seeding promotes children of a root that never drew as an agent", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "helper", parent: "root-native" }] });
+  expect(fold.takeRows().flatMap((row) => row.subagents ?? [])).toEqual([]);
+  expect(fold.setRoot("root-native")).toBe(true);
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["helper", null]]);
+  expect(
+    fold
+      .takeRows()
+      .flatMap((row) => row.subagents ?? [])
+      .map(({ id }) => id),
+  ).toEqual(["helper"]);
+  // A root no record named changes nothing.
+  expect(fold.setRoot("root-other")).toBe(false);
 });

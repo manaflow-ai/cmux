@@ -127,3 +127,29 @@ test("a rebuild keeps every earlier native root the summary names a root", async
     client.close?.();
   }
 });
+
+// A session_changed can name an earlier root as retired while the current root is already known:
+// learnChatThread has nothing to learn, so the pane must fold again by itself. No later update
+// comes to flush the fold's rows, so the phantom group must be gone from that change alone.
+test("a retired root learned live leaves the transcript with no later update", async () => {
+  const { client, daemon, id, until, changes, root, topLevel } = await openPane();
+  try {
+    daemon.touch(id, { harness: "codex", agentSessionId: "root-2" });
+    await until(() => root() === "root-2");
+    // Records written before acpmux knew root-1: it drew as a subagent with a worker under it.
+    changes([{ id: "root-1", parent: null }]);
+    changes([{ id: "helper", parent: "root-1" }]);
+    await until(() => topLevel().some(([agent]) => agent === "root-1"));
+
+    daemon.touch(id, { retiredAgentSessionIds: ["root-1"] });
+    const retired = () =>
+      (client as unknown as { summary?: { retiredAgentSessionIds?: string[] } }).summary?.retiredAgentSessionIds;
+    await until(() => retired()?.includes("root-1") === true);
+    // Let the change's own snapshot draw; nothing else is sent.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(topLevel()).toEqual([["helper", null]]);
+  } finally {
+    client.close?.();
+  }
+});
