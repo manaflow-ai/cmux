@@ -79,6 +79,23 @@ private extension DockSplitStore {
 struct DockRuntimeParityTests {
     private static let socketWorker = DispatchQueue(label: "DockRuntimeParityTests.socketWorker")
 
+    @Test("Dock tab buttons follow the configured built-in list")
+    func dockTabButtonsFollowConfiguredBuiltIns() {
+        let buttons = [
+            CmuxSurfaceTabBarButton.actionReference(
+                CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
+            ),
+            CmuxSurfaceTabBarButton.actionReference(
+                CmuxSurfaceTabBarBuiltInAction.splitDown.configID
+            )
+        ]
+
+        let resolved = DockSplitStore.bonsplitButtons(for: buttons)
+
+        #expect(resolved.map(\.id) == ["cmux.newBrowser", "cmux.splitDown"])
+        #expect(resolved.map(\.action) == [.newBrowser, .splitDown])
+    }
+
     @Test("Conversations reuses a live Dock terminal", arguments: [false, true])
     func conversationReusesLiveDockTerminal(windowDock: Bool) async throws {
         try await withAppContext { app, manager, workspace, windowID in
