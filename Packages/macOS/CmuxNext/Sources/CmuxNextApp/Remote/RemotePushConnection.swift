@@ -30,8 +30,11 @@ actor PushReader {
         iterator = stream.makeAsyncIterator()
     }
 
+    /// One consumer at a time: the hub socket reads its frames in order.
     func next() async -> String? {
-        await iterator.next()
+        var current = iterator
+        defer { iterator = current }
+        return await current.next()
     }
 }
 

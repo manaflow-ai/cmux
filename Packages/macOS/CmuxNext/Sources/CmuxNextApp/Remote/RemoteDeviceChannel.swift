@@ -65,7 +65,7 @@ nonisolated final class RemoteDeviceChannel: Sendable {
         }
         for done in waiting { done(.failure(DeviceHubError.transport("cmux Remote's channel closed"))) }
         pushSink.finish()
-        close(socket)
+        Darwin.close(socket)
     }
 
     private func send(_ method: String, _ params: [String: Any], done: @escaping (Result<[String: Any], any Error>) -> Void) {

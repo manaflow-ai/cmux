@@ -36,22 +36,22 @@ enum CmuxRemoteStrings {
 
     /// The status dialog's lines: the host, the grants, each worker.
     static func statusLines(_ status: CmuxNextDaemon.JSONValue) -> [String] {
-        let state = status[key: "state"]?.stringValue ?? "off"
-        let host = status[key: "host"]
-        let permissions = host?[key: "permissions"]
+        let state = status["state"]?.stringValue ?? "off"
+        let host = status["host"]
+        let permissions = host?["permissions"]
         let granted = String(localized: "remote.status.granted", defaultValue: "Allowed", table: "CmuxRemote", bundle: .module)
         let missing = String(localized: "remote.status.missing", defaultValue: "Not allowed", table: "CmuxRemote", bundle: .module)
         let mark: (CmuxNextDaemon.JSONValue?) -> String = { $0?.boolValue == true ? granted : missing }
         var lines = [String(format: String(localized: "remote.status.host", defaultValue: "Host: %@", table: "CmuxRemote", bundle: .module), state)]
         if let permissions {
             lines.append(String(format: String(localized: "remote.status.accessibility", defaultValue: "Accessibility: %@", table: "CmuxRemote", bundle: .module),
-                                mark(permissions[key: "accessibility"])))
+                                mark(permissions["accessibility"])))
             lines.append(String(format: String(localized: "remote.status.screenRecording", defaultValue: "Screen Recording: %@", table: "CmuxRemote", bundle: .module),
-                                mark(permissions[key: "screen_recording"])))
+                                mark(permissions["screen_recording"])))
         }
         for (key, title) in [("computer-use", String(localized: "remote.status.computerUse", defaultValue: "Computer Use: %@", table: "CmuxRemote", bundle: .module)),
                              ("screen-sharing", String(localized: "remote.status.screenSharing", defaultValue: "Screen Sharing: %@", table: "CmuxRemote", bundle: .module))] {
-            if let worker = host?[key: "workers"]?[key: key]?[key: "state"]?.stringValue { lines.append(String(format: title, worker)) }
+            if let worker = host?["workers"]?[key]?["state"]?.stringValue { lines.append(String(format: title, worker)) }
         }
         return lines
     }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextComputerUse
 import CmuxNextDaemon
 import CmuxNextDevices
@@ -18,7 +19,7 @@ extension AppServices {
         let remote = CmuxRemoteService(daemon: daemon)
         CmuxRemoteService.shared = remote
         let devices = CmuxRemoteDevices(open: { try await remote.openChannel("screen-sharing").socket })
-        let bundleID = environment.launch.bundleID
+        let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
         ComputerUseHelperDaemon.shared.upstream.remote = CmuxRemoteComputerUse(open: {
             // A tagged DEV app may be driven (the legacy dogfood scope); only this app opens a channel.
             let opened = try await remote.openChannel("computer-use", extra: ["allowed_target_bundle_id": bundleID])
