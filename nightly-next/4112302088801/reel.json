@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4112302088801",
+  "notes": "notes/4112302088801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28513,
+      "title": "ci(cmux-next): a web bundle source runs the compiles, not swift test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28439,
+      "title": "acpmux: session stop --if-idle [--expect-revision REV], an atomic conditional stop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28017,
+      "title": "Agent chat: a double click on an image opens it fitted, not zoomed in (#27955)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28021,
+      "title": "cmux NEXT Home: search text stays beside the magnifier while editing",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}
