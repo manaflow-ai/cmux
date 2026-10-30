@@ -84,7 +84,12 @@ to explore, and say so next to any number you cite.
 - **The base is the PR's parent commit.** For a stacked PR that is the head of the PR below it, not
   the merge base with feat-cmux-next; base..head must be exactly the PR's own commits. The summary lists
   them, and a base that is not an ancestor of the head is invalid.
+- **A revert pair is a valid base too:** a "before" ref that is the head plus one commit reverting the fix
+  (the base's parent is the head and its subject starts with "Revert "). base..head is then the fix alone.
 - **The head must not change the harness** ("invalid: head edits the harness").
+- **Requested comparisons:** values a lead or a fix author asks for that are not verdict rows (the registry
+  lock held share, the lock wait p99, the app request p99, named lock sites' hold p99 and total hold) get
+  the same paired t-interval and n under "requested paired comparisons", with no verdict and no A/A check.
 - **Per metric, the base must show that metric's failure**, by a budget the product or the brief states
   (`METRIC_FAILURE` in `summarize.py`): refused connections, any; lock wait p99, over the daemon's own
   100 ms stall line; app request, p99 over 50 ms or any time-out (the B3 target); workspace close, over

@@ -459,6 +459,35 @@ class AAPerScenario(unittest.TestCase):
                 self.assertTrue(all(v.startswith("not A/A-checked: ") for v in verdicts), verdicts[:3])
 
 
+class RevertPair(unittest.TestCase):
+    def test_a_base_that_reverts_on_the_head_is_valid(self):
+        """B3 1d: before = after + one revert commit. Build such a pair in a scratch repo."""
+        sys.path.insert(0, HERE)
+        try:
+            import importlib
+            sm = importlib.import_module("summarize")
+        finally:
+            sys.path.remove(HERE)
+        with tempfile.TemporaryDirectory() as tmp:
+            g = lambda *a: run("git", "-c", "user.name=a", "-c", "user.email=a@b", *a, cwd=tmp)
+            g("init", "-q")
+            with open(os.path.join(tmp, "f"), "w") as f:
+                f.write("one\n")
+            g("add", "f"); g("commit", "-q", "-m", "base")
+            with open(os.path.join(tmp, "f"), "w") as f:
+                f.write("two\n")
+            g("commit", "-q", "-am", "the fix")
+            head = run("git", "rev-parse", "HEAD", cwd=tmp).stdout.strip()
+            g("revert", "--no-edit", "HEAD")
+            before = run("git", "rev-parse", "HEAD", cwd=tmp).stdout.strip()
+            self.assertFalse(sm.base_is_ancestor(before, head, repo=tmp))
+            self.assertTrue(sm.is_revert_pair(before, head, repo=tmp))
+            # A plain unrelated commit on top is not a revert pair.
+            g("commit", "-q", "--allow-empty", "-m", "unrelated")
+            other = run("git", "rev-parse", "HEAD", cwd=tmp).stdout.strip()
+            self.assertFalse(sm.is_revert_pair(other, before, repo=tmp))
+
+
 class LockDetail(unittest.TestCase):
     def test_the_lock_detail_after_the_load_is_kept_by_lock_and_order(self):
         with tempfile.TemporaryDirectory() as tmp:
