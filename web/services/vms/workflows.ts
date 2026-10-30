@@ -1619,6 +1619,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: { ...create.vm.providerMetadata, ...(input.providerMetadata ?? {}) },
+        customerId: input.billingTeamId ?? input.userId,
         providerCredential: input.providerCredential,
         createCleanupIntent: cleanupIntent.options,
         homeVolume: input.perMachineHome
@@ -2148,6 +2149,7 @@ function finishBaseCreate(
         displayName: create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: { ...create.vm.providerMetadata, ...(input.providerMetadata ?? {}) },
+        customerId: input.billingTeamId ?? input.userId,
         providerCredential: input.providerCredential,
         createCleanupIntent: cleanupIntent.options,
         edgeRules: materials?.edgeRules,

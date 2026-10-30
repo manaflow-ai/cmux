@@ -176,7 +176,7 @@ extension AppServices {
         macScreenPages.follow(settings) { [weak self] in self?.registry.refuse($0) }
     }
 
-    /// New Mac Screen Tab: the home page in the pane the action ran on, else the active window's focused pane.
+    /// Screen Sharing (`macScreen.open`): the home page in the pane the action ran on, else the active window's focused pane.
     func openMacScreen(in target: PaneController?) {
         guard let pane = target ?? windows.active?.focusedPane else { return registry.refuse(RefusalStrings.noWindowOpen) }
         macScreenTabs.open(MacScreenRecord(macID: nil), in: pane, focus: true, byPerson: true)
