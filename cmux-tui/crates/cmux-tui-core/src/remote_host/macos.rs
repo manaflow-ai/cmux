@@ -1,11 +1,10 @@
 //! macOS parts of cmux Remote: the staged copy of the signed bundle, the
 //! responsibility-disclaimed spawn, and process identity checks.
 
-use std::ffi::CString;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use cmux_process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -19,9 +18,6 @@ const TEAM: &str = "7WLXT3NR37";
 const BUNDLE_IDS: [&str; 2] = ["com.cmuxterm.remote", "com.cmuxterm.remote.dev"];
 const BUNDLE_NAMES: [&str; 2] = ["cmux Remote.app", "cmux Remote (dev).app"];
 const EXECUTABLE: &str = "cmux-remote";
-/// `POSIX_SPAWN_SETSID` (macOS 10.15+): the host leads its own session, so
-/// no signal to the daemon's group or session reaches it.
-const POSIX_SPAWN_SETSID: libc::c_short = 0x0400;
 const LOCAL_PEERPID: libc::c_int = 0x002;
 
 /// The copy that runs.
@@ -69,6 +65,7 @@ fn bundle_id(app: &Path) -> Option<String> {
     let output = Command::new("/usr/bin/plutil")
         .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
         .arg(app.join("Contents/Info.plist"))
+        .stdin(Stdio::null())
         .output()
         .ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -87,6 +84,7 @@ fn verify(app: &Path) -> Result<(), String> {
         .args(["--verify", "--strict", "--deep", "-R"])
         .arg(&requirement)
         .arg(app)
+        .stdin(Stdio::null())
         .output()
         .map_err(|error| format!("codesign: {error}"))?;
     if output.status.success() {
@@ -128,6 +126,7 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
             .args(["--norsrc", "--noqtn"])
             .arg(&source)
             .arg(&copy)
+            .stdin(Stdio::null())
             .status()
             .map_err(|error| format!("ditto: {error}"))?;
         if !status.success() {
@@ -165,101 +164,64 @@ fn prune(root: &Path, current: &Path) {
     }
 }
 
-type Disclaim = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, libc::c_int) -> libc::c_int;
-
-fn disclaim_function() -> Option<Disclaim> {
-    let name = c"responsibility_spawnattrs_setdisclaim";
-    // SAFETY: dlsym with RTLD_DEFAULT and a NUL-terminated name.
-    let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
-    // SAFETY: the libsystem symbol has this signature.
-    (!symbol.is_null()).then(|| unsafe { std::mem::transmute::<*mut libc::c_void, Disclaim>(symbol) })
-}
-
 /// Starts the host with responsibility disclaimed (its own responsible
 /// process: macOS checks its grants as cmux Remote's), in its own session,
 /// with the bootstrap line on fd 3, and waits for its `ready` line. Without
 /// the disclaim it does not start: the grants would belong to cmux.
 pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, ready_timeout: Duration) -> Result<u32, String> {
-    let disclaim = disclaim_function().ok_or("macOS responsibility cannot be disclaimed on this system")?;
     let worker_state = paths.state.join("worker");
-    let (bootstrap_read, bootstrap_write) = pipe()?;
-    let (stdout_read, stdout_write) = pipe()?;
-    let cstr = |text: &str| CString::new(text).map_err(|_| "a NUL in an argument".to_string());
-    let path = |path: &Path| cstr(&path.display().to_string());
-    let argv_owned = [
-        path(&staged.executable)?,
-        cstr("host")?,
-        cstr("--layout-dir")?,
-        path(&paths.runtime)?,
-        cstr("--state-dir")?,
-        path(&worker_state)?,
-        cstr("--scope")?,
-        cstr(&paths.scope)?,
-    ];
-    let home = crate::platform::home_dir().map(|home| home.display().to_string()).unwrap_or_default();
-    let mut env_owned = vec![cstr(&format!("HOME={home}"))?, cstr("PATH=/usr/bin:/bin:/usr/sbin:/sbin")?];
-    for name in ["USER", "TMPDIR", "LANG"] {
-        if let Ok(value) = std::env::var(name) {
-            env_owned.push(cstr(&format!("{name}={value}"))?);
-        }
-    }
-    let mut argv: Vec<*mut libc::c_char> = argv_owned.iter().map(|arg| arg.as_ptr().cast_mut()).collect();
-    argv.push(std::ptr::null_mut());
-    let mut envp: Vec<*mut libc::c_char> = env_owned.iter().map(|arg| arg.as_ptr().cast_mut()).collect();
-    envp.push(std::ptr::null_mut());
-    let devnull = c"/dev/null";
-    let log = path(&paths.log())?;
     std::fs::create_dir_all(&paths.runtime).map_err(|error| format!("{error}"))?;
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&paths.runtime, std::fs::Permissions::from_mode(0o700));
     }
-    let mut pid: libc::pid_t = 0;
-    // SAFETY: posix_spawn with initialized attribute and file-action objects
-    // that live until the call returns; every pointer is a live CString.
-    let status = unsafe {
-        let mut actions: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
-        let mut attributes: libc::posix_spawnattr_t = std::ptr::null_mut();
-        libc::posix_spawn_file_actions_init(&mut actions);
-        libc::posix_spawnattr_init(&mut attributes);
-        libc::posix_spawn_file_actions_addopen(&mut actions, 0, devnull.as_ptr(), libc::O_RDONLY, 0);
-        libc::posix_spawn_file_actions_adddup2(&mut actions, stdout_write.as_raw_fd(), 1);
-        libc::posix_spawn_file_actions_addopen(&mut actions, 2, log.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND, 0o600);
-        libc::posix_spawn_file_actions_adddup2(&mut actions, bootstrap_read.as_raw_fd(), 3);
-        libc::posix_spawnattr_setflags(&mut attributes, libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short | POSIX_SPAWN_SETSID);
-        let disclaimed = disclaim(&mut attributes, 1);
-        let status = if disclaimed == 0 {
-            libc::posix_spawn(&mut pid, argv[0], &actions, &attributes, argv.as_ptr(), envp.as_ptr())
-        } else {
-            disclaimed
-        };
-        libc::posix_spawn_file_actions_destroy(&mut actions);
-        libc::posix_spawnattr_destroy(&mut attributes);
-        status
-    };
-    drop(bootstrap_read);
-    drop(stdout_write);
-    if status != 0 {
-        return Err(format!("cmux Remote did not start: {}", std::io::Error::from_raw_os_error(status)));
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(paths.log())
+        .map_err(|error| format!("{}: {error}", paths.log().display()))?;
+    let (bootstrap_read, bootstrap_write) = std::io::pipe().map_err(|error| format!("pipe: {error}"))?;
+    let mut command = Command::new(&staged.executable);
+    command
+        .args(["host", "--layout-dir"])
+        .arg(&paths.runtime)
+        .arg("--state-dir")
+        .arg(&worker_state)
+        .arg("--scope")
+        .arg(&paths.scope)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(log))
+        .new_session()
+        .disclaim_responsibility();
+    if let Some(home) = crate::platform::home_dir() {
+        command.env("HOME", home);
     }
-    let pid = pid as u32;
+    for name in ["USER", "TMPDIR", "LANG"] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    use std::os::fd::AsFd;
+    command.inherit_fd(bootstrap_read.as_fd(), 3).map_err(|error| format!("{error}"))?;
+    let mut child = command.spawn().map_err(|error| format!("cmux Remote did not start: {error}"))?;
+    drop(bootstrap_read);
+    let pid = child.id();
+    let stdout = child.stdout.take().ok_or("cmux Remote has no stdout")?;
     // Reaps the host whenever it exits while this daemon lives (its own
     // session survives this daemon; launchd reaps it then).
     let _ = std::thread::Builder::new().name("remote-host-reap".into()).spawn(move || {
-        let mut status = 0;
-        // SAFETY: waitpid on our own child.
-        while unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) } < 0
-            && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
-        {}
+        let _ = child.wait();
     });
-    let mut writer = std::fs::File::from(bootstrap_write);
+    let mut writer = std::fs::File::from(std::os::fd::OwnedFd::from(bootstrap_write));
     let written = writeln!(writer, "{bootstrap}");
     drop(writer);
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let reader = std::fs::File::from(stdout_read);
     let _ = std::thread::Builder::new().name("remote-host-ready".into()).spawn(move || {
         let mut line = String::new();
-        let ok = BufReader::new(reader).read_line(&mut line).is_ok() && line == "ready\n";
+        let ok = BufReader::new(stdout).read_line(&mut line).is_ok() && line == "ready\n";
         let _ = sender.send(ok);
     });
     if written.is_err() || !matches!(receiver.recv_timeout(ready_timeout), Ok(true)) {
@@ -268,20 +230,6 @@ pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, read
         return Err(format!("cmux Remote did not report ready (see {})", paths.log().display()));
     }
     Ok(pid)
-}
-
-fn pipe() -> Result<(OwnedFd, OwnedFd), String> {
-    let mut fds = [0; 2];
-    // SAFETY: pipe(2) into a two-element array.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(format!("pipe: {}", std::io::Error::last_os_error()));
-    }
-    for fd in fds {
-        // SAFETY: fcntl on descriptors we own.
-        unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
-    }
-    // SAFETY: both descriptors are fresh and owned here.
-    Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
 }
 
 /// A live process's start time (seconds, microseconds), or None.

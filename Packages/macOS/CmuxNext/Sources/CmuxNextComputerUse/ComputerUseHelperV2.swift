@@ -61,10 +61,8 @@ public final class ComputerUseHelperV2 {
     public var consentRefused: @Sendable (String) async -> Void = { _ in }
     private let localSpawner: any ComputerUseHelperV2Spawning
     /// The running child's spawner: the local one, or a remote worker's (cmux Remote).
-    private var spawner: any ComputerUseHelperV2Spawning
-    /// cmux Remote (docs/cmux-remote.md): when the App sets it, Computer Use runs as cmux
-    /// Remote's worker (the one process that holds the grants) instead of a helper this app
-    /// starts; the control lines, consent link, endpoint and acpmux admission are the same.
+    var spawner: any ComputerUseHelperV2Spawning
+    /// cmux Remote's worker instead of a helper this app starts (ComputerUseHelperV2+Remote.swift).
     public var remote: (any ComputerUseRemoteSpawning)?
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
@@ -74,7 +72,7 @@ public final class ComputerUseHelperV2 {
     private var controlLog: Task<Void, Never>?
     /// The helper's host consent connection, while it runs.
     private var hostLink: ComputerUseHelperV2HostLink?
-    private var generation = 0
+    var generation = 0
     private let restarts: ComputerUseHelperRestarts
     /// Only explicit setup clicks; never persisted across app launches.
     private var pendingPermissions: Set<String> = []
@@ -242,30 +240,8 @@ public final class ComputerUseHelperV2 {
         await configureStarted(spawned, executable: executable, generation: current)
     }
 
-    /// The worker through cmux Remote: the host checked its signature at start and runs it as
-    /// its own child, so this app checks the host's pid on the consent link.
-    private func applyRemote(_ remote: any ComputerUseRemoteSpawning, generation current: Int) async {
-        guard ComputerUseHelperDaemon.makePrivateDirectory((directory as NSString).deletingLastPathComponent),
-              ComputerUseHelperDaemon.makePrivateDirectory(directory) else {
-            return unavailable("\(directory) is not a private directory of this user")
-        }
-        unlink(endpointPath)
-        let channel: ComputerUseRemoteChannel
-        do { channel = try await remote.openComputerUse() } catch {
-            guard current == generation else { return }
-            return unavailable("cmux Remote did not start Computer Use: \(error)")
-        }
-        let worker = RemoteWorkerChild(channel)
-        guard current == generation else {
-            worker.child.closeInput()
-            return
-        }
-        spawner = RemoteWorkerSpawner(exited: worker.exited)
-        await configureStarted(worker.child, executable: channel.executable, generation: current)
-    }
-
     /// Configures a started helper or worker and serves it until it exits.
-    private func configureStarted(_ spawned: ComputerUseHelperV2Child, executable: URL, generation current: Int) async {
+    func configureStarted(_ spawned: ComputerUseHelperV2Child, executable: URL, generation current: Int) async {
         let secret = Self.makeSecret()
         // The host link's own secret: sent only on the helper's stdin, never written to disk.
         let hostSecret = Self.makeSecret()
@@ -427,7 +403,7 @@ public final class ComputerUseHelperV2 {
         }
     }
 
-    private func unavailable(_ reason: String) {
+    func unavailable(_ reason: String) {
         pendingPermissions.removeAll()
         helperV2Logger.error("cmux Computer Use helper v2 unavailable: \(reason, privacy: .public)")
         state = .unavailable(reason)
@@ -457,32 +433,6 @@ public final class ComputerUseHelperV2 {
         guard SecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
               let dictionary = info as? [String: Any] else { return nil }
         return dictionary[kSecCodeInfoUnique as String] as? Data
-    }
-
-    /// endpoint.json for acpmux: 0600, written to a temporary name and renamed.
-    /// `owner` is the helper's pid, with its start time, so an acpmux daemon
-    /// that outlives a crash of this app sees the file is stale (cx-zgk0).
-    @concurrent nonisolated static func writeEndpoint(path: String, socket: String, secret: Data, owner: pid_t) async -> Bool {
-        var fields: [String: Any] = ["protocol": 1, "socket": socket, "secret": hex(secret), "pid": Int(owner)]
-        var info = proc_bsdinfo()
-        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        if proc_pidinfo(owner, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize {
-            fields["start_sec"] = Int(info.pbi_start_tvsec)
-            fields["start_usec"] = Int(info.pbi_start_tvusec)
-        }
-        let body = line(fields)
-        let temporary = path + ".tmp"
-        unlink(temporary)
-        let descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return false }
-        // concurrency-allow: @concurrent, never on the main actor; one small local file.
-        let written = body.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
-        close(descriptor)
-        guard written == body.count, rename(temporary, path) == 0 else {
-            unlink(temporary)
-            return false
-        }
-        return true
     }
 
     /// pid + start time of the process listening on `socketPath`, when the

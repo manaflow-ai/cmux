@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDevices
 import CmuxNextSettings
+import CmuxNextWakeups
 import CryptoKit
 import Darwin
 import Foundation
@@ -19,22 +20,24 @@ private let remoteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: 
 /// worker's one User DO socket, and anchors the worker's device-key renewal while signed in.
 @MainActor
 final class CmuxRemoteService {
-    /// The app's one service (made by ``AppServices/startCmuxRemote(_:)`` when the build embeds
-    /// cmux Remote); nil in a build without it.
-    static var shared: CmuxRemoteService?
+    /// This build embeds cmux Remote (``AppServices/startCmuxRemote(_:)`` started it).
+    private(set) var started = false
     private weak var daemon: DaemonService?
     /// The app socket's credentials, until the host restarts (a refusal asks again).
     private var grant: RemoteHostAppRequest.Response?
     /// Whether the daemon runs cmux Remote (`remote-host-v1` and an embedded bundle).
     private(set) var available = false
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
-    private var anchorTask: Task<Void, Never>?
+    /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
+    private let anchorTimer = DemandTimer(owner: "cmux-remote.anchor")
     /// The person's switches now (the App sets it): Computer Use on with cmux Remote, signed in, headless.
     var currentConfig: (@MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool))?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
     }
+
+    func markStarted() { started = true }
 
     // MARK: Daemon
 
@@ -123,15 +126,16 @@ final class CmuxRemoteService {
 
     /// Opens `channel`, asking for a fresh grant once when the host refuses this one.
     func openChannel(_ channel: String, extra: [String: String] = [:]) async throws -> (socket: Int32, pid: pid_t, grant: RemoteHostAppRequest.Response) {
-        let first = try await appGrant()
+        var grant = try await appGrant()
+        let opened: (socket: Int32, pid: pid_t)
         do {
-            let opened = try await Self.open(channel, grant: first, extra: extra)
-            return (opened.socket, opened.pid, first)
+            opened = try await Self.open(channel, grant: grant, extra: extra)
         } catch CmuxRemoteError.refused, CmuxRemoteError.notTheHost {
-            let fresh = try await appGrant(refresh: true)
-            let opened = try await Self.open(channel, grant: fresh, extra: extra)
-            return (opened.socket, opened.pid, fresh)
+            grant = try await appGrant(refresh: true)
+            opened = try await Self.open(channel, grant: grant, extra: extra)
         }
+        let result = (socket: opened.socket, pid: opened.pid, grant: grant)
+        return result
     }
 
     // MARK: Hub anchoring
@@ -139,38 +143,28 @@ final class CmuxRemoteService {
     /// While signed in: anchor the worker's device-key renewal now and every hour, and tell the
     /// worker the account and hub it serves. Stops on sign-out.
     func followHub(_ hub: DeviceHub?, userID: String?, hubURL: URL?, devices: CmuxRemoteDevices) {
-        anchorTask?.cancel()
-        anchorTask = nil
+        anchorTimer.cancel()
         guard let hub, let userID, !userID.isEmpty, let hubURL else {
+            // task-owner: one sign-out line to the worker; nothing waits on it.
             Task { await devices.signedOut() }
             return
         }
-        // task-owner: anchorTask: cancelled by the next followHub (sign-out, another account or hub).
-        anchorTask = Task {
-            while !Task.isCancelled {
-                do {
-                    _ = try await hub.client.anchorDevice()
-                    await devices.anchored(userID: userID, hubURL: hubURL)
-                } catch {
-                    remoteLogger.notice("cmux Remote anchor failed: \(String(describing: error), privacy: .public)")
-                }
-                // wakeup-allow: the anchor's hourly refresh (PROTOCOL.md, Device renewal); one per hour.
-                try? await Task.sleep(for: .seconds(3600))
+        anchor(hub, userID: userID, hubURL: hubURL, devices: devices)
+    }
+
+    /// One anchor now, and the next in an hour (the timer is cancelled by the next followHub).
+    private func anchor(_ hub: DeviceHub, userID: String, hubURL: URL, devices: CmuxRemoteDevices) {
+        // task-owner: one anchor write; the next one is the timer's.
+        Task {
+            do {
+                _ = try await hub.client.anchorDevice()
+                await devices.anchored(userID: userID, hubURL: hubURL)
+            } catch {
+                remoteLogger.notice("cmux Remote anchor failed: \(String(describing: error), privacy: .public)")
             }
         }
-    }
-}
-
-enum CmuxRemoteError: Error, CustomStringConvertible {
-    case unavailable
-    case notTheHost
-    case refused(String)
-
-    var description: String {
-        switch self {
-        case .unavailable: "this cmux has no cmux Remote (the daemon does not run it)"
-        case .notTheHost: "the app socket's peer is not cmux Remote"
-        case let .refused(message): message
+        anchorTimer.schedule(after: .seconds(3600)) { @MainActor [weak self] in
+            self?.anchor(hub, userID: userID, hubURL: hubURL, devices: devices)
         }
     }
 }

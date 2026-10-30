@@ -33,7 +33,7 @@ nonisolated struct RemoteWorkerChild: Sendable {
     let exited: AsyncStream<Void>
 
     init(_ channel: ComputerUseRemoteChannel) {
-        let (exited, signal) = AsyncStream.makeStream(of: Void.self)
+        let (exited, signal) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         let raw = DisclaimedHelperSpawner.lines(from: dup(channel.socket))
         let (lines, sink) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(16))
         // task-owner: ends with the channel's stdout (the worker's exit or the host's end).
@@ -45,29 +45,5 @@ nonisolated struct RemoteWorkerChild: Sendable {
         }
         child = ComputerUseHelperV2Child(pid: channel.pid, input: channel.socket, lines: lines)
         self.exited = exited
-    }
-}
-
-/// The spawner side of a remote worker: never spawns or signals (cmux Remote owns the
-/// worker; closing the channel stops it), and the exit watch is the channel's end.
-nonisolated struct RemoteWorkerSpawner: ComputerUseHelperV2Spawning {
-    let exited: AsyncStream<Void>
-
-    func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child {
-        throw DisclaimedHelperSpawner.Failure.disclaimUnavailable
-    }
-
-    func terminate(_ pid: pid_t) {}
-
-    @MainActor func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
-        let exited = self.exited
-        // task-owner: the returned closure cancels it; it ends at the channel's end.
-        let task = Task { @MainActor in
-            for await _ in exited {
-                onExit()
-                return
-            }
-        }
-        return { task.cancel() }
     }
 }

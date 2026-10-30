@@ -121,6 +121,7 @@ nonisolated final class RemoteDeviceChannel: Sendable {
     }
 
     func blockingCall(_ method: String, _ params: [String: Any]) throws -> [String: Any] {
+        // concurrency-allow: DeviceKeyMaterial is synchronous; hub requests sign on the client actor and ticket signaling on its own tasks, never the main thread; the wait is bounded by `timeout`.
         let semaphore = DispatchSemaphore(value: 0)
         let box = Mutex<Result<AnswerBox, any Error>?>(nil)
         nonisolated(unsafe) let params = params

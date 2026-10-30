@@ -357,8 +357,7 @@ extension SettingsSchema {
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
-        "computerUse.enabled": .userOnly,
-        "computerUse.driver": .userOnly,
+        "computerUse.enabled": .userOnly, "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.
@@ -399,8 +398,8 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly,
         "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
-        "macScreen.systemShortcuts": .userOnly,
-        "remote.headless": .userOnly,
+        // remote.headless: off, a session ends when cmux quits; only the person keeps this Mac shared.
+        "macScreen.systemShortcuts": .userOnly, "remote.headless": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.

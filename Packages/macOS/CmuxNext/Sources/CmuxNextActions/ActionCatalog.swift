@@ -103,6 +103,7 @@ public nonisolated enum ActionCatalog {
         ThemeActionCatalog.self,
         PaneActionCatalog.self,
         TabActionCatalog.self,
+        RemoteActionCatalog.self,
         TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,

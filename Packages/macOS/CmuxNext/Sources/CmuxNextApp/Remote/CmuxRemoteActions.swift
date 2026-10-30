@@ -16,7 +16,8 @@ private let actionsLogger = Logger(subsystem: "com.cmuxterm.app.next", category:
 enum CmuxRemoteActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let call: (String, CmuxNextDaemon.JSONValue) -> Void = { method, params in
-            guard let remote = CmuxRemoteService.shared else { return context.refuse(CmuxRemoteStrings.unavailable) }
+            let remote = context.services.cmuxRemote
+            guard remote.started else { return context.refuse(CmuxRemoteStrings.unavailable) }
             // task-owner: one host request; a failure shows its reason.
             Task { @MainActor in
                 do { _ = try await remote.call(method, params) } catch {
@@ -46,8 +47,8 @@ enum CmuxRemoteActions {
         Task { @MainActor in
             do {
                 try await hub.setMacScreenShared(on)
-                if on, let remote = CmuxRemoteService.shared {
-                    _ = try? await remote.call("request", .object(["permission": .string("screen-recording")]))
+                if on, context.services.cmuxRemote.started {
+                    _ = try? await context.services.cmuxRemote.call("request", .object(["permission": .string("screen-recording")]))
                 }
             } catch {
                 context.refuse(String(describing: error))
@@ -57,7 +58,8 @@ enum CmuxRemoteActions {
 
     /// The host, its workers and grants, on a dialog.
     @MainActor static func showStatus(context: AppActionContext) {
-        guard let remote = CmuxRemoteService.shared else { return context.refuse(CmuxRemoteStrings.unavailable) }
+        let remote = context.services.cmuxRemote
+        guard remote.started else { return context.refuse(CmuxRemoteStrings.unavailable) }
         let window = context.services.windows.active?.window ?? NSApp.keyWindow
         // task-owner: one status read, then the dialog.
         Task { @MainActor in
@@ -86,9 +88,10 @@ enum CmuxRemoteActions {
                 let (title, body) = action == "share" ? CmuxRemoteStrings.confirmShare()
                     : CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                 let window = services.windows.active?.window ?? NSApp.keyWindow
+                let remote = services.cmuxRemote
                 return .followUp {
                     guard await confirm(title: title, body: body, in: window).value else { return ["ok": false, "declined": true] }
-                    try await apply(action, device: device, scope: scope, hub: hub)
+                    try await apply(action, device: device, scope: scope, hub: hub, remote: remote)
                     return ["ok": true]
                 }
             }.withDeadline(.fixed(.seconds(130))),
@@ -96,10 +99,11 @@ enum CmuxRemoteActions {
     }
 
     /// Makes the confirmed change with this app's full hub session.
-    @MainActor static func apply(_ action: String, device: String, scope: DeviceScope?, hub: DeviceHub) async throws {
+    @MainActor static func apply(_ action: String, device: String, scope: DeviceScope?, hub: DeviceHub,
+                                 remote: CmuxRemoteService) async throws {
         if action == "share" {
             try await hub.setMacScreenShared(true)
-            _ = try? await CmuxRemoteService.shared?.call("request", .object(["permission": .string("screen-recording")]))
+            if remote.started { _ = try? await remote.call("request", .object(["permission": .string("screen-recording")])) }
         } else if let scope {
             try await hub.setPermission(host: hub.identity.id, viewer: device, scope: scope)
         }

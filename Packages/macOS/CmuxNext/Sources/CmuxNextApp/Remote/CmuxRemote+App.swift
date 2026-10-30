@@ -15,9 +15,9 @@ extension AppServices {
     /// worker is this Mac on the device hub (banner, sessions, with the app quit too). A build
     /// without the bundle keeps the helper v2 and the in-app host.
     func startCmuxRemote(_ settings: SettingsController) {
-        guard CmuxRemoteService.shared == nil, let executable = CmuxRemoteComputerUse.executable() else { return }
-        let remote = CmuxRemoteService(daemon: daemon)
-        CmuxRemoteService.shared = remote
+        let remote = cmuxRemote
+        guard !remote.started, let executable = CmuxRemoteComputerUse.executable() else { return }
+        remote.markStarted()
         let devices = CmuxRemoteDevices(open: { try await remote.openChannel("screen-sharing").socket })
         let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
         ComputerUseHelperDaemon.shared.upstream.remote = CmuxRemoteComputerUse(open: {
