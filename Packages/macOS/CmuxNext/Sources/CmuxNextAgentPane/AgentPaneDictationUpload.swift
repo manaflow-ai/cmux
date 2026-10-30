@@ -20,7 +20,7 @@ import Foundation
 /// cancel while the stager's finish runs (the remote transfer, after the last chunk) cancels that
 /// finish's task, so the transfer stops before it commits (Cloud's `cmux link access upload` child
 /// is killed; a peer's call is torn down, ``withAgentPaneDeadline``); no stager can delete a file it
-/// already committed, so one that commits anyway stays and its path is answered.
+/// already committed, so one that commits anyway stays, and the upload still answers `cancelled`.
 @MainActor
 struct AgentPaneDictationUpload {
     /// The most one chunk carries; the App's stagers take this much (their `chunkSize`). The file is
@@ -126,6 +126,10 @@ struct AgentPaneDictationUpload {
             if cancelled() { return stopped }
             return value(finished) == nil ? finished : failed
         }
+        // A finish that committed though the × came while it ran (a transfer that did not stop on
+        // cancellation): no stager can delete a committed file, so it stays, but the upload still
+        // answers `cancelled`, as the page asked, and is not given back for Retry.
+        if cancelled() { return stopped }
         return AgentPaneReply.success(["path": path])
     }
 

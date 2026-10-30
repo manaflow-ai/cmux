@@ -346,4 +346,23 @@ struct AgentPaneDictationUploadTests {
         #expect(model.dictationUploads.running.isEmpty && model.dictationUploads.cancelled.isEmpty)
         #expect(model.dictationUploads.finishing.isEmpty)
     }
+
+    /// Review of #27012 at 6a9fa4bf: a finish that ignored the cancel and committed answered its
+    /// path, as if the × had never come. It answers `cancelled`; the committed copy stays, since no
+    /// stager can delete one.
+    @Test func aFinishThatCommitsDespiteTheCancelStillAnswersCancelled() async throws {
+        let (file, _) = try recordingFile(bytes: 1_000)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let stager = Stager()
+        var asked = 0
+        let reply = await AgentPaneDictationUpload.send(try issued(file), through: stager.stage, session: "chat-a", cancelled: {
+            // False through the chunks and the check before the finish; true once the finish ran.
+            defer { asked += 1 }
+            return stager.requests.contains(.finish(token: "t1"))
+        })
+        #expect(asked > 0)
+        #expect(stager.requests.contains(.finish(token: "t1")))
+        #expect(Self.errorCode(reply) == "cancelled")
+        #expect((reply["value"] as? [String: Any])?["path"] == nil)
+    }
 }

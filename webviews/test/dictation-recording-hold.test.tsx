@@ -192,10 +192,15 @@ test("a composer that goes away while the recording uploads stops the upload, on
   const host = upload();
   let stopped = 0;
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
+  // The composer showed another chat before it went, so a late answer would go to chat A's kept chips.
+  chat = "chat-b";
+  await act(async () => root.render(<Probe />));
   await act(async () => root.render(null));
   expect(stopped).toBe(1);
+  // A late answer (a transfer that committed anyway) goes nowhere, not even to its chat's kept chips.
   await act(async () => host.answer({ path: remote }));
   expect(stopped).toBe(1);
+  expect(handedOff).toEqual([]);
 });
 
 test("a composer that goes away after the upload answered asks no cancel", async () => {

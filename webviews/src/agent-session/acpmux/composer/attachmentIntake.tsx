@@ -374,10 +374,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         });
     },
   );
-  // The composer goes away: a host-made chip still being made has nowhere to land, so it stops.
+  // The composer goes away: a host-made chip still being made has nowhere to land, so it stops,
+  // and whatever its `make` answers later is dropped (its source goes too).
   useEffect(
     () => () => {
-      for (const stop of making.current.values()) stop();
+      for (const [id, stop] of making.current) {
+        sources.current.delete(id);
+        stop();
+      }
       making.current.clear();
     },
     [],
