@@ -53,6 +53,56 @@ import Testing
         #expect(FocusSpyShim.granted.isEmpty)
     }
 
+    /// NIGHTLY 1.0.0-nightly.4093446036501 beachballed for good: a workspace switch hid an ancestor of
+    /// the focused page's view. Chromium ordered the page window out inside AppKit's hide walk, before
+    /// the page's own `viewDidHide`; the cmux window took the keys, the focus applier asked again, and
+    /// the grant showed the page window again, around and around in one main-thread turn. A page
+    /// under a hidden ancestor takes no focus; it gets it when its view shows again.
+    @Test func focusAskedWhileAnAncestorHidesIsGrantedWhenItShowsAgain() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 10)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        // Hidden first in AppKit's walk, as Chromium's view was: it asks for focus mid-hide.
+        let chromium = HideSpyView(frame: workspace.bounds)
+        workspace.addSubview(chromium)
+        workspace.addSubview(tab.contentView)
+        try #require(window.contentView).addSubview(workspace)
+        FocusSpyShim.granted = []
+        chromium.onHide = { tab.setFocused(true) }
+
+        workspace.isHidden = true
+        #expect(FocusSpyShim.granted.isEmpty, "a page under a hidden ancestor was given focus: \(FocusSpyShim.granted)")
+
+        chromium.onHide = nil
+        workspace.isHidden = false
+        #expect(FocusSpyShim.granted == [10])
+    }
+
+    /// The same ask from inside the page's own view (where Chromium's view sits), whichever order
+    /// AppKit tells a view and its subviews that an ancestor hid.
+    @Test func focusAskedFromInsideThePageWhileAnAncestorHidesIsGrantedWhenItShowsAgain() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 11)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        try #require(window.contentView).addSubview(workspace)
+        workspace.addSubview(tab.contentView)
+        let chromium = HideSpyView(frame: tab.contentView.bounds)
+        tab.contentView.addSubview(chromium)
+        FocusSpyShim.granted = []
+        chromium.onHide = { tab.setFocused(true) }
+
+        workspace.isHidden = true
+        #expect(FocusSpyShim.granted.isEmpty, "a page under a hidden ancestor was given focus: \(FocusSpyShim.granted)")
+
+        chromium.onHide = nil
+        workspace.isHidden = false
+        #expect(FocusSpyShim.granted == [11])
+    }
+
     /// A tab whose browser Chromium made (`afterCreated`), its view in no window yet.
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
@@ -64,6 +114,16 @@ import Testing
         #expect(tab.browserID == browser)
         FocusSpyShim.granted = []
         return (tab, host)
+    }
+}
+
+/// A view that runs `onHide` when an ancestor hides it.
+private final class HideSpyView: NSView {
+    var onHide: (() -> Void)?
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        onHide?()
     }
 }
 

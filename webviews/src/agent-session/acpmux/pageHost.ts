@@ -13,6 +13,7 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setReadAloudState } from "./conversation/readAloud";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
@@ -123,6 +124,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
+    case "readAloud":
+      // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
+      return setReadAloudState(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
@@ -147,6 +151,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.command?.(String(event.value));
     case "stopTurn":
       return bridge?.command?.("stopTurn", String(event.value));
+    case "sideQuestion":
+      return bridge?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;

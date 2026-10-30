@@ -303,7 +303,18 @@ class WorkflowTests(unittest.TestCase):
                     self.assertGreaterEqual(int(step["timeout-minutes"]), 65, (name, step.get("name")))
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
-        steps = self.jobs["build-nightly-app"]["steps"]
+        job = self.jobs["attest-nightly-remote-daemon"]
+        self.assertIn("blacksmith-4vcpu-ubuntu-2404", job["runs-on"])
+        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
+        self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
+        # No consumer can put this advisory job back on the publication path,
+        # directly or transitively. A budget wait must not delay the feed.
+        for name, consumer in self.jobs.items():
+            needs = consumer.get("needs", [])
+            if isinstance(needs, str):
+                needs = [needs]
+            self.assertNotIn("attest-nightly-remote-daemon", needs, name)
+        steps = job["steps"]
         names = [s.get("name") for s in steps]
         attest = names.index("Attest immutable SSH daemon assets")
         self.assertIn("gh_budget_wait.sh --reserve 200", steps[attest - 1]["run"])
@@ -311,6 +322,11 @@ class WorkflowTests(unittest.TestCase):
         wait = steps[names.index("Wait for the API budget before retrying the daemon attestation")]["run"]
         self.assertIn("gh_budget_wait.sh --reserve 200", wait)
         self.assertNotIn("sleep", wait)
+
+    def test_the_app_engine_fetch_keeps_its_budget_wrapper(self) -> None:
+        steps = self.jobs["build-nightly-app"]["steps"]
+        names = [s.get("name") for s in steps]
+        self.assertNotIn("Attest immutable SSH daemon assets", names)
         # The engine fetch's gh release fallback comes after the install too.
         self.assertLess(next(i for i, s in enumerate(steps) if INSTALL.search(str(s.get("run", "")))),
                         names.index("Fetch the Chromium engine"))

@@ -160,7 +160,13 @@ fn authority() -> Result<super::machine_consent::Authority> {
     super::machine_consent::Authority::current(consent_home())
 }
 
+/// At daemon start: a daemon whose own state holds a join or consent keeps the account-wide
+/// requirement. One with neither (every Windows daemon: no OS account home is read there)
+/// needs no authority, so the start never depends on it.
 pub(crate) fn retain_own_machine_consent_requirement() -> Result<()> {
+    if !super::machine_consent::has_own_requirement(&consent_home())? {
+        return Ok(());
+    }
     authority()?.retain_own_requirement()
 }
 
