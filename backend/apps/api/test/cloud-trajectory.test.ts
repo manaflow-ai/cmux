@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { TrajectoryStore } from "../src/cloud-trajectory-store.ts"
 import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
 
 /**
@@ -189,6 +190,40 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     expect(rest.body.value.has_more).toBe(false)
     // A guest that cannot follow a cursor is refused rather than shown four of five.
     expect((await traj(s.vm, s.machine, "list", {})).body.error.code).toBe("cloud.trajectory.pagination_required")
+  })
+
+  it("listing consumes only a byte-bounded page and one lookahead row", () => {
+    let consumed = 0
+    const record = JSON.stringify({ ...meta("chat-a", 1), pad: "x".repeat(1_000_000) })
+    // A streaming SQL cursor can contain hundreds of large records. Reading beyond the
+    // page plus lookahead models exhausting the Worker's memory before producing a reply.
+    function* rows() {
+      for (let i = 0; i < 501; i++) {
+        if (++consumed > 5) throw new Error("list read beyond its bounded page")
+        yield { session: `chat-${i}`, generation: CREATED, meta: record, last_seq: 1, bytes: record.length, updated_at: CREATED }
+      }
+    }
+    const sql = {
+      exec(query: string) {
+        if (query.startsWith("SELECT * FROM traj_session")) return { [Symbol.iterator]: rows, toArray: () => Array.from(rows()) }
+        return { toArray: () => [] }
+      }
+    } as unknown as SqlStorage
+    const page = new TrajectoryStore(sql).list()
+    expect(page.sessions.map((s) => s.session)).toEqual(["chat-0", "chat-1", "chat-2", "chat-3"])
+    expect(page).toMatchObject({ has_more: true, next_after_session: "chat-3" })
+    expect(consumed).toBe(5)
+  })
+
+  it("native reads identify the session generation that owns their bytes", async () => {
+    const s = await setup("traj-3")
+    const path = ".claude/projects/-work/resume.jsonl"
+    for (const generation of [CREATED, CREATED + 1]) {
+      await traj(s.vm, s.machine, "append", { session: "chat-a", generation, meta: meta("chat-a", 1, generation), lines: [line(1)] })
+      await traj(s.vm, s.machine, "native", { session: "chat-a", generation, label: "claude-project", path, offset: 0, data: btoa("{}\n") })
+      const read = await traj(s.vm, s.machine, "native-read", { session: "chat-a", label: "claude-project", path, offset: 0 })
+      expect(read.body.value).toEqual({ generation, size: 3, data: btoa("{}\n") })
+    }
   })
 
   it("a record must name its own session and generation", async () => {

@@ -182,7 +182,9 @@ impl Api for FakeServer {
                 let file = &kept.native[&key];
                 let offset = body["offset"].as_u64().unwrap() as usize;
                 let end = file.len().min(offset + 5);
-                ok(json!({ "size": file.len(), "data": encode_base64(&file[offset..end]) }))
+                ok(
+                    json!({ "generation": kept.generation, "size": file.len(), "data": encode_base64(&file[offset..end]) }),
+                )
             }
             other => panic!("unexpected action {other}"),
         }
@@ -607,6 +609,74 @@ fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
     fs::remove_dir_all(second.session_dir("chat-a")).unwrap();
     let mut restarted = second.mirror();
     assert_eq!(restarted.prime(&mut server).unwrap(), 0);
+}
+
+#[test]
+fn a_restore_rejects_generation_changes_and_relists_before_retrying() {
+    struct Recreate {
+        server: FakeServer,
+        action: &'static str,
+        occurrence: usize,
+        seen: usize,
+    }
+    impl Api for Recreate {
+        fn call(&mut self, action: &str, body: &Value) -> Answer {
+            if action == self.action && body["from"] == "parent" {
+                self.seen += 1;
+                if self.seen == self.occurrence {
+                    let kept = self.server.stores.get_mut("m1").unwrap().get_mut("chat-a").unwrap();
+                    kept.generation += 1;
+                    kept.meta["createdAt"] = json!(kept.generation);
+                    kept.lines = (1..=5)
+                        .map(|seq| json!({ "seq": seq, "new_generation": true }).to_string())
+                        .collect();
+                    for bytes in kept.native.values_mut() {
+                        *bytes = b"{\"new!\":1}\n{\"new!\":2}\n".to_vec();
+                    }
+                }
+            }
+            self.server.call(action, body)
+        }
+    }
+    // Recreate after listing, between event pages, and before/between native chunks.
+    for (action, occurrence) in [("read", 1), ("read", 2), ("native-read", 1), ("native-read", 2)] {
+        let mut server = FakeServer::at("m1");
+        let _first = first_machine(&mut server);
+        server.as_machine("m2", Some("m1"));
+        let mut api = Recreate { server, action, occurrence, seen: 0 };
+        let second = Machine::new();
+        let mut acpmux =
+            FakeAcpmux { layout: second.layout.clone(), running: true, fail: 0, imported: vec![] };
+        let mut replacement = second.mirror();
+        replacement.prime_own(&mut api).unwrap();
+        assert!(matches!(replacement.prime_parent_when_due(&mut api, 0, 0.5), Some(Ok(1))));
+        assert_eq!(
+            replacement.restore(&mut api, &mut acpmux),
+            0,
+            "{action} {occurrence}: never import mixed generations"
+        );
+        assert!(acpmux.imported.is_empty());
+        assert!(!second.layout.staging.join("chat-a").exists());
+        assert!(
+            matches!(replacement.prime_parent_when_due(&mut api, 1, 0.5), Some(Ok(1))),
+            "the changed source is listed again"
+        );
+        assert_eq!(replacement.restore(&mut api, &mut acpmux), 1);
+        let restored: Value = serde_json::from_slice(
+            &fs::read(second.session_dir("chat-a").join("session.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restored["createdAt"], CREATED + 1);
+        let events =
+            fs::read_to_string(second.session_dir("chat-a").join("events/000001.ndjson")).unwrap();
+        assert!(
+            events
+                .lines()
+                .take(5)
+                .all(|line| serde_json::from_str::<Value>(line).unwrap()["new_generation"] == true)
+        );
+        assert_eq!(fs::read(second.claude_file()).unwrap(), b"{\"new!\":1}\n{\"new!\":2}\n");
+    }
 }
 
 #[test]
