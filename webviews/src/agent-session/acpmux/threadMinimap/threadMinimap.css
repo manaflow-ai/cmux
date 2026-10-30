@@ -102,6 +102,19 @@
   outline: none;
   contain: layout paint;
 }
+.acpmux-minimap__tick:focus-visible {
+  /* shared agent-session styles suppress generic button outlines with !important; this rail owns
+     its compact focus treatment and marks the control with data-focus-ring="tick". */
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+  outline-offset: -1.5px;
+  border-radius: var(--acpmux-inspector-row-radius, 4px);
+}
+@media (prefers-contrast: more) {
+  .acpmux-minimap__tick:focus-visible {
+    outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+    outline-offset: 2px;
+  }
+}
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
   position: absolute;
