@@ -105,7 +105,8 @@ struct PaneBrowserTabOpener {
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").
-            if !beside, standInApplies(child: child, opener: opener, background: background) {
+            if !beside, standInApplies(child: child, opener: opener, background: background,
+                                        placementOwner: placementOwner) {
                 openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
                             profile: profile, notice: notice, then: then)
                 return true
@@ -183,8 +184,9 @@ struct PaneBrowserTabOpener {
 extension PaneBrowserTabOpener {
     /// A person's foreground tab of this Mac's daemon in a normal window, with no popup page to
     /// adopt and no opener slot (decided after the reply).
-    private func standInApplies(child: (any BrowserTab)?, opener: SurfaceID?, background: Bool) -> Bool {
-        child == nil && opener == nil && !background && controller.daemon.isLocal && controller.daemon.connection != nil
+    private func standInApplies(child: (any BrowserTab)?, opener: SurfaceID?, background: Bool,
+                                 placementOwner: Bool) -> Bool {
+        child == nil && opener == nil && !background && !placementOwner && controller.daemon.isLocal && controller.daemon.connection != nil
             && ActionRunScope.viewChangeAllowed() && !controller.services.cache.browserTabs.isIncognitoPane(controller.pane)
     }
 
