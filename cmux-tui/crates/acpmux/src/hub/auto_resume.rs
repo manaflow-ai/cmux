@@ -366,16 +366,16 @@ impl Hub {
     /// Settles whether the ended turn `turn_id` is continued: it is when `cut` is a transport
     /// error or agent death and no Stop or close came since it began. Nothing for any other failure, or once
     /// the configured attempts are used.
-    pub(super) fn schedule_auto_resume(
+    pub(super) async fn schedule_auto_resume(
         self: &Arc<Self>,
         session: &Arc<Session>,
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
-        self.schedule_auto_resume_at(session, turn_id, cut, None);
+        self.schedule_auto_resume_at(session, turn_id, cut, None).await;
     }
 
-    fn schedule_auto_resume_at(
+    async fn schedule_auto_resume_at(
         self: &Arc<Self>,
         session: &Arc<Session>,
         turn_id: &str,
@@ -412,97 +412,77 @@ impl Hub {
         let (control, trust_gate, not_before) = (cut.control, cut.trust_gate, cut.not_before);
         let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
-        // Leave a quiet durable marker before the spawned task can be interrupted by a daemon
-        // shutdown. The task replaces it with the exact deadline once it has read configuration
-        // and usage state; a restart can safely retry immediately from this provisional marker.
-        hub.append_quiet(
-            &session,
-            "mux",
-            "auto_resume_scheduled",
-            json!({
-                "promptId": root.clone(),
-                "turnId": turn_id.clone(),
-                "reason": reason.as_str(),
-                "error": error,
-                "control": control.as_str(),
-                "trustGate": trust_gate,
-                "nextAt": super::now_ms(),
-                "from": from.as_deref(),
-            }),
-        );
-        // Off the turn's path: the turn lock is still held here.
-        tokio::spawn(async move {
-            let delays = {
-                let cfg = hub.config.read().await;
-                cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
-            };
-            let Some(&delay) = delays.get(done) else {
-                let ours = hub.take_pending(&session, &turn_id);
-                if done > 0 {
-                    let message = format!(
-                        "Automatic recovery stopped after {done} attempts: {error}. Retry this turn when the service is available."
-                    );
-                    let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str(), "error": message});
-                    hub.append(&session, "mux", "auto_resume_exhausted", msg);
-                    // A turn_error is displayed in the chat, so exhaustion cannot look idle.
-                    hub.append(
-                        &session,
-                        "mux",
-                        "turn_error",
-                        json!({"turnId": turn_id, "error": message}),
-                    );
-                } else if ours {
-                    hub.settled_unretried(&session, &turn_id, "off");
-                }
-                return;
-            };
-            let attempt = done + 1;
-            let now = super::now_ms();
-            let limits = session.meta().usage_limits;
-            let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
-            // A named weekly reset is not clamped to the config's one-hour backoff cap.
-            // Jitter only the backoff, never a percentage of a week-long reset.
-            let next_at = restored_at.unwrap_or_else(|| {
-                now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now))
-            });
-            let delay = next_at.saturating_sub(now);
-            let retry = RetrySummary {
-                attempt: attempt as u64,
-                of: delays.len() as u64,
-                reason,
-                next_at,
-                prompt_id: root.clone(),
-                turn_id: turn_id.clone(),
-            };
-            let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
-            msg.set("delayMs", json!(delay));
-            msg.set("error", json!(error));
-            msg.set("control", json!(control.as_str()));
-            msg.set("trustGate", json!(trust_gate));
-            if let Some(from) = &from {
-                msg.set("from", json!(from));
-            }
-            // Persist the schedule before publishing the in-memory retry row. A daemon crash
-            // between these operations must leave an event that restart restoration can replay.
-            // Persist before setting the in-memory row so restart restoration never loses the
-            // retry. The durable write is quiet; the watcher-visible event follows once the row
-            // exists and therefore cannot expose `retry: null`.
-            let scheduled = hub.append_quiet(&session, "mux", "auto_resume_scheduled", msg);
-            if hub.set_retry(&session, &turn_id, retry) {
-                hub.publish(&session, &scheduled);
-                // Publish after installing the in-memory row so watchers do not retain
-                // `retry: null` for a long reset wait.
+        let delays = {
+            let cfg = hub.config.read().await;
+            cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
+        };
+        let Some(&delay) = delays.get(done) else {
+            let ours = hub.take_pending(&session, &turn_id);
+            if done > 0 {
+                let message = format!(
+                    "Automatic recovery stopped after {done} attempts: {error}. Retry this turn when the service is available."
+                );
+                let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str(), "error": message});
+                hub.append(&session, "mux", "auto_resume_exhausted", msg);
                 hub.append(
                     &session,
                     "mux",
-                    "auto_resume_state",
-                    json!({"turnId": turn_id, "nextAt": next_at}),
+                    "turn_error",
+                    json!({"turnId": turn_id, "error": message}),
                 );
-                // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
-                tokio::select! {
-                    () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                    () = wake.notified() => {}
-                }
+            } else if ours {
+                hub.settled_unretried(&session, &turn_id, "off");
+            }
+            return;
+        };
+        if !matches!(
+            hub.auto_resumes.lock().get(&session.id),
+            Some(Mark::Waiting { turn, .. }) if turn == &turn_id
+        ) {
+            return;
+        }
+        let attempt = done + 1;
+        let now = super::now_ms();
+        let limits = session.meta().usage_limits;
+        let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+        let next_at = restored_at.unwrap_or_else(|| {
+            now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now))
+        });
+        let delay = next_at.saturating_sub(now);
+        let retry = RetrySummary {
+            attempt: attempt as u64,
+            of: delays.len() as u64,
+            reason,
+            next_at,
+            prompt_id: root.clone(),
+            turn_id: turn_id.clone(),
+        };
+        let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
+        msg.set("delayMs", json!(delay));
+        msg.set("error", json!(error));
+        msg.set("control", json!(control.as_str()));
+        msg.set("trustGate", json!(trust_gate));
+        if let Some(from) = &from {
+            msg.set("from", json!(from));
+        }
+        // Persist the schedule before spawning the timer. A daemon crash after this point can
+        // restore the exact deadline, and a Stop that won while config was locked is discarded.
+        let scheduled = hub.append_quiet(&session, "mux", "auto_resume_scheduled", msg);
+        if !hub.set_retry(&session, &turn_id, retry) {
+            return;
+        }
+        hub.publish(&session, &scheduled);
+        hub.append(
+            &session,
+            "mux",
+            "auto_resume_state",
+            json!({"turnId": turn_id, "nextAt": next_at}),
+        );
+        // Off the turn's path: the turn lock is still held here.
+        tokio::spawn(async move {
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_millis(delay)) => {}
+                () = wake.notified() => {}
             }
             let cut = CutTurn {
                 from: from.as_deref(),

@@ -912,7 +912,7 @@ impl Hub {
             }),
             _ => None,
         };
-        self.schedule_auto_resume(session, &turn_id, cut);
+        self.schedule_auto_resume(session, &turn_id, cut).await;
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its

@@ -396,7 +396,7 @@ impl Hub {
                 }
                 _ => None,
             };
-            self.schedule_auto_resume(&session, turn_id, cut);
+            self.schedule_auto_resume(&session, turn_id, cut).await;
             let Some(next) = next else { break };
             let NextTurn { carried, next: next_turn, continues: next_continues } = *next;
             let gate = next_continues.trust_gate;
@@ -565,7 +565,7 @@ mod tests {
         hub.stop_auto_resume(&s);
         let two = hub.carried_turn(&s, Some(&one), &Carried { seq: 1, prompt_ids: vec![] }).0;
         hub.take_turn(&s, "t-1", Some(two.clone()));
-        hub.schedule_auto_resume(&s, "t-1", None);
+        hub.schedule_auto_resume(&s, "t-1", None).await;
         assert!(hub.stopped_for_test(&s, &two.turn_id), "the Stop did not hold for the next turn");
     }
 
