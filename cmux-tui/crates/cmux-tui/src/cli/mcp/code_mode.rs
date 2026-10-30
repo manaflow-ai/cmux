@@ -617,6 +617,8 @@ const PRELUDE: &str = r#"
       });
     },
   });
+  // `({cmux}) => {...}` takes the object a function script is called with: cmux itself.
+  base.cmux = globalThis.cmux;
   globalThis.__cmuxFinish = (promise) => promise.then(
     (value) => native.done(true, encode(value)),
     (error) => native.done(false, encode({
@@ -645,31 +647,34 @@ fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
         && called.ends_with(')')
         && function_body(called) != std::borrow::Cow::Borrowed(called)
     {
-        return std::borrow::Cow::Owned(format!("return await {trimmed};"));
+        // Called with cmux, as an uncalled function is: `(async ({cmux}) => {...})()`
+        // would destructure undefined.
+        return std::borrow::Cow::Owned(format!("return await {called}(cmux);"));
     }
     let inner = match trimmed.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
         Some(inner) => inner.trim(),
         None => trimmed,
     };
     let head = inner.strip_prefix("async").map_or(inner, str::trim_start);
-    let opens = if let Some(rest) = head.strip_prefix("function") {
-        rest.trim_start().starts_with('(')
-    } else if let Some(params) = head.strip_prefix('(') {
-        // `(params) => {`: the parameter list closes, then the arrow and a brace follow.
-        params.split_once(')').is_some_and(|(list, rest)| {
-            !list.contains(['(', '{'])
-                && rest
-                    .trim_start()
-                    .strip_prefix("=>")
-                    .is_some_and(|r| r.trim_start().starts_with('{'))
-        })
-    } else {
-        false
+    // The `{` that opens the body: after `function (params)` or `(params) =>`. The
+    // parameter list may destructure (`({cmux}) => {`, tests/tool-evals r8e: GLM 5.3
+    // FlashX ran it four times and got null), so the body is the brace after the list.
+    let (arrow, params) = match head.strip_prefix("function") {
+        Some(rest) => (false, rest.trim_start()),
+        None => (true, head),
     };
-    let body_start = inner.find('{');
+    let body_start = params.strip_prefix('(').and_then(|list| {
+        let (list, rest) = list.split_once(')')?;
+        if list.contains('(') {
+            return None;
+        }
+        let rest = rest.trim_start();
+        let rest = if arrow { rest.strip_prefix("=>")?.trim_start() } else { rest };
+        rest.starts_with('{').then(|| inner.len() - rest.len())
+    });
     let closes_at_end =
         body_start.is_some_and(|start| block_end(inner, start) == Some(inner.len() - 1));
-    if opens && closes_at_end {
+    if closes_at_end {
         std::borrow::Cow::Owned(format!("return await ({inner})(cmux);"))
     } else {
         std::borrow::Cow::Borrowed(script)

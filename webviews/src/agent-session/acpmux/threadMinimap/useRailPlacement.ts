@@ -22,8 +22,9 @@ export function useRailPlacement(scroller: RefObject<HTMLElement | null>, paneWi
       const style = node.ownerDocument.defaultView?.getComputedStyle(node);
       const token = (name: string, fallback: number) =>
         Number.parseFloat(style?.getPropertyValue(name) ?? "") || fallback;
-      const shift = Number.parseFloat(shell?.style.getPropertyValue("--acpmux-chat-shift") ?? "") || 0;
-      const inset = transcriptColumn(columnWidth, chatColumnOf(chatWidth, display, scale)).inset - shift;
+      // Session Info never moves the chat's column (inspector/ChatInspector.tsx), so its inset is the
+      // column's own.
+      const inset = transcriptColumn(columnWidth, chatColumnOf(chatWidth, display, scale)).inset;
       const next = railPlacement(paneWidth, inset, {
         min: token("--cmux-space-2", 8),
         max: token("--cmux-space-4", 16),
