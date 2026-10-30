@@ -137,8 +137,8 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits). Sparkle's ready reply does not skip its version; a resumed silent installer uses
-    /// the foreground Skip reply to cancel it. No-op without one; returns whether cancelled.
+    /// quits) without skipping its version. A legacy silent installer is cancelled and checked
+    /// again before it reaches this ready reply. No-op without one; returns whether cancelled.
     @discardableResult
     public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()

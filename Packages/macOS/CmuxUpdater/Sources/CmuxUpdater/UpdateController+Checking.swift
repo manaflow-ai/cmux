@@ -218,7 +218,7 @@ extension UpdateController: UpdateDriverEventDelegate {
         // Returning NO from willInstallUpdateOnQuit ends Sparkle's silent cycle. Resume it as
         // a foreground cycle only after that callback, so the user driver gets a cancellable
         // reply instead of trapping the updater in its private silent-install session.
-        pendingCheckIntent = .manual
+        pendingCheckIntent = pendingCheckIntent?.merged(with: .manual) ?? activeCheckIntent ?? .manual
         showPreparingCheck()
     }
 

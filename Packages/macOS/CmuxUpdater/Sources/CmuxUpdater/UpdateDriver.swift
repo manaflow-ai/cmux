@@ -48,6 +48,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var refusesBuild: (@MainActor (String) -> Bool)?
     /// The host's bounded refusal-policy read, awaited before any item is accepted.
     var prepareUpdate: (@MainActor () async -> Void)?
+    private var preparedOfferGeneration: UInt64 = 0
+    private var preparedOfferReply: (@Sendable (SPUUserUpdateChoice) -> Void)?
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
@@ -133,34 +135,51 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        invalidatePreparedOffer()
+        if quitInstallItem?.versionString == appcastItem.versionString, installsInBackground {
+            // Skip is the only public reply that cancels Sparkle's already-running silent
+            // installer. Do not expose that reply as the ordinary staged/quit cancellation:
+            // Sparkle records a skipped version here. After this cycle finishes, a fresh
+            // foreground check clears Sparkle's skipped state and downloads through our own
+            // driver, whose ready reply cancels without skipping the version (Sparkle 2.10).
+            quitInstallItem = nil
+            eventDelegate?.updateDriverNeedsSilentInstallResume()
+            reply(.skip)
+            return
+        }
         guard let prepareUpdate else { return handleUpdateFound(appcastItem, reply: reply) }
+        let generation = preparedOfferGeneration
+        preparedOfferReply = reply
         Task { @MainActor [weak self] in
             await prepareUpdate()
-            guard let self else { return reply(.dismiss) }
+            guard let self, self.preparedOfferGeneration == generation else { return }
+            self.preparedOfferReply = nil
             self.handleUpdateFound(appcastItem, reply: reply)
         }
+    }
+
+    /// A policy read belongs to one check. Replacing/cancelling/ending that check releases its
+    /// Sparkle reply at once; a later read completion cannot publish or download its old item.
+    func invalidatePreparedOffer() {
+        preparedOfferGeneration &+= 1
+        let reply = preparedOfferReply
+        preparedOfferReply = nil
+        reply?(.dismiss)
     }
 
     private func handleUpdateFound(_ appcastItem: SUAppcastItem,
                                    reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
-        let resumesSilentInstall = quitInstallItem?.versionString == appcastItem.versionString
-        if resumesSilentInstall { quitInstallItem = nil }
         if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
             log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
             setState(.idle)
-            return reply(resumesSilentInstall ? .skip : .dismiss)
+            return reply(.dismiss)
         }
         // Before the background accept too: a refused build never downloads.
         if refusesBuild?(appcastItem.versionString) == true {
             log.append("not offering \(appcastItem.versionString): the host refuses it")
             setState(.idle)
-            return reply(resumesSilentInstall ? .skip : .dismiss)
-        }
-        if resumesSilentInstall, installsInBackground {
-            backgroundItem = appcastItem
-            stageInBackground(reply)
-            return
+            return reply(.dismiss)
         }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
@@ -437,10 +456,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Replaces the visible state. Controller paths that supersede a check use this instead of
     /// mutating the model directly.
     func replaceActiveState(with replacement: UpdateState) {
+        invalidatePreparedOffer()
         model.replaceActiveState(with: replacement)
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {
+        invalidatePreparedOffer()
         model.setOverrideState(nil)
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
@@ -449,6 +470,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                 cancel()
                 return
             }
+            self.invalidatePreparedOffer()
             self.log.append("update check cancellation requested (source=\(source))")
             if source == .user {
                 self.eventDelegate?.updateDriverUserDidCancelCheck()
@@ -462,6 +484,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func setState(_ newState: UpdateState) {
+        invalidatePreparedOffer()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
         applyState(newState)

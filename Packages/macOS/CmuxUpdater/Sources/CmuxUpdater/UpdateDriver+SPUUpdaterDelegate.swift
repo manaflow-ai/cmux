@@ -152,6 +152,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// Forwards Sparkle's authoritative session-finished signal to the lifecycle owner.
     /// Extracted so the replacement-check race is testable without constructing `SPUUpdater`.
     func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
+        invalidatePreparedOffer()
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
         relaunchGate.cancel()

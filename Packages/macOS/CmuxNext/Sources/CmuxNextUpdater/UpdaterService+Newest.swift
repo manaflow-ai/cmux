@@ -40,6 +40,7 @@ extension UpdaterService {
 
     /// Starts the check that downloads the newest build (this app's driver, never Sparkle's silent one).
     func startNewestCheck(_ reason: NewestFetch) {
+        guard reason == .click || !isOffManagedChannel else { return }
         newestFetch = reason
         if let startCheck = stagedRefresh.startCheck { startCheck() } else { controller?.checkForUpdates() }
     }
@@ -81,7 +82,7 @@ extension UpdaterService {
             }
             pulledStagedKept = true
         }
-        guard pulledWatch.isPulled(identity.build), !runningPulledHandled else { return }
+        guard !isOffManagedChannel, pulledWatch.isPulled(identity.build), !runningPulledHandled else { return }
         switch flow.phase {
         case .hidden, .note:
             runningPulledHandled = true
@@ -108,7 +109,9 @@ extension UpdaterService {
         switch phase {
         case .available:
             // The click's own request downloads it (``UpdateFlow``); a pulled build's replacement downloads here.
-            if fetch != .click { acceptAvailable() }
+            if fetch != .click {
+                if isOffManagedChannel { newestFetch = nil } else { acceptAvailable() }
+            }
         case .checking, .downloading:
             break
         case .hidden:
