@@ -5378,7 +5378,9 @@ function AcpmuxPane() {
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
 
-  const trustRefused = useRef<((error: unknown, again?: () => void, declined?: () => void) => boolean) | undefined>(undefined);
+  const trustRefused = useRef<((error: unknown, again?: () => void, declined?: () => void) => boolean) | undefined>(
+    undefined,
+  );
   const trustCancelEpoch = useRef(0);
   const pendingTrustRefusal = useRef<
     | {
@@ -7780,7 +7782,6 @@ function AcpmuxPane() {
       };
       void newWorktree(callNative, cwd, (folder) => {
         if (pick === folderPick.current && stillHere()) use(folder);
-
       })
         .then(({ ask }) => {
           // The host asks about the worktree's folder first: the question shows as a picked folder's.
@@ -8387,7 +8388,6 @@ function AcpmuxPane() {
               pendingTrustRefusal.current = { ...current, error: refusal, again, declined };
             },
           );
-
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
@@ -10527,7 +10527,6 @@ function AcpmuxPane() {
   ) : null;
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
-
       {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
         <TrustAsk
           ask={trustAsk.ask}
@@ -11545,7 +11544,6 @@ function AcpmuxPane() {
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
-
           ) : showNewTab ? (
             <NewTabPage
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}

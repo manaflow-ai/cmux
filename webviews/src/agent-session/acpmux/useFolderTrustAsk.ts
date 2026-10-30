@@ -242,7 +242,10 @@ export function useFolderTrustAsk(
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
   /// Keyed by chat and visit (`retryKey`): fresh chats share no session id, so each keeps its own.
   const resend = useRef(
-    new Map<string, { again: () => void; declined?: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }>(),
+    new Map<
+      string,
+      { again: () => void; declined?: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }
+    >(),
   );
   /// The keys a chat's held retry may sit under: its visit's, then the unbound one (a New Tab's first
   /// render has no client visit yet, and its retry stays its own once the visit binds).
@@ -538,7 +541,6 @@ export function useFolderTrustAsk(
           resend.current.delete(found.key);
           found.held.declined?.();
         }
-
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
       } finally {

@@ -1495,7 +1495,6 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
-
         {authBlocksSend(targetAuth) && (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
