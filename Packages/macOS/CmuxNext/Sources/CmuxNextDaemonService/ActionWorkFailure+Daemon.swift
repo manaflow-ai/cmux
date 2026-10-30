@@ -41,6 +41,7 @@ extension DaemonError {
     }
 }
 
+extension ActionWorkFailure {
     /// The failure of a person's optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it:
     /// ``PendingPaneNotCreated`` and ``PaneNotReady`` read in the app's language (their English text stays for the log);
     /// other errors keep the daemon's own text, as before.
