@@ -19,6 +19,8 @@ the panes rest:
               (page_resizes) and host mode's page resizes (host_resizes); with --tunable motion.renderServer=on
               the render-server slide (p03-rendering-102: one page resize per toggle, 0 missed frames)
   idle        nothing for 1 s: with --browser the page keeps animating, so this is the Chromium pump at rest
+  page        a browser page opening on the right (splitBrowserRight, Leo's "opening up a new thing on the
+              right"), then its close (page-close)
 
 The bench app activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed from
 the bench environment), as for a person. Each layout reads whether the window really is key (`debug.window_list`)
@@ -50,7 +52,7 @@ story declares and only of the layouts of its session whose window was key. The 
 (chromium with --browser, --content chromium or a Chromium STRESS session); a --story run that writes no series fails.
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
-       [--actions split,close,column,zoom,drag,sidepanel,scroll,idle,omnibar-toggle] [--rounds 3] [--scrollback 5000]
+       [--actions split,close,column,zoom,drag,sidepanel,scroll,idle,omnibar-toggle,page] [--rounds 3] [--scrollback 5000]
        [--stream] [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--story ID] [--tunable KEY=VALUE]
 
 --tunable KEY=VALUE (repeatable) sets a tunable over `debug.tunables` after launch and reads it back (another value
@@ -410,7 +412,8 @@ def perform(name):
     verbs = {"split": "splitRight", "split-down": "splitDown", "close": "closePane", "close-down": "closePane",
              "column": "newColumn", "column-close": "closePane", "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom",
              "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar",
-             "omnibar-hide": "palette.browserToggleOmnibar", "omnibar-show": "palette.browserToggleOmnibar"}
+             "omnibar-hide": "palette.browserToggleOmnibar", "omnibar-show": "palette.browserToggleOmnibar",
+             "page": "splitBrowserRight", "page-close": "closePane"}
     if name in OMNIBAR and not PROBE.get("tab"):
         return f"{name} needs --browser"
     if name == "drag":
@@ -510,7 +513,7 @@ def measure(label, name):
 SEQUENCE = {"split": ["split", "close"], "split-down": ["split-down", "close-down"], "close": [],
             "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "drag": ["drag"],
             "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
-            "omnibar-toggle": list(OMNIBAR)}
+            "omnibar-toggle": list(OMNIBAR), "page": ["page", "page-close"]}
 
 
 def steps():
@@ -540,7 +543,8 @@ def profile(name, label):
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
             "drag": ["drag"], "sidepanel": ["sidepanel", "sidepanel-close"],
             "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
-            "omnibar-hide": list(OMNIBAR), "omnibar-show": list(OMNIBAR)}[name]
+            "omnibar-hide": list(OMNIBAR), "omnibar-show": list(OMNIBAR),
+            "page": ["page", "page-close"], "page-close": ["page", "page-close"]}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")
     seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
     sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
@@ -731,7 +735,7 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:
-                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close", "omnibar-show"):
+                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close", "omnibar-show", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
                 run.update(layout=label, panes=panes, round=index)

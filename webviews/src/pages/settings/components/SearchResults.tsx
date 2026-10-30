@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { hiddenRowKeys } from "../availability";
 import { CHIEF_PET_ROWS } from "../cardRows";
 import { shownCategories } from "../categories";
@@ -15,15 +15,23 @@ import { GroupList } from "./GroupList";
  */
 export function SearchResults({ query, changedOnly = false }: { query: string; changedOnly?: boolean }) {
   const state = useSettingsState();
-  const matches = filterRows({
-    query,
-    changedOnly,
-    valueOf: (key) => valueOf(state, key),
-    isChanged: (key) => state.rows.get(key)?.customized ?? false,
-    devBuild: state.host?.dev_build === true,
-    hidden: hiddenRowKeys(state.host),
-  });
-  const shown = new Set(matches.flatMap((match) => match.rows.map((row) => row.key)));
+  const devBuild = state.host?.dev_build === true;
+  const categories = useMemo(() => shownCategories(devBuild), [devBuild]);
+  const matches = useMemo(
+    () =>
+      filterRows({
+        query,
+        changedOnly,
+        valueOf: (key) => valueOf(state, key),
+        isChanged: (key) => state.rows.get(key)?.customized ?? false,
+        devBuild,
+        hidden: hiddenRowKeys(state.host),
+        scope: "user",
+        revision: state.revision,
+      }),
+    [changedOnly, devBuild, query, state],
+  );
+  const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
   const empty = shown.size === 0;
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
@@ -44,7 +52,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           {changedOnly && !query.trim() ? t("settingsPage.noChanged") : t("settingsPage.noResults")}
         </span>
       </p>
-      {shownCategories(state.host?.dev_build === true).map((category) => {
+      {categories.map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief" && petCard !== undefined;
         const petRows = pet

@@ -1720,6 +1720,7 @@ export function NewTabScreen(props: Props) {
                       <div
                         key={rowKey(row)}
                         id={`nt-row-${index}`}
+                        ref={index === current ? keepInView : undefined}
                         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                         role="option"
                         tabIndex={-1}

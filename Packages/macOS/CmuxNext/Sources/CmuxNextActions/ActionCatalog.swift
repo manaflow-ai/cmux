@@ -134,6 +134,7 @@ public nonisolated enum ActionCatalog {
         AgentChatIdentifierActionCatalog.self,
         AgentChatCopyActionCatalog.self,
         AgentChatViewActionCatalog.self,
+        AgentSideQuestionActionCatalog.self,
         AgentHarnessActionCatalog.self,
         CloudActionCatalog.self,
         CloudPortActionCatalog.self,

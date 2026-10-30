@@ -110,6 +110,8 @@ export function SettingsApp() {
       isChanged,
       devBuild: state.host?.dev_build === true,
       hidden: hiddenRowKeys(state.host),
+      scope: "user",
+      revision: state.revision,
     })[0]?.rows[0];
     if (first) reveal(first.key);
   };

@@ -195,8 +195,8 @@ extension JoinConsentModel {
 /// app asks acpmux again (`machine_consent_get`); the files are never read for a decision. Event-driven:
 /// the folder through ``FolderChanges`` (through a parent until it exists) and each file through its own
 /// vnode watch, armed again after each folder change. Both are armed in ``events(armed:)`` itself, before
-/// it returns and before its watch loop starts (``FolderChanges/events()`` returns once the kernel registered
-/// its watch on the folder or its nearest existing parent): the folder's first, then the files', then `armed` runs, then the stream
+/// it returns and before its watch loop starts (``FolderChanges/events()`` returns once it is registered, on the folder or
+/// its nearest existing parent): the folder's first, then the files', then `armed` runs, then the stream
 /// yields once. So a change made from then on (the folder made, a file written) is seen by a watch, and
 /// one made while they armed is read by that first ask. Ends when the consumer stops iterating.
 nonisolated struct MachineConsentChanges: Sendable {
@@ -217,8 +217,8 @@ nonisolated struct MachineConsentChanges: Sendable {
     func events(armed: () -> Void = {}) async -> AsyncStream<Void> {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let folder = folder
-        // Armed here, in this order: the folder (FolderChanges arms and waits for the registration in events(),
-        // not in its loop), then the files, then one element, so nothing made or replaced while they armed is missed.
+        // Armed here, in this order: the folder (FolderChanges arms in events(), not in its loop), then the
+        // files, then one element, so nothing made or replaced while they armed is missed.
         let folderChanges = await FolderChanges(folders: [folder]).events()
         let first = Self.watchFiles(in: folder, continuation)
         armed()
