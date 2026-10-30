@@ -43,6 +43,15 @@ export function inThisVisit(
   return held.sessionId === sessionId && (held.visit === undefined || held.visit === visit);
 }
 
+/// The visit to record on a held folder question or retry. No client (a gallery frame) records none,
+/// and the session id alone scopes it. A stale render's sentinel (a symbol: the client has already
+/// moved on) records a mark no visit ever matches, so what it started never shows in another chat.
+export function visitOf(visit: unknown): { visit?: string } {
+  if (typeof visit === "string") return { visit };
+  if (typeof visit === "symbol") return { visit: `stale:${crypto.randomUUID()}` };
+  return {};
+}
+
 /// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
 /// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
 export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
@@ -620,7 +629,7 @@ export function useFolderTrustAsk(
             cwds: [cwd, refusedFolder],
             family,
             ready: false,
-            ...(typeof visitValue === "string" ? { visit: visitValue } : {}),
+            ...visitOf(visitValue),
           });
         else {
           const held = resend.current.get(sessionId);
