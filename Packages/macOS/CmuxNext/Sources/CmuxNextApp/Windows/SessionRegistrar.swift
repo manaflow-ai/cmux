@@ -72,7 +72,7 @@ final class SessionRegistrar {
             let request = PutSessionRequest(sessionID: session, machineName: name, sessionName: identity.session,
                                             transport: snapshot.transport, capabilities: snapshot.capabilities)
             registration.submit(session: session, record: snapshot, machine: name ?? identity.session,
-                                connection: connection) { _ = try await $0.putSession(request) }
+                                epoch: home.store.connectionEpoch) { _ = try await connection.putSession(request) }
             let record = home.store.personal.session(session)
             if daemon !== home, record?.migrated == false, !importing.contains(session) {
                 importing.insert(session)

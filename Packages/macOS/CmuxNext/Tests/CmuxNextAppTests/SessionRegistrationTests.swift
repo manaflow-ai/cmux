@@ -1,0 +1,64 @@
+import CmuxNextDaemon
+import CmuxNextDaemonService
+import Foundation
+import Testing
+
+/// P-AUSTIN B7a, review 3: `SessionRegistration` sends each session's record to the home registry.
+/// A `DaemonConnection` reconnects in place after the home daemon restarts, so a restart is seen
+/// only as a new connection epoch; a refused record must be sent again then. A record whose timed
+/// retries are spent waits for an event, and the person must see that it is not saved. A pending
+/// notice is dropped once the record is recorded.
+@MainActor
+@Suite struct SessionRegistrationTests {
+    private final class Notices {
+        var shown: [String] = []
+        var windowShows = true
+    }
+
+    private let refusal = DaemonError.command(cmd: "put-session", message: "bad request: capabilities is 600000 bytes, over 524288",
+                                              code: nil)
+
+    private func registration(_ notices: Notices, timedRetries: Int = 8) -> SessionRegistration<String> {
+        SessionRegistration<String>(policy: RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: timedRetries)) {
+            _, message in
+            guard notices.windowShows else { return false }
+            notices.shown.append(message)
+            return true
+        }
+    }
+
+    @Test func aRefusedRecordIsSentAgainAfterTheHomeDaemonReconnects() async {
+        let notices = Notices()
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        #expect(notices.shown.count == 1, "the refusal is not shown")
+        let unchanged = registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) {}
+        #expect(unchanged == nil, "an unchanged refused record is sent again on the same connection")
+        let reconnected = registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 2) {}
+        #expect(reconnected != nil, "a refused record is not sent again after the home daemon reconnected")
+        await reconnected?.value
+    }
+
+    @Test func aRecordWhoseRetriesAreSpentIsShownAsNotSaved() async {
+        let notices = Notices()
+        let registration = registration(notices, timedRetries: 0)
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) {
+            throw DaemonError.timedOut("put-session")
+        }?.value
+        #expect(notices.shown.count == 1, "a record that waits for an event after its retries is not shown")
+        #expect(notices.shown.first?.contains("build-box") == true)
+    }
+
+    @Test func aPendingNoticeIsDroppedOnceTheRecordIsRecorded() async {
+        let notices = Notices()
+        notices.windowShows = false
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        await registration.submit(session: "remote-1", record: "b", machine: "build-box", epoch: 1) {}?.value
+        notices.windowShows = true
+        await registration.submit(session: "remote-2", record: "c", machine: "other", epoch: 1) {}?.value
+        #expect(notices.shown.isEmpty, "a stale notice shows after the machine was recorded: \(notices.shown)")
+    }
+}
