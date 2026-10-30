@@ -105,9 +105,11 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     let url: URL
     let now: @Sendable () -> Date
     private let state = Mutex(State())
-    /// The newest generation on disk; a write of an older one is skipped (it would put back what a
-    /// newer change took out). Held for a whole record, so records write one at a time.
-    private let written = Mutex(0)
+    /// The newest generation written; a write of an older one is skipped (it would put back what a
+    /// newer change took out). `behind`: the newest did not reach the disk, so the next skipped
+    /// write writes the journal as it is instead. Held for a whole record, so records write one at
+    /// a time.
+    private let written = Mutex((generation: 0, behind: false))
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
     /// Runs while a record writes, before its file write (tests: a change made meanwhile).
     let whileRecordWrites = Mutex<(@Sendable () -> Void)?>(nil)
@@ -156,11 +158,11 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
                 state.generation += 1
                 return (state.generation, state.entries, state.pendingTrust, kept)
             }
-            // Older writes queued meanwhile are skipped: they would drop the record from the file.
-            last = generation
-            if entries != proposed.entries || pendingTrust != proposed.pendingTrust {
-                writeFile(entries, pendingTrust: pendingTrust)
-            }
+            // Older writes queued meanwhile are skipped (they would drop the record from the file);
+            // when this write fails, the next of them writes the journal as it is.
+            last.generation = generation
+            let current = entries == proposed.entries && pendingTrust == proposed.pendingTrust
+            last.behind = !current && !writeFile(entries, pendingTrust: pendingTrust)
             return kept
         }
     }
@@ -370,9 +372,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     @discardableResult
     private func write(_ entries: [Entry], pendingTrust: [PendingTrust], generation: Int) -> Bool {
         written.withLock { last in
-            guard generation > last else { return true }
+            guard generation > last.generation else {
+                guard last.behind else { return true }
+                // A newer write did not reach the disk: write the journal as it is now.
+                let now = state.withLock { ($0.generation, $0.entries, $0.pendingTrust) }
+                guard writeFile(now.1, pendingTrust: now.2) else { return false }
+                last = (max(last.generation, now.0), false)
+                return true
+            }
             guard writeFile(entries, pendingTrust: pendingTrust) else { return false }
-            last = generation
+            last = (generation, false)
             return true
         }
     }
