@@ -140,19 +140,22 @@ public final class BusyWatchdog: Sendable {
             awakeDuringWindow.store(true, ordering: .relaxed)
             return
         }
-        // This wake opens the window; it is not a wake during it.
+        // This wake opens the window; it is not a wake during it. The expected-activity count is stamped here, in
+        // the waking turn (atomic loads, no system call), so input in this turn counts as during the window.
         awakeDuringWindow.store(false, ordering: .relaxed)
-        sampling.async { [self] in openWindow() }
+        let activityAtWake = activity.total
+        sampling.async { [self] in openWindow(activity: activityAtWake) }
     }
 
-    /// Takes the window's start samples. On the sampling queue.
-    private func openWindow() {
+    /// Takes the window's start samples. On the sampling queue. `activity`: the expected-activity count when the
+    /// window began (the waking turn's stamp, or the close's for a window that follows one).
+    private func openWindow(activity activityAtStart: UInt64) {
         let helperList = helperSource()()
         var sampled: [pid_t: (label: String, usage: ProcessUsage)] = [:]
         for helper in helperList {
             if let usage = probe.usage(helper.pid) { sampled[helper.pid] = (helper.label, usage) }
         }
-        let start = Window(process: probe.usage(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
+        let start = Window(process: probe.usage(getpid()), mainCPUNanos: mainCPUNanos(), activity: activityAtStart,
                            helpers: sampled, startNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
         window.withLock { $0 = start }
         timer.schedule(after: configuration.window) { [weak self] in self?.endWindow() }
@@ -169,7 +172,8 @@ public final class BusyWatchdog: Sendable {
         guard let start = window.withLock({ window in defer { window = nil }; return window }) else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let wall = Double(max(now &- start.startNanos, 1))
-        let quiet = activity.total == start.activity
+        let activityAtEnd = activity.total
+        let quiet = activityAtEnd == start.activity
         if quiet {
             let mainShare = Double(mainCPUNanos() &- start.mainCPUNanos) / wall
             let process = probe.usage(getpid())
@@ -190,14 +194,14 @@ public final class BusyWatchdog: Sendable {
         }
         // Keep watching only while the app stays awake. The next window starts with no wake counted.
         if awakeDuringWindow.exchange(false, ordering: .relaxed) {
-            openWindow()
+            openWindow(activity: activityAtEnd)
             return
         }
         measuring.store(false, ordering: .releasing)
         // A wake between the exchange and the store found the watch still on and opened nothing: open for it.
         if awakeDuringWindow.exchange(false, ordering: .relaxed),
            measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged {
-            openWindow()
+            openWindow(activity: activity.total)
         }
     }
 
