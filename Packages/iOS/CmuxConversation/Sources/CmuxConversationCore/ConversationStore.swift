@@ -1295,6 +1295,7 @@ public final class ConversationStore {
         // as its base, not the first edit's optimistic text.
         pendingEdits[messageID] = PendingEdit(
             token: token, text: trimmed, textRuns: runs, editedAt: Date(),
+            editCount: messages[index].editCount + 1,
             base: pendingEdits[messageID]?.base ?? messages[index]
         )
         changingMessages(from: index) { layerPendingEdit(at: index) }
@@ -1340,6 +1341,9 @@ public final class ConversationStore {
         var text: String
         var textRuns: [ConversationTextRun]
         var editedAt: Date
+        /// The count the row showed with this edit applied (earlier
+        /// unconfirmed edits included).
+        var editCount: Int
         var base: ConversationMessage
     }
     private var pendingEdits: [String: PendingEdit] = [:]
@@ -1366,7 +1370,8 @@ public final class ConversationStore {
         messages[index].textRuns = pending.textRuns
         messages[index].mentions = ConversationMentionEditing.surviving(base.mentions, oldText: base.text, newText: pending.text)
         messages[index].editedAt = pending.editedAt
-        messages[index].editCount = base.editCount + 1
+        // Edits made elsewhere since count too.
+        messages[index].editCount = max(pending.editCount, base.editCount + 1)
     }
 
     /// The pre-unsend message, kept until the backend confirms (and after a
