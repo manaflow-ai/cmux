@@ -30,6 +30,20 @@ pub(crate) fn ends_inside_string_control(text: &str) -> bool {
     strip(text).1
 }
 
+/// The byte offset just past the first string-control terminator in `line` (BEL, C1 ST or
+/// ESC \\), for a line that continues an open string control; None when it has none.
+pub(crate) fn string_control_end(line: &str) -> Option<usize> {
+    let mut chars = line.char_indices().peekable();
+    while let Some((at, ch)) = chars.next() {
+        match ch {
+            '\x07' | '\u{009c}' => return Some(at + ch.len_utf8()),
+            '\x1b' if chars.peek().is_some_and(|&(_, next)| next == '\\') => return Some(at + 2),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn strip_ansi(input: &str) -> String {
     strip(input).0
 }
@@ -45,11 +59,7 @@ fn strip(input: &str) -> (String, bool) {
             '\x1b' => match chars.peek().copied() {
                 Some('[') => {
                     chars.next();
-                    for next in chars.by_ref() {
-                        if ('@'..='~').contains(&next) {
-                            break;
-                        }
-                    }
+                    skip_through_final(&mut chars, '@'..='~');
                 }
                 // OSC, and the string controls DCS, SOS, PM and APC: their payload runs to ST or BEL.
                 Some(']' | 'P' | 'X' | '^' | '_') => {
@@ -63,23 +73,13 @@ fn strip(input: &str) -> (String, bool) {
                 Some(next) if ('!'..='/').contains(&next) => {
                     // An escape sequence with intermediate bytes, such as ESC ( B.
                     chars.next();
-                    for next in chars.by_ref() {
-                        if ('0'..='~').contains(&next) {
-                            break;
-                        }
-                    }
+                    skip_through_final(&mut chars, '0'..='~');
                 }
                 // A lone ESC or an unknown sequence should not make the error unreadable. Keep
                 // the following ordinary character.
                 _ => {}
             },
-            '\u{009b}' => {
-                for next in chars.by_ref() {
-                    if ('@'..='~').contains(&next) {
-                        break;
-                    }
-                }
-            }
+            '\u{009b}' => skip_through_final(&mut chars, '@'..='~'),
             '\u{009d}' | '\u{0090}' | '\u{0098}' | '\u{009e}' | '\u{009f}' => {
                 open = !skip_string(&mut chars);
             }
@@ -89,6 +89,24 @@ fn strip(input: &str) -> (String, bool) {
     }
 
     (output, open)
+}
+
+/// Skips a CSI or escape sequence through its final byte in `finals`. An ESC or a C1 control
+/// inside it cancels it and starts the next sequence (ECMA-48), so it is left for the caller:
+/// `ESC [ ESC ] ... BEL` is a cut-short CSI and then an OSC, whose payload must go too.
+fn skip_through_final(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    finals: std::ops::RangeInclusive<char>,
+) {
+    while let Some(&next) = chars.peek() {
+        if next == '\x1b' || ('\u{0080}'..='\u{009f}').contains(&next) {
+            return;
+        }
+        chars.next();
+        if finals.contains(&next) {
+            return;
+        }
+    }
 }
 
 /// Skips a string control's payload through its terminator: ST (ESC \\ or C1 ST) or BEL. False
@@ -205,6 +223,15 @@ mod tests {
         assert!(ends_inside_string_control("ok \x1bPsecret"));
         assert!(!ends_inside_string_control("\x1bPsecret\x1b\\ok"));
         assert!(!ends_inside_string_control("\x1b[31mplain"));
+    }
+
+    #[test]
+    fn an_escape_inside_a_sequence_starts_the_next_one() {
+        assert_eq!(clean_stderr_line("\x1b[\x1b]secret\x07error"), "error");
+        assert_eq!(clean_stderr_line("\x1b[31\x1bPsecret\x1b\\error"), "error");
+        assert_eq!(clean_stderr_line("\x1b(\x1b]secret\x07error"), "error");
+        assert_eq!(clean_stderr_line("\u{009b}1\u{009d}secret\u{009c}error"), "error");
+        assert_eq!(clean_stderr_line("\x1b[1mbold\x1b[0m error"), "bold error");
     }
 
     #[test]

@@ -1532,9 +1532,14 @@ fn remember_stderr(tail: &mut std::collections::VecDeque<String>, line: &str) {
     if let Some(last) = tail.back_mut()
         && crate::stderr::ends_inside_string_control(last)
     {
+        last.push('\n');
         if last.len() < STDERR_PAYLOAD_CAP {
-            last.push('\n');
             last.push_str(line);
+        } else if let Some(end) = crate::stderr::string_control_end(line) {
+            // Past the cap the payload is dropped, but its end still closes the control, so the
+            // text after it is kept and the lines after it are their own again.
+            last.push_str("\x1b\\");
+            last.push_str(&line[end..]);
         }
         return;
     }
@@ -1551,6 +1556,24 @@ fn remember_stderr(tail: &mut std::collections::VecDeque<String>, line: &str) {
 
 #[cfg(test)]
 mod stderr_tests {
+    #[test]
+    fn a_payload_past_the_cap_still_ends_at_its_terminator() {
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, "\x1b_G");
+        let chunk = "A".repeat(4096);
+        for _ in 0..(super::STDERR_PAYLOAD_CAP / chunk.len() + 4) {
+            super::remember_stderr(&mut tail, &chunk);
+        }
+        super::remember_stderr(&mut tail, "AAAA\x1b\\ after");
+        super::remember_stderr(&mut tail, "error: request timed out");
+        assert!(tail.iter().all(|line| line.len() <= super::STDERR_PAYLOAD_CAP + chunk.len() + 64));
+        let cleaned: Vec<String> = crate::stderr::clean_stderr_tail(tail.iter())
+            .into_iter()
+            .filter(|line| !line.is_empty())
+            .collect();
+        assert_eq!(cleaned, vec!["after", "error: request timed out"]);
+    }
+
     #[test]
     fn a_string_control_payload_never_reaches_the_cleaned_tail() {
         let mut tail = std::collections::VecDeque::new();
