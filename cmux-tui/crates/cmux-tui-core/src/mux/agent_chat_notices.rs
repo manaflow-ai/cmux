@@ -707,6 +707,29 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_ends_a_socket_watch_that_waits_for_acpmux() {
+        // The idle case: no acpmux socket, so no file event ever comes. Shutdown alone
+        // must end the watch; it blocked in `recv` holding its own hint sender.
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-notices-shutdown-{}", std::process::id()))
+            .join("acpmux.sock");
+        let mux = test_mux("notices-shutdown");
+        let weak = Arc::downgrade(&mux);
+        let (ended, end) = mpsc::channel();
+        std::thread::spawn(move || {
+            watch(&weak, &socket);
+            let _ = ended.send(());
+        });
+        // Let the watch arm and take its first hint.
+        std::thread::sleep(Duration::from_millis(300));
+        mux.shutdown();
+        assert!(
+            end.recv_timeout(Duration::from_secs(10)).is_ok(),
+            "the notices watch ended at shutdown"
+        );
+    }
+
+    #[test]
     fn a_list_past_four_mib_is_read_whole_and_an_at_once_end_is_no_success() {
         // cosmic-gray (2026-10-27): 2786 sessions were one 14.7 MB line. A 4 MiB read
         // cut it, counted the cut as a success and reconnected every second.
