@@ -76,7 +76,7 @@ import {
   invalidateCoderouterHandoffAuthority,
 } from "../../../services/coderouter/repository";
 import type { ProviderId } from "../../../services/vms/drivers";
-import { jsonResponse } from "../../../services/vms/routeHelpers";
+import { jsonResponse, runAfterResponse } from "../../../services/vms/routeHelpers";
 import {
   publishVmOps,
   publishVmRowsById,
@@ -2024,9 +2024,10 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
   });
   publishAccountDeletionVmSync(vmSync);
   // The kept machines no longer belong to this account: take its id off them
-  // at the provider too. Best effort, after the commit, like the publication.
-  void detachDeletedAccountCustomers(vmSync.rewrittenRows).catch((error) => {
-    console.error("[account] provider customer cleanup skipped after deletion", error);
+  // at the provider too. Best effort, after the commit, registered with the
+  // platform so the provider calls finish after the response is sent.
+  runAfterResponse(async () => {
+    await detachDeletedAccountCustomers(vmSync.rewrittenRows);
   });
 }
 

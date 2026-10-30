@@ -158,10 +158,23 @@ const program = Effect.acquireUseRelease(
     }
     const tags = actions.filter((action): action is ChangeAction => action.kind === "tag" || action.kind === "detach");
     const selected = tags.slice(0, options.limit);
-    const outcomes = { tagged: 0, gone: 0, failed: 0 };
+    const outcomes = { tagged: 0, gone: 0, failed: 0, rechecked: 0 };
     if (options.apply) {
       const results = yield* Effect.forEach(selected, (action) => Effect.promise(() => applyTag(fs, action)), { concurrency: options.concurrency });
       for (const result of results) outcomes[result] += 1;
+      // An account deleted while this ran may have cleared a machine this run
+      // then tagged. Read the owners again after every write: a deletion that
+      // committed before this read is caught here, and one after it clears
+      // its machines itself, after these writes.
+      const recheck = yield* Effect.tryPromise(() => readOwnerRows(pool));
+      const written = selected.filter((_, index) => results[index] === "tagged");
+      const afterWrite = written.map((action): BackfillVm => ({ id: action.vmId, state: action.state, customerId: action.kind === "tag" ? action.to : undefined }));
+      const corrections = planFreestyleCustomerBackfill(afterWrite, recheck)
+        .filter((action): action is ChangeAction => action.kind === "tag" || action.kind === "detach");
+      for (const action of corrections) console.log(`recheck ${describe(action)}`);
+      const corrected = yield* Effect.forEach(corrections, (action) => Effect.promise(() => applyTag(fs, action)), { concurrency: options.concurrency });
+      outcomes.failed += corrected.filter((result) => result === "failed").length;
+      outcomes.rechecked = corrections.length;
     }
     // Offset paging drifts when machines come and go mid-listing; a short
     // listing may have skipped some, which only a rerun would reach.
