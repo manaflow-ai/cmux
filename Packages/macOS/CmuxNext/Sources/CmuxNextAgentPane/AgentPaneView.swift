@@ -399,6 +399,8 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        // A closed page must not notify the pane that used to host it after it leaves.
+        onNativeToolOwnerChange = nil
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
@@ -448,7 +450,7 @@ public final class AgentPaneView: NSView {
     }
 
     /// Called by a pane when AppKit reparents this page, so native toolbar ownership cannot stay stale.
-    var onNativeToolOwnerChange: (() -> Void)?
+    public var onNativeToolOwnerChange: (() -> Void)?
 
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()

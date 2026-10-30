@@ -92,5 +92,24 @@ import Testing
         second.removeFromSuperview()
         #expect(owner.model == nil, "reparenting content away clears native tool ownership")
     }
+
+    @Test func closingShownViewClearsOwnerHookWithoutRebindingPane() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "closed-native-tool-owner-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body>Chat</body></html>".utf8).write(to: file)
+        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: []), reveal: LaunchReveal(deadline: .zero))
+        pane.show(page)
+        let owner = pane.nativeToolOwner
+        let ownerBeforeClose = try #require(owner.model)
+        #expect(page.onNativeToolOwnerChange != nil)
+
+        page.close()
+
+        #expect(page.onNativeToolOwnerChange == nil, "a closed page must not retain the pane callback")
+        #expect(owner.model === ownerBeforeClose, "closing the page must not rebind the pane owner")
+    }
 }
 #endif

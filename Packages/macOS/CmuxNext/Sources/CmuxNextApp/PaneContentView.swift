@@ -216,6 +216,10 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     /// The controls and their callback follow the selected page, including an outgoing first-paint hold.
     func refreshNativeToolOwner() {
+        if let agent = content as? AgentPaneView, !hostsContent {
+            // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
+            agent.onNativeToolOwnerChange = nil
+        }
         nativeToolOwner.model = displayedAgentPaneView?.model
         toolbar?.refresh()
     }
@@ -329,7 +333,10 @@ final class PaneContentView: NSView, PaneContentChrome {
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
-        if let previous, previous !== view, previous.superview == nil { (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil }
+        if let previous, previous !== view, previous.superview == nil {
+            (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+            (previous as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        }
         if let agent = view as? AgentPaneView {
             agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
         }
