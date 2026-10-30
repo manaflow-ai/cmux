@@ -294,7 +294,21 @@ fn cold_open_perf() {
         let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
         let mut m = meta("c");
         m.status = crate::store::SessionStatus::Idle;
-        let log = codex_chat(turns, 400, 85, false);
+        // Each turn ends with its result, as a chat's log does (the log load reads back to it).
+        let mut log = Vec::new();
+        for rec in codex_chat(turns, 400, 85, false) {
+            let answer = rec.kind == "agent_message_chunk";
+            log.push(rec);
+            if answer {
+                let mut end = log.last().unwrap().clone();
+                (end.dir, end.kind, end.msg) =
+                    ("mux".into(), "turn_result".into(), json!({"status": "completed"}));
+                log.push(end);
+            }
+        }
+        for (n, rec) in log.iter_mut().enumerate() {
+            (rec.seq, rec.at) = (n as u64 + 1, n as u64 + 1);
+        }
         for rec in &log {
             writer.append("c", rec).unwrap();
         }
@@ -307,6 +321,8 @@ fn cold_open_perf() {
         .unwrap()
         .map(|e| e.unwrap().metadata().unwrap().len())
         .sum();
+    // The first start after an upgrade reads the log and copies what a log load reads; the next
+    // ones read the copies (`store/kind_index.rs`).
     for _ in 0..3 {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut cfg: crate::config::Config = serde_json::from_value(json!({

@@ -1509,11 +1509,9 @@ impl Store for LocalStore {
             std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
         }
         let mut line = Vec::new();
-        // A scan for the kinds a log load reads takes each sealed segment's copy of them
-        // (`store/kind_index.rs`), and makes the copy where it reads the whole segment.
+        // A scan for the kinds a log load reads takes each segment's copy of them
+        // (`store/kind_index.rs`), then the segment past it, and saves the copy again.
         let copied = kinds.iter().all(|k| kind_index::INDEXED_KINDS.contains(k));
-        let segments = self.segments(id)?;
-        let newest = segments.last().map(|(index, _)| *index);
         let wanted = |line: &[u8], visit: &mut dyn FnMut(EventRecord) -> bool| {
             if record_kind(line).is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind)) {
                 return true;
@@ -1521,41 +1519,48 @@ impl Store for LocalStore {
             let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
             !kinds.contains(&rec.kind.as_str()) || visit(rec)
         };
-        for (index, path) in segments {
-            let sealed = copied && Some(index) != newest;
-            if sealed && let Some(lines) = self.read_kind_index(id, index, &path) {
-                for line in lines.split(|b| *b == b'\n') {
-                    if !line.iter().all(u8::is_ascii_whitespace) && !wanted(line, visit) {
-                        return Ok(());
-                    }
+        for (index, path) in self.segments(id)? {
+            let (mut copy, from) = match copied.then(|| self.read_kind_index(id, index, &path)) {
+                Some(Some((lines, from))) => (Some(lines), from),
+                _ => (None, 0),
+            };
+            for line in copy.iter().flat_map(|lines| lines.split(|b| *b == b'\n')) {
+                if !line.iter().all(u8::is_ascii_whitespace) && !wanted(line, visit) {
+                    return Ok(());
                 }
-                continue;
             }
-            let file = crate::config::private_state_file(&path)?;
-            // What the copy is of: the file this reads, however its path changes meanwhile.
-            let stamp = if sealed { Some(file.metadata()?) } else { None };
-            let mut copy = Vec::new();
+            let mut file = crate::config::private_state_file(&path)?;
+            // What a copy is of: the file this reads, however its path changes meanwhile.
+            let stamp = if copied { Some(file.metadata()?) } else { None };
+            if from > 0 {
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
+            }
+            let had_copy = copy.is_some();
+            let lines = copy.get_or_insert_with(Vec::new);
+            // The bytes past `from` read up to the end of their last whole line.
+            let mut covered = 0u64;
             let mut reader = BufReader::with_capacity(256 * 1024, file);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                if line.ends_with(b"\n") {
+                    covered += line.len() as u64;
+                    if stamp.is_some() && kind_index::indexed(&line) {
+                        lines.extend_from_slice(&line);
+                    }
+                }
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
-                }
-                if stamp.is_some() && kind_index::indexed(&line) {
-                    copy.extend_from_slice(&line);
-                    if !line.ends_with(b"\n") {
-                        copy.push(b'\n');
-                    }
                 }
                 if !wanted(&line, visit) {
                     return Ok(());
                 }
             }
             if let Some(stamp) = stamp
-                && let Err(e) = self.write_kind_index(id, index, &stamp, &copy)
+                && (!had_copy || covered >= kind_index::COPY_AFTER)
+                && let Err(e) = self.write_kind_index(id, index, &stamp, from + covered, lines)
             {
                 tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
             }
