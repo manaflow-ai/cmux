@@ -42,6 +42,7 @@ public protocol WindowHomeHost: AnyObject {
 /// service, so the Chief chat is shared; what opens beside it stays in that window.
 @MainActor
 public final class WindowHomes {
+    private enum MakeError: Error { case workspaceNotApplied }
     /// The origin of a window Home's page tab creation key.
     static let origin = "cmux-next-window-home"
     private weak var host: (any WindowHomeHost)?
@@ -104,7 +105,12 @@ public final class WindowHomes {
             try await host.windowHomeHold(key.rawValue) {
                 try await connection.createWorkspace(name: HomeStrings.title, key: key)
                 await host.windowHomeApplied(connection)
-                guard let workspace = store.workspace(id: key.rawValue) else { return nil }
+                // A daemon reply can arrive before the store has applied the workspace event. Treat
+                // that as a failed creation so the catch path drops the claim and closes the orphan
+                // instead of returning nil and leaving a blank Home row to appear later.
+                guard let workspace = store.workspace(id: key.rawValue) else {
+                    throw MakeError.workspaceNotApplied
+                }
                 _ = try await connection.request(NewConversationTabRequest(page: HomeDock.page, workspace: workspace.handle, origin: Self.origin,
                                                                            mutationID: UUID().uuidString.lowercased()))
                 return true
