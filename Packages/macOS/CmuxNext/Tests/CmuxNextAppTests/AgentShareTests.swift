@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextRemote
+import CmuxNextWakeups
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextDaemonService
@@ -89,6 +91,33 @@ struct AgentShareTests {
             Issue.record("surface 99 names nothing"); return
         }
         #expect(missing.isNotFound)
+    }
+
+    /// The owner's token goes only to this Mac's daemon, and list reads only this Mac's shares: a chat
+    /// on another machine is named, but marked not local, so share and list refuse it.
+    @Test func aChatOnAnotherMachineIsNotThisMacs() throws {
+        let f = Self.fixture()
+        let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
+        let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                    paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-agent-share-remote-unused")),
+                                    environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        f.services.machines.add(ssh)
+        var remote = TabSnapshot(surface: 1, kind: .conversation, title: "Remote chat", url: "about:blank")
+        remote.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "lab", session: Self.session, harness: "claude"))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [remote])])
+        ssh.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "remote", screens: [screen])]))
+        let remoteTab = try #require(ssh.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        #expect(!f.services.shareIsOnThisMac(remoteTab))
+        #expect(f.services.shareIsOnThisMac(f.chat))
+        let byTarget = ActionInvocation(target: ActionTargetRef(kind: .tab, id: remoteTab.id), arguments: [:], origin: .cli)
+        if case .success(let chat) = AgentShareActions.chat(byTarget, host: f.services), chat.surface == remoteTab.surface.rawValue {
+            #expect(!chat.isLocal, "another machine's chat counted as this Mac's")
+        }
+        let local = ActionInvocation(target: ActionTargetRef(kind: .tab, id: f.chat.id), arguments: [:], origin: .cli)
+        guard case .success(let chat) = AgentShareActions.chat(local, host: f.services) else {
+            Issue.record("the local chat's tab target names it"); return
+        }
+        #expect(chat.isLocal)
     }
 
     @Test func ttlTakesSecondsOrAUnitWithinOneMinuteToSevenDays() throws {

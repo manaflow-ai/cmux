@@ -9,6 +9,7 @@ extension AppServices: AgentShareHost {
     func shareTabID(showing session: String) -> String? { agentTabs.tab(showing: session) }
     var shareFocusedTabID: String? { windows.active?.focusedPane?.stripModel.selectedID?.rawValue }
     func shareConnection(holding tab: TabModel) -> DaemonConnection? { locateTab(tab.id).map(\.1).map(daemon(for:))?.connection }
+    func shareIsOnThisMac(_ tab: TabModel) -> Bool { machines.local.store.tab(idOrResource: tab.id) === tab }
     var shareLocalConnection: DaemonConnection? { machines.local.connection }
     func shareOwnerToken() async -> String? { try? await cloud.installIdentity.installToken() }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }

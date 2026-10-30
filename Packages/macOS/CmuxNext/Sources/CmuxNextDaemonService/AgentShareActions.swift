@@ -26,6 +26,9 @@ public struct AgentShareActions {
             case .success(let found): chat = found
             case .failure(let refusal): return .refused(refusal.reason)
             }
+            // The owner's install token goes only to this Mac's daemon: another machine's chat is refused
+            // before a token is minted.
+            guard chat.isLocal else { return .refused(AgentShareStrings.notThisMac) }
             let ttl: UInt64?
             do { ttl = try AgentShareArguments.ttl(invocation["ttl"]?.stringValue) } catch { return .refused(AgentShareStrings.badTTL) }
             let uses = invocation["uses"]?.intValue.map { UInt32(clamping: $0) }
@@ -43,6 +46,8 @@ public struct AgentShareActions {
             var surface: UInt64?
             if invocation["surface"] != nil || invocation.target != nil {
                 switch Self.chat(invocation, host: host) {
+                // List reads this Mac's shares, so another machine's surface number would name a local chat.
+                case .success(let chat) where !chat.isLocal: return .refused(AgentShareStrings.notThisMac)
                 case .success(let chat): surface = chat.surface
                 case .failure(let refusal): return .refused(refusal.reason)
                 }
@@ -95,7 +100,8 @@ public struct AgentShareActions {
             tab = host.shareFocusedTabID.flatMap(host.shareTab(id:))
         }
         guard let tab, AgentShareChat.session(of: tab) != nil else { return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat)) }
-        return .success(AgentShareChat(surface: tab.surface.rawValue, connection: host.shareConnection(holding: tab)))
+        return .success(AgentShareChat(surface: tab.surface.rawValue, connection: host.shareConnection(holding: tab),
+                                       isLocal: host.shareIsOnThisMac(tab)))
     }
 
     private static func argument(_ invocation: ActionInvocation, _ name: String) -> String? {
@@ -140,6 +146,8 @@ public struct AgentShareActions {
 struct AgentShareChat {
     let surface: UInt64
     let connection: DaemonConnection?
+    /// Whether `connection` is this Mac's daemon, the only one shares are made and listed on.
+    var isLocal = true
 
     /// The acpmux session of a started agent chat; nil for every other tab.
     @MainActor static func session(of tab: TabModel) -> String? {

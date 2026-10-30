@@ -8,6 +8,10 @@ enum AgentShareStrings {
         String(localized: "agentShare.notAChat", defaultValue: "Only a started agent chat can be shared.", table: "AgentShare", bundle: .module)
     }
 
+    static var notThisMac: String {
+        String(localized: "agentShare.notThisMac", defaultValue: "Only a chat on this Mac can be shared.", table: "AgentShare", bundle: .module)
+    }
+
     static func noSurface(_ surface: Int) -> String {
         String(format: String(localized: "agentShare.noSurface", defaultValue: "No agent chat is on surface %lld.", table: "AgentShare", bundle: .module), Int64(surface))
     }

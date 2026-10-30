@@ -15,6 +15,8 @@ public protocol AgentShareHost: AnyObject {
     var shareFocusedTabID: String? { get }
     /// The connection of the daemon that holds `tab`; nil when that machine is not connected.
     func shareConnection(holding tab: TabModel) -> DaemonConnection?
+    /// Whether `tab` is on this Mac's daemon, the only one that makes and lists shares.
+    func shareIsOnThisMac(_ tab: TabModel) -> Bool
     /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
     var shareLocalConnection: DaemonConnection? { get }
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256); nil signed out.
