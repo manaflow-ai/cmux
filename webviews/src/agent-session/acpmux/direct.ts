@@ -3453,6 +3453,13 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // A summary update is authoritative when it says the turn is no longer running. This
+      // clears a summary-only turn whose terminal event was missed, so Stop/continue cannot stay blocked.
+      if (session.status !== "running") {
+        this.turnOpen = false;
+        this.turnId = undefined;
+        this.turnStartedAtMs = undefined;
+      }
       this.adoptSummaryTurn();
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
