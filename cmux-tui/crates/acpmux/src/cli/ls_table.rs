@@ -58,9 +58,12 @@ fn hidden(row: &Value) -> Option<Hidden> {
     if text(row, "status") == "closed" {
         return Some(Hidden::Closed);
     }
-    let review_tag =
-        row["tags"].as_object().is_some_and(|tags| tags.keys().any(|k| k.starts_with("review.")));
-    if text(row, "harness").ends_with("-review-box") || review_tag {
+    let tags = row
+        .get("tags")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|tags| tags.keys().map(String::as_str));
+    if crate::review_box::is(text(row, "harness"), tags) {
         return Some(Hidden::Reviewer);
     }
     if row.get("parentId").is_some_and(|p| !p.is_null()) {
@@ -79,7 +82,9 @@ fn named(row: &Value) -> bool {
     if name.trim().is_empty() {
         return false;
     }
-    if text(row, "titleSource") == "named" {
+    // The daemon says so (`nameGiven`); a session from before it was kept says so by its title
+    // source, renamed (`named`) or started under a name and not yet prompted (`launched`).
+    if row["nameGiven"] == true || matches!(text(row, "titleSource"), "named" | "launched") {
         return true;
     }
     let harness = text(row, "harness");

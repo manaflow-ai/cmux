@@ -82,7 +82,7 @@ pub async fn resolve(
     here_if_none: bool,
 ) -> Result<Option<String>> {
     if let Some(name) = name {
-        let list = client.request(method::MUX_SESSIONS, json!({})).await?;
+        let list = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
         match running_on(&list, name).as_slice() {
             [] => {}
             [host] if reuse => return Ok(host.clone()),

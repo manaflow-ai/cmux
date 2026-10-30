@@ -56,6 +56,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         router_owner_fifo: None,
         cwd_pin: None,
         cpu_class: Default::default(),
+        orphan_exit: None,
     }
 }
 
