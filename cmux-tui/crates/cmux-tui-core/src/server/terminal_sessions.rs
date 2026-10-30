@@ -15,10 +15,12 @@ use crate::panic_free::RecoverPoison;
 /// the session's own terminals, the same ones the request-origin rules match
 /// (`origin_gate::classify_local_peer`); no other process is read.
 ///
-/// Each lookup reads the terminals again when the state lock is free, so it
-/// is exact then. While another thread holds the lock (the app closing
+/// A peer in the last set read is in a terminal. Any other peer reads the
+/// terminals again when the state lock is free, so a new terminal is found at
+/// its first connection. While another thread holds the lock (the app closing
 /// workspaces), the accept loop never waits for it: it answers from the last
-/// set read, which holds every terminal that existed then.
+/// set read. A closed terminal's session stays in the set until a miss reads
+/// again; a later process reusing that id is only capped, never refused more.
 #[derive(Default)]
 pub(super) struct TerminalSessions {
     last: Mutex<Arc<HashSet<u32>>>,
@@ -34,6 +36,11 @@ impl TerminalSessions {
         else {
             return false;
         };
+        // A known terminal answers at once: a burst of agents costs no read.
+        // A miss (the app, a new terminal) reads the terminals again.
+        if self.last.lock().recover_poison().contains(&session) {
+            return true;
+        }
         self.current(mux).contains(&session)
     }
 
@@ -71,7 +78,7 @@ mod tests {
 
     /// The accept loop never waits on the state lock: while another thread
     /// holds it, the last terminals read answer, and a free lock reads them
-    /// again.
+    /// again on a miss.
     #[cfg(unix)]
     #[test]
     fn a_held_state_lock_answers_from_the_last_read() {
@@ -83,12 +90,21 @@ mod tests {
             .and_then(super::super::origin_gate::peer_session_id)
             .expect("our session");
         let sessions = TerminalSessions::default();
-        *sessions.last.lock().unwrap() = Arc::new(HashSet::from([session]));
+        let set = |ids: &[u32]| {
+            *sessions.last.lock().unwrap() = Arc::new(ids.iter().copied().collect());
+        };
 
         let held = mux.state.lock().unwrap();
+        set(&[]);
+        assert!(!sessions.contains_peer(&mux, Some(&key)), "a miss under a held lock does not wait");
+        set(&[session]);
         assert!(sessions.contains_peer(&mux, Some(&key)), "answered from the last read");
         drop(held);
-        // The test session has no terminals: a fresh read does not hold ours.
-        assert!(!sessions.contains_peer(&mux, Some(&key)), "read again once the lock is free");
+
+        // A miss with the lock free reads the terminals again: the test
+        // session has none, so the stale id is gone.
+        set(&[u32::MAX]);
+        assert!(!sessions.contains_peer(&mux, Some(&key)));
+        assert!(sessions.last.lock().unwrap().is_empty(), "read again once the lock is free");
     }
 }

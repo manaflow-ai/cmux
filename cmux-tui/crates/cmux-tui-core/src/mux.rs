@@ -907,9 +907,14 @@ impl Mux {
     }
 
     /// Run `f` with the session state if its lock is free now; `None`
-    /// instead of waiting while another thread holds it.
+    /// instead of waiting while another thread holds it. A poisoned lock is
+    /// still read: its caller (the accept loop) must not stop on it.
     pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
-        self.state.try_lock().ok().map(|state| f(&state))
+        match self.state.try_lock() {
+            Ok(state) => Some(f(&state)),
+            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
     }
 
     pub fn surface_count(&self) -> usize {

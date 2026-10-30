@@ -4,7 +4,6 @@
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
-#[cfg(test)]
 use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
@@ -265,7 +264,8 @@ impl StateMutex {
         }
     }
 
-    #[cfg(test)]
+    /// The state lock if it is free now (the accept loop, which never waits
+    /// for it). A try cannot deadlock, so it skips the rank check `lock` makes.
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
         match self.0.try_lock() {
             Ok(guard) => Ok(StateGuard::new(guard)),
