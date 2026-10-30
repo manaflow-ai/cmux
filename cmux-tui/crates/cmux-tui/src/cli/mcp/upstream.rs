@@ -204,8 +204,10 @@ impl Upstream {
     /// in use; a clash is left out.
     pub(super) fn descriptors(&mut self, taken: &BTreeSet<String>) -> Vec<Value> {
         if self.tools.is_none()
-            && let Some(stored) =
-                self.listings.as_deref().and_then(|dir| super::upstream_listing::load(dir, &self.spec))
+            && let Some(stored) = self
+                .listings
+                .as_deref()
+                .and_then(|dir| super::upstream_listing::load(dir, &self.spec))
         {
             self.instructions = rules(&self.spec, stored.instructions.as_deref());
             self.tools = Some(stored.tools);
@@ -353,7 +355,8 @@ impl Upstream {
             }
         }
         if let (Some(dir), Some(key)) = (&self.listings, &key) {
-            let listing = super::upstream_listing::Listing { tools: tools.clone(), instructions: given };
+            let listing =
+                super::upstream_listing::Listing { tools: tools.clone(), instructions: given };
             super::upstream_listing::store(dir, &self.spec, key, &listing);
         }
         self.tools = Some(tools);

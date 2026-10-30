@@ -40,12 +40,7 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 pub(super) fn key(spec: &Spec) -> Option<String> {
     let program = resolve(&spec.command)?.canonicalize().ok()?;
     let meta = std::fs::metadata(&program).ok()?;
-    let modified = meta
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_nanos();
+    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
     let mut env: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
     env.sort_unstable();
     env.dedup();

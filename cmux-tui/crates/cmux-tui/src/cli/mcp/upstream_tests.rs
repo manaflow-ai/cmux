@@ -520,15 +520,21 @@ fn a_stored_tool_the_server_dropped_is_not_sent() {
     drop(first);
     // Add a tool to the stored list that the server does not have.
     for entry in std::fs::read_dir(dir.path()).unwrap().filter_map(Result::ok) {
-        let mut stored: Value = serde_json::from_slice(&std::fs::read(entry.path()).unwrap()).unwrap();
-        stored["tools"].as_array_mut().unwrap().push(json!({"name": "gone", "inputSchema": {"type": "object"}}));
+        let mut stored: Value =
+            serde_json::from_slice(&std::fs::read(entry.path()).unwrap()).unwrap();
+        stored["tools"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name": "gone", "inputSchema": {"type": "object"}}));
         std::fs::write(entry.path(), stored.to_string()).unwrap();
     }
     let mut server = code_mode_server(Fake::with_actions());
     server.upstreams = vec![upstream::Proxied::new(
         upstream_server("cmux-secrets").with_listings(Some(dir.path().into())),
     )];
-    let job = server.proxied_tool("secrets_gone", &serde_json::Map::new()).expect("the stored list has it");
+    let job = server
+        .proxied_tool("secrets_gone", &serde_json::Map::new())
+        .expect("the stored list has it");
     let result = job.run(None);
     assert_eq!(result["isError"], true, "{result}");
     assert!(result.to_string().contains("no longer lists"), "{result}");
