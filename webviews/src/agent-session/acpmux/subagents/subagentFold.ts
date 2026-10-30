@@ -236,6 +236,9 @@ export class SubagentFold {
       this.changed.add(group);
     }
     if (phantomGroup) this.changed.add(phantomGroup);
+    // An open batch the phantom emptied is not reused: later workers start a group of their own,
+    // not the phantom's row and place.
+    if (this.open && this.open.ids.length === 0) this.open = undefined;
     for (const parent of this.own.keys()) this.removeSpawn(parent, id);
   }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress

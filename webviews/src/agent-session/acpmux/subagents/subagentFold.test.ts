@@ -1103,3 +1103,17 @@ test("late root seeding keeps a pending child of the root where it started, out 
   expect(withChild?.subagents?.map(({ id }) => id)).toEqual(["child"]);
   expect(rows.some((row) => row.subagents?.some(({ id }) => id === "later"))).toBe(false);
 });
+
+test("late root seeding never reuses the open group a phantom root emptied", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "root-native", parent: null }] });
+  const phantomSeq = seq;
+  fold.setRoot("root-native");
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "worker", parent: null }] });
+  const workerSeq = seq;
+  const rows = fold.takeRows();
+  const withWorker = rows.find((row) => row.subagents?.some(({ id }) => id === "worker"));
+  // The worker draws where it started, in a group of its own, not in the phantom's emptied one.
+  expect(withWorker?.seq).toBe(workerSeq);
+  expect(withWorker?.seq).not.toBe(phantomSeq);
+});
