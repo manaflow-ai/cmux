@@ -7206,6 +7206,10 @@ function AcpmuxPane() {
   /// when none waits. The waiting line (HostWaitingLine) counts from it and offers Restart agent
   /// service: a slow acpmux is never restarted by the app on its own (rule R5).
   const [waitingSince, setWaitingSince] = useState<number | undefined>();
+  /// The host said it cannot restart what this wait waits on (a remote or Cloud chat, the Chief
+  /// home's acpmux, or no lookup of this app's acpmux in flight): the line keeps its time and drops
+  /// the button until the next wait.
+  const [restartUnavailable, setRestartUnavailable] = useState(false);
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
@@ -7697,6 +7701,7 @@ function AcpmuxPane() {
         acpmuxPerf.markAgent("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
         setWaitingSince(Date.now());
+        setRestartUnavailable(false);
         const host = await callNative<{
           protocolVersion: number;
           transport?: string;
@@ -10466,12 +10471,18 @@ function AcpmuxPane() {
   // A handshake that still waits for acpmux: once it has waited long, one line says how long, with
   // Restart agent service. The person decides; the app never restarts a slow acpmux by itself.
   const restartStuck = () =>
-    void restartGate.run(() => callNative("acpmux.restartStuck"), {
-      cancelRetries: () => cancelRetry.current?.(),
-      changed: setRestartingAcpmux,
-      connected: () => !!directClient.current,
-      ask: () => retryHost.current?.(),
-    });
+    void restartGate.run(
+      () =>
+        callNative<{ stopped?: unknown } | null>("acpmux.restartStuck").then((reply) => {
+          if (reply?.stopped !== true) setRestartUnavailable(true);
+        }),
+      {
+        cancelRetries: () => cancelRetry.current?.(),
+        changed: setRestartingAcpmux,
+        connected: () => !!directClient.current,
+        ask: () => retryHost.current?.(),
+      },
+    );
   // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
   // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).
   const hostErrorCard = (
@@ -10506,7 +10517,7 @@ function AcpmuxPane() {
       <HostWaitingLine
         since={waitingSince}
         restarting={restartingAcpmux}
-        onRestart={restartStuck}
+        onRestart={restartUnavailable ? undefined : restartStuck}
         otherwise={hostErrorCard}
       />
     ) : (

@@ -19,7 +19,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// starts this app's own. Only with a real gesture; answers `{stopped}`.
     case restartAcpmux
     /// `acpmux.restartStuck {}`: the waiting line's "Restart agent service", while the page's
-    /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux()``):
+    /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux(sessionId:)``):
     /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
     /// Only with a real gesture; answers `{stopped}`.
     case restartStuckAcpmux

@@ -29,10 +29,11 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
     /// it stopped.
     func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
-    /// A person asked to restart this app's own acpmux while a pane waits for it (the pane's
-    /// "Restart agent service"): stops that daemon, keeping its sessions, so the next handshake
-    /// starts a new one. Only while a lookup waits on it. True when it stopped.
-    func restartStuckAcpmux() async -> Bool
+    /// A person asked to restart this app's own acpmux while the pane of `sessionId` waits for it
+    /// (the pane's "Restart agent service"): stops that daemon, keeping its sessions, so the next
+    /// handshake starts a new one. Only the host the pane's handshake goes to, only one that
+    /// starts its daemon, and only while a lookup waits on it. True when it stopped.
+    func restartStuckAcpmux(sessionId: String?) async -> Bool
     /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
     /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
     func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
@@ -55,7 +56,7 @@ extension AgentPaneHostProviding {
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
 
     /// Hosts without a daemon have none to restart.
-    public func restartStuckAcpmux() async -> Bool { false }
+    public func restartStuckAcpmux(sessionId: String?) async -> Bool { false }
 
     /// Hosts without a daemon answer nothing themselves.
     public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
@@ -157,7 +158,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// the handshake fails as ``AgentPaneHostError/chiefStarting`` and the page retries, instead
     /// of waiting for someone to open Home (#25570). Nil: nobody to ask.
     private let startOwner: (@Sendable () async -> Bool)?
-    /// Stops this app's own daemon when a person asks (``restartStuckAcpmux()``); one per host.
+    /// Stops this app's own daemon when a person asks (``restartStuckAcpmux(sessionId:)``); one per host.
     private let daemonStop = AcpmuxDaemonStop()
     /// Sends the Computer Use endpoint to the daemon (`AcpmuxComputerUse.enroll`; a recorder in tests).
     private let enrollComputerUse: @Sendable (AcpmuxEnvironment) async -> Void
@@ -258,7 +259,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public func chatPeers() async throws -> [AgentChatPeer] {
         // Validate the app's daemon/home just as a composer handshake does. Listing never
         // starts another daemon; the tab store already prewarms its own host.
-        _ = try await endpoint(startsDaemon: false)
+        // A list for a picker: this caller stops waiting after 2 s (its own bound; the shared lookup
+        // goes on for the panes that wait on it, and nothing decides the daemon is dead).
+        _ = try await withAgentPaneDeadline(.seconds(2), label: "acpmux lookup for chat peers") {
+            try await self.endpoint(startsDaemon: false)
+        }
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
     }
@@ -293,7 +298,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// app's own daemon (never an attached one, never the Chief home's), and only while a lookup
     /// waits on it, so the page cannot stop a daemon that answers. The lookup that waits ends when
     /// the daemon exits, and the page's next handshake starts a new one.
-    public func restartStuckAcpmux() async -> Bool {
+    public func restartStuckAcpmux(sessionId: String?) async -> Bool {
         guard startsDaemons, !inFlight.isEmpty else { return false }
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached else { return false }
@@ -336,9 +341,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
         let startOwner = startOwner
+        let daemonReady = daemonReady
+        // The lookup itself tells `daemonReady`, so a caller that stops waiting (its cancel) never
+        // skips it for the others.
         let task = Task {
-            try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal,
-                                       startOwner: startOwner)
+            let endpoint = try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal,
+                                                      startOwner: startOwner)
+            await daemonReady(daemonSocket)
+            return endpoint
         }
         inFlight[startsDaemon] = task
         // The lookup leaves `inFlight` when it settles, not when this caller stops waiting: a
@@ -348,9 +358,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             _ = await task.result
             await self?.settled(task, startsDaemon: startsDaemon)
         }
-        let endpoint = try await AcpmuxSharedWait.value(of: task)
-        await daemonReady(daemonSocket)
-        return endpoint
+        return try await AcpmuxSharedWait.value(of: task)
     }
 
     private func settled(_ task: Task<AcpmuxWebEndpoint, any Error>, startsDaemon: Bool) {

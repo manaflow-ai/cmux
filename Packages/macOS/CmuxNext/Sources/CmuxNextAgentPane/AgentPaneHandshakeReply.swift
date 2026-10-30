@@ -134,6 +134,6 @@ enum AgentPaneHandshakeReply {
         guard model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
         }
-        return AgentPaneReply.success(["stopped": await model.host.restartStuckAcpmux()])
+        return AgentPaneReply.success(["stopped": await model.host.restartStuckAcpmux(sessionId: model.sessionId)])
     }
 }

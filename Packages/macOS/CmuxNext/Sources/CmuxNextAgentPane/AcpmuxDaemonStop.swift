@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import os
 
-/// The person's "Restart agent service" (the pane's waiting line, ``AcpmuxHost/restartStuckAcpmux()``):
+/// The person's "Restart agent service" (the pane's waiting line, ``AcpmuxHost/restartStuckAcpmux(sessionId:)``):
 /// stops this app's own acpmux daemon so the pane's next handshake starts a new one, which adopts
 /// the agent hosts and loads every session from disk. A person decides it, never a timer (rule
 /// R5): a daemon that answers late is not stopped by the app on its own. SIGTERM (a daemon whose
@@ -17,7 +17,7 @@ import os
 /// signalled (``signal(_:_:process:)`` puts a kernel exit watch on the process before that check,
 /// and the signal goes by audit token, so the kernel refuses it once the pid names another process),
 /// and the exit wait is on the process before its SIGTERM, so it never follows the pid to a successor.
-/// This is the stop path of the removed AcpmuxDaemonStop (#25379), now asked for by a person.
+/// This is the stop path of the removed AcpmuxUnresponsiveWatch (#25379), now asked for by a person.
 nonisolated final class AcpmuxDaemonStop: Sendable {
     /// One process: its pid, its start time (`proc_bsdinfo`) and its audit token (`TASK_AUDIT_TOKEN`).
     /// A pid the kernel gives to another process later has another start time and another pid

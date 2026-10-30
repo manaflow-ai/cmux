@@ -192,3 +192,13 @@ test("one host line at a time: a long wait replaces an earlier failure's line", 
   expect(container.querySelector("[data-earlier]")).toBeNull();
   expect(buttons(container)).toEqual(["Restart agent service"]);
 });
+
+test("a wait the host cannot restart keeps its time and shows no button", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<HostWaitingLine since={0} now={40_000} />);
+  });
+  expect(container.textContent).toContain("Waiting for the agent service (0:40)");
+  expect(buttons(container)).toEqual([]);
+});

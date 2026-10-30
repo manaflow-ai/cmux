@@ -108,7 +108,8 @@ export function HostWaitingLine({
 }: {
   since: number;
   restarting?: boolean;
-  onRestart(): void;
+  /// Restart agent service; none when the host cannot restart what this wait waits on.
+  onRestart?(): void;
   otherwise?: ReactNode;
   /// A fixed clock for the gallery; the pane passes none and the line counts each second.
   now?: number;
@@ -120,9 +121,11 @@ export function HostWaitingLine({
   return (
     <output className="acpmux-host-line" data-host-waiting>
       <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
-      <DialogButton dialogKey={null} onClick={onRestart} disabled={restarting}>
-        {t(restarting ? "host.restartingService" : "host.restartService")}
-      </DialogButton>
+      {onRestart && (
+        <DialogButton dialogKey={null} onClick={onRestart} disabled={restarting}>
+          {t(restarting ? "host.restartingService" : "host.restartService")}
+        </DialogButton>
+      )}
     </output>
   );
 }

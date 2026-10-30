@@ -140,7 +140,7 @@ struct AcpmuxRestartStuckTests {
     private actor NoHost: AgentPaneHostProviding {
         private(set) var restarts = 0
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
-        func restartStuckAcpmux() async -> Bool {
+        func restartStuckAcpmux(sessionId: String?) async -> Bool {
             restarts += 1
             return true
         }
@@ -173,18 +173,20 @@ struct AcpmuxRestartStuckTests {
         try fixture.writePidFile(silent.processIdentifier)
         let host = AcpmuxHost(environment: fixture.environment)
 
-        #expect(await !host.restartStuckAcpmux(), "a daemon no pane waits for was stopped")
+        #expect(await !host.restartStuckAcpmux(sessionId: nil), "a daemon no pane waits for was stopped")
         #expect(agentPaneProcessIsRunning(silent.processIdentifier))
 
         // task-owner: the pane's handshake that waits on the silent daemon; awaited below
         let waiting = Task { try await host.reconnectHandshake(sessionId: nil) }
-        // The lookup is in flight once the daemon took its connection; the restart needs one.
+        // The person presses it while the pane waits on the daemon: once the daemon has accepted
+        // the lookup's status connection (a second socket beside its listener). Earlier, the
+        // lookup would find nothing listening and start a daemon itself.
         let deadline = ContinuousClock.now + .seconds(60)
-        var stopped = false
-        while !stopped, ContinuousClock.now < deadline {
-            stopped = await host.restartStuckAcpmux()
-            if !stopped { try await Task.sleep(for: .milliseconds(50)) }
+        while Self.sockets(of: silent.processIdentifier) < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
         }
+        try #require(Self.sockets(of: silent.processIdentifier) >= 2, "the lookup never reached the daemon")
+        let stopped = await host.restartStuckAcpmux(sessionId: nil)
         #expect(stopped, "the person's restart did not stop the daemon a pane waits for")
         var signal: Int32?
         for await value in ended.stream { signal = value }
@@ -194,5 +196,17 @@ struct AcpmuxRestartStuckTests {
         _ = try? await host.handshake(sessionId: nil)
         #expect(fixture.launches == 1, "acpmux was started \(fixture.launches) times after one restart")
         #expect(fixture.log.contains(AcpmuxFailureCause.personRestart.logText))
+    }
+
+    /// How many sockets process `pid` holds (libproc).
+    private static func sockets(of pid: Int32) -> Int {
+        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard bytes > 0 else { return 0 }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 8)
+        let filled = fds.withUnsafeMutableBytes { buffer in
+            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
+        }
+        return fds.prefix(Int(filled) / stride).filter { $0.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) }.count
     }
 }
