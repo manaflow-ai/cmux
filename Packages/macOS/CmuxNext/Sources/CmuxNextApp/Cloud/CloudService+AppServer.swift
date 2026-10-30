@@ -111,7 +111,10 @@ extension CloudService {
     /// uncertain, so it keeps the key.
     nonisolated static func isDefinitiveRefusal(_ failure: CloudAppOpFailure) -> Bool {
         ["plan_required", "plan.required", "quota_exceeded", "quota.exceeded", "size_locked", "size.locked",
-         "approval_denied", "approval.denied", "approval_expired", "approval.expired"]
+         "approval_denied", "approval.denied", "approval_expired", "approval.expired",
+         // cloud.environment.boot: secrets the Vault can't serve yet, no usable snapshot, an environment
+         // or snapshot that is gone. Each is stored with the key; a Retry after the fix needs a new one.
+         "secrets_unavailable", "no_snapshot_configured", "not_found"]
             .contains { failure.code.hasSuffix($0) }
     }
 

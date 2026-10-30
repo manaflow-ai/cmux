@@ -170,7 +170,8 @@ import Testing
 
     @Test func aRefusalThatMadeNoMachineGivesTheRetryANewKey() {
         for code in ["cmux.cloud.quota_exceeded", "cloud.quota.exceeded", CloudAppOpFailure.planRequired, "cmux.cloud.size_locked",
-                     "cmux.cloud.approval_denied", "cmux.cloud.approval_expired", "approval.expired"] {
+                     "cmux.cloud.approval_denied", "cmux.cloud.approval_expired", "approval.expired",
+                     "cmux.cloud.secrets_unavailable", "cloud.environment.secrets_unavailable", "cmux.cloud.no_snapshot_configured", "cmux.cloud.not_found"] {
             #expect(CloudService.isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
         }
         for code in [CloudAppOpFailure.approvalPending, "cmux.cloud.relay_unavailable", "cmux.cloud.bad_response", "cmux.cloud.failed"] {
@@ -197,5 +198,21 @@ import Testing
         #expect(creation.request.idempotencyKey == current, "a late refusal replaced the key the Retry sent")
         #expect(creation.request.wasSent && creation.request.team == "team_a")
         #expect(creation.request.approvedRequest == nil)
+    }
+
+    @Test func aRetryAfterAnAnswerItNeverRecordedWaitsInsteadOfFailing() async throws {
+        let backend = Backend()
+        backend.pending = 3
+        // The first attempt answered req_1 and was cancelled before recording it: the item is closed.
+        let flow = CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
+                                          confirm: { _ in true },
+                                          approve: { request, _, _ in throw CloudApprovalAnswer.Failure.notInFeed(request: request) },
+                                          pause: { _ in })
+        let machine = try await flow.create(name: nil, startedByPerson: false, key: "k1")
+        #expect(machine["id"]?.stringValue == "vm_1")
+        #expect(backend.machines.count == 1)
+        #expect(CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "state"), request: "r"))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "params"), request: "r"))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.notInFeed(request: "other"), request: "r"))
     }
 }

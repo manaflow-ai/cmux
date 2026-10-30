@@ -150,7 +150,12 @@ struct CloudMachineCreateFlow {
                     guard await ask(request) else { throw Failure.declined }
                     confirmed = true
                 }
-                try await approve(request, op, args)
+                do {
+                    try await approve(request, op, args)
+                } catch let failure as CloudApprovalAnswer.Failure where Self.alreadyAnswered(failure, request: request) {
+                    // An earlier attempt answered it and was cancelled before it could record that: the
+                    // item is closed, so wait for the approved op like any answered request.
+                }
                 approved = request
                 onApproved(request)
                 // The call right after the answer is the first same-key retry.
@@ -178,6 +183,15 @@ struct CloudMachineCreateFlow {
         } catch CloudAPIError.http(let status, _, _, _, _) where status == 402 {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
             throw Failure.upgradeRequired(.server)
+        }
+    }
+
+    /// The approval item for `request` is no longer open to answer: an attempt already answered it.
+    static func alreadyAnswered(_ failure: CloudApprovalAnswer.Failure, request: String) -> Bool {
+        switch failure {
+        case .notInFeed(let r): r == request
+        case .mismatch(let r, let reason): r == request && reason == "state"
+        case .refused: false
         }
     }
 
