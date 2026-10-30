@@ -213,7 +213,9 @@ describe("pauseVm", () => {
     const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
     expect(result).toEqual({ id: "fs-1", status: "paused" });
     expect(recorded.paused).toEqual([]);
-    expect(recorded.statuses).toEqual([]);
+    // The row's only write records the person's decision (reason user), so an idle pause
+    // the cron is still settling yields to it (services/vms/README.md, idle auto-pause).
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused" }]);
     expect(recorded.events).toEqual([]);
   });
 
