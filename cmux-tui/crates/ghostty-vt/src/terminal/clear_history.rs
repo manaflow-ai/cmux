@@ -33,16 +33,10 @@ impl Terminal {
         let cursor_is_at_prompt = self.cursor_is_at_prompt();
         let prompt_start_y =
             cursor_is_at_prompt.then(|| self.active_prompt_start_row(cursor_y)).flatten();
-        let preserve_from_y = if cursor_is_at_prompt {
-            prompt_start_y.or_else(|| self.active_logical_line_start_row(cursor_y))
-        } else {
-            self.active_logical_line_start_row(cursor_y)
-        };
-        let Some(preserve_from_y) = preserve_from_y else {
-            self.vt_write(&clear);
-            return ClearHistoryOutcome::Cleared(clear);
-        };
         let history_rows = self.history_rows();
+        // A prompt that may begin in history cannot be kept whole, so only the
+        // cursor's own logical line (the input line) is kept; the prompt's
+        // visible lines go with the history, as Cmd-K must leave a clean screen.
         let prompt_may_begin_in_history = cursor_is_at_prompt
             && match prompt_start_y {
                 None => true,
@@ -56,11 +50,19 @@ impl Terminal {
                 Some(0) => false,
                 Some(_) => false,
             };
+        let preserve_from_y = if cursor_is_at_prompt && !prompt_may_begin_in_history {
+            prompt_start_y.or_else(|| self.active_logical_line_start_row(cursor_y))
+        } else {
+            self.active_logical_line_start_row(cursor_y)
+        };
+        let Some(preserve_from_y) = preserve_from_y else {
+            self.vt_write(&clear);
+            return ClearHistoryOutcome::Cleared(clear);
+        };
         if history_rows > 0
-            && (prompt_may_begin_in_history
-                || (preserve_from_y == 0
-                    && !cursor_is_at_prompt
-                    && self.active_row_wrap_continuation(0).unwrap_or(true)))
+            && preserve_from_y == 0
+            && !cursor_is_at_prompt
+            && self.active_row_wrap_continuation(0).unwrap_or(true)
         {
             self.vt_write(&clear);
             return ClearHistoryOutcome::Cleared(clear);

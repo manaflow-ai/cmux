@@ -1,4 +1,4 @@
-.cmux-gallery-media-board{display:flex;flex-direction:column;gap:12px;color:var(--page-text,var(--text-color,#e8e8e8));font:13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+.cmux-gallery-media-board{display:flex;flex-direction:column;gap:12px;color:var(--page-text,var(--text-color,#e8e8e8));font:13px var(--font-ui)}
 .cmux-gallery-media-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:30px}
 .cmux-gallery-media-filter{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 5%,transparent)}
 .cmux-gallery-media-filter button,.cmux-gallery-media-action{border:0;border-radius:6px;padding:5px 8px;background:transparent;color:color-mix(in srgb,currentColor 68%,transparent);font:inherit;font-size:12px;cursor:pointer}

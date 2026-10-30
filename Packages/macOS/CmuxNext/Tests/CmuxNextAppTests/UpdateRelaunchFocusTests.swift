@@ -98,4 +98,126 @@ import Testing
         updater.recordRelaunchFocus()
         #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "frontmost when the install started")
     }
+
+    /// The reopen itself: an automatic install in a background app quits and reopens behind
+    /// (`open -g`, so LaunchServices never activates it) and still writes the record as the
+    /// safety net; a click, or the user being in the app, lets Sparkle relaunch and activate.
+    @Test func anAutomaticInstallInABackgroundAppReopensBehindWithoutSparklesRelaunch() async {
+        let defaults = Self.defaults()
+        let updater = Self.updater(defaults: defaults, front: Self.nightly)
+        updater.keptRunningBuild = .kept
+        updater.automaticInstallInFlight = true
+        var willQuit: (@MainActor () async -> Bool)?
+        updater.relaunchBehind = { quit, _, _ in willQuit = quit }
+        #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
+        #expect(updater.installingBuild == "200")
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "nothing is recorded before the helper runs")
+        #expect(await willQuit?() == true)
+        #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "200", now: Self.start.addingTimeInterval(2))?.frontmostPID == 7045)
+    }
+
+    /// The user came into the app while the helper looked up the installer: no quit, no record;
+    /// Sparkle relaunches it (activating).
+    @Test func theUserComingInDuringTheLookupLetsSparkleRelaunch() async {
+        let defaults = Self.defaults()
+        var front = Self.nightly
+        let updater = Self.updater(defaults: defaults, front: front)
+        updater.frontmost = { front }
+        updater.keptRunningBuild = .kept
+        updater.automaticInstallInFlight = true
+        var willQuit: (@MainActor () async -> Bool)?
+        updater.relaunchBehind = { quit, _, _ in willQuit = quit }
+        #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
+        front = UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self")
+        #expect(await willQuit?() == false)
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil)
+    }
+
+    /// The helper could not start, or the user refused the quit: the record goes and the next launch
+    /// (one the user starts) is not held behind.
+    @Test func aDeclinedQuitClearsTheRecord() async {
+        let defaults = Self.defaults()
+        let updater = Self.updater(defaults: defaults, front: Self.nightly)
+        updater.keptRunningBuild = .kept
+        updater.automaticInstallInFlight = true
+        var hooks: (willQuit: @MainActor () async -> Bool, declined: @MainActor () -> Void)?
+        updater.relaunchBehind = { quit, declined, _ in hooks = (quit, declined) }
+        #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
+        _ = await hooks?.willQuit()
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) != nil)
+        hooks?.declined()
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil)
+        #expect(!updater.automaticInstallInFlight)
+    }
+
+    @Test func aClickOrTheUserInTheAppLetsSparkleRelaunch() {
+        for (automatic, front) in [(false, Self.nightly), (true, UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self"))] {
+            let updater = Self.updater(defaults: Self.defaults(), front: front)
+            updater.keptRunningBuild = .kept
+            updater.automaticInstallInFlight = automatic
+            var reopened = 0
+            updater.relaunchBehind = { _, _, _ in reopened += 1 }
+            #expect(!updater.updaterQuitsForAutomaticInstall(build: "200"))
+            #expect(reopened == 0)
+        }
+    }
+
+    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
+        #expect(label == "com.cmuxterm.app.next-sparkle-updater")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label)
+        #expect(arguments == ["/bin/sh", "-c", UpdateRelaunchBehind.script, app.path, label, UpdateRelaunchFocus.reopenArgument])
+        #expect(UpdateRelaunchBehind.script.contains(#"exec /usr/bin/open -g "$0" --args "$2""#))
+        #expect(UpdateRelaunchBehind.environment == ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"], "open passes its environment to the new build")
+    }
+
+    /// The helper itself, with stand-ins. With no installer job it answers no pid (the app then
+    /// stays); a refused quit ends it opening nothing; the app's end (EOF) with no installer to wait
+    /// on ends it before `open` (exit 1).
+    @Test func helperAnswersTheLookupAndStopsOnARefusedQuit() throws {
+        let missing = "/nonexistent/cmux \(UUID().uuidString).app"
+        let arguments = UpdateRelaunchBehind.arguments(app: URL(fileURLWithPath: missing), installerJob: "com.cmuxterm.test.no-such-job")
+        for refused in [true, false] {
+            let helper = try #require(UpdateRelaunchBehind.spawn(arguments))
+            #expect(UpdateRelaunchBehind.readInstaller(helper.stdout, timeoutMilliseconds: 10_000) == nil, "no such job: no pid")
+            close(helper.stdout)
+            if refused {
+                UpdateRelaunchBehind.refuse(helper.writeEnd)
+            } else {
+                close(helper.writeEnd)
+            }
+            var status: Int32 = 0
+            var reaped: pid_t = 0
+            repeat { reaped = waitpid(helper.pid, &status, 0) } while reaped == -1 && errno == EINTR
+            #expect(reaped == helper.pid)
+            let code = (status >> 8) & 0xff
+            #expect(code == (refused ? 0 : 1), "refused=\(refused) exit=\(code)")
+        }
+    }
+
+    @Test func readInstallerTakesOnePidLine() throws {
+        for (written, expected) in [("4242\n", Int32(4242)), ("\n", nil), ("x\n", nil)] as [(String, Int32?)] {
+            var ends: [Int32] = [-1, -1]
+            try #require(pipe(&ends) == 0)
+            let bytes = Array(written.utf8)
+            _ = bytes.withUnsafeBufferPointer { write(ends[1], $0.baseAddress, $0.count) }
+            close(ends[1])
+            #expect(UpdateRelaunchBehind.readInstaller(ends[0], timeoutMilliseconds: 1_000) == expected)
+            close(ends[0])
+        }
+    }
+
+    /// A background reopen stays behind whatever build starts (a failed install puts the previous
+    /// one back) and however long the quit took; an ordinary launch ignores a stale record.
+    @Test func aBackgroundReopenStaysBehindForAnyBuildAndAge() {
+        let defaults = Self.defaults()
+        let record = UpdateRelaunchFocus(targetBuild: "200", recordedAt: Self.start, frontmostPID: 7045, frontmostBundleID: "x")
+        UpdateRelaunchFocus.write(record, defaults: defaults)
+        #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "100", now: Self.start.addingTimeInterval(600), reopenedBehind: true) == record)
+        let none = UpdateRelaunchFocus.consume(defaults: defaults, build: "100", now: Self.start, reopenedBehind: true)
+        #expect(none != nil && none?.frontmostPID == nil, "no record: still behind, with no app to hand back to")
+        UpdateRelaunchFocus.write(record, defaults: defaults)
+        #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "100", now: Self.start.addingTimeInterval(600)) == nil)
+    }
 }

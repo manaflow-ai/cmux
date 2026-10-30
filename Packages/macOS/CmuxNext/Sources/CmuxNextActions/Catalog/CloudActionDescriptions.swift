@@ -19,8 +19,9 @@ nonisolated enum CloudActionDescriptions {
             Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
             After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` \
             before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle \
-            pause), --bootstrap-script FILE (--bootstrap lane for a lane host), answering bootstrap and \
-            enrollment. An agent's create may ask the person first.
+            pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a \
+            .cmux/machine.toml), answering bootstrap, machine_config and enrollment. An agent's create may \
+            ask the person first.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \
@@ -86,10 +87,17 @@ nonisolated enum CloudActionDescriptions {
             after 25 s. A person's run from the palette types it into a new terminal tab instead.
             """,
         "cloudSetupGitHub": """
-            Copies this Mac's git user.name and user.email to the machine (--target machine:<id>) and starts \
-            a GitHub CLI sign-in there; no token leaves this Mac. Returns ok, gh_status (logged_in, pending, \
-            missing or failed), the identity it set and, while the sign-in waits, device_code and \
-            verification_uri for the person to approve; --focus also opens that page.
+            Copies this Mac's git user.name and user.email to the machine (--target machine:<id>) and sets up \
+            GitHub: through the cmux GitHub App when the team has connected it (git gets a short-lived token \
+            per repo; no token stored), else a GitHub CLI sign-in there. No token leaves this Mac. Returns ok, \
+            method (app or device), fallback_reason, gh_status (app, logged_in, pending, missing or failed), \
+            the identity it set and, while a sign-in waits, device_code and verification_uri; --focus opens that page.
+            """,
+        "cloudEnrollMachine": """
+            Makes the machine (--target machine:<id>) an ssh host and an acpmux peer of this Mac: authorizes \
+            --ssh-key (default ~/.ssh/id_ed25519.pub) for its cmux user, pins its host key, writes a Host \
+            block in ~/.ssh/cmux-cloud/config named --name that dials through this app's tunnel, then peers \
+            acpmux. Returns ssh_host, address, steps_done, steps_pending, rerun_command and registry_command.
             """,
         "cloudFilesList": """
             Lists a directory on the machine (--target machine:<id> --path /absolute/dir) and returns path, \
@@ -161,9 +169,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
-            machine_id, target (machine:<id>), title, status, owner and created_at. loaded false means the \
-            list is not known yet (signed out, or still loading after 25 s with pending: true), not that \
-            there are none.
+            machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \
+            the creator's user ID, or null when unavailable. loaded false means the list is not known yet \
+            (signed out, or still loading after 25 s with pending: true), not that there are none.
             """,
         "cloudNewTerminal": """
             Opens a new workspace with a terminal on the machine (--target machine:<id>), resuming a paused \
@@ -177,6 +185,12 @@ nonisolated enum CloudActionDescriptions {
             Shows the machine's first workspace in the window (creating one when it has none), connecting \
             it and resuming it when paused. Not a CLI verb: \
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
+            """,
+        "cloudOpenDesktop": """
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: its noVNC \
+            page in a browser tab, reached over this Mac's Cloud tunnel with no port opened here (--viewer \
+            web, the default). Refused when the machine has no desktop or address, or the browser is \
+            unavailable. Answers at once with no fields, before the page loads.
             """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
@@ -204,6 +218,20 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudCopyMachineID": """
             Copies the machine's id to the clipboard. Not a CLI verb: `cmux cloud list-machines` returns ids.
+            """,
+        "cloudApplyMachineConfig": """
+            Applies a .cmux/machine.toml (env, secret names, setup) to the machine (--target machine:<id>): \
+            --machine-config FILE uploads one, else the machine takes its --repo checkout's or the last \
+            upload. Answers status (started, running or failed) at once; the machine writes the outcome to \
+            ~/.cmux/machine-config/status.json, read with `cmux cloud file-read --target machine:<id> --path …`.
+            """,
+        "cloudDeliverSecrets": """
+            Sends the values of the secret names the machine's .cmux/machine.toml declares (--target \
+            machine:<id>, --repo OWNER/NAME for repo-scoped ones) from this Mac's Keychain to the machine \
+            over its daemon link, never the Cloud API. An own machine (an SSH machine or an acpmux peer, \
+            --target machine:<name>) gets exactly --names A,B over ssh, in ~/.config/cmux/machine-secrets.env; \
+            its shells read them through the returned source_line. Returns status (delivered, unchanged or \
+            pending), delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
             Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \

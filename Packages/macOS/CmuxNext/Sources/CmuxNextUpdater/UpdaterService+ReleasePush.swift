@@ -10,10 +10,13 @@ extension UpdaterService {
     static let releasePushReads = 3
 
     /// Whether the push may run: the updater started with nothing disabling it,
-    /// `updates.checkAutomatically` on, and the opt-in `updates.downloadAutomatically` on with found
-    /// updates downloading by themselves now (the metered-network choice and the managed channel).
+    /// `updates.checkAutomatically` on, and the app on the organization's channel. It does not
+    /// wait for the automatic-install opt-in: Leo lists the release push among the checks that ask
+    /// (2026-10-27: "ask before the download + install step"), so without the opt-in the pushed
+    /// build's check ends on the update-found step, and with it the build downloads by itself and
+    /// waits on the Update Ready card. Automatic checks off keep it quiet.
     var releasePushMayRun: Bool {
-        isStarted && disabledReason == nil && tipCheck.automatic && downloadSetting.enabled && tipCheck.downloads(self)
+        isStarted && settingsApplied && disabledReason == nil && tipCheck.automatic && !isOffManagedChannel
     }
 
     /// Connects to the feed this app reads while the push may run, else stops it. Run when the
@@ -48,8 +51,9 @@ extension UpdaterService {
     }
 
     /// One read for the pushed build, through the paths the scheduled reads use, so the build
-    /// downloads, stages and installs by itself as a scheduled one does: nothing shows and the app
-    /// is never brought forward. Nothing found yet: the fast check reads the feed now
+    /// takes the path a scheduled one does: with the opt-in it downloads and stages by itself,
+    /// without it the check ends on the update-found step (the titlebar's Update
+    /// Available); the app is never brought forward. Nothing found yet: the fast check reads the feed now
     /// (``TipUpdateCheck/readNow(_:)``) and starts the check its interval would. An update
     /// waiting: the staged build gives way to the newer one (``StagedUpdateRefresh``), as its
     /// scheduled probe would. A check, download or install in flight: it waits for the phase to
@@ -60,11 +64,12 @@ extension UpdaterService {
         guard !flow.installRequested, !isSheetPresented() else { return }
         let read: Bool
         switch flow.phase {
-        case .hidden, .note:
+        case .hidden, .note, .available:
+            // A found update waiting on its ask gives way to a newer one (``TipUpdateCheck``).
             read = tipCheck.readNow(self)
         case .ready:
             read = stagedRefresh.run(reason: "release push", asked: false, updater: self) != nil
-        case .checking, .downloading, .available, .installing:
+        case .checking, .downloading, .installing:
             return
         }
         guard read else { return endReleasePushTarget() }

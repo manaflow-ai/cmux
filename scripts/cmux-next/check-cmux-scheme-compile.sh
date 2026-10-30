@@ -132,6 +132,13 @@ build() {
     DEBUG_INFORMATION_FORMAT=dwarf
   )
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
+  # A dev bundle id (the DEV Release app) never claims http/https at Default
+  # rank, whatever the configuration (Resources/Info.plist; tests/test_web_url_handler_rank.py).
+  if [[ -n "$bundle_id" ]]; then
+    web_url_handler_rank=Default
+    case "$bundle_id" in com.cmuxterm.app.debug|com.cmuxterm.app.debug.*|com.cmuxterm.app.staging|com.cmuxterm.app.staging.*) web_url_handler_rank=Alternate ;; esac
+    xcode_args+=("CMUX_WEB_URL_HANDLER_RANK=$web_url_handler_rank")
+  fi
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
   [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion

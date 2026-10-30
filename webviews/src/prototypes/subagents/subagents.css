@@ -20,7 +20,7 @@
   --sa-row-pad: 10px;
   --sa-radius: 6px;
   color: var(--sa-text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -42,6 +42,7 @@
 .sa-small {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-spacer {
   flex: 1;
@@ -63,6 +64,7 @@
   line-height: var(--text-body--line-height);
   background: var(--cmux-app-window, var(--sa-bg));
   overflow: hidden;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .sa-mac-titlebar {
   display: flex;
@@ -115,6 +117,7 @@
   line-height: 1;
   font-weight: var(--weight-emphasis);
   text-transform: uppercase;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-rail-dot[data-current] {
   color: var(--sa-text);
@@ -176,6 +179,7 @@
     0 0 0 11px #3a3a3a;
   font-size: calc(var(--text-body) * 17 / 13);
   line-height: 1.35;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 @media (prefers-color-scheme: light) {
   .sa-phone {
@@ -340,6 +344,7 @@
   line-height: 1;
   font-weight: var(--weight-emphasis);
   vertical-align: middle;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-phone .sa-harness {
   font-size: 0.6em;
@@ -430,6 +435,7 @@
   color: var(--sa-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-row-second {
   font-size: 0.882em;
@@ -443,6 +449,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-phone .sa-row-meta {
   font-size: 0.765em;
@@ -474,6 +481,7 @@
   padding: 6px var(--sa-row-pad);
   color: var(--sa-text-2);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-more:hover {
   color: var(--sa-text);
@@ -495,6 +503,7 @@
   color: var(--sa-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-limit-line {
   padding: 6px 20px;
@@ -531,6 +540,7 @@
   margin: 0 0 4px;
   font-size: var(--text-body);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .sa-phone .sa-limits-panel h3 {
   font-size: 1em;
@@ -539,6 +549,7 @@
   margin: 0 0 8px;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-limits-panel p {
   font-size: 0.82em;
@@ -612,6 +623,7 @@
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 .sa-phone .sa-settings h2 {
   font-size: 1.3em;
@@ -680,6 +692,7 @@
   font-weight: var(--weight-regular);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-column-title {
   flex: 1;
@@ -710,6 +723,7 @@
 .sa-strip-depth {
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-phone .sa-strip {
   width: 64px;
@@ -749,6 +763,7 @@
   color: var(--sa-text-2);
   font-size: var(--text-detail);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-group-header {
   padding: 10px 20px 4px;
@@ -766,6 +781,7 @@
   justify-content: space-between;
   margin: 2px 14px 4px 140px;
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-phone .sa-lanes-axis {
   margin-left: 150px;
@@ -797,6 +813,7 @@
   flex: none;
   min-width: 0;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-lane-label {
   width: 142px;
@@ -847,6 +864,7 @@
   gap: 4px;
   padding: 6px 14px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-crumbs {
   padding: 4px 20px 8px;
@@ -914,6 +932,7 @@
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 .sa-detail-header p {
   display: flex;
@@ -980,6 +999,7 @@
 }
 .sa-bubble-task .sa-muted {
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-bubble-chief {
   align-self: flex-start;
@@ -993,6 +1013,7 @@
   margin: -6px 0 0 -10px;
   border-radius: 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-backline:hover {
   background: var(--sa-hover);
@@ -1008,6 +1029,7 @@
 .sa-spawn-head {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-spawn-head {
   font-size: 0.82em;
@@ -1028,6 +1050,7 @@
   background: var(--sa-raised);
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-chip {
   height: 34px;
@@ -1059,6 +1082,7 @@
   background: var(--sa-raised);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .sa-phone .sa-card {
   border-radius: 16px;
@@ -1084,6 +1108,7 @@
 }
 .sa-card-foot {
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .sa-phone .sa-card-foot {
   font-size: 0.82em;
@@ -1111,6 +1136,7 @@
   border-radius: 6px;
   color: var(--sa-text-2);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-spawn-line {
   font-size: 0.882em;
@@ -1139,6 +1165,7 @@
   min-width: 0;
   padding: 3px 10px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-spawn-item {
   padding: 8px 12px;
@@ -1179,6 +1206,7 @@
   padding: 0 6px;
   border-radius: 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-inline-tree-open {
   height: 38px;
@@ -1201,6 +1229,7 @@
   min-height: 26px;
   color: var(--sa-text-2);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-toolrow {
   min-height: 32px;
@@ -1258,6 +1287,7 @@
 .sa-think-line .sa-muted {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-think-line .sa-muted {
   font-size: 0.765em;
@@ -1266,6 +1296,7 @@
   align-items: center;
   color: var(--sa-text-2);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-think-done {
   font-size: 0.882em;
@@ -1339,6 +1370,7 @@
   gap: 10px;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-steps {
   font-size: 0.882em;
@@ -1384,6 +1416,7 @@
   border-radius: 6px;
   color: var(--sa-text-2);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-toggle:hover {
   background: var(--sa-hover);
@@ -1451,6 +1484,7 @@
 .sa-working .sa-muted {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-working .sa-muted {
   font-size: 0.765em;
@@ -1496,6 +1530,7 @@
   gap: 8px;
   padding: 4px 4px 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .sa-phone .sa-composer-status {
   font-size: 0.82em;

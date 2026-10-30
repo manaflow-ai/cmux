@@ -46,6 +46,10 @@ ALLOWED_LISTENERS = {
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
+    (f"{ACPMUX}/threadMinimap/scrollMotion.ts", "visibilitychange"): "cancels the wheel's own "
+    "motion when the page hides; reads no data",
+    (f"{ACPMUX}/threadMinimap/ThreadMinimap.tsx", "visibilitychange"): "clears the occluded "
+    "rail's one-shot leave grace when the page hides; reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
     (f"{ACPMUX}/avatars/AnimatedAvatar.tsx", "visibilitychange"): "stops the avatar's own CSS "

@@ -268,3 +268,82 @@ fn a_compaction_a_crash_cut_short_is_done_again_and_still_lists() {
     assert_eq!(store.compacted_seq("c1"), Some(15));
     assert_eq!(store.list().unwrap().len(), 1);
 }
+
+/// huge-blue, 2026-10-27: `--archive ~/archive/...` was refused because `~/archive` is
+/// group-writable, and the pass archived nothing.
+#[cfg(unix)]
+#[test]
+fn an_archive_under_a_group_writable_folder_is_kept_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let (home, store) = Home::new();
+    chat(&store, "c1");
+    let shared = home.0.join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o775)).unwrap();
+    let archive = shared.join("archive");
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    let staged = store.stage_compaction("c1", mode).unwrap().unwrap();
+    assert!(store.commit_compaction("c1", staged).unwrap());
+    let pass = &passes(&archive, "c1")[0];
+    for dir in [archive.clone(), archive.join("c1"), pass.clone(), pass.join("events")] {
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{}", dir.display());
+    }
+    assert!(pass.join("events/000001.ndjson").exists());
+}
+
+/// Another account that may write a folder above the archive puts a link where the chat's folder
+/// goes: the pass refuses, and nothing is written where the link points.
+#[cfg(unix)]
+#[test]
+fn an_archive_folder_replaced_by_a_link_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let (home, store) = Home::new();
+    chat(&store, "c1");
+    let archive = home.0.join("archive");
+    let elsewhere = home.0.join("elsewhere");
+    std::fs::create_dir_all(&archive).unwrap();
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::set_permissions(&archive, std::fs::Permissions::from_mode(0o775)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, archive.join("c1")).unwrap();
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    assert!(store.stage_compaction("c1", mode).is_err());
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing went through the link");
+    // A chat folder another account made (writable by others) is refused too.
+    std::fs::remove_file(archive.join("c1")).unwrap();
+    std::fs::create_dir(archive.join("c1")).unwrap();
+    std::fs::set_permissions(archive.join("c1"), std::fs::Permissions::from_mode(0o777)).unwrap();
+    assert!(store.stage_compaction("c1", mode).is_err());
+    assert_eq!(std::fs::read_dir(archive.join("c1")).unwrap().count(), 0);
+    assert!(log(&store, "c1").len() == 15, "the log is as it was");
+}
+
+/// A link above the archive in a folder another account may write is refused; one only this user
+/// could have made is followed.
+#[cfg(unix)]
+#[test]
+fn a_link_above_the_archive_is_followed_only_when_no_one_else_could_have_made_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let (home, store) = Home::new();
+    chat(&store, "c1");
+    let elsewhere = home.0.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let shared = home.0.join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o775)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, shared.join("link")).unwrap();
+    let archive = shared.join("link").join("archive");
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    assert!(store.stage_compaction("c1", mode).is_err());
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing went through the link");
+    // The same link in a folder only this user may write.
+    let own = home.0.join("own");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, own.join("link")).unwrap();
+    let archive = own.join("link").join("archive");
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    let staged = store.stage_compaction("c1", mode).unwrap().unwrap();
+    assert!(store.commit_compaction("c1", staged).unwrap());
+    assert_eq!(passes(&elsewhere.join("archive"), "c1").len(), 1);
+}

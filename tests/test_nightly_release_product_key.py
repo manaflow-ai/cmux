@@ -11,6 +11,7 @@ nightly-release-product, dev_release_product_reuse.NIGHTLY_NEXT).
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import sys
@@ -27,7 +28,7 @@ from test_dev_release_product_key import FILES, git  # noqa: E402
 from test_dev_release_product_reuse import FakeApi, zip_bytes  # noqa: E402
 
 TOOLCHAIN = {"xcode": "Xcode 26.6 Build version 17F45", "sdk": "26.5 25F70", "arch": "arm64",
-             "recipe": reuse.NIGHTLY_NEXT_RECIPE, "tui_tree": "own"}
+             "recipe": reuse.NIGHTLY_NEXT_RECIPE, "tui_tree": "own", "macos": "26.0.1", "macos_build": "25A362"}
 FLAGS = {"track": "nightly-next", "channel": "nightly", "bundle_id": "com.cmuxterm.app.nightly.cmux-next",
          "app_name": "cmux NEXT", "url_scheme": "cmux-nightly", "entitlements": "cmux.entitlements",
          "icon_name": "AppIcon-Nightly", "variants": "arm64", "compile_archs": "arm64",
@@ -61,6 +62,7 @@ class NightlyKey(unittest.TestCase):
         merged = {**TOOLCHAIN, **(FLAGS if job == "nightly-release-product" else {}), **values}
         if job == "dev-release-product":
             merged["recipe"] = reuse.RECIPE
+            merged = {name: value for name, value in merged.items() if name not in ("macos", "macos_build")}
         extra = [f"{name}={value}" for name, value in merged.items()]
         return fingerprint.fingerprint(str(self.root), "HEAD", job, extra)[0]
 
@@ -112,13 +114,22 @@ ENV = {"GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_ID": REPO_ID,
        "GITHUB_WORKFLOW_REF": f"{REPO}/.github/workflows/nightly.yml@refs/heads/nightly-next"}
 
 
-def record_setup(run_id: int, lane: reuse.Lane, **run_overrides):
+RUNNER = "blacksmith-6vcpu-macos-26-7npprz7qqt554pxv"
+FRESH = {"runner_name": RUNNER, "runner_environment": "github-hosted", "kind": "blacksmith", "fresh_vm": True,
+         "start": dict(reuse.CLEAN_START)}
+JOB = {"name": "build-nightly-app", "status": "completed", "conclusion": "success", "runner_name": RUNNER,
+       "runner_group_name": "blacksmith scale sets - blacksmith-6vcpu-macos-26"}
+
+
+def record_setup(run_id: int, lane: reuse.Lane, builder: object = FRESH, **run_overrides):
     sha = format(run_id, "x").rjust(40, "a")
     archive_name = f"cmux-nightly-next-release-{sha}.tar.gz" if lane is reuse.NIGHTLY_NEXT else f"x-{sha}.app.zip"
     data = b"archive-bytes" * 50
     manifest = {"schema": lane.schema, "key": KEY, "run_id": run_id, "source_sha": sha,
                 "product_artifact": lane.product_prefix + sha, "archive_name": archive_name,
                 "archive_bytes": len(data), "archive_sha256": hashlib.sha256(data).hexdigest()}
+    if builder is not None:
+        manifest["builder"] = builder
     record = {"id": run_id * 10, "name": reuse.record_name(KEY, lane), "expired": False,
               "created_at": "2026-10-26T10:00:00Z", "archive_download_url": f"record-{run_id}",
               "workflow_run": {"id": run_id, "repository_id": int(REPO_ID), "head_repository_id": int(REPO_ID),
@@ -127,7 +138,7 @@ def record_setup(run_id: int, lane: reuse.Lane, **run_overrides):
                "archive_download_url": f"product-{run_id}"}
     run = {"id": run_id, "event": lane.events[0], "path": lane.workflow_path, "head_branch": lane.branch,
            "repository": {"full_name": REPO}, "head_repository": {"full_name": REPO},
-           "jobs": [{"name": lane.producer_jobs[0], "status": "completed", "conclusion": "success"}]}
+           "jobs": [{**JOB, "name": lane.producer_jobs[0]}]}
     run.update(run_overrides)
     files = {f"record-{run_id}": zip_bytes({"manifest.json": json.dumps(manifest).encode()}),
              f"product-{run_id}": zip_bytes({archive_name: data})}
@@ -189,6 +200,77 @@ class Namespaces(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 self.assertEqual(self.lookup(record_setup(7, reuse.NIGHTLY_NEXT, **overrides), reuse.NIGHTLY_NEXT)["hit"], "false")
 
+
+class FreshBuilder(unittest.TestCase):
+    """A nightly record is taken only when it says a fresh VM built it from a clean start and the
+    jobs API shows its producer job on that runner, in that runner's fresh-VM group."""
+
+    def lookup(self, **kwargs) -> dict:
+        with tempfile.TemporaryDirectory() as out:
+            try:
+                return reuse.lookup(record_setup(7, reuse.NIGHTLY_NEXT, **kwargs), KEY, ENV, Path(out), reuse.NIGHTLY_NEXT)
+            except reuse.Miss as why:
+                return {"hit": "false", "reason": str(why)}
+
+    def test_a_fresh_blacksmith_or_github_hosted_build_is_taken(self):
+        self.assertEqual(self.lookup()["hit"], "true")
+        hosted = {**FRESH, "runner_name": "GitHub Actions 1000276410", "kind": "github-hosted"}
+        job = {**JOB, "runner_name": "GitHub Actions 1000276410", "runner_group_name": "GitHub Actions"}
+        self.assertEqual(self.lookup(builder=hosted, jobs=[job])["hit"], "true")
+
+    def test_a_record_without_a_clean_fresh_builder_is_refused(self):
+        cases = {
+            "no builder": None,
+            "not a dict": "blacksmith",
+            "owned runner": {**FRESH, "runner_name": "cmux14-glaeda-2", "kind": "owned", "fresh_vm": False},
+            "fresh flag missing": {name: value for name, value in FRESH.items() if name != "fresh_vm"},
+            "kept DerivedData": {**FRESH, "start": {"derived_data": "kept", "compilation_cache": "empty"}},
+            "kept compilation cache": {**FRESH, "start": {"derived_data": "empty", "compilation_cache": "kept"}},
+            "no start": {name: value for name, value in FRESH.items() if name != "start"},
+        }
+        for label, builder in cases.items():
+            with self.subTest(case=label):
+                self.assertEqual(self.lookup(builder=builder)["hit"], "false")
+
+    def test_the_jobs_api_must_show_the_job_on_that_fresh_runner(self):
+        cases = {
+            "another runner": [{**JOB, "runner_name": "blacksmith-6vcpu-macos-26-otherrunner"}],
+            "an owned group": [{**JOB, "runner_group_name": "Default"}],
+            "a hosted group for a blacksmith record": [{**JOB, "runner_group_name": "GitHub Actions"}],
+            "no runner fields": [{"name": "build-nightly-app", "status": "completed", "conclusion": "success"}],
+        }
+        for label, jobs in cases.items():
+            with self.subTest(case=label):
+                result = self.lookup(jobs=jobs)
+                self.assertEqual(result["hit"], "false")
+                self.assertIn("does not show the producer job", result["reason"])
+
+    def test_builder_kind(self):
+        self.assertEqual(reuse.builder_kind(RUNNER), "blacksmith")
+        self.assertEqual(reuse.builder_kind("GitHub Actions 12", "github-hosted"), "github-hosted")
+        for name, environment in (("cmux14-glaeda-2", "self-hosted"), ("GitHub Actions 12", "self-hosted"),
+                                  ("blacksmith", "github-hosted"), ("my-blacksmith-6vcpu-macos-26", "")):
+            with self.subTest(runner=name):
+                self.assertEqual(reuse.builder_kind(name, environment), "owned")
+        # With the jobs API's group, the group decides.
+        self.assertEqual(reuse.builder_kind(RUNNER, runner_group=JOB["runner_group_name"]), "blacksmith")
+        self.assertEqual(reuse.builder_kind(RUNNER, runner_group="Default"), "owned")
+        self.assertEqual(reuse.builder_kind("cmux14-glaeda-2", runner_group="blacksmith scale sets - x"), "owned")
+
+    def test_record_refuses_a_builder_that_is_not_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive, builder = Path(tmp) / "a.tar.gz", Path(tmp) / "builder.json"
+            archive.write_bytes(b"x")
+            for facts, ok in ((FRESH, True), ({**FRESH, "kind": "owned", "fresh_vm": False}, False)):
+                builder.write_text(json.dumps(facts))
+                args = argparse.Namespace(key=KEY, sha="a" * 40, archive=str(archive), out=str(Path(tmp) / "m.json"),
+                                                reused_from_run="", reused_from_sha="", compiled_run="", builder=str(builder))
+                with self.subTest(kind=facts["kind"]):
+                    if ok:
+                        self.assertEqual(reuse.record(args, {"GITHUB_RUN_ID": "9"}, reuse.NIGHTLY_NEXT)["builder"], FRESH)
+                    else:
+                        with self.assertRaises(SystemExit):
+                            reuse.record(args, {"GITHUB_RUN_ID": "9"}, reuse.NIGHTLY_NEXT)
 
 
 if __name__ == "__main__":

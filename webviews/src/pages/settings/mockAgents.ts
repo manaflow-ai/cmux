@@ -118,6 +118,11 @@ export class MockAgents {
         this.state = { ...this.state, harnesses: [...this.state.harnesses, row], removed: undefined };
         return { id: row.id, path: `~/.config/cmux/harnesses/${row.id}.toml` };
       }
+      case "symbol":
+        // The host's template image of the symbol (a 1x1 PNG here).
+        return {
+          src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
+        };
       case "icon": {
         // acpmux's resolution, as far as Settings shows it: the value, an image, or Automatic.
         const iconSpec = gesture.clear

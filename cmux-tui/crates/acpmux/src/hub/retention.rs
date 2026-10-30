@@ -15,14 +15,26 @@
 //! chat's append lock, and only when nothing was logged since it was read (`untouched`, and the
 //! store's own check of the log's length).
 //!
+//! The daemon runs a pass on its own once every chat's log is read after its start
+//! (`retention_worker`, after `load_logs`), and again when a chat closes, at most every
+//! [`SPACING`]: one worker that waits on a wake, no timer. A chat that closes is too recent for
+//! that pass; the wake only gives a daemon that runs for weeks a pass now and then, and the chats
+//! closed long before it are compacted then. It holds the hub weakly and only its own wake
+//! strongly, upgrading for a pass, so it never keeps a hub alive. It ends when the daemon shuts down
+//! (its stop condition): the shutdown wakes it (`shutdown_sessions`), it finds the shutdown begun
+//! or the hub gone, and returns; a pass under way stops between two chats (`shutting_down`).
 //! `_acpmux/retention {dryRun?, archive?, olderThanDays?, only?}` (`acpmux daemon retention`) runs
-//! one: a dry run only measures; `archive` keeps every old segment under `<archive>/<id>/<pass>/`. One
-//! pass at a time; it reads each chat's log once, one chat after another, on a blocking thread,
+//! one now: a dry run only measures; `archive` keeps every old segment under
+//! `<archive>/<id>/<pass>/`. One pass at a time; it reads each chat's log once, one chat after
+//! another, on a blocking thread,
 //! and ends with the list (its stop condition), removing any compacted copy it did not put in
 //! place. The store's setting is read at the daemon's start.
 
 use super::*;
 use crate::store::{CompactMode, Compaction};
+
+/// The least time between two automatic passes.
+const SPACING: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 
 /// What a pass is asked to do.
 #[derive(Debug, Default, Clone)]
@@ -64,6 +76,37 @@ impl Report {
 }
 
 impl Hub {
+    /// A chat closed: a later pass may compact its log. Only wakes the worker; no lock is taken.
+    pub(super) fn retention_wake(&self) {
+        self.retention_wake.notify_one();
+    }
+
+    /// The daemon's one retention worker (module docs): a pass now, then one per wake once
+    /// [`SPACING`] passed since the last. Off when `store.closedLogDays` is 0.
+    pub fn retention_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let hub = Arc::downgrade(self);
+        let wake = self.retention_wake.clone();
+        tokio::spawn(async move {
+            let mut last: Option<std::time::Instant> = None;
+            loop {
+                {
+                    let Some(hub) = hub.upgrade() else { return };
+                    if hub.shutting_down() {
+                        return;
+                    }
+                    let on = hub.config.read().await.store.closed_log_retention().is_some();
+                    if on && last.is_none_or(|at| at.elapsed() >= SPACING) {
+                        last = Some(std::time::Instant::now());
+                        if let Err(e) = hub.retention_pass(RetentionRequest::default()).await {
+                            tracing::warn!("log retention: {}", e.message);
+                        }
+                    }
+                }
+                wake.notified().await;
+            }
+        })
+    }
+
     /// Runs one pass (`_acpmux/retention`).
     pub async fn retention_pass(
         self: &Arc<Self>,
@@ -146,7 +189,7 @@ impl Hub {
             // log longer, and the store refuses it (`commit_compaction`).
             let committed = {
                 let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-                if self.untouched(&session, seen) {
+                if self.untouched(&session, seen, cutoff) {
                     self.store.commit_compaction(&session.id, staged)
                 } else {
                     Ok(false)
@@ -198,7 +241,7 @@ impl Hub {
         if meta.status != SessionStatus::Closed {
             return Err("open");
         }
-        if meta.updated_at > cutoff {
+        if self.age(session, &meta) > cutoff {
             return Err("recent");
         }
         // A chat whose agent is being started holds this lock: it counts as running.
@@ -231,6 +274,14 @@ impl Hub {
         Ok(meta.updated_at)
     }
 
+    /// When the chat last changed: its log's last write, or its `updatedAt` if earlier. A chat
+    /// whose `session.json` was saved again (a stop that changed nothing, before #25863; a draft)
+    /// is as old as its last record; with no log on disk, as old as its `updatedAt` says.
+    fn age(&self, session: &Session, meta: &SessionMeta) -> u64 {
+        let written = self.store.log_written_at(&session.id).unwrap_or(meta.updated_at);
+        written.min(meta.updated_at)
+    }
+
     /// Under the chat's append lock, right before the compacted log goes in: still closed, with
     /// no agent, client, move or import, and no import replacing it (`transfer_in.rs` marks the
     /// chat it replaces, then waits for this lock before it moves the chat's folder aside). A
@@ -243,10 +294,14 @@ impl Hub {
     /// `seen` is the chat's `updated_at` when `retainable` let it in. Every status write sets it
     /// under the meta lock before it logs the status (`write_status`), so a reopen and a close
     /// since, whose records still wait for this lock, leave it changed: the chat is left whole.
-    fn untouched(&self, session: &Session, seen: u64) -> bool {
+    /// A status write that set its status but has not logged it yet is still under way
+    /// (`status_writes`), and one logged since the pass looked makes the log new again (`age`).
+    fn untouched(&self, session: &Session, seen: u64, cutoff: u64) -> bool {
         let meta = session.meta();
         meta.status == SessionStatus::Closed
             && meta.updated_at == seen
+            && session.status_writes.load(Ordering::SeqCst) == 0
+            && self.age(session, &meta) <= cutoff
             && session.child.try_lock().is_ok_and(|child| child.is_none())
             && session.attached.load(Ordering::SeqCst) == 0
             && !session.purged.load(Ordering::SeqCst)

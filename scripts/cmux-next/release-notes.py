@@ -49,6 +49,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py check --notes DIR/B.json         the release gate: fails a build with no or bad What's New entries
 """
 import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time
+import urllib.parse
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
@@ -300,8 +301,8 @@ PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
 # (scripts/pr-media.py). The notes carry its URL and hash; the app fetches it and shows it only when
 # the bytes match (ReleaseMediaStore.highlightData). Anything else leaves the highlight without one.
 PR_MEDIA_PREFIX = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/"
-PR_MEDIA_IMAGE = re.compile(r"""(?:!\[[^\]]*\]\(\s*|<img\b[^>]*?\bsrc=["'])(?P<url>https://[^\s)"'>]+)""", re.I)
-# The app's limit (ReleaseMediaStore.maxImageBytes) and the picture types it decodes.
+PR_MEDIA_IMAGE = re.compile(r"""(?:!\[[^\]]*\]\(\s*|<(?:img|video|source)\b[^>]*?\bsrc=["'])(?P<url>https://[^\s)"'>]+)""", re.I)
+# The app's limit (ReleaseMediaStore.maxMediaBytes) and the media types it decodes.
 PR_MEDIA_MAX_BYTES = 4 << 20
 PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
 # Each call waits at most PR_MEDIA_TIMEOUT seconds, and all of them together PR_MEDIA_BUDGET, so a slow
@@ -311,9 +312,41 @@ PR_MEDIA_BUDGET = 120
 
 
 def pr_media_picture(data):
-    """True for bytes the app would show: a PNG, JPEG, GIF or WebP within its size limit."""
+    """True for bytes the app would show: a picture or short video within its size limit."""
     webp = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-    return 12 <= len(data) <= PR_MEDIA_MAX_BYTES and (webp or data.startswith(PR_MEDIA_SIGNATURES))
+    video = len(data) >= 12 and data[4:8] == b"ftyp"
+    return 12 <= len(data) <= PR_MEDIA_MAX_BYTES and (webp or video or data.startswith(PR_MEDIA_SIGNATURES))
+
+
+def public_pr_media_url(url):
+    """Whether a PR body URL is the repository's public media host and branch."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme
+        hostname = parsed.hostname
+        port = parsed.port
+        username = parsed.username
+        password = parsed.password
+        query = parsed.query
+        fragment = parsed.fragment
+        decoded_path = urllib.parse.unquote(parsed.path)
+    except ValueError:
+        return False
+    return (
+        scheme == "https"
+        and hostname == "raw.githubusercontent.com"
+        and port is None
+        and not username
+        and not password
+        and not query
+        and not fragment
+        and decoded_path.startswith("/manaflow-ai/cmux/pr-media/")
+        # A remaining percent sign could be decoded again downstream. Reject it,
+        # and backslashes that URL loaders can interpret as path separators.
+        and "%" not in decoded_path
+        and "\\" not in decoded_path
+        and not any(segment in (".", "..") for segment in decoded_path.split("/"))
+    )
 
 
 def pr_body(pr, fixture):
@@ -361,13 +394,14 @@ def find_pr_media(highlight, path, head):
         return
     for found in PR_MEDIA_IMAGE.finditer(pr_body(int(match["pr"]), fixture)):
         url = found["url"]
-        if not url.startswith(PR_MEDIA_PREFIX):
+        if not public_pr_media_url(url) or not url.startswith(PR_MEDIA_PREFIX):
             continue
         data = pr_download(url, fixture)
         if data is None or not pr_media_picture(data):
             print(f"pr-media: {path}: #{match['pr']} {url} is not a picture the app shows; left out", file=sys.stderr)
             return
-        highlight["media"] = [{"url": url, "sha256": hashlib.sha256(data).hexdigest(), "kind": "image",
+        kind = "video" if len(data) >= 12 and data[4:8] == b"ftyp" else "image"
+        highlight["media"] = [{"url": url, "sha256": hashlib.sha256(data).hexdigest(), "kind": kind,
                                "alt": highlight["title"]}]
         return
 
@@ -453,6 +487,35 @@ def summary_whats_new_digest(args, lines):
         print("whats-new summary skipped:\n" + "\n".join(problems), file=sys.stderr)
         return None
     return document
+
+
+REPO = "manaflow-ai/cmux"
+# The generic entry, all but its docs link (the span's commits). `check` knows it by every field,
+# so a real highlight that happens to share its id is never taken for it.
+GENERIC_ENTRY = {"id": "fixes-and-improvements", "category": "improved", "title": {"en": "Fixes and improvements"},
+                 "summary": {"en": "This build brings fixes and improvements. The link lists every change in it."},
+                 "platforms": ["macos"], "audience": "all"}
+
+
+def generic_whats_new_digest(args):
+    """The digest of a build with nothing user-facing to say: one "Fixes and improvements" entry
+    whose link lists the span's commits. claude-sr2, 2026-10-27: a build with no What's New entry
+    publishes with this instead of failing publish-nightly (9 of 79 attempts threw away a notarized
+    build); `check` warns about it."""
+    link = (f"https://github.com/{REPO}/compare/{args.since}...{args.head}" if args.since
+            else f"https://github.com/{REPO}/commits/{args.head}")
+    return {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
+            "headline": {"en": "Fixes and improvements"}, "entries": [{**GENERIC_ENTRY, "docs": link}]}
+
+
+def is_generic(entries):
+    """Whether `entries` is exactly the generic entry generic_whats_new_digest writes."""
+    if len(entries) != 1:
+        return False
+    entry = dict(entries[0])
+    docs = entry.pop("docs", "")
+    return entry == GENERIC_ENTRY and isinstance(docs, str) and (
+        docs.startswith(f"https://github.com/{REPO}/compare/") or docs.startswith(f"https://github.com/{REPO}/commits/"))
 
 
 def write_community_summary(digest, args):
@@ -542,7 +605,7 @@ def build(args):
         highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
         if highlight["media"]:
             clip_caption(highlight, args.head)
-        elif args.pr_media:
+        elif args.pr_media and highlight.get("category", "new") in {"new", "improved"}:
             add_pr_media(highlight, path, args.head, deadline)
         highlights.append(highlight)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
@@ -552,9 +615,15 @@ def build(args):
     digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
+    generic = digest is None and not highlights
+    if generic:
+        # Nothing user-facing in the span. A span whose highlight files all failed validation
+        # keeps no digest, so `check` still fails it.
+        digest = generic_whats_new_digest(args)
     if digest is not None:
         notes["whatsNew"] = digest
-        write_community_summary(digest, args)
+        if not generic:
+            write_community_summary(digest, args)
     # When the build was made, to the second: the Updated card names the build by it ("Nightly · Oct 26,
     # 7:38 PM" in the person's time zone; Leo 2026-10-26: "it just says updated to nightly").
     notes["builtAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -685,9 +754,11 @@ def verify(args):
 
 
 def check(args):
-    """The release gate (2026-10-20, Lawrence: "the change log needs to be better at all times";
-    a vague "What's new in this build" card must fail the release, not ship): the build's notes
-    carry at least one What's New entry, and the whole digest validates."""
+    """The release gate (2026-10-20, Lawrence: "the change log needs to be better at all times"):
+    the whole digest validates, so a malformed entry fails the release. A build with nothing
+    user-facing carries the generic "Fixes and improvements" entry (generic_whats_new_digest) and
+    passes with a warning (claude-sr2, 2026-10-27). Notes with no entry at all, which `build` now
+    leaves only when every highlight file failed validation, still fail."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     import validate
 
@@ -695,14 +766,24 @@ def check(args):
     digest = notes.get("whatsNew") or {}
     entries = digest.get("entries") or []
     if not entries:
-        print(f"{args.notes}: no What's New entries for {notes.get('shortVersion')}: the update card would say only "
-              "\"What's new in this build\". Land a user-facing commit (feat/fix with a plain-English subject) or "
-              "add release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).", file=sys.stderr)
+        print(f"{args.notes}: no What's New entries for {notes.get('shortVersion')}: its highlight files did not "
+              "validate (the build log names each dropped one). Fix them (see release-notes/next/WRITING.md).",
+              file=sys.stderr)
         return 1
     problems = validate.validate_document(f"{digest.get('version')}.json", digest)
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
+    if is_generic(entries):
+        message = (f"No What's New entries for {notes.get('shortVersion')}: publishing the generic \"Fixes and "
+                   f"improvements\" entry ({entries[0]['docs']}). Land a user-facing commit or add "
+                   "release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).")
+        print(f"::warning title=Generic What's New entry::{message}")
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as out:
+                out.write(f"### Generic What's New entry\n\n{message}\n")
+        return 0
     print(f"ok: {len(entries)} What's New entries: " + "; ".join(e["title"]["en"] for e in entries[:3]))
     return 0
 

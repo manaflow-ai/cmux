@@ -118,6 +118,25 @@ fn new_machine_bootstrap_script_is_made_absolute() {
     assert_eq!(params["args"]["bootstrap"], json!("lane"));
 }
 
+/// `cmux cloud apply-machine-config --machine-config FILE` names a file of the
+/// caller's working directory too.
+#[test]
+fn machine_config_is_made_absolute() {
+    let (_, params) = call(
+        run_action(
+            "cloud apply-machine-config",
+            &args(&["--target", "machine:vm-1", "--machine-config", ".cmux/machine.toml"]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(
+        params["args"]["machineConfig"],
+        json!(cwd.join(".cmux/machine.toml").to_string_lossy())
+    );
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
@@ -163,6 +182,53 @@ fn unknown_words_run_the_action_with_that_cli_name() {
         params,
         json!({ "action": "app new-window", "cli": true, "wait": true, "origin": "script" })
     );
+}
+
+#[test]
+fn action_describe_accepts_an_unquoted_cli_name() {
+    let (_, params) =
+        call(parse(&args(&["action", "describe", "cloud", "exec"])).unwrap().unwrap());
+    assert_eq!(params["action"], "cloud exec");
+}
+
+#[test]
+fn cloud_is_an_app_scope() {
+    assert!(APP_SCOPES.contains(&"cloud"));
+}
+
+/// `cmux home invite-to-team --email …` (and its alias `cmux team invite`) runs
+/// the app's `home.inviteToTeam`, whose dialog waits for the person's Send, so
+/// the CLI (and `cmux mcp`) wait as long as the app's person deadline.
+#[test]
+fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
+    for words in [
+        &["home", "invite-to-team", "--email", "leo@cmux.com"][..],
+        &["team", "invite", "--email", "leo@cmux.com"][..],
+    ] {
+        let sent = match parse(&args(words)) {
+            Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+                Some((method, params, timeout))
+            }
+            _ => None,
+        };
+        assert!(sent.is_some(), "{words:?}: expected one action.run call");
+        if let Some((method, params, timeout)) = sent {
+            assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT), "{words:?}");
+            assert_eq!(method, "action.run");
+            assert_eq!(params["action"], "home invite-to-team", "{words:?}");
+            assert_eq!(params["args"], json!({ "email": "leo@cmux.com" }), "{words:?}");
+        }
+    }
+    assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
+}
+
+/// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.
+#[test]
+fn a_bare_team_invite_runs_the_home_action_with_no_arguments() {
+    let (method, params) = call(parse(&args(&["team", "invite"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "home invite-to-team");
+    assert!(params.get("args").is_none_or(|a| a == &json!({})), "{params}");
 }
 
 #[test]

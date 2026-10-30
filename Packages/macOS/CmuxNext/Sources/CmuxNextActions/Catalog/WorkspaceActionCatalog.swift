@@ -366,12 +366,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.togglePin",
                 title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
-                targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
+                arguments: [CatalogArgument.pinnedBool], targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.toggleArchive",
                 title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
-                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox",
+                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
             ),
             ActionDescriptor(
@@ -445,6 +445,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["current work", "tasks"], category: .workspace, symbol: "sparkle.magnifyingglass",
                 surfaces: [.palette], targets: [.workspace], cliName: "workspace find-work"
             ),
-        ] + classicImportActions()
+        ] + classicImportActions() + sessionTransferActions()
     }
 }

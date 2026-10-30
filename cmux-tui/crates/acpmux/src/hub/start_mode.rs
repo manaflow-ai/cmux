@@ -30,9 +30,18 @@
 //! start model it is soft: a refusal is logged (`start_default_skipped`)
 //! and the chat runs the harness's own mode. Not for: a remote-origin
 //! (Web) session (the remote guard settles its mode,
-//! `server/remote_guard.rs`), a preset's chat, a folder profile's chat, an
+//! `server/remote_guard.rs`), a preset's chat (but see below), a folder profile's chat, an
 //! adopted conversation, and a profile that pins its mode in its argv
 //! (`profile_sets_mode`).
+//!
+//! A built-in Chief subagent preset that names no mode (`optchat-sub-<home id>`,
+//! `config/chief_builtins.rs`) is not a preset's chat here: its chat starts as a plain one
+//! (`plain_for_mode`, cmux#27847). The Chief host starts every subagent from it, and as a
+//! preset's chat each ran in its harness's asking mode, which every chat it started then
+//! inherited. It widens nothing a plain `acpmux new` cannot: its env is acpmux's own
+//! definition or the person's (`hub/person.rs`), its args only take capabilities away, and its
+//! policy is one any unix socket client may name. Chief's turn and compactor presets keep their
+//! harness's own mode.
 //!
 //! Only the person widens a mode later (`hub/person.rs`).
 //!
@@ -72,6 +81,7 @@
 //! socket since before this).
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// The mark on a watchers' harness-feed payload that is a start-mode notice.
 pub(crate) const START_MODE_NOTE: &str = "startModeChanged";
@@ -319,6 +329,15 @@ pub(super) fn mode_eligible(
     profile: &HarnessProfile,
 ) -> bool {
     plain && !remote && !keep_harness_mode && !profile_sets_mode(profile)
+}
+
+/// Whether a chat from `preset` (none: no preset) starts in the start mode as a plain chat does
+/// (module docs): no preset, or a built-in Chief subagent preset that names no mode.
+pub(super) fn plain_for_mode(preset: Option<&str>, cfg: &crate::config::Config) -> bool {
+    preset.is_none_or(|name| {
+        crate::config::chief_builtins::parse(name).is_some_and(|b| b.is_subagent())
+            && cfg.presets.get(name).is_some_and(|p| p.mode.is_none())
+    })
 }
 
 /// The mode ids a session's harness offers, for the policy modes (`policy_mode.rs`).
@@ -584,10 +603,11 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
         let meta = session.meta();
         let Some(current) = crate::web_modes::mode_of(&meta) else { return Ok(()) };
-        if !is_full_access(&current) || self.full_access_allowed() {
+        if !is_full_access(&current) || off.allows_full_access() {
             return Ok(());
         }
         let family = crate::web_modes::family_of(&meta);
@@ -619,20 +639,24 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         profile: &HarnessProfile,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
         let mut refused = None;
         if !profile_sets_mode(profile)
-            && let Err(e) = self.leave_full_access_if_off(session, child).await
+            && let Err(e) = self.leave_full_access_if_off(session, child, off).await
         {
             refused = Some(e);
         }
         // MDM forces full access off (#23322): a start still in it by any form acpmux sees (a
         // config option, a mode its harness reports without declaring modes) is refused too.
-        if refused.is_none() && self.managed_off_runs_full_access(session) {
+        if refused.is_none() && self.managed_off_runs_full_access(off, session) {
             refused = Some(full_access_off());
         }
+        // Whether MDM's off stops it is the start's one read of the off (`off`), taken before the
+        // mode change above awaited: an unset that landed meanwhile does not make it the person's
+        // own off (review 2 of #26257).
         if let Some(e) = refused {
-            self.stop_full_access_agent(session).await;
+            self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
         // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
@@ -641,10 +665,26 @@ impl Hub {
     }
 
     /// Stops `session`'s agent, which runs in a full access the setting does not allow; the chat
-    /// stays open and idle, and its next prompt starts an agent under the setting.
-    pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>) {
-        // Taken first: the child slot's lock is not held while the agent ends.
-        let started = session.child.lock().await.take();
+    /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
+    /// off stops it (now, or one that held as the agent started).
+    pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
+        // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
+        // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
+        // or option report it still has queued is not applied to the agent after it, and none it
+        // sent is counted. With MDM unset nothing changes.
+        let started = {
+            let mut slot = session.child.lock().await;
+            let started = slot.take();
+            if let Some(started) = started.as_ref().filter(|_| managed) {
+                session.floor.retired_through.fetch_max(started.generation, Ordering::SeqCst);
+            }
+            started
+        };
+        if managed && started.is_some() {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
         if let Some(started) = started {
             // Bounded: a host whose link stopped reading never takes the terminate; it is then
             // ended by its nonce below (review 31 of #23322).
@@ -709,14 +749,14 @@ impl Hub {
         let managed_off = self.full_access_managed_off();
         let mark = |mut answer: Value| {
             if managed_off {
-                answer["fullAccess"] = json!("managed");
+                answer.set("fullAccess", json!("managed"));
             }
             answer
         };
         let (agent, profile, eligible, policy) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
-            let plain = r.preset_name.is_none() && r.folder_root.is_none();
+            let plain = plain_for_mode(r.preset_name.as_deref(), &cfg) && r.folder_root.is_none();
             let terminal = r.profile.kind == crate::config::HarnessKind::Terminal;
             let eligible = !terminal && mode_eligible(plain, remote, false, &r.profile);
             // The policy the new chat would hold (`policy_mode.rs`): its preset's or defaults',

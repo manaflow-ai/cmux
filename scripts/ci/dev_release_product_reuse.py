@@ -8,7 +8,10 @@ other products), the whole cmux-next.yml, Xcode, the SDK, the arch, the cmux-tui
 and RECIPE. The key is content only: no branch, commit or path.
 
 `record` writes `manifest.json` after a compile (or a reuse) uploaded the app as the run's
-`cmux-next-dev-daily-unsigned-<sha>` artifact; the workflow uploads it as the artifact
+`cmux-next-dev-daily-unsigned-<sha>` artifact, with the Swift compilation mode the compile resolved
+(`swift_mode`: singlefile or wholemodule) beside the one asked for (`swift_mode_requested`, often
+`auto`). The key keeps only the requested mode: both resolved modes are a correct product of the same
+inputs, and a reuse carries its source's resolved mode forward. The workflow uploads it as the artifact
 `cmux-next-dev-release-product-<key>`. `lookup` finds the newest such record from a trusted run
 (a push or dispatch of cmux-next.yml on feat-cmux-next in this repository), downloads that run's
 app archive, checks its SHA-256 against the record and prints `hit=true` and `archive=`. Signing,
@@ -76,6 +79,8 @@ class Lane:
     branch: str
     events: tuple[str, ...]
     producer_jobs: tuple[str, ...]
+    # Take only records whose producer job ran on a fresh VM from a clean start (check_builder).
+    fresh_builder: bool = False
 
 
 DEV = Lane("DEV", SCHEMA, RECIPE, RECORD_PREFIX, PRODUCT_PREFIX, ".app.zip", WORKFLOW_PATH, BRANCH,
@@ -94,7 +99,60 @@ NIGHTLY_NEXT = Lane(
     branch="nightly-next",
     events=("push",),
     producer_jobs=("build-nightly-app",),
+    fresh_builder=True,
 )
+
+# A fresh VM per job (GitHub-hosted or Blacksmith) keeps nothing between jobs: no compiler cache,
+# kept build tree or helper binary another job (a pull request's among them) could have left for
+# the build to link. GitHub's jobs API names the runner group, which a job cannot choose.
+FRESH_RUNNER_GROUPS = {"github-hosted": "GitHub Actions", "blacksmith": "blacksmith scale sets - "}
+BLACKSMITH_RUNNER = re.compile(r"^blacksmith-[0-9]+vcpu-[a-z0-9.-]+$")
+# What the build started from, measured before it compiled (nightly_release_product_reuse.builder).
+CLEAN_START = {"derived_data": "empty", "compilation_cache": "empty"}
+
+
+def builder_kind(runner_name: str, runner_environment: str = "", runner_group: str | None = None) -> str:
+    """github-hosted, blacksmith or owned (anything else: a kept machine). With `runner_group` (the
+    jobs API's runner_group_name) the group decides; without, the runner's own environment."""
+    if runner_group is not None:
+        if runner_group == FRESH_RUNNER_GROUPS["github-hosted"]:
+            return "github-hosted"
+        if runner_group.startswith(FRESH_RUNNER_GROUPS["blacksmith"]) and BLACKSMITH_RUNNER.match(runner_name):
+            return "blacksmith"
+        return "owned"
+    if BLACKSMITH_RUNNER.match(runner_name):
+        return "blacksmith"
+    if runner_environment == "github-hosted" and runner_name.startswith("GitHub Actions "):
+        return "github-hosted"
+    return "owned"
+
+
+def clean_builder(builder: object) -> str:
+    """'' when `builder` (a record's builder field) is a fresh VM that started clean, else why not."""
+    if not isinstance(builder, dict):
+        return "the record names no builder"
+    if builder.get("kind") not in FRESH_RUNNER_GROUPS or builder.get("fresh_vm") is not True:
+        return f"the record's builder {builder.get('runner_name')!r} is {builder.get('kind')!r}, not a fresh VM"
+    if builder.get("start") != CLEAN_START:
+        return f"the record's build did not start clean ({builder.get('start')!r})"
+    if not builder.get("runner_name"):
+        return "the record names no runner"
+    return ""
+
+
+def check_builder(manifest: dict, jobs: list[dict], lane: Lane) -> None:
+    """The record says a fresh VM built it from a clean start, and GitHub shows its producer job on
+    that runner, in that runner's fresh-VM group."""
+    builder = manifest.get("builder")
+    why = clean_builder(builder)
+    if why:
+        raise Miss(why)
+    for job in jobs:
+        if (job.get("name") in lane.producer_jobs and job.get("conclusion") == "success"
+                and job.get("runner_name") == builder["runner_name"]
+                and builder_kind(str(job.get("runner_name") or ""), runner_group=str(job.get("runner_group_name") or "")) == builder["kind"]):
+            return
+    raise Miss(f"GitHub does not show the producer job on the fresh {builder['kind']} runner {builder['runner_name']!r}")
 
 
 class Miss(Exception):
@@ -249,9 +307,12 @@ def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch
                lane: Lane = DEV) -> dict[str, str]:
     run_id = int(item["workflow_run"]["id"])
     check_run(api.json(f"actions/runs/{run_id}"), repo, lane)
-    check_producer(api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", []), run_id, lane)
+    jobs = api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", [])
+    check_producer(jobs, run_id, lane)
     manifest = read_record(api, item, scratch)
     check_manifest(manifest, key, run_id, lane)
+    if lane.fresh_builder:
+        check_builder(manifest, jobs, lane)
     query = urllib.parse.urlencode({"name": manifest["product_artifact"], "per_page": 10})
     products = [a for a in api.json(f"actions/runs/{run_id}/artifacts?{query}").get("artifacts", [])
                 if a.get("name") == manifest["product_artifact"] and not a.get("expired")]
@@ -265,7 +326,11 @@ def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch
         bundle.unlink(missing_ok=True)
     return {"hit": "true", "archive": str(archive), "source_run_id": str(run_id),
             "source_sha": manifest["source_sha"], "archive_sha256": manifest["archive_sha256"],
-            "compiled_run_id": str(manifest.get("compiled_run_id") or run_id)}
+            "compiled_run_id": str(manifest.get("compiled_run_id") or run_id),
+            # What the source compile resolved its requested mode to (`auto` -> singlefile or wholemodule);
+            # empty for a record written before it was kept.
+            "swift_mode": str(manifest.get("swift_mode") or ""),
+            "swift_mode_requested": str(manifest.get("swift_mode_requested") or "")}
 
 
 def lookup(api: Api, key: str, env: dict[str, str], out_dir: Path, lane: Lane = DEV) -> dict[str, str]:
@@ -294,8 +359,10 @@ def summarize(outputs: dict[str, str], key: str, summary: str | None, lane: Lane
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if outputs.get("hit") == "true":
         url = f"{server}/{repo}/actions/runs/{outputs['source_run_id']}"
+        mode = swift_mode_note(outputs.get("swift_mode_requested", ""), outputs.get("swift_mode", ""))
         line = (f"{lane.name} Release product: **hit**. Reused the app {url} compiled at `{outputs['source_sha'][:12]}` "
-                f"(key `{key[:16]}`, sha256 `{outputs['archive_sha256'][:16]}`); xcodebuild skipped.")
+                f"(key `{key[:16]}`, sha256 `{outputs['archive_sha256'][:16]}`{', swift_mode ' + mode if mode else ''}); "
+                "xcodebuild skipped.")
         print(f"::notice title={lane.name} Release product reused::{url} at {outputs['source_sha'][:12]}, key {key[:16]}",
               file=sys.stderr)
     else:
@@ -307,6 +374,16 @@ def summarize(outputs: dict[str, str], key: str, summary: str | None, lane: Lane
                 stream.write(line + "\n")
         except OSError:
             pass
+
+
+def swift_mode_note(requested: str, resolved: str) -> str:
+    """`auto -> wholemodule`, `singlefile`, or "" when nothing was recorded."""
+    if requested and resolved and requested != resolved:
+        return f"{requested} -> {resolved}"
+    return resolved or requested
+
+
+SWIFT_MODES = ("auto", "singlefile", "wholemodule")
 
 
 def sha256_file(path: Path) -> str:
@@ -333,6 +410,20 @@ def record(args: argparse.Namespace, env: dict[str, str], lane: Lane = DEV) -> d
     }
     if args.reused_from_run:
         manifest["reused_from"] = {"run_id": int(args.reused_from_run), "source_sha": args.reused_from_sha}
+    # Reporting only: the key never holds the resolved mode (see the module docstring).
+    for field in ("swift_mode", "swift_mode_requested"):
+        value = (getattr(args, field, "") or "").strip()
+        if value:
+            if value not in SWIFT_MODES:
+                # A report field never costs the record: an unknown value is left out, not fatal.
+                print(f"record: ignoring --{field.replace('_', '-')} {value!r} (not one of {', '.join(SWIFT_MODES)})",
+                      file=sys.stderr)
+                continue
+            manifest[field] = value
+    if getattr(args, "builder", ""):
+        manifest["builder"] = json.loads(Path(args.builder).read_text())
+    if lane.fresh_builder and clean_builder(manifest.get("builder")):
+        raise SystemExit(f"record: {clean_builder(manifest.get('builder'))}; nothing recorded")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
@@ -355,12 +446,17 @@ def main(argv: list[str] | None = None, lane: Lane = DEV) -> int:
     rec.add_argument("--reused-from-run", default="")
     rec.add_argument("--reused-from-sha", default="")
     rec.add_argument("--compiled-run", default="", help="the run that ran xcodebuild for these bytes")
+    rec.add_argument("--builder", default="", help="the builder JSON nightly_release_product_reuse.py builder wrote")
+    rec.add_argument("--swift-mode", default="", help="the Swift compilation mode the compile resolved (or the reused source's)")
+    rec.add_argument("--swift-mode-requested", default="", help="the mode the compile was asked for (the key's)")
     args = parser.parse_args(argv)
     env = dict(os.environ)
     if args.command == "record":
         manifest = record(args, env, lane)
         print(f"record={record_name(args.key, lane)}")
         print(f"archive_sha256={manifest['archive_sha256']}")
+        if manifest.get("swift_mode"):
+            print(f"swift_mode={manifest['swift_mode']}")
         return 0
     outputs: dict[str, str]
     try:
