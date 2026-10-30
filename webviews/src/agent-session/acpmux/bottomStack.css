@@ -192,11 +192,8 @@
   padding-bottom: var(--ds-space-1, 4px);
 }
 /* The opened chips: the tray's glass, rim and type (subagents.css), in the stack's flow right over
-   the composer. Opened on the click, drawn at once: none of the stack's rise-on-mount (below). Past
-   five rows the list scrolls in place. */
-.acpmux-dock > :is(.acpmux-pr-stack, .acpmux-pr-count-host) {
-  animation: none;
-}
+   the composer. Opened on the click, drawn at once: none of the stack's rise-on-mount (at the end of
+   this sheet). Past five rows the list scrolls in place. */
 .acpmux-pr-stack {
   box-sizing: border-box;
   display: flex;
@@ -439,4 +436,9 @@
    cut there. */
 .acpmux-composer-queue > li {
   --ui-enter-distance: 0px;
+}
+/* The chat's opened pull requests open on the click and are drawn at once, with no rise or fade
+   (Leo, 2026-10-24: "You click, you get a response, period"); after the rule above, which it wins. */
+.acpmux-dock > :is(.acpmux-pr-stack, .acpmux-pr-count-host) {
+  animation: none;
 }
