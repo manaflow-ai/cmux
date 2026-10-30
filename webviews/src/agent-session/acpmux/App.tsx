@@ -415,6 +415,7 @@ import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { avatarRows } from "./header/avatarRow";
 import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
+import { refreshChiefFaces } from "./chiefFace";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -599,6 +600,8 @@ declare global {
       applySessionStatus?(on: boolean): void;
       /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
       agentAvatarChanged?(sessionId: string): void;
+      /// A Chief was renamed or got a new avatar: ask again for every Chief the page drew (chiefFace.ts).
+      chiefFacesChanged?(): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
@@ -7477,6 +7480,9 @@ function AcpmuxPane() {
       },
       agentAvatarChanged(sessionId) {
         if (typeof sessionId === "string") agentAvatarChanged(sessionId);
+      },
+      chiefFacesChanged() {
+        refreshChiefFaces();
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();

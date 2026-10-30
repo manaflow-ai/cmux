@@ -153,6 +153,10 @@ pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
 pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
 /// What a Chief's session is called where it is shown: its `mux.label` (the Chief's own name).
 const LABEL_TAG: &str = "mux.label";
+/// A Chief host's session: its Chief home (optchat-chief `acpmux::chief_tags`).
+const CHIEF_TAG: &str = "cmux.chief";
+/// What a Chief host's session is for; only a `turn` speaks as the Chief.
+const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
 /// On a message from a Chief's turn session: that Chief's participant id, so the receiving chat
 /// draws the Chief's name and picture, not the turn's session name (`optchat-<home>-<n>`,
 /// manaflow-ai/cmux#27914).
@@ -184,6 +188,11 @@ pub fn stamp_chief(
         }
         Some(tag.value.trim().to_owned()).filter(|v| !v.is_empty() && !v.chars().any(unshown))
     };
+    // Only a Chief's turn session (its home, role `turn` and participant, all set by the Chief
+    // host when it made the session) speaks as that Chief; a compactor or any other session does not.
+    if live(CHIEF_TAG).is_none() || live(CHIEF_ROLE_TAG).as_deref() != Some("turn") {
+        return provenance;
+    }
     let Some(chief) = live(CHIEF_PARTICIPANT_TAG).filter(|c| c.len() <= MAX_FIELD_BYTES) else {
         return provenance;
     };
@@ -374,9 +383,15 @@ mod sender_tests {
         meta.tags.insert(LABEL_TAG.into(), tag("lane"));
         assert_eq!(stamp_chief(sent.clone(), found(&meta)), sent);
         assert_eq!(stamp_chief(pumped.clone(), found(&meta)), pumped);
-        // A Chief's turn: the Chief's name and participant id, on both kinds.
+        // A participant tag on a session that is not a Chief's turn: as it was.
         meta.tags.insert(LABEL_TAG.into(), tag("Ops Chief"));
         meta.tags.insert(CHIEF_PARTICIPANT_TAG.into(), tag("agent_ops"));
+        assert_eq!(stamp_chief(sent.clone(), found(&meta)), sent);
+        meta.tags.insert(CHIEF_TAG.into(), tag("b902d10e"));
+        meta.tags.insert(CHIEF_ROLE_TAG.into(), tag("compactor"));
+        assert_eq!(stamp_chief(pumped.clone(), found(&meta)), pumped);
+        // A Chief's turn: the Chief's name and participant id, on both kinds.
+        meta.tags.insert(CHIEF_ROLE_TAG.into(), tag("turn"));
         for given in [sent, pumped] {
             let stamped = stamp_chief(given.clone(), found(&meta));
             assert_eq!(stamped["fromName"], "Ops Chief");

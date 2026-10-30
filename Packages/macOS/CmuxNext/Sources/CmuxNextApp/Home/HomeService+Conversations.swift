@@ -287,13 +287,21 @@ extension HomeService {
         return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.characterPicture(of: $0) }
     }
 
+    /// What ``agentPageFace(of:avatars:)`` names and draws a Chief from: renames being saved, the
+    /// Chief records, and each Chief's own avatar. Agent pages ask again when it changes.
+    var chiefFaceInputs: AnyHashable {
+        AnyHashable([AnyHashable(chiefRenames), AnyHashable(directory.chiefs), AnyHashable(directory.chiefAvatars)])
+    }
+
     /// Chief `chief` (a participant id) as an agent chat draws a message it sent there
     /// (`chief.face`, manaflow-ai/cmux#27914): the name and avatar Home and the sidebar show for it.
     func agentPageFace(of chief: String, avatars: AgentAvatars) async -> [String: String] {
         // The one name its tile, header and tab show (a rename being saved included): its own
-        // conversation's; else what a conversation or its record calls it.
-        let own = homeStore.rows.first { Self.soleChief(of: $0.summary.participants) == chief }
-        let name = own.flatMap { chiefName(of: $0.summary.id) }
+        // conversation's (a group whose one Chief it is has no Chief record, so it is passed over);
+        // else what a conversation or its record calls it.
+        let name = homeStore.rows.lazy
+            .filter { Self.soleChief(of: $0.summary.participants) == chief }
+            .compactMap { self.chiefName(of: $0.summary.id) }.first
             ?? homeStore.rows.lazy.flatMap(\.summary.participants).first { $0.id.rawValue == chief }?.displayName
             ?? directory.chiefs.first { $0.id == chief }?.name
         // The sidebar draws the default Chief (`agent_mux`) with no id.

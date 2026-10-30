@@ -150,6 +150,8 @@ final class AgentTabStore {
     var agentAvatars: AgentAvatars?
     /// A Chief's name and avatar as the sidebar shows them, by participant id (`chief.face`).
     var chiefFace: (@MainActor (String) async -> [String: String])?
+    /// What `chiefFace` draws from, as last read by `watchChiefFaces`.
+    var seenChiefFaces: AnyHashable?
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
     var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.

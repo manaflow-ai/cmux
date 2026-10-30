@@ -8,6 +8,7 @@ import CmuxNextFloating
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
+import Observation
 
 /// Agent chat tabs on the workspace store (cmux-tui/spec/commands.md, new-conversation-tab): the store
 /// commands the tabs' view store sends, and where it looks up their records.
@@ -118,6 +119,7 @@ extension AgentTabStore {
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
             return await services.home.agentPageFace(of: chief, avatars: avatars)
         }
+        tabs.watchChiefFaces { [weak services] in services?.home.chiefFaceInputs }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
@@ -399,6 +401,20 @@ extension AgentTabStore {
     func agentAvatarChanged(_ session: String) {
         for view in views.values { view.agentAvatarChanged(session) }
         for view in standaloneViews.allObjects { view.agentAvatarChanged(session) }
+    }
+
+    /// Tells every agent page when what `chiefFace` draws a Chief from changes (a rename, a new
+    /// avatar), so lines already on screen show it (manaflow-ai/cmux#27914). Observes the reads
+    /// `inputs` makes, re-armed after each change; nothing polls.
+    func watchChiefFaces(_ inputs: @escaping @MainActor () -> AnyHashable?) {
+        let now = withObservationTracking { inputs() } onChange: { [weak self] in
+            // task-owner: one hop per observed change, re-arms itself; ends with the tab store
+            Task { @MainActor [weak self] in self?.watchChiefFaces(inputs) }
+        }
+        defer { seenChiefFaces = now }
+        guard let seen = seenChiefFaces, seen != now else { return }
+        for view in views.values { view.chiefFacesChanged() }
+        for view in standaloneViews.allObjects { view.chiefFacesChanged() }
     }
 }
 

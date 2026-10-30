@@ -4,7 +4,9 @@
 // (`optchat-<home>-<n>`) with a robot. The host answers `chief.face {chief}` with `name`, and `src`
 // (a small data URL) or `text` (a text avatar: letters or an emoji) (HomeService.agentPageFace).
 // An answer is kept for the page; a failed or empty one (an older host, the page not yet connected,
-// Home not read yet) is not.
+// Home not read yet) is not. When a Chief is renamed or gets a new avatar the host says so
+// (`chiefFacesChanged`, AgentTabStore.watchChiefFaces) and every Chief the page drew is asked again,
+// so lines already on screen show it.
 import { useEffect, useSyncExternalStore } from "react";
 import { postNative } from "./native";
 
@@ -17,12 +19,21 @@ export type ChiefFace = { name?: string; src?: string; text?: string };
 const faces = new Map<string, ChiefFace>();
 const pending = new Map<string, Promise<ChiefFace | undefined>>();
 const listeners = new Set<() => void>();
+/// Every Chief the page asked about, answered or not: what a refresh asks again.
+const wanted = new Set<string>();
 
 /// Tests replace the host; replacing it forgets every answer.
 export function setChiefFaceHost(next: Call | undefined): void {
   call = next ?? postNative;
   faces.clear();
   pending.clear();
+  wanted.clear();
+}
+
+/// Asks again for every Chief the page drew (exported for tests). A line keeps its face until the
+/// new answer comes; an empty or failed answer leaves it as it was.
+export function refreshChiefFaces(): void {
+  for (const chief of wanted) void loadChiefFace(chief);
 }
 
 function subscribe(listener: () => void): () => void {
@@ -45,6 +56,7 @@ function face(reply: unknown): ChiefFace {
 
 /// Asks the host for Chief `chief`'s face once at a time (exported for tests).
 export function loadChiefFace(chief: string): Promise<ChiefFace | undefined> {
+  wanted.add(chief);
   const started = pending.get(chief);
   if (started) return started;
   const request = Promise.resolve()
@@ -53,7 +65,7 @@ export function loadChiefFace(chief: string): Promise<ChiefFace | undefined> {
       (reply) => {
         const value = face(reply);
         // An empty answer (Home not read yet, a Chief this Mac does not know) is not kept: the next
-        // line that draws the Chief asks again.
+        // line that draws the Chief, or the next refresh, asks again.
         if (Object.keys(value).length === 0) return undefined;
         faces.set(chief, value);
         for (const listener of listeners) listener();
