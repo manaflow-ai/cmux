@@ -1521,6 +1521,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/message",
+      "params": {
+        "$ref": "#/types/MessageEvent"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/session_changed",
       "params": {
         "$ref": "#/types/SessionChanged"
@@ -2658,12 +2665,63 @@
       ],
       "type": "object"
     },
+    "MessageEvent": {
+      "description": "The sender and receiver projection of a persisted session-to-session message.",
+      "properties": {
+        "at": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "sender": {
+          "$ref": "#/types/MessageSender"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "messageId",
+        "sender",
+        "sessionId",
+        "text"
+      ],
+      "type": "object"
+    },
     "MessageRole": {
       "enum": [
         "agent",
         "user"
       ],
       "type": "string"
+    },
+    "MessageSender": {
+      "properties": {
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sessionId"
+      ],
+      "type": "object"
     },
     "Participant": {
       "description": "One person in a chat. The hub never marks the caller's own entry: a connection may carry\nseveral people, so the client compares ids (a caller with no author is `owner`).",
@@ -3904,6 +3962,9 @@
         "modes": {
           "description": "The agent's ACP session modes."
         },
+        "movedTo": {
+          "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "moving": {
           "description": "Being moved to another daemon; it takes no prompt meanwhile.",
           "type": "boolean"
@@ -4042,7 +4103,7 @@
         },
         "state": {
           "default": "",
-          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "description": "Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.",
           "type": "string"
         },
         "stateSeq": {
@@ -4426,6 +4487,9 @@
             "null"
           ]
         },
+        "movedTo": {
+          "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "moving": {
           "description": "Being moved to another daemon; it takes no prompt meanwhile.",
           "type": "boolean"
@@ -4556,7 +4620,7 @@
         },
         "state": {
           "default": "",
-          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "description": "Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.",
           "type": "string"
         },
         "stateSeq": {
