@@ -539,36 +539,92 @@ impl MessageWriter {
 
 /// Older native apps already understand live conversation tabs, but closed
 /// kinds need their own opt-in. Keep the safe metadata and browser fallback.
+///
+/// Closed records have a small, stable schema (`closed -> members/screens/tabs`),
+/// and history rows have the `kind:closed` discriminator. Walk only those known
+/// containers: resource projections and other opaque payloads are deliberately
+/// left byte-for-byte untouched.
 fn downgrade_closed_tabs(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    let mut changed = false;
+
+    if let Some(closed) = object.get_mut("closed") {
+        changed |= downgrade_closed_groups(closed);
+    }
+    if let Some(entries) = object.get_mut("entries") {
+        changed |= downgrade_closed_history_entries(entries);
+    }
+    // A resource stream item is itself a history row. Do not recurse into its
+    // arbitrary fields; only the closed-row discriminator is a known schema.
+    changed |= downgrade_closed_history_entry(object);
+    changed
+}
+
+fn downgrade_closed_groups(value: &mut Value) -> bool {
     match value {
-        Value::Object(object) => {
-            let mut changed = false;
-            if object.get("kind").and_then(Value::as_str) == Some(CONVERSATION_KIND)
-                && object.contains_key("agent_session")
-                && object.contains_key("browser_profile_id")
-            {
-                object.insert("kind".into(), json!("browser"));
-                changed = true;
-            }
-            if object.get("kind").and_then(Value::as_str) == Some("closed")
-                && object.get("closed_kind").and_then(Value::as_str) == Some("conversation_tab")
-            {
-                object.insert("closed_kind".into(), json!("browser_tab"));
-                changed = true;
-            }
-            for child in object.values_mut() {
-                changed |= downgrade_closed_tabs(child);
-            }
-            changed
-        }
-        Value::Array(items) => {
-            let mut changed = false;
-            for item in items {
-                changed |= downgrade_closed_tabs(item);
-            }
-            changed
-        }
+        Value::Array(items) => items.iter_mut().map(downgrade_closed_group).any(|changed| changed),
+        Value::Object(_) => downgrade_closed_group(value),
         _ => false,
+    }
+}
+
+fn downgrade_closed_group(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    let mut changed = false;
+    // `public_item` exposes a group's first member at the top level and all
+    // members under `members`; both contain only the closed record schema.
+    for key in ["screens", "members"] {
+        if let Some(children) = object.get_mut(key) {
+            changed |= downgrade_closed_group_children(children);
+        }
+    }
+    changed
+}
+
+fn downgrade_closed_group_children(value: &mut Value) -> bool {
+    match value {
+        Value::Array(items) => items.iter_mut().map(|item| {
+            if item.get("tabs").is_some() {
+                downgrade_closed_screens(item)
+            } else {
+                downgrade_closed_group(item)
+            }
+        }).any(|changed| changed),
+        Value::Object(object) if object.contains_key("tabs") => downgrade_closed_screens(value),
+        Value::Object(_) => downgrade_closed_group(value),
+        _ => false,
+    }
+}
+
+fn downgrade_closed_screens(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    let Some(tabs) = object.get_mut("tabs") else { return false };
+    let Some(tabs) = tabs.as_array_mut() else { return false };
+    let mut changed = false;
+    for tab in tabs {
+        let Some(tab) = tab.as_object_mut() else { continue };
+        if tab.get("kind").and_then(Value::as_str) == Some(CONVERSATION_KIND) {
+            tab.insert("kind".into(), json!("browser"));
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn downgrade_closed_history_entries(value: &mut Value) -> bool {
+    let Some(entries) = value.as_array_mut() else { return false };
+    entries.iter_mut().map(downgrade_closed_history_entry).any(|changed| changed)
+}
+
+fn downgrade_closed_history_entry(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    if object.get("kind").and_then(Value::as_str) == Some("closed")
+        && object.get("closed_kind").and_then(Value::as_str) == Some("conversation_tab")
+    {
+        object.insert("closed_kind".into(), json!("browser_tab"));
+        true
+    } else {
+        false
     }
 }
 
