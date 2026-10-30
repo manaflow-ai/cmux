@@ -41,7 +41,8 @@ enum CEFThumbnail {
             let json = try await runtime.result(of: sent, method: "Page.captureScreenshot")
             // The answer is for a page that may have gone meanwhile: nothing of a closed page is kept.
             guard let tab, !tab.isClosed else { throw BrowserTabError.closed }
-            return try CEFDevToolsResult.screenshot(json)
+            // Decoded off the main actor: base64 and PNG or JPEG of a whole page view.
+            return try await CEFDevToolsResult.decodedScreenshot(json)
         }
     }
 }

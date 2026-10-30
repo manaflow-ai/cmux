@@ -208,7 +208,7 @@ extension CEFTab {
                                                     userGesture: gesture == .agent)
             return try await result.value()
         }
-        var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
+        var params: [String: any Sendable] = ["expression": script, "returnByValue": true, "awaitPromise": true]
         // An agent's script runs as a user gesture: its `cmux browser click` on a target=_blank
         // link or a window.open button opens the tab instead of hitting the popup blocker
         // (browser use thread, 2026-10-19). cmux's own scripts never do (`BrowserScriptGesture`).
@@ -225,7 +225,8 @@ extension CEFTab {
             params["contextId"] = context
         }
         let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
-        return try CEFDevToolsResult.evaluation(json)
+        // Parsed off the main actor: an agent's page text or DOM snapshot is megabytes of JSON.
+        return try await CEFDevToolsResult.parsedEvaluation(json)
     }
 
     /// Applies a page title now, or keeps the latest for the end of the

@@ -62,6 +62,14 @@ nonisolated enum CEFDevToolsResult {
         }
     }
 
+    /// ``params(_:fileID:line:)`` off the caller's actor: a call's parameters can be megabytes (a page host's
+    /// `Runtime.evaluate` script), and the caller is the main actor (CEF's UI thread). ``CEFDevToolsSendOrder`` keeps
+    /// the calls in order meanwhile.
+    @concurrent
+    static func encodedParams(_ object: [String: any Sendable]) async -> String {
+        params(object)
+    }
+
     /// About the JSON text size of `value`, for the CPU gate: each string's UTF-8 bytes, 8 for any other scalar.
     static func textSize(_ value: Any) -> Int {
         switch value {

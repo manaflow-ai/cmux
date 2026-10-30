@@ -359,14 +359,21 @@ extension CEFRuntime {
     static let devToolsTimeout: Duration = .seconds(5)
 
     /// Runs a DevTools method in process and returns its JSON result, or
-    /// throws `timedOut` when no result arrives within `timeout`.
-    func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
+    /// throws `timedOut` when no result arrives within `timeout`. The parameters are
+    /// encoded off the main actor, and the call reaches Chromium after every earlier
+    /// call of `browser` (``CEFDevToolsSendOrder``); the wait for the result starts
+    /// in the turn it is sent, so `timeout` counts no encoding time.
+    func devTools(_ browser: Int32, method: String, params: [String: any Sendable] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
-        guard let sent = sendDevTools(browser, method: method, params: params) else { throw BrowserTabError.closed }
+        guard shim != nil else { throw BrowserTabError.closed }
+        let sent = await devToolsOrder.send(browser, params: params) { encoded in
+            sendDevTools(browser, method: method, encodedParams: encoded)
+        }
+        guard let sent else { throw BrowserTabError.closed }
         return try await result(of: sent, method: method, timeout: timeout)
     }
 
-    /// The JSON result of a DevTools method ``sendDevTools(_:method:params:)`` sent: the answer Chromium gave inside
+    /// The JSON result of a DevTools method ``sendDevTools(_:method:encodedParams:)`` sent: the answer Chromium gave inside
     /// the call, else the one it gives later. Throws `timedOut` when none comes within `timeout`, and `closed` when
     /// the browser closes or the engine stops first (its late answer is then dropped).
     func result(of sent: CEFDevToolsSend, method: String, timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {

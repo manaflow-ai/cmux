@@ -44,7 +44,7 @@ struct CEFCookieStore {
 
     func set(_ cookie: BrowserCookie) async throws {
         guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.closed }
-        var params: [String: Any] = ["name": cookie.name, "value": cookie.value, "path": cookie.path,
+        var params: [String: any Sendable] = ["name": cookie.name, "value": cookie.value, "path": cookie.path,
                                      "secure": cookie.secure, "httpOnly": cookie.httpOnly]
         if cookie.domain.hasPrefix(".") {
             params["domain"] = cookie.domain

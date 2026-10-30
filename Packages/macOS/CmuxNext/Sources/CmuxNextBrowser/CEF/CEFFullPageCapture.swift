@@ -18,7 +18,7 @@ struct CEFFullPageCapture {
             throw BrowserTabError.unsupported("The page is empty or too large for a full-page screenshot")
         }
         let width = content.width, height = content.height
-        let clip: [String: Any] = ["x": 0, "y": 0, "width": width, "height": height, "scale": 1]
+        let clip: [String: any Sendable] = ["x": 0, "y": 0, "width": width, "height": height, "scale": 1]
         // The page may have closed or the quit begun while the metrics came and decoded (``CEFThumbnail/mayPicture(_:evenHidden:)``).
         guard CEFThumbnail.mayPicture(tab, evenHidden: true) else { throw BrowserTabError.snapshotUnavailable }
         let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot",
