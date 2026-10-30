@@ -538,14 +538,14 @@ export function QuickModelMenu({
     </MenuItem>
   ));
   const chatRoutes = !query && onChatTab && account ? routeRows : undefined;
-  const accountRows = (chatRoutes || variantRows) && (
+  const accountRow = Boolean(chatRoutes || variantRows);
+  const accountRows = accountRow && (
     <>
       {chatRoutes}
       {chatRoutes && variantRows && <MenuSeparator />}
       {variantRows}
     </>
   );
-  const accountRow = accountRows !== undefined && accountRows !== false;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229)
       return;

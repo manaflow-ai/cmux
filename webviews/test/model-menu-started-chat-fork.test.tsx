@@ -219,7 +219,12 @@ async function open() {
 /// a named launch on a new chat). Launch accounts are never rows of the model list.
 async function accountMenu() {
   const row = itemsOf(menu()!).find((item) => item.textContent?.startsWith("Account"));
-  expect(row, `Account row in ${itemsOf(menu()!).map((item) => item.textContent).join(", ")}`).toBeDefined();
+  expect(
+    row,
+    `Account row in ${itemsOf(menu()!)
+      .map((item) => item.textContent)
+      .join(", ")}`,
+  ).toBeDefined();
   await act(async () => row!.click());
   await settle();
   return [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")].at(-1)!;

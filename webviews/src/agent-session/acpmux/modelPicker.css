@@ -378,7 +378,7 @@
   display: flex;
   flex-direction: row;
   flex: 1 1 auto;
-  min-height: calc(min(var(--acpmux-quick-rail-rows, 0), 6) * var(--ui-row-height) + 8px);
+  min-height: calc(min(var(--acpmux-quick-rail-rows, 0), 6) * var(--ui-row-height) + var(--ds-space-2));
   max-height: calc(100vh - 16px);
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow: hidden;
