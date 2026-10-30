@@ -593,3 +593,26 @@ async fn a_tail_replay_that_fails_never_adopts_or_reaches_the_host() {
     assert!(Hub::host_record_gone(HOSTED), "the host records must prove no host runs");
     assert!(hub.refuse_cleared_host(&s).await.is_ok(), "the next start is refused for good");
 }
+
+/// The refusal of a start whose log tail could not be replayed says why, typed: the pane maps
+/// `policy.replay_failed` to its own localized sentence (failureCopy.ts), and the recovery says
+/// that sending again starts a fresh agent. The turn's record keeps the kind (`annotate` never
+/// retypes a typed error), and the read's I/O error is kept for the refusal's log line.
+#[tokio::test]
+async fn a_failed_policy_replay_refuses_with_its_kind_and_recovery() {
+    let (hub, s) = tail_unreadable_hub();
+    let mut e = hub.refuse_cleared_host(&s).await.expect_err("the start was not refused");
+    assert_eq!(e.message, "The chat's saved policy could not be read; its agent was stopped.");
+    let data = e.data.clone().expect("the refusal is not typed");
+    assert_eq!(data["errorKind"], crate::recovery::kind::POLICY_REPLAY_FAILED);
+    assert_eq!(data["errorKind"], "policy.replay_failed");
+    let recovery = data["recovery"].as_str().expect("no recovery");
+    assert!(recovery.starts_with("Send the message again to start a fresh agent."), "{recovery}");
+    let cause = s.tail_error.lock().unwrap().clone().expect("the I/O error was not kept");
+    assert!(cause.contains("the log segments could not be read"), "{cause}");
+    // As the unstarted turn's failure records it (`turns.rs` `fail_unstarted_turn`).
+    crate::recovery::annotate(&mut e, None);
+    let typed = crate::recovery::fields(&e);
+    assert_eq!(typed["errorKind"], "policy.replay_failed");
+    assert_eq!(typed["recovery"], data["recovery"]);
+}

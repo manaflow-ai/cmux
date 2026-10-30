@@ -1080,6 +1080,7 @@ impl Hub {
         // append reads the tail again; a later read past `lastSeq` would miss what they log.
         if let Err(e) = &tail {
             tracing::warn!(session = %session.id, "reading the log tail failed: {e:#}; its agent host is not adopted");
+            *session.tail_error.lock_or_recover() = Some(format!("{e:#}"));
         }
         session.tail_failed.store(tail.is_err(), Ordering::SeqCst);
         let mut cleared = false;
@@ -1157,6 +1158,7 @@ impl Hub {
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
             tail_failed: AtomicBool::new(false),
+            tail_error: StdMutex::new(None),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
             turn_lock: Mutex::new(()),

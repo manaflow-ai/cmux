@@ -137462,6 +137462,138 @@
         }
       }
     },
+    "turn.failure.policyReplayFailed": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line) when the chat's saved permission policy could not be read back from its log, so acpmux stopped its agent and refused the prompt; sending again starts a fresh agent",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّرت قراءة السياسة المحفوظة لهذه الدردشة، لذا أُوقف وكيلها. أرسل مرة أخرى لبدء وكيل جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sačuvana pravila ovog chata nisu se mogla pročitati, pa je njegov agent zaustavljen. Pošaljite ponovo da pokrenete novog agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chattens gemte politik kunne ikke læses, så dens agent blev stoppet. Send igen for at starte en ny agent."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die gespeicherte Richtlinie des Chats konnte nicht gelesen werden; sein Agent wurde gestoppt. Sende erneut, um einen neuen Agenten zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat’s saved policy could not be read; its agent was stopped. Send again to start a fresh agent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo leer la política guardada del chat; su agente se detuvo. Envía de nuevo para iniciar un agente nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La politique enregistrée du chat n’a pas pu être lue ; son agent a été arrêté. Envoyez de nouveau pour démarrer un nouvel agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non è stato possibile leggere il criterio salvato della chat; il suo agente è stato arrestato. Invia di nuovo per avviare un nuovo agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットに保存されたポリシーを読み込めなかったため、エージェントを停止しました。もう一度送信すると新しいエージェントが起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអានគោលការណ៍ដែលបានរក្សាទុករបស់ការជជែកនេះបានទេ ដូច្នេះភ្នាក់ងាររបស់វាត្រូវបានបញ្ឈប់។ ផ្ញើម្ដងទៀតដើម្បីចាប់ផ្ដើមភ្នាក់ងារថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅에 저장된 정책을 읽을 수 없어 에이전트를 중지했습니다. 다시 보내면 새 에이전트가 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chattens lagrede policy kunne ikke leses, så agenten ble stoppet. Send på nytt for å starte en ny agent."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się odczytać zapisanych zasad czatu, więc jego agent został zatrzymany. Wyślij ponownie, aby uruchomić nowego agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível ler a política salva do chat, então o agente dele foi parado. Envie de novo para iniciar um novo agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось прочитать сохранённую политику чата, поэтому его агент остановлен. Отправьте снова, чтобы запустить новый агент."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อ่านนโยบายที่บันทึกไว้ของแชทนี้ไม่ได้ จึงหยุดเอเจนต์ของแชทแล้ว ส่งอีกครั้งเพื่อเริ่มเอเจนต์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin kayıtlı politikası okunamadı; bu yüzden ajanı durduruldu. Yeni bir ajan başlatmak için yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося прочитати збережену політику чату, тому його агента зупинено. Надішліть знову, щоб запустити нового агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không đọc được chính sách đã lưu của cuộc trò chuyện nên tác nhân của nó đã bị dừng. Hãy gửi lại để khởi động một tác nhân mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法读取此聊天已保存的策略，因此已停止其代理。再次发送即可启动新的代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法讀取此聊天已儲存的原則，因此已停止其代理。再次傳送即可啟動新的代理。"
+          }
+        }
+      }
+    },
     "turn.failure.generic": {
       "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
       "extractionState": "manual",

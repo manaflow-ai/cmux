@@ -49,6 +49,7 @@ import { PAGE_FROZEN_CLOSE_REASON } from "./bridgeSocket";
 import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
+import { typedFailureCode } from "./failureCopy";
 import { HandoffClient } from "./handoff/client";
 import type { CheckpointMethod } from "./checkpoints/protocol";
 import { PermissionGroupClient } from "./permissions/client";
@@ -4430,6 +4431,7 @@ export class AcpmuxDirectClient {
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
         if (event.kind === "turn_result" && typeof msg.turnId === "string") this.endedTurns.add(msg.turnId);
+        const failureCode = typedFailureCode(msg.errorKind, msg.errorCode);
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -4444,7 +4446,8 @@ export class AcpmuxDirectClient {
             // An agent that could not start ends its turn with `error` and no `errorText`
             // (acpmux fail_unstarted_turn): the row still names it, as the paused queue's note does.
             error: msg.errorText ?? (status === "failed" && typeof msg.error === "string" ? msg.error : undefined),
-            ...(typeof msg.errorCode === "string" && msg.errorCode ? { errorCode: msg.errorCode } : {}),
+            // acpmux's typed reason the card names in its own words (a refused start), else the agent's code.
+            ...(failureCode ? { errorCode: failureCode } : {}),
             ...(checkpoint ? { checkpoint } : {}),
           });
         // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). After the summary, so its fold never hides it.

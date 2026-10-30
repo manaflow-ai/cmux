@@ -18,6 +18,7 @@ export type FailureKind =
   | "tailscale"
   | "agent-exited"
   | "spawn-failed"
+  | "policy-replay-failed"
   | "other";
 
 /// Who served the turn, for the copy: the harness profile's display name and id (`claude`, `claude-sr`, ...).
@@ -89,6 +90,21 @@ const TYPED: readonly [RegExp, FailureKind][] = [
   [/exit|closed|crash|died/i, "agent-exited"],
   [/rate|quota|capacity/i, "rate-limited"],
 ];
+/// acpmux's `errorKind` names (`recovery.rs` `kind`) the card says in their own words, whatever the
+/// text says: a typed failure the pane has no other way to tell. Matched exactly, never by words: the
+/// other kinds keep the cause their text names (`TYPED`, `failureKind`).
+const ACPMUX_KINDS: Readonly<Record<string, FailureKind>> = {
+  // The chat's saved policy could not be read back from its log, so acpmux stopped its agent and
+  // refused the prompt; the next send starts a fresh agent (`Hub::refuse_cleared_host`).
+  "policy.replay_failed": "policy-replay-failed",
+};
+
+/// The typed reason a failed turn's card reads (`errorCode` on the row): acpmux's `errorKind` when
+/// it is one of `ACPMUX_KINDS`, else the turn's string `errorCode`.
+export function typedFailureCode(errorKind: unknown, errorCode: unknown): string | undefined {
+  if (typeof errorKind === "string" && Object.hasOwn(ACPMUX_KINDS, errorKind)) return errorKind;
+  return typeof errorCode === "string" && errorCode ? errorCode : undefined;
+}
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.
@@ -111,6 +127,7 @@ export function failureVia(message: string | undefined, route?: FailureRoute): s
 
 /// `code`: acpmux's typed reason for the failure (the turn's `errorCode`), when it gives one.
 export function failureKind(message: string | undefined, route?: FailureRoute, code?: string): FailureKind {
+  if (code && Object.hasOwn(ACPMUX_KINDS, code)) return ACPMUX_KINDS[code]!;
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   if (typed) return typed;
   if (!message) return "other";
@@ -220,6 +237,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.agentExited", { harness });
     case "spawn-failed":
       return t("turn.failure.spawnFailed", { harness });
+    case "policy-replay-failed":
+      return t("turn.failure.policyReplayFailed");
     default:
       return t("turn.failure.generic", { harness });
   }

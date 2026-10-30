@@ -54,6 +54,7 @@
 //! adopted, and the start that would reach it is refused.
 
 use super::*;
+use crate::no_panic::LockExt;
 use std::collections::{HashMap, HashSet};
 
 /// `policySource`: a request named the policy (session/new, `_acpmux/set_policy`), or a default,
@@ -263,6 +264,8 @@ impl Hub {
             let (hub, s) = (self.clone(), session.clone());
             if let Err(e) = cmux_blocking::spawn_blocking(move || hub.catch_up(&s)).await {
                 tracing::warn!(session = %session.id, "replaying the log tail failed: {e}; the host is not adopted");
+                *session.tail_error.lock_or_recover() =
+                    Some(format!("replaying the log tail failed: {e}"));
                 replayed = false;
             }
         }
@@ -318,9 +321,15 @@ impl Hub {
             ClearedHostEnd::NotProven => Err(RpcError::internal(
                 "this chat's agent host ran under an approve-all that is now cleared and is not proven ended; the chat starts again once it is",
             )),
-            ClearedHostEnd::ReplayFailed => Err(RpcError::internal(
-                "this chat's log could not be read, so its agent host may run under an approve-all that is now cleared; it is not reached, and the chat starts again once no host of it runs",
-            )),
+            ClearedHostEnd::ReplayFailed => {
+                let cause = session.tail_error.lock_or_recover().clone();
+                tracing::warn!(
+                    session = %session.id,
+                    error = cause.as_deref().unwrap_or("unknown"),
+                    "the chat's saved policy could not be read from its log; its agent was stopped and the prompt refused"
+                );
+                Err(crate::recovery::policy_replay_failed())
+            }
         }
     }
 }

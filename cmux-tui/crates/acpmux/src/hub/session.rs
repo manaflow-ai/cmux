@@ -55,6 +55,9 @@ pub struct Session {
     /// start treat it as a failed replay (`Hub::end_cleared_host`), which takes it back once no
     /// agent host of the chat runs.
     pub(super) tail_failed: AtomicBool,
+    /// Why the last replay of the log tail failed (the read's I/O error, or the replay's panic),
+    /// for the log line of the start it refuses (`Hub::refuse_cleared_host`).
+    pub(super) tail_error: StdMutex<Option<String>>,
     /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
     /// background pass or the first request for it, under this lock. `log_loaded` mirrors it
     /// for reads that take no lock.

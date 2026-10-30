@@ -42,6 +42,10 @@ pub mod kind {
     pub const AUTH_SIGNED_OUT: &str = "auth.signed_out";
     /// The agent's sign-in expired: an expired OAuth token or credential ([`super::auth_kind`]).
     pub const AUTH_EXPIRED: &str = "auth.expired";
+    /// A chat's saved policy could not be read back from its log (an I/O error, or the replay
+    /// failed), so its agent was stopped and the prompt refused; the next send starts a fresh
+    /// agent ([`super::policy_replay_failed`]).
+    pub const POLICY_REPLAY_FAILED: &str = "policy.replay_failed";
 }
 
 /// What an agent's error says about its sign-in: `auth.expired` when it says a credential
@@ -449,6 +453,17 @@ pub fn spawn_failed(e: &anyhow::Error, harness: &str, program: &str, cwd: &Path)
         "recovery": recovery,
         "details": {"binary": program, "cwd": cwd},
     }))
+}
+
+/// The refusal of a prompt whose chat's saved policy could not be read back from its log
+/// (`Hub::refuse_cleared_host`): its agent was stopped, and sending again starts a fresh one.
+pub fn policy_replay_failed() -> RpcError {
+    RpcError::internal("The chat's saved policy could not be read; its agent was stopped.")
+        .with_data(json!({
+            "errorKind": kind::POLICY_REPLAY_FAILED,
+            "recovery": "Send the message again to start a fresh agent. The daemon's log names the \
+                         error that stopped the read.",
+        }))
 }
 
 #[cfg(test)]
