@@ -170,8 +170,7 @@ public nonisolated final class EventSourceProcesses: Sendable {
     /// `queue`. A process that has already ended is refused with `ESRCH`.
     static let kernelExit: WatchExit = { pid, queue, exited in
         guard case let .success(descriptor) = exitQueue(pid) else { return nil }
-        // crash-allow: the source is resumed here and cancelled once, by its exit or by the returned closure; DispatchSource is thread-safe
-        nonisolated(unsafe) let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+        let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
         source.setEventHandler {
             source.cancel()
             exited()
