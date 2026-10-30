@@ -443,6 +443,44 @@
 }
 .acpmux-quick-placement-top .acpmux-quick-rail-tab { max-width: 100%; }
 .acpmux-quick-placement-top .acpmux-quick-body { flex-basis: auto; }
+/* The default: harness symbols in a row across the top, each name on hover (Leo 2026-10-30: "we
+   had a pretty good thing going with teh symbols of the harneses at the top"). A harness with no
+   symbol of its own shows its name in the row. Many harnesses wrap onto another row instead of
+   scrolling sideways, so no symbol is ever cut halfway (Leo 2026-10-28: "don't have bullshit end
+   halfway on a fucking icon when there's lots of harnesses"); past three rows the strip scrolls a
+   whole row at a time. */
+.acpmux-quick-placement-symbols .acpmux-quick-layout { flex-direction: column; }
+.acpmux-quick-placement-symbols .acpmux-quick-rail {
+  --acpmux-symbols-gap: var(--ds-space-1);
+  flex: none;
+  contain: none;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--acpmux-symbols-gap);
+  border-inline-end: 0;
+  border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  padding: 6px;
+  max-height: calc(3 * var(--ui-row-height) + 2 * var(--acpmux-symbols-gap) + 12px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scroll-padding-block: 6px;
+  scrollbar-width: none;
+}
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab { scroll-snap-align: start; }
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab {
+  justify-content: center;
+  min-width: var(--ui-row-height);
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding: 0;
+}
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab:has(> .acpmux-quick-harness-name:not(.sr-only)) {
+  padding-inline: var(--ui-row-padding-inline);
+  white-space: nowrap;
+}
+.acpmux-quick-placement-symbols .acpmux-quick-body { flex-basis: auto; }
 .acpmux-quick-placement-compact .acpmux-quick-rail { flex-basis: 68px; }
 .acpmux-quick-placement-compact .acpmux-quick-rail-tab { flex-direction: column; gap: 0; padding-block: var(--ds-space-1); text-align: center; }
 .acpmux-quick-placement-compact .acpmux-quick-harness-name { font-size: var(--text-caption); }

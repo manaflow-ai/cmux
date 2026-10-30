@@ -94,6 +94,12 @@ export type QuickSearchGroups = "harness" | "flat";
 /// How a model's effort side dropdown draws its levels (`QuickMenu.effortLook`).
 export type EffortLook = "list" | "plain" | "slider";
 
+/// Whether a rail tab draws its harness's own symbol: a mark the AgentMark set has, never a
+/// monogram (a machine or session initial says nothing about the harness).
+function symbolOf(family: { mark?: string }): boolean {
+  return !!family.mark && hasAgentMark(family.mark) && harnessIcon(family.mark)?.kind !== "monogram";
+}
+
 export type QuickSearchField = "always" | "typed" | "long";
 
 /// How many models (the tab's rows and More models) make a list long enough for the `long`
@@ -344,6 +350,18 @@ export function QuickModelMenu({
     const matched = new Set(groups.map((group) => group.id));
     return families.list.filter((family) => matched.has(family.id));
   }, [families, groups]);
+  // In the symbols row, tabs that would draw the same symbol (two launch setups of one harness)
+  // keep their names, so no two tabs look alike.
+  const sharedSymbols = useMemo(() => {
+    const seen = new Set<string>();
+    const shared = new Set<string>();
+    for (const family of railTabs) {
+      if (family.starred || !symbolOf(family) || !family.mark) continue;
+      if (seen.has(family.mark)) shared.add(family.mark);
+      seen.add(family.mark);
+    }
+    return shared;
+  }, [railTabs]);
   // Rows whose name and detail read the same within one harness also show their model id.
   const twins = useMemo(() => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])), [groups, found]);
   const providerLook = menu.providers ?? "row";
@@ -1048,10 +1066,22 @@ export function QuickModelMenu({
                 >
                   {family.starred ? (
                     <StarIcon />
-                  ) : family.mark && hasAgentMark(family.mark) && harnessIcon(family.mark)?.kind !== "monogram" ? (
+                  ) : symbolOf(family) ? (
                     <AgentMark agent={family.mark} size={16} />
                   ) : null}
-                  <span className="acpmux-quick-harness-name">{family.name}</span>
+                  {/* The symbols row draws the symbol alone (its name is the tab's label and title);
+                      a harness with no symbol of its own, or one whose symbol another tab shares,
+                      shows its name there too. */}
+                  <span
+                    className={`acpmux-quick-harness-name${
+                      placement === "symbols" &&
+                      (family.starred || (symbolOf(family) && !sharedSymbols.has(family.mark ?? "")))
+                        ? " sr-only"
+                        : ""
+                    }`}
+                  >
+                    {family.name}
+                  </span>
                 </button>
               ))}
               {families.onAddHarness && (

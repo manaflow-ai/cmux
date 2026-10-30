@@ -226,8 +226,59 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("the picker uses native menu rows and a left harness rail", async () => {
+  test("the picker opens with one row of harness symbols above the models", async () => {
+    // Leo 2026-10-30: "honestly we had a pretty good thing going with teh symbols of the harneses
+    // at the top :(".
     const page = await open("claude");
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      const body = await bounds(page, ".acpmux-quick-body");
+      expect(rail.y + rail.height).toBeLessThanOrEqual(body.y + 1);
+      const tabs = page.locator(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)");
+      const boxes = await tabs.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
+      // One row: every tab on the first tab's line.
+      for (const box of boxes) expect(Math.abs(box.y - boxes[0].y)).toBeLessThan(1);
+      // A tab with a symbol draws it alone; its name stays its label and title.
+      const symbolTabs = page.locator(".acpmux-quick-rail-tab:has(.agent-mark)");
+      expect(await symbolTabs.count()).toBeGreaterThan(0);
+      for (const tab of await symbolTabs.all()) {
+        expect(await tab.locator(".acpmux-quick-harness-name").evaluate((node) => node.classList.contains("sr-only"))).toBe(
+          true,
+        );
+        expect(await tab.getAttribute("aria-label")).toBeTruthy();
+        expect(await tab.getAttribute("title")).toBeTruthy();
+      }
+      expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("many harnesses wrap into whole symbols, never one cut at the strip's edge", async () => {
+    // Leo 2026-10-28: "don't have bullshit end halfway on a fucking icon when there's lots of harnesses".
+    for (const width of [320, 640]) {
+      const page = await open("harness-symbols-many", width);
+      try {
+        const rail = await bounds(page, ".acpmux-quick-rail");
+        const tabs = await page
+          .locator(".acpmux-quick-rail-tab")
+          .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
+        expect(tabs.length).toBeGreaterThan(8);
+        const visible = tabs.filter((tab) => tab.y < rail.y + rail.height && tab.y + tab.height > rail.y);
+        for (const tab of visible) {
+          expect(tab.x).toBeGreaterThanOrEqual(rail.x - 0.5);
+          expect(tab.x + tab.width).toBeLessThanOrEqual(rail.x + rail.width + 0.5);
+          expect(tab.y).toBeGreaterThanOrEqual(rail.y - 0.5);
+          expect(tab.y + tab.height).toBeLessThanOrEqual(rail.y + rail.height + 0.5);
+        }
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  test("the picker uses native menu rows and a left harness rail", async () => {
+    const page = await open("harness-left");
     try {
       const rail = await bounds(page, ".acpmux-quick-rail");
       const body = await bounds(page, ".acpmux-quick-body");
@@ -377,7 +428,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   });
 
   test("every harness placement leaves the model rows visible", async () => {
-    for (const variant of ["harness-left", "harness-top", "harness-compact"]) {
+    for (const variant of ["harness-symbols", "harness-symbols-many", "harness-left", "harness-top", "harness-compact"]) {
       const page = await open(variant, 420, 560);
       try {
         const body = await bounds(page, ".acpmux-quick-body");

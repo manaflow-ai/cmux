@@ -13,7 +13,7 @@ type Props = {
   chat?: boolean;
   fast?: boolean;
   many?: boolean;
-  placement?: "left" | "top" | "compact";
+  placement?: "symbols" | "left" | "top" | "compact";
   stress?: boolean;
   /** Opt in to the inline effort segments used by the focused layout fixture. */
   inlineEffort?: boolean;
@@ -236,6 +236,8 @@ export default componentEntry<Props>({
     "claude-many-harnesses-inline-effort": { props: { many: true, inlineEffort: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
+    "harness-symbols": { props: { placement: "symbols" }, play: open },
+    "harness-symbols-many": { props: { placement: "symbols", many: true }, play: open },
     "harness-left": { props: { placement: "left" }, play: open },
     "harness-top": { props: { placement: "top" }, play: open },
     "harness-compact": { props: { placement: "compact" }, play: open },
