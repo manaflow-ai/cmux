@@ -134,6 +134,10 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         );
         await page.waitForSelector(".acpmux-running-tray__head");
         await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
+        // A headed tray starts folded to its header (#27908): open it, then View all.
+        await page.click(".acpmux-running-tray__head");
+        await page.waitForSelector(".acpmux-running-tray__finished");
+        await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
         await page.click(".acpmux-running-tray__finished");
         await page.waitForFunction(
           () => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116,

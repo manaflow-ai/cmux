@@ -428,8 +428,10 @@ button.cv-subagent > :last-child {
    pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
   --acpmux-tray-time-width: 52px;
-  --acpmux-tray-status-width: 96px;
+  /* The state, Stop's track and the chevron's: 74 + 8 + 24 + 8 + 14. */
+  --acpmux-tray-status-width: 128px;
   --acpmux-tray-stop-width: 24px;
+  --acpmux-tray-chevron-width: 14px;
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
@@ -509,19 +511,20 @@ button.cv-subagent > :last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.acpmux-running-tray__stop-slot {
-  box-sizing: border-box;
+/* Every trailing chevron (the header's, a line's, View all's) ends at the tray's right edge, inside
+   the row's 8px padding (#27908). A line's Stop sits in its own track just before its chevron. */
+.acpmux-running-tray .acpmux-agent-line__stop-track {
   flex: 0 0 var(--acpmux-tray-stop-width);
-  min-width: var(--acpmux-tray-stop-width);
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
+}
+.acpmux-running-tray .acpmux-agent-line__chevron {
+  flex: 0 0 var(--acpmux-tray-chevron-width);
+  margin-left: 0;
 }
 .acpmux-running-tray .acpmux-agent-line__stop-slot {
   box-sizing: border-box;
   position: absolute;
   top: 0;
-  right: 8px;
+  right: calc(8px + var(--acpmux-tray-chevron-width) + 8px);
   bottom: 0;
   width: var(--acpmux-tray-stop-width);
   min-width: var(--acpmux-tray-stop-width);
@@ -566,10 +569,6 @@ button.cv-subagent > :last-child {
 .acpmux-agent-line > .acpmux-agent-line__button {
   flex: 1;
   min-width: 0;
-}
-.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-  /* Reserve the final track while keeping the stop control outside the button. */
-  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
