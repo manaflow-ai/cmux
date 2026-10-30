@@ -104,13 +104,16 @@ pub(super) fn lock_has_live_holder(path: &Path) -> bool {
     std::fs::File::open(path).ok().as_ref().and_then(holder_pid).is_some()
 }
 
-/// Windows: the lock covers the file, so its holder cannot be read, and trying it could fail a
-/// daemon starting at that moment. A daemon keeps `daemon.pid` beside it until it stops, so its
-/// presence counts as held: a crashed daemon's leftover costs a listing at most the handover
-/// budget, then a retryable `daemon_not_serving`.
+/// Windows: the lock covers the file, so its holder's pid cannot be read; ask the lock itself. A
+/// shared try fails while a daemon holds it exclusively; when none does, it is taken and dropped
+/// at once. A daemon that tries the lock in that instant reports `lockHeld`, and both starters
+/// try again (`start_and_connect`, `start_keyed`), so the probe can delay a start, never fail it.
 #[cfg(windows)]
 pub(super) fn lock_has_live_holder(path: &Path) -> bool {
-    path.with_file_name("daemon.pid").exists()
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    matches!(file.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))
 }
 
 /// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.
