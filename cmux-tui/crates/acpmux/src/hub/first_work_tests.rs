@@ -101,21 +101,32 @@ async fn a_message_that_joins_the_first_works_turn_is_not_the_delegator() {
     let first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
 
-    // Another agent's message that queues behind the first work joins its turn as a digest.
-    let other = send(&hub, &s, "s-other", "p-other", "and this", false);
+    // Two more agents' messages that queue: the one that comes while the first work holds the
+    // turn's lock waits on it, the next waits in the queue behind it and joins the first work's
+    // turn as a digest (`digest.rs` `take_joined`).
+    let waits = send(&hub, &s, "s-other", "p-other", "and this", false);
+    let waiting = async {
+        while s.queued() == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, waiting).await.expect("the second message waits");
+    let joins = send(&hub, &s, "s-third", "p-third", "and that", false);
     let queued = async {
         while s.queue.lock().unwrap().is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
-    tokio::time::timeout(WAIT, queued).await.expect("the second message queues");
+    tokio::time::timeout(WAIT, queued).await.expect("the third message queues");
 
     release.send(()).unwrap();
     let done = tokio::time::timeout(WAIT, first).await.unwrap().unwrap().unwrap();
     assert_eq!(done["stopReason"], "end_turn", "{done}");
-    let joined = tokio::time::timeout(WAIT, other).await.unwrap().unwrap().unwrap();
-    assert_eq!(joined["stopReason"], "end_turn", "{joined}");
-    assert_eq!(s.meta().turn_count, 1, "the second message joined the first turn");
+    for other in [waits, joins] {
+        let r = tokio::time::timeout(WAIT, other).await.unwrap().unwrap().unwrap();
+        assert_eq!(r["stopReason"], "end_turn", "{r}");
+    }
+    assert_eq!(s.meta().turn_count, 2, "the third message joined the first turn");
     assert_eq!(s.meta().delegator.as_deref(), Some("s-coord"));
 }
 
