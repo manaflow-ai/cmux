@@ -221,9 +221,10 @@ import Testing
                     let pinned = try h.bandRow(T.lead)
                     pinned.onClose = {}
                     pinned.onMore = {}
-                    pinned.isHovered = true
+                    PointerHover.setDebugPointer(pinned.convert(NSPoint(x: pinned.bounds.midX, y: pinned.bounds.midY), to: nil), in: h.window)
+                    #expect(pinned.isHovered, "\(c): debug pointer did not hover the pinned workspace")
                     pinned.layoutSubtreeIfNeeded()
-                    defer { pinned.isHovered = false; pinned.layoutSubtreeIfNeeded() }
+                    defer { PointerHover.setDebugPointer(nil, in: h.window); pinned.layoutSubtreeIfNeeded() }
                     let pinnedControls: [(String, NSView?)] = [("pinned-close", pinned.hoverClose), ("pinned-more", pinned.hoverMore)]
                     #expect(pinnedControls.contains { $0.1 != nil }, "\(c): pinned workspace did not create hover controls")
                     for (name, view) in pinnedControls.compactMap({ name, view in
