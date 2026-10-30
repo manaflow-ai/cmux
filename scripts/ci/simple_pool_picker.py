@@ -323,6 +323,8 @@ def _pick_blacksmith(state: State) -> Choice:
     for pool in eligible:
         if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
+    # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first.
+    eligible = [pool for pool in eligible if not pool.stalled] or eligible
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))
@@ -478,10 +480,11 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
                                xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
     age = snapshot_age(snapshot)
+    gone = dead_macos_26(snapshot)
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
                       "stalled": stalled(count(label, "queued"), count(label, "running"),
-                                         count(label, "oldest_queued_minutes"), age),
+                                         count(label, "oldest_queued_minutes"), age) or label in gone,
                       "waited": count(label, "oldest_queued_minutes") + age if count(label, "queued") else 0.0}
               for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
@@ -572,6 +575,16 @@ def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = N
         return False
     started = moment(starts.get(label))
     return started is None or (generated - started).total_seconds() / 60 >= BLACKSMITH_DEAD_MINUTES
+
+
+def dead_macos_26(snapshot: Mapping[str, Any] | None, now: Any = None) -> set[str]:
+    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()), or none
+    when it shows both dead: with no label showing life it says nothing to choose by. A dead label counts as
+    stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free slots
+    (2026-10-30: blacksmith-12vcpu-macos-26 started nothing for about a day)."""
+    labels = set(BLACKSMITH[:2])
+    out = {label for label in labels if blacksmith_dead(snapshot, label, now)}
+    return set() if out >= labels else out
 
 
 def stalled(queued: int, running: int, oldest_queued_minutes: int, age: float = 0.0) -> bool:

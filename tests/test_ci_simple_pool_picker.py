@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import importlib.util
 import json
 import sys
@@ -691,6 +692,48 @@ class LiveReaderTests(unittest.TestCase):
         untrusted = dataclasses.replace(trusted, fork=True)
         self.assertTrue(picker.pick(trusted).owned)
         self.assertFalse(picker.pick(untrusted).owned)
+
+class DeadLabelTests(unittest.TestCase):
+    """A label that ran nothing and started no job for an hour is dead (blacksmith_dead()), not free: on 2026-10-30
+    blacksmith-12vcpu-macos-26 started nothing for about a day, and with its queue cleared the stall rule alone
+    read its five slots free."""
+
+    LARGE, SMALL = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+
+    def snap(self, *, started: bool = True) -> dict:
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        stamp = (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        out = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+               "pools": {self.LARGE: {"queued": 0, "running": 0}, self.SMALL: {"queued": 0, "running": 5}}}
+        if started:
+            out["label_started"] = {self.SMALL: stamp}
+        return out
+
+    def state(self, snapshot: dict):
+        return picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snapshot,
+                                 fallback=self.SMALL, owned_enabled=False)
+
+    def test_a_dead_macos_26_label_with_its_queue_cleared_has_no_free_slot(self):
+        state = self.state(self.snap())
+        self.assertTrue({item.label: item for item in state.blacksmith}[self.LARGE].stalled)
+        self.assertNotEqual(picker.pick(state).label, self.LARGE)
+
+    def test_with_every_label_full_the_least_loaded_pick_is_never_the_dead_one(self):
+        snap = self.snap()
+        snap["pools"][self.SMALL] = {"queued": 30, "running": 10}
+        snap["pools"][picker.BLACKSMITH[2]] = {"queued": 30, "running": 10}
+        state = self.state(snap)
+        self.assertEqual(picker.pick(state).label, self.SMALL)
+
+    def test_no_start_evidence_or_every_label_dead_changes_nothing(self):
+        older = self.state(self.snap(started=False))
+        self.assertFalse({item.label: item for item in older.blacksmith}[self.LARGE].stalled)
+        both = self.snap()
+        both["pools"][self.SMALL]["running"] = 0
+        both["label_started"] = {}
+        self.assertEqual(picker.dead_macos_26(both), set())
+        self.assertEqual(picker.dead_macos_26(dict(self.snap(), truncated=True)), set())
+
 
 if __name__ == "__main__":
     unittest.main()
