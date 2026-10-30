@@ -239,6 +239,14 @@ import Testing
                         accessories.append((name, h.list.convert(view.frame, from: header), false))
                     }
 
+                    // The machine/section header has its own trailing + action. It must use
+                    // the same column even though it is not a group header.
+                    for sectionHeader in h.list.rowViews.values.compactMap({ $0 as? SectionHeaderRowView }) {
+                        sectionHeader.layoutSubtreeIfNeeded()
+                        #expect(!sectionHeader.addButton.isHidden, "\(c): section header + is missing")
+                        accessories.append(("section-add", h.list.convert(sectionHeader.addButton.frame, from: sectionHeader), true))
+                    }
+
                     #expect(!h.sidebar.searchButton.isHidden, "\(c): Search is hidden")
                     accessories.append(("search", h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar), true))
 

@@ -187,7 +187,7 @@ import Testing
                                             tabs: [T.tab(T.tabUnread, "zsh", unread: true), T.tab(T.tabWorking, "vim", working: true)])),
                 .group(SidebarGroup(id: T.open, name: "cmux-next app", color: .blue,
                                     workspaces: [SidebarWorkspace(id: T.member, title: "Member unread", unread: .dot),
-                                                  SidebarWorkspace(id: T.idle, title: "Idle workspace")])) ,
+                                                  SidebarWorkspace(id: T.idle, title: "Idle workspace")]))
                 .group(subgroup),
                 .group(deepGroup),
                 .group(SidebarGroup(id: T.folded, name: "Folded loading", color: .blue, isCollapsed: true,

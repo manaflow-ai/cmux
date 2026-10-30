@@ -34,6 +34,8 @@ import AppKit
             let ids = (0..<itemCount).map { LayoutItemID("footer-\($0)") }
             let items = ids.map { LayoutItem(id: $0, ref: .workspace($0.rawValue), showsLabel: true) }
             model.layout = SidebarLayoutDocument(sections: [
+                LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top),
+                LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, content: .workspaces),
                 LayoutSection(id: SidebarLayoutDocument.bottomSectionID, region: .bottom, look: .builtIn,
                               arrangement: .inline, items: items),
             ])
@@ -94,6 +96,11 @@ import AppKit
                     if label == "overfull" {
                         #expect(h.sidebar.footerBand.needsDedicatedSearchRow,
                                 "\(c)/\(spaces): overfull footer did not reserve a dedicated Search row")
+                        if let row = h.sidebar.footerBand.bandFirstRow {
+                            let search = h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar)
+                            #expect(!search.intersects(row.frame),
+                                    "\(c)/\(spaces): dedicated Search (search) overlaps footer row (row.frame)")
+                        }
                     }
                 }
                 let disabled = FooterHarness(width: c.width, itemCount: 12, searchEnabled: false, spaces: spaces)
