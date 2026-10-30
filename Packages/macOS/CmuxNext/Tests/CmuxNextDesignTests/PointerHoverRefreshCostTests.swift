@@ -108,4 +108,33 @@ import Testing
         PointerHover.refresh(in: window)
         #expect(!hover.isHovering, "a view that left the window still hovers")
     }
+
+    /// A view moved from window A to window B under B's still pointer hovers at B's own next
+    /// refresh (B's layout, an enter or exit, a key change): A's refresh no longer refreshes B.
+    /// One that hovered in A and moved to B is still recomputed by A's refresh, against B's pointer.
+    @Test func aViewMovedToAnotherWindowHoversAtThatWindowsOwnRefresh() throws {
+        let a = Self.makeWindow(), b = Self.makeWindow()
+        defer {
+            for window in [a, b] {
+                PointerHover.debugPointers[ObjectIdentifier(window)] = nil
+                window.close()
+            }
+        }
+        let contentA = try #require(a.contentView), contentB = try #require(b.contentView)
+        let moving = NSView(frame: NSRect(x: 0, y: 0, width: 50, height: 50))
+        contentA.addSubview(moving)
+        let hover = PointerHover(moving)
+        PointerHover.setDebugPointer(NSPoint(x: 300, y: 250), in: a)
+        PointerHover.setDebugPointer(NSPoint(x: 25, y: 25), in: b)
+        #expect(!hover.isHovering)
+
+        contentB.addSubview(moving)
+        PointerHover.refresh(in: b)
+        #expect(hover.isHovering, "a view moved under B's pointer did not hover at B's refresh")
+
+        // It hovers in B, and B's pointer leaves it: A's refresh recomputes it (it hovers), and it clears.
+        PointerHover.debugPointers[ObjectIdentifier(b)] = PointerHover.DebugPointer(point: NSPoint(x: 300, y: 250), mouse: NSEvent.mouseLocation)
+        PointerHover.refresh(in: a)
+        #expect(!hover.isHovering, "a hovering view in another window was not recomputed")
+    }
 }
