@@ -353,3 +353,33 @@ fn loopback_throughput_and_shutdown() {
         tokio::time::timeout(BOUND, echo).await.unwrap().unwrap();
     });
 }
+
+/// What this daemon's listener sent a peer just before the transport stops (a restart's
+/// WebSocket close 1012, sent as the daemon stops) reaches that peer before the tunnel's end.
+/// Before, the stop aborted each bridge before it forwarded those bytes and reset every tunnel
+/// connection, so the peer read a reset or an end with no close frame (full Linux test runs,
+/// jobs 38e8e52e01839ea5d499f49e and dd8687a112bd464b1a8350b0). The order is forced, not
+/// timed: on one thread the stop runs before the bridge reads the listener's last bytes.
+#[test]
+fn a_stop_delivers_what_the_listener_sent_before_the_tunnel_ends() {
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (a, b, _homes) = pair(target.local_addr().unwrap(), false).await;
+        let mut stream =
+            tokio::time::timeout(BOUND, a.connect(a.route("b").unwrap())).await.unwrap().unwrap();
+        stream.write_all(b"hello").await.unwrap();
+        let (mut local, _) = tokio::time::timeout(BOUND, target.accept()).await.unwrap().unwrap();
+        let mut hello = [0; 5];
+        local.read_exact(&mut hello).await.unwrap();
+        // The listener's last words, then its close, as a draining WebSocket listener does.
+        local.write_all(b"last words").await.unwrap();
+        drop(local);
+        b.shutdown().await;
+        let mut got = Vec::new();
+        let read = tokio::time::timeout(BOUND, stream.read_to_end(&mut got)).await.unwrap();
+        assert!(read.is_ok(), "the tunnel was reset: {read:?}, after {got:?}");
+        assert_eq!(got, b"last words");
+        a.shutdown().await;
+    });
+}
