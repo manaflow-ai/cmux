@@ -72,7 +72,17 @@ final class LinkOpener {
     /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
-    func target(from source: PaneController, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    /// `fromChat`: what a chat opens (a link clicked in it, a chat or session it opens) goes where
+    /// ``ChatOpenDestination`` says: the pane already on its right when there is one, never a new pane beside it.
+    func target(from source: PaneController, mainPane: Bool = true, fromChat: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
+        // Leo 2026-10-30: "stupid to not reuse the existing opened fucking right pane". Found up front, so the tab
+        // is made there directly: no tab in the chat's pane first, no new pane (and no move) to the right.
+        if fromChat {
+            switch ChatOpenDestination.current {
+            case .rightPane: if let right = existingRight(of: source) { return .pane(right) }
+            case .chatPane: return .pane(source.layoutPaneID)
+            }
+        }
         if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
             switch side {
             case .tab(let pane): return .pane(pane)
@@ -89,24 +99,29 @@ final class LinkOpener {
                                                                      takesTabs: takes, recency: content.recentPanes) {
                 return found
             }
-            // The pane drawn on the source's right, else the first one after it in column order: a right dock,
-            // or a column the drawn frames miss, is still reused instead of a new split (Leo 2026-10-30: "stupid
-            // to not reuse the existing opened fucking right pane").
-            if let drawn = PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content), takes(drawn) { return drawn }
-            guard let screen = content.layoutModel.screen(containing: source.layoutPaneID) else { return nil }
-            return LinkOpenPlacement<LayoutPaneID>.paneRight(of: source.layoutPaneID, columns: screen.layout.visualColumns.map(\.root.panes),
-                                                             takesTabs: takes, recency: content.recentPanes)
+            return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
         }
         return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
+    }
+
+    /// The pane already on `source`'s right that takes tabs: the one drawn there, else the first after it in
+    /// column order (a right dock, a scrolled column the drawn frames miss). Nil when there is none.
+    func existingRight(of source: PaneController) -> LayoutPaneID? {
+        guard let content = source.workspace else { return nil }
+        let takes: (LayoutPaneID) -> Bool = { $0 != source.layoutPaneID && content.panes[$0]?.stripModel.showsNewTabButton == true }
+        if let drawn = PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content), takes(drawn) { return drawn }
+        guard let screen = content.layoutModel.screen(containing: source.layoutPaneID) else { return nil }
+        return LinkOpenPlacement<LayoutPaneID>.paneRight(of: source.layoutPaneID, columns: screen.layout.visualColumns.map(\.root.panes),
+                                                         takesTabs: takes, recency: content.recentPanes)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
     /// the column on its right). False with no source pane (no window) or when `make` refused.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, fromChat: Bool = false, _ make: Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
-        switch target(from: source, mainPane: mainPane) {
+        switch target(from: source, mainPane: mainPane, fromChat: fromChat) {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
@@ -153,7 +168,7 @@ final class LinkOpener {
         // The same link clicked again (a chat's PR link or card): the pane on the right selects the
         // tab it already has for that page instead of piling up another (Austin 2026-10-25, eleven
         // tabs of one PR). A tab in the source's own pane stays Chrome's: each click is a new tab.
-        if reusesTab, !background, let from, case .pane(let id) = target(from: from), id != from.layoutPaneID,
+        if reusesTab, !background, let from, case .pane(let id) = target(from: from, fromChat: true), id != from.layoutPaneID,
            let pane = from.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) {
             // As for a new tab clicked open there: its close, emptying that pane, gives the focus back.
             if let content = from.workspace { returnFocus(of: shown.surface, to: from.layoutPaneID, in: content) }
@@ -161,7 +176,8 @@ final class LinkOpener {
             pane.focusContent()
             return true
         }
-        return open(from: from, background: background) { [weak self, weak from] pane, placed in
+        // `reusesTab` is a link clicked in an agent chat (LinkRouter.openInCmux).
+        return open(from: from, background: background, fromChat: reusesTab) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             let opener = here ? from?.selectedTab?.surface : nil
             let back = background || here ? nil : from

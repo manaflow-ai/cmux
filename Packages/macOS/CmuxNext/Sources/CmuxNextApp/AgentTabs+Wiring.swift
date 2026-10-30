@@ -226,7 +226,7 @@ extension AgentTabStore {
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
         tabs.openRight = { [weak services, weak tabs] chat, session in
             guard let services, let tabs, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
-            return services.linkOpener.open(from: source) { target, placed in
+            return services.linkOpener.open(from: source, fromChat: true) { target, placed in
                 guard target.daemon.isLocal else { return false }
                 return tabs.openTab(in: target, session: session, select: placed == nil) { [weak services, weak tabs] key in
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
@@ -239,6 +239,12 @@ extension AgentTabStore {
                     }
                 }
             }
+        }
+        tabs.rightPaneTab = { [weak services] chat in
+            guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane),
+                  let id = services.linkOpener.existingRight(of: source), ChatOpenDestination.current == .rightPane,
+                  let right = source.workspace?.panes[id], right.daemon === source.daemon else { return nil }
+            return right.selectedTab?.id ?? right.pane.tabs.first?.id
         }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }

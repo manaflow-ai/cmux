@@ -37,6 +37,9 @@ final class AgentTabStore {
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
     /// (AppServices looks in every machine's tree).
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
+    /// A tab of the pane already on chat tab `key`'s right, where a link from it would open (``LinkOpener``),
+    /// nil when there is none: side sessions open there before making a split of their own.
+    var rightPaneTab: @MainActor (String) -> String? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
     /// The width in points of the pane holding tab `key` (a subagent split's room, ``AgentSubagentPanes``).
