@@ -25,15 +25,16 @@ extension ActionRegistry {
 }
 
 extension ActionRegistry {
-    /// Binds one menu action to the machine that supplied its native target. Other items keep
-    /// their ordinary invocation; no synthetic argument leaks into their handlers.
-    public func scopeMenuAction(_ menu: NSMenu, action: ActionID, toMachine machineID: String) {
+    /// Binds every item of a context menu that names a target (the right-clicked workspace or tab)
+    /// to the machine that owns it, so a remote object's rows never route to a same-id local one.
+    /// Items with no target keep their ordinary invocation; no synthetic argument reaches handlers.
+    public func scopeMenuTargets(_ menu: NSMenu, toMachine machineID: String) {
         for item in menu.items {
-            if let payload = item.representedObject as? ActionMenuPayload, payload.id == action {
+            if let payload = item.representedObject as? ActionMenuPayload, payload.target != nil {
                 payload.targetMachineID = machineID
-                if let title = self.action(for: action)?.targetTitle?(payload.invocation(in: self)) { item.title = title }
+                if let title = self.action(for: payload.id)?.targetTitle?(payload.invocation(in: self)) { item.title = title }
             }
-            if let submenu = item.submenu { scopeMenuAction(submenu, action: action, toMachine: machineID) }
+            if let submenu = item.submenu { scopeMenuTargets(submenu, toMachine: machineID) }
         }
     }
 
@@ -43,6 +44,11 @@ extension ActionRegistry {
     public static func menuRun(of item: NSMenuItem) -> (id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue])? {
         guard let payload = item.representedObject as? ActionMenuPayload else { return nil }
         return (payload.id, payload.target, payload.arguments)
+    }
+
+    /// The machine a context menu item's target belongs to (`scopeMenuTargets`); nil when unscoped.
+    public static func menuMachine(of item: NSMenuItem) -> String? {
+        (item.representedObject as? ActionMenuPayload)?.targetMachineID
     }
 }
 
@@ -98,7 +104,9 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
         if menuItem.isHidden { return false }
         // A standalone key window claims the run: its close items stay
         // enabled (they close it), actions on main window content are off.
-        let invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)
+        var invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)
+        // A context menu row validates against the machine that owns its target, as it runs.
+        invocation.targetMachineID = payload.targetMachineID
         // A main menu toggle reads as the change it makes for the focused target (Pin
         // Workspace or Unpin Workspace, PINNED-ITEMS-END-TO-END); no target title, the
         // catalog's. Context menu items (an ActionMenuPayload) are decorated when built.
