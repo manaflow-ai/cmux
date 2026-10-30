@@ -266,3 +266,7 @@ pub(super) fn read_before(
         }
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "journal_append_tests.rs"]
+mod tests;
