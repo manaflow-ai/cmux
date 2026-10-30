@@ -31,7 +31,8 @@ verify is removed and the step builds. A hit touches the entry's `used` file fir
 
 The cache bounds itself: every store keeps at most KEEP_ENTRIES entries, drops the least
 recently used beyond that and any entry unused for MAX_AGE_SECONDS, and never removes one used
-or written within BUSY_SECONDS (a step may be restoring it). One entry is about 157 MiB
+or written within BUSY_SECONDS. Removal holds the cache's exclusive lock (.lock, flock) and a
+restore holds it shared while it verifies and copies, so no entry goes away mid-copy. One entry is about 157 MiB
 (2026-10-29), so a worker holds at most about 1 GiB. disk-pressure.sh may also remove the
 whole cache under low disk: every entry is reproducible.
 
@@ -42,8 +43,10 @@ changes the FFI builds it and writes nothing. (Step code runs as the worker's us
 as with ensure-web-bundles.sh's cache; the check keeps a pull request's own FFI out of it.)
 Publication is one rename of a private temp dir, so two steps that miss one key never mix.
 
-Exit codes: 0 done (restore: hit), 1 restore: miss or dropped entry, 2 usage, 3 no key (build
-as before). Anything else is a bug the step reports loudly and then builds.
+Exit codes: 0 done (restore: hit), 1 restore: miss (probe: no tip), 2 usage, 3 no key for an
+expected reason (no cache, inputs differ from HEAD), 4 no key because a command it needs failed,
+5 any other error, 6 restore: an entry that did not verify, removed. The step builds on every code but 0 from restore, and warns
+(log and SUMMARY.md) on everything but a hit, a miss and 3.
 
 CMUX_CI_CACHE_DIR is the cache root (the fleet worker sets it on every step); unset, there is
 no cache and the step builds as before. Test seams: CMUX_IOS_FFI_TOOLCHAIN (the toolchain text),
@@ -51,6 +54,8 @@ CMUX_IOS_FFI_PATH_PACKAGES (newline-separated package dirs instead of cargo meta
 CMUX_IOS_FFI_TRUSTED_URL (the repository probe clones instead of GitHub's).
 """
 import hashlib
+import contextlib
+import fcntl
 import json
 import os
 import pathlib
@@ -73,25 +78,39 @@ KEEP_ENTRIES = 6
 MAX_AGE_SECONDS = 7 * 86400
 BUSY_SECONDS = 3600
 # Build settings that change the FFI's bytes besides the sources and the toolchain.
-BUILD_ENV = ("IPHONEOS_DEPLOYMENT_TARGET", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS",
-             "CARGO_BUILD_RUSTFLAGS", "CARGO_PROFILE_RELEASE_OPT_LEVEL", "CARGO_PROFILE_RELEASE_DEBUG")
+# Build settings that change the FFI's bytes besides the sources and the toolchain: every
+# variable cargo, rustc or the C toolchain reads for a build (CARGO_*, RUST*, the iOS target and
+# SDK, compiler and linker flags). Paths that only say where things live are left out, so the key
+# stays the same from step to step; CARGO_HOME's config files are keyed by their content.
+BUILD_ENV_PREFIXES = ("CARGO_", "RUST", "IPHONEOS_", "CC_", "CXX_", "AR_", "CFLAGS_", "CXXFLAGS_",
+                      "TARGET_CC", "TARGET_CFLAGS", "TARGET_AR")  # cc-rs per-target names
+BUILD_ENV_NAMES = {"CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "SDKROOT",
+                   "DEVELOPER_DIR", "MACOSX_DEPLOYMENT_TARGET"}
+BUILD_ENV_LOCATIONS = {"CARGO_HOME", "RUSTUP_HOME", "CARGO_TARGET_DIR", "CARGO_TERM_COLOR",
+                       "CARGO_TERM_PROGRESS_WHEN", "CARGO_TERM_QUIET", "CARGO_TERM_VERBOSE",
+                       "CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_NET_RETRY", "CARGO_HTTP_TIMEOUT",
+                       "CARGO_NET_GIT_FETCH_WITH_CLI", "RUST_BACKTRACE", "RUST_LOG"}
 
 
 class NoKey(Exception):
-    pass
+    """An expected reason for no key (no cache, inputs differ from HEAD): exit 3, build quietly."""
+
+
+class ToolFailed(Exception):
+    """A command the key needs failed (cargo, rustc, xcodebuild, xcrun): exit 4, a warning."""
 
 
 def git(root, *args, check=True):
     p = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
     if check and p.returncode != 0:
-        raise NoKey("git %s: %s" % (" ".join(args), p.stderr.strip()[:300]))
+        raise ToolFailed("git %s: %s" % (" ".join(args), p.stderr.strip()[:300]))
     return p
 
 
 def cmd(argv, cwd):
     p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
     if p.returncode != 0:
-        raise NoKey("%s: %s" % (" ".join(argv), (p.stderr or p.stdout).strip()[:300]))
+        raise ToolFailed("%s: %s" % (" ".join(argv), (p.stderr or p.stdout).strip()[:300]))
     return p.stdout.strip()
 
 
@@ -112,7 +131,7 @@ def path_packages(root):
         try:
             rel = d.relative_to(real)
         except ValueError:
-            raise NoKey("path package %s is outside the repository" % d)
+            raise ToolFailed("path package %s is outside the repository" % d)
         dirs.add(rel.as_posix())
     return sorted(dirs)
 
@@ -161,8 +180,14 @@ def toolchain(root):
 
 
 def build_env():
-    env = {name: os.environ.get(name, "") for name in BUILD_ENV}
-    env["IPHONEOS_DEPLOYMENT_TARGET"] = env["IPHONEOS_DEPLOYMENT_TARGET"] or "17.0"
+    env = {name: value for name, value in os.environ.items()
+           if (name in BUILD_ENV_NAMES or name.startswith(BUILD_ENV_PREFIXES)) and name not in BUILD_ENV_LOCATIONS}
+    env.setdefault("IPHONEOS_DEPLOYMENT_TARGET", "17.0")
+    cargo_home = pathlib.Path(os.environ.get("CARGO_HOME") or pathlib.Path.home() / ".cargo")
+    for name in ("config", "config.toml"):
+        f = cargo_home / name
+        if f.is_file():
+            env["cargo-home/" + name] = hashlib.sha256(f.read_bytes()).hexdigest()
     return env
 
 
@@ -248,6 +273,25 @@ def install(src, dst):
         shutil.copy2(src, dst)
 
 
+@contextlib.contextmanager
+def cache_lock(cache, exclusive, wait=True):
+    """The cache's lock: restore holds it shared while it verifies and copies an entry, and
+    prune and a dropped entry's removal hold it exclusive, so nothing is removed mid-copy.
+    Yields False when wait is False and another step holds it."""
+    cache.mkdir(parents=True, exist_ok=True)
+    with open(cache / ".lock", "a") as f:
+        flags = (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | (0 if wait else fcntl.LOCK_NB)
+        try:
+            fcntl.flock(f, flags)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def restore(root, key):
     cache = cache_root()
     if cache is None or not valid_key(key):
@@ -257,18 +301,23 @@ def restore(root, key):
     if not entry.is_dir():
         print("ios-ffi cache: miss %s" % key[:12])
         return 1
-    ok, why = verify(entry, key)
-    if not ok:
-        print("ios-ffi cache: dropped %s (%s)" % (key[:12], why))
-        shutil.rmtree(entry, ignore_errors=True)
-        return 1
-    # A use, before the copy: a concurrent store's prune never removes an entry used within
-    # BUSY_SECONDS, and least recently used goes first.
-    (entry / "used").write_text(str(int(time.time())) + "\n")
-    for out in OUTPUTS:
-        install(entry / "payload" / out, root / out)
-    print("ios-ffi cache: hit %s" % key[:12])
-    return 0
+    with cache_lock(cache, exclusive=False):
+        if not entry.is_dir():
+            print("ios-ffi cache: miss %s" % key[:12])
+            return 1
+        ok, why = verify(entry, key)
+        if ok:
+            # A use, for least-recently-used pruning and the busy window.
+            (entry / "used").write_text(str(int(time.time())) + "\n")
+            for out in OUTPUTS:
+                install(entry / "payload" / out, root / out)
+            print("ios-ffi cache: hit %s" % key[:12])
+            return 0
+    print("ios-ffi cache: dropped %s (%s)" % (key[:12], why))
+    with cache_lock(cache, exclusive=True):
+        if entry.is_dir() and not verify(entry, key)[0]:
+            shutil.rmtree(entry, ignore_errors=True)
+    return 6
 
 
 def probe(inputs_file, out_file):
@@ -308,17 +357,22 @@ def last_use(entry):
 
 
 def prune(cache, now=None):
-    """Keep at most KEEP_ENTRIES entries, none unused for MAX_AGE_SECONDS; never a busy one."""
+    """Keep at most KEEP_ENTRIES entries, none unused for MAX_AGE_SECONDS; never a busy one.
+    Runs under the exclusive lock, so no restore is copying; skipped when another step holds it."""
     now = time.time() if now is None else now
-    entries = sorted((p for p in cache.iterdir() if p.is_dir() and valid_key(p.name)), key=last_use, reverse=True)
     removed = []
-    for i, entry in enumerate(entries):
-        idle = now - last_use(entry)
-        if idle < BUSY_SECONDS:
-            continue
-        if i >= KEEP_ENTRIES or idle >= MAX_AGE_SECONDS:
-            shutil.rmtree(entry, ignore_errors=True)
-            removed.append(entry.name)
+    with cache_lock(cache, exclusive=True, wait=False) as held:
+        if not held:
+            return removed
+        entries = sorted((p for p in cache.iterdir() if p.is_dir() and valid_key(p.name)),
+                         key=last_use, reverse=True)
+        for i, entry in enumerate(entries):
+            idle = now - last_use(entry)
+            if idle < BUSY_SECONDS:
+                continue
+            if i >= KEEP_ENTRIES or idle >= MAX_AGE_SECONDS:
+                shutil.rmtree(entry, ignore_errors=True)
+                removed.append(entry.name)
     # Temp dirs a killed step left behind (a day old: no build takes that long).
     for stale in cache.glob(".tmp.*"):
         try:
@@ -406,6 +460,12 @@ def main(argv):
     except NoKey as e:
         print("ios-ffi cache: no key (%s)" % e, file=sys.stderr)
         return 3
+    except ToolFailed as e:
+        print("ios-ffi cache: no key, a command failed (%s)" % e, file=sys.stderr)
+        return 4
+    except Exception as e:  # a bug: never a silent miss (an uncaught exception exits 1, a miss)
+        print("ios-ffi cache: %s failed: %s: %s" % (argv[0], type(e).__name__, e), file=sys.stderr)
+        return 5
 
 
 if __name__ == "__main__":

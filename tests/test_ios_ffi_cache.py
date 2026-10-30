@@ -61,6 +61,7 @@ class FFICacheTest(unittest.TestCase):
             "CMUX_IOS_FFI_TOOLCHAIN": "rustc 1.91.0\nXcode 26.6",
             "CMUX_IOS_FFI_PATH_PACKAGES": "cmux-next-ios/rust/crates/cmux-mobile-link-ffi\ncmux-tui/crates/cmux-wg",
             "CMUX_IOS_FFI_TRUSTED_URL": "file://" + str(self.origin),
+            "CARGO_HOME": str(self.tmp / "cargo-home-default"),  # the host's own config never leaks in
         })
 
     def commit(self, repo, msg):
@@ -144,7 +145,7 @@ class FFICacheTest(unittest.TestCase):
         entry = self.cache / "ios-ffi" / key
         (entry / "payload" / XCF / "ios-arm64-simulator/F.framework/F").write_text("other")
         p = self.run_helper("restore", str(self.checkout), key)
-        self.assertEqual(p.returncode, 1)
+        self.assertEqual(p.returncode, 6)
         self.assertIn("dropped", p.stdout)
         self.assertFalse(entry.exists())
 
@@ -155,7 +156,7 @@ class FFICacheTest(unittest.TestCase):
         other = "0" * 64
         (self.cache / "ios-ffi" / key).rename(self.cache / "ios-ffi" / other)
         p = self.run_helper("restore", str(self.checkout), other)
-        self.assertEqual(p.returncode, 1)
+        self.assertEqual(p.returncode, 6)
         self.assertIn("another key", p.stdout)
 
     def test_no_cache_dir_builds_as_before(self):
@@ -169,6 +170,53 @@ class FFICacheTest(unittest.TestCase):
         p = self.run_helper("key", str(self.checkout), str(self.work / "i3.json"), env=env)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertNotEqual(p.stdout.strip(), key)
+
+    def test_key_follows_every_cargo_and_rust_setting_but_not_locations(self):
+        key = self.key()
+        def key_with(**extra):
+            p = self.run_helper("key", str(self.checkout), str(self.work / "ix.json"), env=dict(self.env, **extra))
+            self.assertEqual(p.returncode, 0, p.stderr)
+            return p.stdout.strip()
+        for name, value in (("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1"), ("CARGO_PROFILE_RELEASE_PANIC", "abort"),
+                            ("CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS", "-Copt-level=1"),
+                            ("CC_aarch64_apple_ios", "/opt/cc"), ("RUSTUP_TOOLCHAIN", "nightly")):
+            self.assertNotEqual(key_with(**{name: value}), key, name)
+        self.assertEqual(key_with(CARGO_TARGET_DIR=str(self.tmp / "t"), CARGO_BUILD_JOBS="3"), key)
+
+    def test_key_follows_cargo_home_config_content(self):
+        home = self.tmp / "cargo-home"
+        home.mkdir()
+        key = self.key()
+        p = self.run_helper("key", str(self.checkout), str(self.work / "ih.json"), env=dict(self.env, CARGO_HOME=str(home)))
+        self.assertEqual(p.stdout.strip(), key)  # where CARGO_HOME is does not matter
+        (home / "config.toml").write_text("[profile.release]\nopt-level = 1\n")
+        p = self.run_helper("key", str(self.checkout), str(self.work / "ih.json"), env=dict(self.env, CARGO_HOME=str(home)))
+        self.assertNotEqual(p.stdout.strip(), key)  # what its config says does
+
+    def test_failed_key_command_is_exit_4_not_a_quiet_no_key(self):
+        env = {k: v for k, v in self.env.items() if k != "CMUX_IOS_FFI_PATH_PACKAGES"}
+        env["PATH"] = str(self.tmp / "no-cargo")  # cargo metadata cannot run
+        p = subprocess.run([sys.executable, "-I", str(HELPER), "key", str(self.checkout), str(self.work / "i.json")],
+                           env=env, capture_output=True, text=True)
+        self.assertIn(p.returncode, (4, 5), p.stderr)
+        self.assertNotEqual(p.returncode, 3)
+
+    def test_prune_waits_for_no_restore_and_skips_while_one_copies(self):
+        sys.path.insert(0, str(HELPER.parent))
+        try:
+            import ios_ffi_cache as m
+        finally:
+            sys.path.pop(0)
+        root = self.tmp / "lockcache"
+        old = root / ("a" * 64)
+        (old / "payload").mkdir(parents=True)
+        (old / "manifest.json").write_text("{}")
+        os.utime(old / "manifest.json", (1, 1))  # unused for decades: prunable
+        with m.cache_lock(root, exclusive=False):  # a restore is copying
+            self.assertEqual(m.prune(root), [])
+            self.assertTrue(old.exists())
+        self.assertEqual(m.prune(root), [old.name])
+        self.assertFalse(old.exists())
 
     def test_store_keeps_the_cache_bounded(self):
         root = self.cache / "ios-ffi"
@@ -224,12 +272,12 @@ class FFICacheTest(unittest.TestCase):
 
     def run_block(self, helper_body, build_body='mkdir -p "$(dirname "$0")/../../CmuxMobileKit/Frameworks"; echo built >> "$OUT"'):
         """The script's FFI section in a fake checkout: a stub helper and a stub build script."""
-        fake = self.tmp / "fake"
+        fake = pathlib.Path(tempfile.mkdtemp(dir=self.tmp, prefix="fake."))
         write(fake / "scripts/ci/ios_ffi_cache.py", helper_body)
         write(fake / "cmux-next-ios/rust/scripts/build-xcframework.sh", build_body + "\n")
         work = fake / ".build/ios-sim"
         work.mkdir(parents=True)
-        out = self.tmp / "calls.txt"
+        out = fake / "calls.txt"
         prog = ("set -euo pipefail\ntrap 'echo ERR line $LINENO >&2' ERR\n"
                 'root="$PWD"; work="$PWD/.build/ios-sim"; t0=$SECONDS; summary="$work/SUMMARY.md"\n'
                 "note() { printf '%s\\n' \"$*\" | tee -a \"$summary\"; }\n" + self.ffi_block()
@@ -263,6 +311,23 @@ class FFICacheTest(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("built", calls)
         self.assertIn("restore reported a hit but left no", summary)
+
+    def test_failed_probe_is_loud(self):
+        helper = ("import sys\nif sys.argv[1] == 'key': print('a' * 64)\n"
+                  "elif sys.argv[1] == 'probe': sys.exit(1)\nelse: sys.exit(1)\n")
+        p, calls, summary = self.run_block(helper)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("built", calls)
+        self.assertIn("probe of the feat-cmux-next tip failed", summary)
+
+    def test_dropped_entry_and_tool_failure_are_loud(self):
+        for code, word in ((6, "restore failed (exit 6)"), (4, "key failed (exit 4)")):
+            sub = "restore" if code == 6 else "key"
+            helper = ("import sys\nif sys.argv[1] == 'key' and %r != 'key': print('a' * 64)\n"
+                      "elif sys.argv[1] == %r: sys.exit(%d)\nelse: sys.exit(1)\n") % (sub, sub, code)
+            p, calls, summary = self.run_block(helper)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn(word, summary)
 
     def test_no_key_builds_quietly(self):
         p, calls, summary = self.run_block("import sys; sys.exit(3)\n")

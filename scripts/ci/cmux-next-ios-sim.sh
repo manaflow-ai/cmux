@@ -196,8 +196,8 @@ t0=$SECONDS
 # inputs with the same toolchain (scripts/ci/ios_ffi_cache.py: key, verified restore). A
 # miss builds it as before, and a build of landed inputs (the same trees as feat-cmux-next's
 # tip, probed beside the build) is published for the next step. The cache never fails the
-# step: a miss or no key builds, and a helper that breaks (any exit but its own codes) is
-# reported in the log and SUMMARY.md as a warning, then the step builds.
+# step: a miss or no key builds. Everything else (a key command that failed, a failed probe or
+# store, a helper error) is a warning in the log and SUMMARY.md, then the step builds.
 ffi_cache=(python3 -I scripts/ci/ios_ffi_cache.py)
 ffi_log="$work/ffi-cache.log"
 : >"$ffi_log"
@@ -246,7 +246,7 @@ if [[ -z "$ffi_how" ]]; then
       "${ffi_cache[@]}" store "$root" "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 || {
         ffi_rc=$?; ffi_warn "store failed" "$ffi_rc"; }
     else
-      echo "ios-ffi cache: not stored, no feat-cmux-next tip (probe exit $ffi_rc)" >>"$ffi_log"
+      ffi_warn "probe of the feat-cmux-next tip failed, nothing stored" "$ffi_rc"
     fi
   fi
 fi
