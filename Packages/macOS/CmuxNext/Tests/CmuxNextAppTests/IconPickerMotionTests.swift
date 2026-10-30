@@ -12,7 +12,7 @@ import Testing
     func thePickerOpensAtOnceAndClosesWithMotion() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.orderFrontRegardless()
         let content = try #require(window.contentView)
         try #require(window.screen != nil)

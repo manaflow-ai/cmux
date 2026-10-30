@@ -56,7 +56,7 @@ import Testing
 
     @Test func inEditModeAnItemShowsItsXAndAPressOpensNothing() throws {
         let band = Band()
-        defer { band.window.orderOut(nil) }
+        defer { band.window.closeAfterTest() }
         try band.click(try band.view(Self.link))
         #expect(band.activated == [Self.link], "the fixture's press did not open the item")
 
@@ -82,7 +82,7 @@ import Testing
         Motion.reduceMotionOverride = false
         #expect(Motion.sidebar.wiggleAnimation(center: .zero) != nil)
         let band = Band()
-        defer { band.window.orderOut(nil) }
+        defer { band.window.closeAfterTest() }
         band.region.isEditing = true
         let link = try band.view(Self.link)
         #expect(link.layer?.animation(forKey: SidebarItemRowView.wiggleKey) != nil, "an edited item does not wiggle")

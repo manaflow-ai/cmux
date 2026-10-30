@@ -43,7 +43,7 @@ struct PaletteInputMethodKeysTests {
     @Test func returnEscapeAndArrowsReachAComposingInputMethod() throws {
         let palette = Self.palette()
         let window = try Self.composingWindow(marked: "にほん")
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let down = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
         for (characters, keyCode) in [("\r", UInt16(36)), ("\u{1b}", 53), (down, 125), ("\t", 48)] {
             let event = try Self.key(characters, keyCode: keyCode, in: window)
@@ -54,7 +54,7 @@ struct PaletteInputMethodKeysTests {
     @Test func withoutMarkedTextThePaletteStillTakesReturn() throws {
         let palette = Self.palette()
         let window = try Self.composingWindow(marked: nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         #expect(palette.handleKeyDown(try Self.key("\u{1b}", keyCode: 53, in: window), in: window))
     }
 }

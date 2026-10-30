@@ -49,7 +49,7 @@ struct FullWidthTabTests {
 
     @Test func theSelectedTabFillsTheStripAndTheOthersHide() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         #expect(harness.shown.count == 4)
 
         harness.model.showsSelectedFullWidth = true
@@ -71,7 +71,7 @@ struct FullWidthTabTests {
 
     @Test func aPinnedSelectedTabFillsTheStripToo() {
         let harness = Harness(count: 3, pinned: 2)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.model.selectedID = TabID("tab0")
         harness.model.showsSelectedFullWidth = true
         harness.settle()

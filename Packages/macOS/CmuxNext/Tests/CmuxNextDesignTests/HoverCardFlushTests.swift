@@ -35,7 +35,7 @@ import CmuxNextDesignTokens
         let parent = parent()
         let panel = HoverCardPanel()
         defer {
-            panel.orderOut(nil)
+            panel.closeAfterTest()
             parent.close()
         }
         let target = anchor(parent)

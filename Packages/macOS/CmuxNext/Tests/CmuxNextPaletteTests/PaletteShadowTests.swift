@@ -14,7 +14,7 @@ import Testing
         let content = PaletteContentView(model: PaletteModel())
         let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let shadows = Self.shadows(in: content)
         #expect(shadows.count == 1)
         let shadow = try #require(shadows.first)

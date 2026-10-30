@@ -64,7 +64,7 @@ import Testing
         DesignSettings.shared.tabOverflow = overflow
         defer { DesignSettings.shared.tabOverflow = .shrink }
         let harness = Harness(pinned: 2, unpinned: 40, width: 1000)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.strip.applyTokens(animated: false)
         harness.strip.layoutSubtreeIfNeeded()
         let strip = harness.strip
@@ -113,7 +113,7 @@ import Testing
         let pinnedCount = 12
         let width = (CGFloat(pinnedCount) * Metrics.tabPinnedWidth * 0.8).rounded()
         let harness = Harness(pinned: pinnedCount, unpinned: 6, width: width)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let strip = harness.strip
         try #require(CGFloat(pinnedCount) * strip.metrics.pinnedTabWidth > strip.viewportWidth,
                      "\(pinnedCount) pinned tabs of \(strip.metrics.pinnedTabWidth) pt fit in \(strip.viewportWidth) pt")

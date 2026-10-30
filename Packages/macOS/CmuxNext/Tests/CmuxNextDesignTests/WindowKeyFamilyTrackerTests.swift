@@ -145,7 +145,7 @@ import Testing
         DesignSettings.shared.inactiveWindowDim = 0.3
         defer { DesignSettings.shared.inactiveWindowDim = dim }
         let (keyboard, window, family, view) = try Self.onScreenGlass()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let wash = try #require(view.inactiveTintView.layer)
 
         // Cmd-Tab away: the wash is at its resting alpha in this pass, with no fade on top.
@@ -185,7 +185,7 @@ import Testing
         DesignSettings.shared.inactiveWindowDim = 0.3
         defer { DesignSettings.shared.inactiveWindowDim = dim }
         let (keyboard, window, family, view) = try Self.onScreenGlass()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let wash = try #require(view.inactiveTintView.layer)
         keyboard.key = nil
         keyboard.post(NSWindow.didResignKeyNotification)

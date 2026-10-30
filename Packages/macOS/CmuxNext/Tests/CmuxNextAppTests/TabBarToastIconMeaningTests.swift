@@ -50,7 +50,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(view)
         view.layoutSubtreeIfNeeded()
         let violations = audit.violations(under: view)

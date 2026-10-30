@@ -22,7 +22,7 @@ import Testing
         let (hidden, shown) = (Self.window(), Self.window())
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden]) == nil)
         shown.orderFrontRegardless()
-        defer { shown.orderOut(nil) }
+        defer { shown.closeAfterTest() }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden, shown]) === shown)
     }
 
@@ -36,8 +36,8 @@ import Testing
         home.addChildWindow(page, ordered: .above)
         defer {
             home.removeChildWindow(page)
-            page.orderOut(nil)
-            home.orderOut(nil)
+            page.closeAfterTest()
+            home.closeAfterTest()
         }
         #expect(page.isVisible)
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [page, home]) === home)

@@ -36,7 +36,7 @@ import Testing
     @Test func shrinkingTabsStopAtChromesMinimumThenScroll() throws {
         DesignSettings.shared.tabOverflow = .shrink
         let harness = Harness(count: 60)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let metrics = harness.strip.metrics
         // Room for the favicon and the x (Lawrence 2026-10-20, was Chrome's 32) inactive, Chrome's 56 selected.
         #expect(metrics.minInactiveTabWidth == metrics.faviconCloseWidth && metrics.minActiveTabWidth == 56,
@@ -55,7 +55,7 @@ import Testing
         DesignSettings.shared.tabOverflow = .scroll
         defer { DesignSettings.shared.tabOverflow = .shrink }
         let harness = Harness(count: 20)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.strip.applyTokens(animated: false)
         harness.settle()
         let metrics = harness.strip.metrics
@@ -89,7 +89,7 @@ import Testing
         DesignSettings.shared.tabOverflow = .shrink
         // The tab strip of an 1100 pt window.
         let harness = Harness(count: 40, width: 854)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let strip = harness.strip
         try #require(strip.result.isOverflowing, "40 tabs fit in 854 pt, nothing scrolls")
         #expect(isInView(harness.selected, strip), "the selected last tab is scrolled out of view")
@@ -114,7 +114,7 @@ import Testing
     @Test func wheelAndTrackpadScrollACrowdedStripAndSelectionScrollsBack() throws {
         DesignSettings.shared.tabOverflow = .shrink
         let harness = Harness(count: 40, width: 854)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let strip = harness.strip
         try #require(strip.result.isOverflowing)
         let end = strip.scrollOffset

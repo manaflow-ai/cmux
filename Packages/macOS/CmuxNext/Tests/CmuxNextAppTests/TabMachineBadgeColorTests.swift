@@ -16,7 +16,7 @@ import Testing
         let strip = TabStripView(model: TabStripModel(tabs: [item], selectedID: item.id))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView = strip
         window.orderFrontRegardless()
         strip.layoutSubtreeIfNeeded()

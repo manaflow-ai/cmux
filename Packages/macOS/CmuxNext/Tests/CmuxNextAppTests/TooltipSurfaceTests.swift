@@ -248,7 +248,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         try #require(window.screen != nil, "the window has no screen")
         try #require(Motion.hoverCards.duration(.fadeIn) > 0, "fades are off on this host")
@@ -313,7 +313,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         try #require(window.screen != nil, "the window has no screen")
         try await Self.rest(on: buttons[0], presenter, clock, watch: watch)
@@ -340,7 +340,7 @@ import CmuxNextWakeupsTestSupport
             let (window, buttons, presenter, scope) = try Self.toolbar(clock: clock)
             defer {
                 presenter.dismiss()
-                window.orderOut(nil)
+                window.closeAfterTest()
             }
             try await Self.rest(on: buttons[0], presenter, clock)
             let panel = presenter.panel
@@ -381,7 +381,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter, scope) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         try await Self.rest(on: buttons[0], presenter, clock)
         let panel = presenter.panel

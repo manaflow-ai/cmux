@@ -47,7 +47,7 @@ struct SubtleElevationTests {
         let content = PaletteContentView(model: PaletteModel())
         let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let shadow = try #require(Self.shadows(in: content).first)
         #expect(shadow.shadowBlurRadius == raised.blur)
         #expect(shadow.shadowOffset == NSSize(width: 0, height: -raised.offset))

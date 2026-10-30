@@ -14,7 +14,7 @@ import Testing
         let model = TabStripModel(tabs: tabs, selectedID: selected)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let strip = TabStripView(model: model)
         strip.dragsWindowFromEmptySpace = false
         strip.frame = NSRect(x: 0, y: 0, width: 1600, height: TabStripView.preferredHeight)

@@ -23,7 +23,7 @@ import Testing
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = strip
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.layoutSubtreeIfNeeded()
         #expect(strip.cells.count == Self.tabs)
         let selected = try #require(strip.cells[TabID("tab1")])

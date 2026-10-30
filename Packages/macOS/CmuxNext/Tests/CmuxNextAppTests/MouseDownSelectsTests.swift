@@ -64,7 +64,7 @@ private typealias StripTab = CmuxNextTabs.TabID
     func homeAndTheAppStoreSwitchOnMouseDownAndOnlyOnce(_ raw: String) throws {
         let id = LayoutItemID(raw)
         let harness = BandHarness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let view = try harness.view(id)
         view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
         #expect(harness.activated == [id], "the press did not switch")
@@ -78,7 +78,7 @@ private typealias StripTab = CmuxNextTabs.TabID
     func pinnedWorkspaceTabAndSpaceTilesSwitchOnMouseDownAndOnlyOnce(_ raw: String) throws {
         let id = LayoutItemID(raw)
         let harness = BandHarness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let view = try harness.view(id)
         view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
         #expect(harness.activated == [id], "the press did not switch")
@@ -88,7 +88,7 @@ private typealias StripTab = CmuxNextTabs.TabID
 
     @Test func aPinnedWorkspaceTilePressThatBecomesADragStillDragsAndSwitchesOnce() throws {
         let harness = BandHarness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let view = try harness.view(BandHarness.workspace)
         var drags = 0, ended = 0
         view.onDragged = { _, _ in drags += 1; return true }
@@ -106,7 +106,7 @@ private typealias StripTab = CmuxNextTabs.TabID
     func itemsThatOpenSomethingOpenOnMouseDownAndOnlyOnce(_ raw: String) throws {
         let id = LayoutItemID(raw)
         let harness = BandHarness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let view = try harness.view(id)
         view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
         #expect(harness.activated == [id], "\(raw) did not open on the press")
@@ -117,7 +117,7 @@ private typealias StripTab = CmuxNextTabs.TabID
     /// A new-tab launcher makes a tab: a press the user meant as a move must not make one, so it acts on release.
     @Test func aNewTabLauncherStillActsOnRelease() throws {
         let harness = BandHarness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let view = try harness.view(BandHarness.newTerminal)
         view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
         #expect(harness.activated.isEmpty, "the launcher ran on the press")
@@ -127,7 +127,7 @@ private typealias StripTab = CmuxNextTabs.TabID
 
     @Test func aPressThatBecomesADragStillDragsAndSwitchesOnce() throws {
         let harness = BandHarness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let view = try harness.view(BandHarness.home)
         var drags = 0, ended = 0
         view.onDragged = { _, _ in drags += 1; return true }
@@ -144,7 +144,7 @@ private typealias StripTab = CmuxNextTabs.TabID
         let strip = TabStripView(model: model)
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
         window.contentView = strip
         window.orderFrontRegardless()

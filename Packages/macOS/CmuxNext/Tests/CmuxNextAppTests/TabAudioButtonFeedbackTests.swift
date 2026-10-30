@@ -55,7 +55,7 @@ import Testing
     @Test(arguments: [(TabAudio.playing, "Mute tab"), (.muted, "Unmute tab")])
     func hoveringTheSpeakerNamesWhatAClickDoes(_ audio: TabAudio, _ tooltip: String) throws {
         let harness = Harness(audio: audio)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         TabStripDebug.pointerMoved(in: harness.strip, to: try harness.speaker())
         #expect(harness.strip.toolTip == tooltip)
         TabStripDebug.pointerMoved(in: harness.strip, to: harness.body())
@@ -66,7 +66,7 @@ import Testing
     /// nothing; dragging back onto the speaker and releasing there still mutes (a button's press).
     @Test func aPressOnTheSpeakerNeverDragsTheTab() throws {
         let harness = Harness(audio: .playing)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let speaker = try harness.speaker()
         let away = CGPoint(x: speaker.x + 160, y: speaker.y)
         harness.send(.leftMouseDown, at: speaker)
@@ -86,7 +86,7 @@ import Testing
     @Test(arguments: [(TabAudio.playing, "Mute tab"), (.muted, "Unmute tab")])
     func voiceOverOffersTheSameAction(_ audio: TabAudio, _ name: String) throws {
         let harness = Harness(audio: audio)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let actions = try #require(harness.cell.accessibility.accessibilityCustomActions())
         let action = try #require(actions.first { $0.name == name }, "VoiceOver offers \(actions.map(\.name))")
         #expect(action.handler?() == true)

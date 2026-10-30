@@ -17,7 +17,7 @@ struct PaletteFocusTests {
         let bar = PaletteSearchBar(frame: content.bounds)
         let replacement = PaletteSearchBar(frame: content.bounds)
         content.addSubview(bar)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
 
         _ = window.makeFirstResponder(nil)
 

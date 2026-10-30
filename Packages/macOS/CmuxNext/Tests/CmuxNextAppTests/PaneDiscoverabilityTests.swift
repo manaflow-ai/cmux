@@ -14,7 +14,7 @@ import Testing
         let strip = TabStripView(model: model)
         strip.opensNewTabMenuOnPress = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView = strip
         strip.frame = window.contentLayoutRect
         strip.layoutSubtreeIfNeeded()

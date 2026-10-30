@@ -39,7 +39,7 @@ import CmuxNextDesignTokens
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 80), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil); window.contentView = nil }
+        defer { window.closeAfterTest(); window.contentView = nil }
         let root = try #require(window.contentView)
         pill.frame = NSRect(x: 20, y: 20, width: 320, height: FindPillMetrics.height)
         pill.isHidden = false

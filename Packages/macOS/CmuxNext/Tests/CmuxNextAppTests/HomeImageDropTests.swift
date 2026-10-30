@@ -186,7 +186,7 @@ import CmuxNextTestSupport
             return out
         }
 
-        func close() { window.orderOut(nil) }
+        func close() { window.closeAfterTest() }
     }
 
     private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {

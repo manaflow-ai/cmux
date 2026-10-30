@@ -114,7 +114,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
 
         func close() {
             services.cache.release(BrowserPageNativeInputTests.tabID)
-            window.orderOut(nil)
+            window.closeAfterTest()
             try? FileManager.default.removeItem(at: folder)
         }
     }
@@ -201,7 +201,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         cover.backgroundColor = .black
         cover.level = .floating
         cover.orderFrontRegardless()
-        defer { cover.orderOut(nil) }
+        defer { cover.closeAfterTest() }
         try await fixture.until("the window is occluded") { !fixture.window.occlusionState.contains(.visible) }
         let at = try await fixture.center("list")
         let result = try await fixture.call("wheel", ["x": at.x, "y": at.y, "dy": 120])

@@ -52,7 +52,7 @@ import Testing
     /// and stay clear; the gap after tab 4 (to the +) shows the line, as does none other.
     func checkSeparators() throws {
         let (strip, window) = Self.strip(tabs: 5)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let hovered = try #require(strip.cells[TabID("tab3")])
         let frame = strip.convert(hovered.frame, from: strip.tabsClip)
         TabStripDebug.pointerMoved(in: strip, to: CGPoint(x: frame.midX, y: frame.midY))
@@ -96,7 +96,7 @@ import Testing
     @Test func theStripDrawsNoLinesWhileTheToggleIsOff() throws {
         try withOverrides(separators: false, compact: false) {
             let (strip, window) = Self.strip(tabs: 5)
-            defer { window.orderOut(nil) }
+            defer { window.closeAfterTest() }
             let contrast = try Self.gapContrast(strip, tabs: 5)
             #expect(contrast.allSatisfy { $0 <= 4 }, "a line between tabs with the toggle off: \(contrast)")
         }

@@ -55,7 +55,7 @@ import Testing
 
     @Test func cmdClickSelectsASecondTabAndBothDrawTheSelection() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         try harness.click("t3", .command)
         #expect(harness.model.selectedID == TabID("t3"))
         #expect(harness.model.selectedTabIDs == [TabID("t1"), TabID("t3")])
@@ -65,7 +65,7 @@ import Testing
 
     @Test func shiftClickSelectsTheRangeAndAPlainClickEndsIt() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         try harness.click("t4", .shift)
         #expect(harness.model.selectedTabIDs.map(\.rawValue) == ["t1", "t2", "t3", "t4"])
         #expect(harness.multiSelected() == ["t1", "t2", "t3", "t4"])
@@ -82,7 +82,7 @@ import Testing
 
     @Test func aRightClickHandsTheAppTheSelectionClickedTabFirst() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         try harness.click("t3", .command)
         var targets: [TabContextTarget] = []
         harness.strip.contextMenuProvider = { targets.append($0); return nil }
@@ -93,7 +93,7 @@ import Testing
 
     @Test func draggingASelectedTabDropsTheWholeSelectionInOrder() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         try harness.click("t3", .command)
         // Press t1, drag it past the last tab, release.
         let start = try harness.point("t1")
@@ -113,7 +113,7 @@ import Testing
 
     @Test func escapeDuringAMultiTabDragLeavesTheTabsWhereTheyWere() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         try harness.click("t3", .command)
         let start = try harness.point("t1")
         harness.strip.mouseDown(with: try harness.event(.leftMouseDown, at: start))

@@ -64,7 +64,7 @@ import CmuxNextTestSupport
         button.themedToolTip = nil
         #expect(presenter.shown == nil)
         #expect(!panel.isVisible || panel.isFadingOut)
-        window.orderOut(nil)
+        window.closeAfterTest()
     }
 
     @Test func theDeepestTooltipUnderThePointerShowsAndRegionsWin() throws {
@@ -95,7 +95,7 @@ import CmuxNextTestSupport
         #expect(presenter.shown?.text == "Default")
         presenter.dismiss()
         #expect(presenter.shown == nil)
-        window.orderOut(nil)
+        window.closeAfterTest()
     }
 
     /// Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each
@@ -114,7 +114,7 @@ import CmuxNextTestSupport
         presenter.dismiss()
         defer {
             Self.putAway(presenter)
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
 
         presenter.enter(try #require(TooltipTracker.whole(of: first)))

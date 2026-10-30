@@ -43,7 +43,7 @@ import Testing
         }
 
         func tearDown() {
-            panel.orderOut(nil)
+            panel.closeAfterTest()
             parent.close()
         }
     }

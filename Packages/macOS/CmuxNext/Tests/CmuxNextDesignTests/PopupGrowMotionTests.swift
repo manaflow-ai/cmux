@@ -47,7 +47,7 @@ import CmuxNextDesignTokens
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
         window.openPopup(pivot: Self.pivot)
 
@@ -61,7 +61,7 @@ import CmuxNextDesignTokens
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
         window.openPopup(pivot: Self.pivot, entrance: false)
 
@@ -77,7 +77,7 @@ import CmuxNextDesignTokens
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.openPopup(pivot: Self.pivot, entrance: true)
         let openGrow = try #require(layer.animation(forKey: "sublayerTransform"))
 
@@ -105,7 +105,7 @@ import CmuxNextDesignTokens
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
         window.openPopup(pivot: Self.pivot, entrance: true)
 

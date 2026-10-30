@@ -85,7 +85,7 @@ import Testing
         parent.orderFrontRegardless()
         let panel = HoverCardPanel()
         defer {
-            panel.orderOut(nil)
+            panel.closeAfterTest()
             parent.close()
         }
         let body = NSView()

@@ -31,7 +31,7 @@ import CmuxNextTestSupport
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let checks = shared.warmChecks
         window.contentView = view
         #expect(shared.isWarming, "a chat in a window did not start the picker's warm-up")

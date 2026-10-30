@@ -36,7 +36,7 @@ import Testing
 
     @Test func aNotificationRowOpensOnThePressAndOnlyOnce() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.view.mouseDown(with: try harness.event(.leftMouseDown))
         #expect(harness.opened == 1, "the press did not open the notification")
         harness.view.mouseUp(with: try harness.event(.leftMouseUp))
@@ -47,7 +47,7 @@ import Testing
     /// row's caption and to VoiceOver.
     @Test func aNotificationRowNamesItsProducer() {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         #expect(harness.view.accessibilityLabel() == "Build finished, Terminal Programs, cmux, All green")
     }
 
@@ -55,7 +55,7 @@ import Testing
     /// did before: the workspace alone.
     @Test func aRowWithoutAProducerKeepsTheWorkspaceAlone() {
         let harness = Harness(source: nil)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         #expect(harness.view.accessibilityLabel() == "Build finished, cmux, All green")
     }
 }

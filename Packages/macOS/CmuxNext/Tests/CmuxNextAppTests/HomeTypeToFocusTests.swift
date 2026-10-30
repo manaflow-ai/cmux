@@ -62,7 +62,7 @@ import CmuxNextTestSupport
             }
         }
 
-        func close() { window.orderOut(nil) }
+        func close() { window.closeAfterTest() }
     }
 
     enum Container: String, CaseIterable { case dock, homeTab, conversationTab }

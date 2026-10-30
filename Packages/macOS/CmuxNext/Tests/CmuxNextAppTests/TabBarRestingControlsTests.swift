@@ -27,7 +27,7 @@ import Testing
     @Test func theStripsPlusHidesAtRestAndShowsOnHover() throws {
         DesignSettings.shared.plusButton = .hover
         let (strip, window) = Self.strip()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
         #expect(TabTunables.restingControlOpacity.value == 0, "tab bar controls hide at rest by default")
         #expect(!reveal.isRevealed)

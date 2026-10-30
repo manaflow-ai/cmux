@@ -33,7 +33,7 @@ import Testing
         let model = TabStripModel(tabs: ids.map { TabItem(id: TabID($0), title: "cmux-prompt-commits \($0)") }, selectedID: TabID(ids[0]))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
         pane.frame = NSRect(x: 0, y: 0, width: 1280, height: 300)
         window.contentView = pane
@@ -65,7 +65,7 @@ import Testing
         let model = TabStripModel(tabs: ids.map { TabItem(id: TabID($0), title: "Tab \($0)") }, selectedID: TabID(ids[0]))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let strip = TabStripView(model: model)
         strip.dragsWindowFromEmptySpace = false
         // 30 tabs in 1200 pt: 40 each, under the selected minimum and over the inactive one.

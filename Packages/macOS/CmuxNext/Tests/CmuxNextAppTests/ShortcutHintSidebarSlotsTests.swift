@@ -55,7 +55,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut([Self.topBlock()] + Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let settings = SidebarNavigationSettings(numbering: .allItems, cmd9: .last)
         let home = SidebarItem.topItem(LayoutItemID("itm_home"))
         try #require(model.itemOrder.number(for: home, settings) == 1, "Home is not Cmd-1: \(model.itemOrder.items)")
@@ -68,7 +68,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut(Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         try #require(!model.itemOrder.topItems.isEmpty, "no top items in the band: \(model.itemOrder.items)")
         #expect(Self.digitsWithoutChip(model, sidebar).isEmpty,
                 "digits without a chip: \(Self.digitsWithoutChip(model, sidebar)); order \(model.itemOrder.items)")
@@ -79,7 +79,7 @@ struct ShortcutHintSidebarSlotsTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window) = Self.layOut(Self.machine([1, 2, 3]))
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let rows = model.itemOrder.rows.filter { if case .workspace = $0 { true } else { false } }
         #expect(rows.count == 3)
         for row in rows { #expect(sidebar.shortcutHintItemFrames[row] != nil, "\(row) has no chip") }

@@ -46,7 +46,7 @@ struct WorkspaceRowHoverMotionTests {
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)

@@ -57,7 +57,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
 
         var zooms: [ZoomStripID] { intents.compactMap { if case .toggleZoom(let id) = $0 { id } else { nil } } }
 
-        func tearDown() { window.orderOut(nil) }
+        func tearDown() { window.closeAfterTest() }
     }
 
     // MARK: The double-click

@@ -33,7 +33,7 @@ struct DropPreviewLandingParityTests {
     func everyEdgeDropLandsWhereItsTargetDrewIt(_ index: Int) throws {
         let (name, root) = Self.layouts[index]
         let window = Window(root)
-        defer { window.window.orderOut(nil) }
+        defer { window.window.closeAfterTest() }
         let view = try #require(window.root.screenViews["s"])
         var checked = 0
         for target in root.panes {

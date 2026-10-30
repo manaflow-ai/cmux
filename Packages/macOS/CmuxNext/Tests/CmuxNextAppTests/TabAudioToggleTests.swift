@@ -71,7 +71,7 @@ typealias TabAudioStripID = CmuxNextTabs.TabID
     @Test(arguments: [TabAudio.playing, .muted])
     func clickingTheSpeakerTogglesMuteWithoutSelecting(_ audio: TabAudio) throws {
         let harness = StripHarness(audio: audio)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.click(try harness.speaker(TabAudioStripID("tab1")))
         #expect(harness.toggles == [TabAudioStripID("tab1")], "\(harness.intents)")
         #expect(harness.selects == 0, "the speaker click selected the tab")
@@ -80,7 +80,7 @@ typealias TabAudioStripID = CmuxNextTabs.TabID
     /// The rest of the tab still selects it on the press.
     @Test func clickingTheTabBodyStillSelects() throws {
         let harness = StripHarness(audio: .playing)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.click(try harness.body(TabAudioStripID("tab1")))
         #expect(harness.toggles.isEmpty)
         #expect(harness.selects == 1)
@@ -89,7 +89,7 @@ typealias TabAudioStripID = CmuxNextTabs.TabID
     /// A silent tab has no speaker to click.
     @Test func aSilentTabHasNoSpeaker() throws {
         let harness = StripHarness(audio: nil)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         #expect(harness.strip.cells[TabAudioStripID("tab1")]?.audioButtonRect == nil)
     }
 

@@ -43,7 +43,7 @@ import Testing
 
     @Test func aPressOnATileCancelsAStaleTileDrag() throws {
         let band = Band()
-        defer { band.window.orderOut(nil) }
+        defer { band.window.closeAfterTest() }
         let link = try band.view(Self.link)
         link.mouseDown(with: try band.event(.leftMouseDown, on: link))
         link.mouseDragged(with: try band.event(.leftMouseDragged, on: link, dy: 40))

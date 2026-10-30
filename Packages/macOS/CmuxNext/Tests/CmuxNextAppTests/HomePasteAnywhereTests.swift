@@ -58,7 +58,7 @@ import CmuxNextTestSupport
 
         func close() {
             board.releaseGlobally()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
     }
 
