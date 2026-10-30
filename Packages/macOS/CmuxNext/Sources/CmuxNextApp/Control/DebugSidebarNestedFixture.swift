@@ -58,7 +58,7 @@ struct DebugSidebarNestedFixture {
 ///   failure is about (its notice stays closed for that build), `notify` as the policy sets it for
 ///   a recorded failure. A `cannot_update` machine has no toast; Settings > Updates lists it.
 /// - `sidebar: true`: the window's sidebar shows a fixture This Mac and that ssh machine, a section each, whose
-///   header tooltip is composed as a live connected one's (``SidebarBridge/sshTooltip(destination:session:detail:)``,
+///   header tooltip is composed as a live connected one's (``SidebarBridge/sshTooltip(destination:session:detail:updates:)``,
 ///   so whatever the live tooltip adds shows here too); `false` brings the live rows back. Shown again
 ///   after a `state`, it reads the board anew.
 /// - `tooltip: true`: the synthetic pointer rests on that header (`debug.pointer_hover`), so its tooltip
