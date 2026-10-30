@@ -220,6 +220,19 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
         eprintln!("{}", app.envelope());
     } else {
         eprintln!("{}", app.text());
+        // A name several sessions answer to: the exact command for each (`hub/key_route.rs`).
+        if app.detail == crate::hub::key_route::AMBIGUOUS
+            && let Some(data) = &app.data
+        {
+            let args: Vec<String> = std::env::args().collect();
+            let lines = crate::cli::resolve::choice_commands(&args, data);
+            for line in lines.iter().take(10) {
+                eprintln!("  {line}");
+            }
+            if lines.len() > 10 {
+                eprintln!("  … and {} more (`--json` lists every one)", lines.len() - 10);
+            }
+        }
     }
     std::process::exit(app.exit_status());
 }
