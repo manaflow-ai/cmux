@@ -1,13 +1,15 @@
 // Settings > Chief > Look: how the Chief looks, one glass card. The floating pet after ChatGPT's
 // Mini & Pets, then the chat's Bubble Style (`home.chiefBubbleStyle`, which before stood alone below
-// as a one-row "Chief Chat" card). A preview of the pet over
+// as a one-row "Chief Chat" card) and the bubble colors every chat starts with (`home.bubbleColors.*`,
+// whose unset value is Bubble Style's color, so they sit under it). A preview of the pet over
 // its rail with Show Pet / Hide Pet, then every character (the Chief Dock's pixel mascots) as a
 // card with its name and a line about it. The character is the Chief's avatar on every Chief
 // surface (Home, the sidebar, message cards) whether or not the pet floats, so the chosen one is
 // always checked, and a click swaps it everywhere without showing or hiding the pet (that is Show
 // Pet / Hide Pet's job). Hovering or focusing a character previews it on the rail. It draws the category's
-// three rows (`home.chiefPetEnabled`, `home.chiefPetMascot`, `home.chiefBubbleStyle`), so SectionView
-// leaves them out of the group list; search, the palette and `cmux settings` still reach them.
+// Look rows (`home.chiefPetEnabled`, `home.chiefPetMascot`, `home.chiefBubbleStyle` and the four
+// `home.bubbleColors.*`), so SectionView leaves them out of the group list; search, the palette and
+// `cmux settings` still reach them.
 import { useRef, useState } from "react";
 import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
@@ -28,8 +30,17 @@ import mascotMochi from "../../../agent-session/acpmux/mascots/ChiefMascotMochi.
 export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
 export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
 export const CHIEF_BUBBLE_STYLE = "home.chiefBubbleStyle";
+/** The bubble colors every chat starts with (`HomeBubbleColorsSetting`), in the schema's order. */
+export const CHIEF_BUBBLE_COLORS: readonly string[] = ["sent", "sentText", "received", "receivedText"].map(
+  (role) => `home.bubbleColors.${role}`,
+);
 /** The rows this card draws in place of their group. */
-export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([CHIEF_PET_ENABLED, CHIEF_PET_MASCOT, CHIEF_BUBBLE_STYLE]);
+export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([
+  CHIEF_PET_ENABLED,
+  CHIEF_PET_MASCOT,
+  CHIEF_BUBBLE_STYLE,
+  ...CHIEF_BUBBLE_COLORS,
+]);
 
 /** The characters in the setting's order (`HomeChiefPetSetting.mascots`), with their art. Imported,
  * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
@@ -97,6 +108,11 @@ export function ChiefPetCard({
   const showPetToggle = visibleRows === null || visibleRows.has(CHIEF_PET_ENABLED);
   const showMascot = visibleRows === null || visibleRows.has(CHIEF_PET_MASCOT);
   const showBubbleStyle = visibleRows === null || visibleRows.has(CHIEF_BUBBLE_STYLE);
+  const colors = CHIEF_BUBBLE_COLORS.flatMap((key) => {
+    const row = rowsByKey.get(key);
+    return row && (visibleRows === null || visibleRows.has(key)) ? [row] : [];
+  });
+  const bubbleRow = showBubbleStyle ? bubbles : undefined;
   return (
     <section className="group chief-pet ui-glass" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
       <h3 className="group-title">{t("settingsPage.chief.look")}</h3>
@@ -158,9 +174,12 @@ export function ChiefPetCard({
           </div>
         </>
       )}
-      {bubbles && showBubbleStyle && (
+      {(bubbleRow || colors.length > 0) && (
         <div className="rows">
-          <SettingRow row={bubbles} query={query} focused={focus === CHIEF_BUBBLE_STYLE} />
+          {bubbleRow && <SettingRow row={bubbleRow} query={query} focused={focus === CHIEF_BUBBLE_STYLE} />}
+          {colors.map((row) => (
+            <SettingRow key={row.key} row={row} query={query} focused={focus === row.key} />
+          ))}
         </div>
       )}
     </section>

@@ -42,18 +42,14 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
         Some(super::lane_reports::KIND) => name_prefixed(text),
         Some(super::digest::DIGEST_KIND) => {
             let messages = provenance?.get("messages")?.as_array()?;
-            let mut senders: Vec<&str> = Vec::new();
-            for from in messages.iter().filter_map(|m| m.get("from")?.as_str()).map(str::trim) {
-                if !from.is_empty() && !senders.contains(&from) {
-                    senders.push(from);
-                }
-            }
-            let name = match senders.len() {
-                0 => return None,
-                n if n > 3 => format!("{} +{}", senders[..3].join(", "), n - 3),
-                _ => senders.join(", "),
-            };
+            let name = senders(messages.iter().filter_map(|m| m.get("from")?.as_str()))?;
             Some((name, format!("{} messages", messages.len())))
+        }
+        // `[inbox digest] N messages …` (`inbox_digest.rs`): its senders, as a turn of them reads.
+        Some(super::digest::inbox_digest::KIND) => {
+            let parts = provenance?.get("parts")?.as_array()?;
+            let name = senders(parts.iter().filter_map(|m| m.get("fromName")?.as_str()))?;
+            Some((name, format!("inbox digest of {} messages", parts.len())))
         }
         Some(_) => None,
         // `acpmux send` at a shell, through a peer, or with `--no-wait` through this daemon's
@@ -67,6 +63,29 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
         None if client == "adopt" => cross_session(text),
         None => None,
     }
+}
+
+/// The senders of a turn of several messages, each once, in order: "a, b, c +2". `None` when
+/// none is named.
+fn senders<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
+    let mut senders: Vec<&str> = Vec::new();
+    for from in names.map(str::trim) {
+        if !from.is_empty() && !senders.contains(&from) {
+            senders.push(from);
+        }
+    }
+    match senders.len() {
+        0 => None,
+        n if n > 3 => senders.get(..3).map(|first| format!("{} +{}", first.join(", "), n - 3)),
+        _ => Some(senders.join(", ")),
+    }
+}
+
+/// The sender's own words in another agent's message: inside the envelope cmux wraps a cmux
+/// agent message in (`rendered_body`), else the whole text (`inbox_digest.rs`).
+pub(super) fn agent_words<'a>(text: &'a str, provenance: Option<&Value>) -> &'a str {
+    let msg_id = provenance.and_then(|p| p.get("msgId")).and_then(Value::as_str);
+    msg_id.and_then(|id| rendered_body(text, id)).unwrap_or(text)
 }
 
 /// The sender's words in a message as cmux renders it for the agent (`agent_message_prompt.rs`
