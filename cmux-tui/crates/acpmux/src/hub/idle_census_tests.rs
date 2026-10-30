@@ -450,3 +450,19 @@ fn a_relative_server_is_the_one_in_the_harnesss_folder() {
     }
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// An orphaned host's record from a daemon before servers carried an interpreter and a folder
+/// still loads, with neither known.
+#[test]
+fn an_older_orphan_exit_record_loads_without_interpreter_or_folder() {
+    let record = serde_json::json!({
+        "idle_ms": 600000,
+        "servers": [{"command": "acpmux", "args": ["mcp"], "resolved": "/usr/local/bin/acpmux"}],
+        "path": "/usr/bin",
+    });
+    let exit: crate::agent_host::OrphanExit =
+        serde_json::from_value(record).expect("an older record loads");
+    assert_eq!(exit.cwd, std::path::PathBuf::new());
+    assert_eq!(exit.servers.len(), 1);
+    assert_eq!(exit.servers[0].interpreter, None);
+}

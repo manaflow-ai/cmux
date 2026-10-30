@@ -389,7 +389,8 @@ import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { chatImages, type ChatImage } from "./conversation/chatImages";
+import type { ChatImage } from "./conversation/chatImages";
+import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
@@ -6328,12 +6329,10 @@ function AcpmuxPane() {
   turnRowsRef.current = snapshot.rows;
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
-  const openImage = useCallback((src: string, alt: string, path?: string) => {
-    const images = chatImages(turnRowsRef.current);
-    const index = images.findIndex((image) => image.src === src);
-    if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0 });
-    else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
-  }, []);
+  const openImage = useCallback(
+    (src: string, alt: string, path?: string) => setImageView(viewerImages(turnRowsRef.current, src, alt, path)),
+    [],
+  );
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
   const readQueuedImage = useCallback(
@@ -9489,6 +9488,13 @@ function AcpmuxPane() {
       (text) => ignoreFailure(copyText(text)),
       t,
       () => window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null),
+      // The same Markdown through the host's save panel; a host without one copies it instead.
+      () =>
+        void (window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null)).then(async (markdown) => {
+          if (!markdown) return;
+          const outcome = await saveDocumentNatively(markdown, snapshot.summary?.title ?? "", "markdown");
+          if (outcome === "unavailable") ignoreFailure(copyText(markdown));
+        }),
     );
     // Fork immediately; destination choices are a separate action and Option-click shortcut.
     const fork =

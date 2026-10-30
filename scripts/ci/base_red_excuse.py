@@ -26,29 +26,12 @@ A compile check that gave no verdict (the build fleet's "no result", "No build-f
 base red, even with the base's identical line: nothing compiled the head. It is set aside only when the
 same head has a real compile pass (a green Mac Release compile or a cmux-next/compile success). Error
 lines are compared with commit shas masked, so a real red that names each run's own commit still matches.
-
-A rollup job (ci-status, Guard status, macOS status: a job whose every step only reads its `needs` results)
-has no test or error of its own: its red is the reds of the jobs under it. It is found in the run's workflow
-files at the head, never from a list of names. It is excused only when it has a failed job under it in the same
-run, every one of them is excused above, and the rollup itself is red the same way on the base: red there too, with
-its failed steps and every line its own steps printed (their diagnostics: "workflow-guard-history: skipped (route
-...)", "Generated cmux-next files are stale") among the base's. A rollup also fails on what no failed job shows: a
-required job that was skipped, a bad route, a verdict read from a need's outputs; those reasons are only the base's
-when the base printed them too. Its job definition must be the same in the base run's workflow: a workflow edited
-at the head (a step that just fails, given a `needs` expression, or a changed default shell, env or caller input
-above it) is never judged as a rollup. A rollup with nothing
-failed under it, one whose own output cannot be found in its log, one changed at the head, and one whose workflow
-cannot be read (then it is judged as an ordinary job, with nothing to compare), stays red.
 """
 from __future__ import annotations
 
 import argparse
-import base64
 import importlib.util
-import json
-import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -71,22 +54,21 @@ test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
 
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
-# A rollup job reports the run's other jobs and runs nothing of its own: it has `needs`, no step that `uses:`
-# an action (so nothing checked out, no repo code), and every step reads its needs' results through its `env:` or
-# `run:`. It is judged by the failed jobs under it, never by itself (Graph and HeadJobs, below).
-NEEDS_RESULT = re.compile(r"toJSON\(\s*needs\s*\)|\bneeds\.[\w-]+\.result\b|\bneeds\[[^\]]+\]\.result\b", re.I)
-EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
-# A reusable workflow in the same repository, read at the same commit; any other `uses:` is opaque.
-LOCAL_WORKFLOW = re.compile(r"\./(\.github/workflows/[^@\s]+\.ya?ml)")
-# A red rollup's own output ends at its failing step's exit line; the runner's closing hooks follow it.
-STEP_EXIT = re.compile(r"##\[error\]Process completed with exit code \d+\.?$")
-ANSI = re.compile(r"\x1b\[[0-9;]*m")
-# GitHub nests reusable workflows at most four deep.
-MAX_WORKFLOW_DEPTH = 4
-# Where the workflow files at a run's head are read from first: this git repository (a mirror or checkout that has the
-# head commit; an agent host's gh broker refuses repository source reads through the API), then this script's own
-# checkout, and only then the contents API (CI, where the API is the job's own token).
-GIT_DIR_ENV = "BASE_RED_EXCUSE_GIT_DIR"
+# Jobs that only report the run's other jobs: judged by those jobs, never by themselves.
+AGGREGATES = frozenset({"ci-status"})
+GUARD_STATUS_SUFFIX = " / Guard status"
+# This is the routing contract in .github/workflows/ci-guards.yml.  Keep the
+# aggregate's report tied to the route input that selected its child job: a
+# plain job failure with a different route suffix is a routing failure, not
+# evidence for excusing that child against base.
+GUARD_ROUTES = {
+    "submodule_forward_only": "workflow-guard-submodule-forward-only",
+    "linux_guard_tests": "workflow-guard-tests",
+    "linux_guard_history": "workflow-guard-history",
+    "linux_guard_cli": "workflow-guard-cli-scripts",
+    "linux_guard_source": "workflow-guard-source-lints",
+}
+GUARD_JOB_TO_ROUTE = {job: route for route, job in GUARD_ROUTES.items()}
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
 # How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
@@ -98,6 +80,20 @@ VERDICTS = frozenset({"success", "failure"})
 # for the job stays bounded.
 BASE_RUNS_PAGE = 100
 BASE_JOB_READS = 40
+# A job no feat-cmux-next push runs gets its base verdict from a dispatch: main's tip suite dispatcher
+# (cmux-next-tip-swift-suite-dispatch.yml, a run named `<title><tested sha>`) or a hand dispatch. Base
+# pushes land every minute or two, so the window above can miss them (2026-10-30: no daemon-test verdict
+# on the base for hours, #27692). When it does, the base's newest completed dispatches are read too,
+# newest first, and the first with a verdict for the job decides, a green one included: an older red never
+# stands over a newer green. DEV daily runs and the other job's tip suite never run the job, so they are
+# skipped unread. At most TIP_SUITE_JOB_READS job lists; none of them with a verdict refuses as before.
+TIP_SUITES = {
+    "cmux-next swift test": "cmux-next tip Swift suite · ",
+    "cmux-next daemon tests": "cmux-next tip daemon suite · ",
+}
+TIP_SUITE_JOB_READS = 6
+# cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
+DISPATCHES_WITHOUT_TESTS = ("cmux NEXT DEV daily",)
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -137,6 +133,11 @@ COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
 COMPILE_PASS_STATUS = "cmux-next/compile"
 # The Mac Release compile's steps that compile (or reuse a pass for the same inputs).
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
+
+
+def is_aggregate(name: str) -> bool:
+    """Whether a check reports routed jobs rather than running work itself."""
+    return name in AGGREGATES or name == "Guard status" or name.endswith(GUARD_STATUS_SUFFIX)
 
 
 def mask_shas(text: str) -> str:
@@ -225,298 +226,143 @@ def refused_at_setup(job: dict, log: str | None = None) -> bool:
     return log is not None and HOOK_REFUSAL in log
 
 
-def is_rollup(job: dict) -> bool:
-    """True when JOB (a workflow's job mapping) only rolls up the results of its `needs`."""
-    steps = job.get("steps")
-    return (bool(job.get("needs")) and "uses" not in job and isinstance(steps, list) and bool(steps)
-            and all(isinstance(step, dict) and "uses" not in step
-                    and NEEDS_RESULT.search(json.dumps([step.get("env"), step.get("run")]))
-                    for step in steps))
+def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict], github) -> None:
+    """A Guard status red must report only failed routes backed by concrete children.
 
-
-def step_header(step: dict) -> tuple[str, re.Pattern]:
-    """(the API's name for a `run:` step, its log's `##[group]Run ...` header): the header is the script's first line,
-    an expression matching anything; an unnamed step is named after that line, as GitHub names it."""
-    first = next((line.strip() for line in str(step.get("run") or "").splitlines() if line.strip()), "")
-    return (str(step.get("name") or f"Run {first}"),
-            re.compile(r"##\[group\]Run " + ".*".join(re.escape(part) for part in EXPRESSION.split(first))))
-
-
-def step_output(job: dict, log: str, steps: list[tuple[str, re.Pattern]]) -> set[str] | None:
-    """Every line the rollup's own steps printed in JOB's LOG (numbers and commit shas masked), or None when that
-    cannot be read whole. The output runs from the end of the first step's echoed script (its `##[group]Run ...`
-    header to the first `##[endgroup]`) to the log's last exit line, the failing step's end; only the later steps'
-    own echoed scripts are cut out of it. Group titles, warnings and notices inside it are compared like any line.
-    None when a step that ran is missing, in order, when a section has no end, or when no exit line follows."""
-    listed = [step.get("name") for step in job.get("steps") or []]
-    # A step is told from the API's list by its name, so a name that repeats there or among the rollup's steps cannot
-    # say which ran: never read.
-    if len(set(listed)) != len(listed) or len({name for name, _ in steps}) != len(steps):
-        return None
-    ran = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}
-    lines = [ANSI.sub("", line) for line in lines_of(log)]
-    echoed: list[tuple[int, int]] = []  # (header, endgroup) of each step that ran
-    at = 0
-    for name, header in steps:
-        if name not in ran:
-            return None
-        if ran[name] == "skipped":
+    The wrapper also validates routing inputs and required-but-skipped jobs.
+    Those failures cannot be waived by an unrelated child that is red on base.
+    Children returned by head_jobs are still compared with base by judge.
+    """
+    name = guard["name"]
+    if guard.get("head_sha") not in (None, sha):
+        raise Refused(f"'{name}': job is not for the exact SHA {sha}")
+    if guard.get("status") != "completed" or guard.get("conclusion") != "failure":
+        raise Refused(f"'{name}': no completed failure verdict for its routes")
+    text = github.log(repo, guard)
+    if refused_at_setup(guard, text):
+        raise Refused(f"'{name}' was refused at setup by its runner")
+    steps, _, errors = signature(guard, text)
+    if steps != {"Check routed guard jobs"}:
+        raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
+    if errors:
+        raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
+    report = test_reds.read(text)
+    if report.crashes or report.truncated:
+        raise Refused(f"'{name}': routing process crashed or ended early")
+    prefix = name[:-len("Guard status")]
+    routes = []
+    for line in lines_of(text):
+        match = re.fullmatch(r"((?:workflow-guard-[\w-]+|linux_guard_[\w]+)): (.+)", line)
+        if not match:
             continue
-        start = next((index for index in range(at, len(lines)) if header.fullmatch(lines[index])), None)
-        if start is None:
-            return None
-        end_group = next((index for index in range(start + 1, len(lines)) if lines[index].startswith("##[endgroup]")),
-                         None)
-        if end_group is None:
-            return None
-        echoed.append((start, end_group))
-        at = end_group + 1
-    if not echoed:
-        return None
-    end = next((index for index in range(len(lines) - 1, echoed[-1][1], -1) if STEP_EXIT.match(lines[index])), None)
-    if end is None:
-        return None
-    found: set[str] = set()
-    for index in range(echoed[0][1] + 1, end):
-        if any(start <= index <= end_group for start, end_group in echoed):
-            continue
-        text = re.sub(r"^##\[(?:error|warning|notice|debug|group)\]", "", lines[index]).strip()
-        if text and text != "##[endgroup]":
-            found.add(re.sub(r"\d+", "#", mask_shas(text)))
-    return found
+        route, result = match.groups()
+        result_match = re.fullmatch(r"failure(?: \(route ([\w]+)=(true|false)\))?", result)
+        if not result_match:
+            raise Refused(f"'{name}': {route}: {result}")
+        reported_route, enabled = result_match.groups()
+        expected_route = GUARD_JOB_TO_ROUTE.get(route)
+        if expected_route is None:
+            raise Refused(f"'{name}': unknown routed job {route}")
+        if reported_route is not None and (reported_route != expected_route or enabled != "true"):
+            raise Refused(f"'{name}': route {reported_route} does not map to {route} (expected {expected_route}=true)")
+        if reported_route is None and route != GUARD_ROUTES["submodule_forward_only"]:
+            raise Refused(f"'{name}': {route} has no route mapping in its failure report")
+        child_name = prefix + route
+        if not any(child.get("conclusion") == "failure" and
+                   (child.get("name") == child_name or child.get("name", "").startswith(child_name + " / "))
+                   for child in children):
+            raise Refused(f"'{name}': no failed child for routed failure {route}")
+        routes.append(route)
+    if not routes:
+        raise Refused(f"'{name}': no routed failure report to compare with its children")
 
 
-def name_pattern(name: str, matrix: bool) -> tuple[str, bool]:
-    """(regex, literal) for the run's display name of a job named NAME: an expression matches anything, and a
-    matrix job's name may carry its values in parentheses."""
-    regex = ".*".join(re.escape(part) for part in EXPRESSION.split(name))
-    literal = EXPRESSION.search(name) is None and not matrix
-    if matrix and EXPRESSION.search(name) is None:
-        regex += r"(?: \(.+\))?"
-    return regex, literal
-
-
-class Graph:
-    """The jobs of one workflow run as its workflow files at the run's head declare them (`needs:`, names and
-    reusable workflow calls), so a rollup's jobs come from the workflow, never from a list of names."""
-
-    def __init__(self, read):
-        self.read = read
-        self.nodes: dict[str, dict] = {}
-
-    def add_file(self, path: str, prefix: str = "", scope: str = "", depth: int = 0, literal_prefix: bool = True,
-                 context: tuple = ()) -> None:
-        import yaml  # PyYAML; an ImportError leaves the graph unread, so every job is judged as itself.
-
-        if depth > MAX_WORKFLOW_DEPTH:
-            raise ValueError(f"{path}: reusable workflows nested past {MAX_WORKFLOW_DEPTH}")
-        workflow = yaml.safe_load(self.read(path))
-        jobs = workflow.get("jobs")
-        if not isinstance(jobs, dict) or not jobs:
-            raise ValueError(f"{path}: no jobs")
-        # Everything else in the file (env, defaults, permissions, on, ...) shapes how its jobs run.
-        context = context + ({str(key): value for key, value in workflow.items() if key != "jobs"},)
-        for key, job in jobs.items():
-            if not isinstance(job, dict):
-                raise ValueError(f"{path}: job {key} is not a mapping")
-            needs = job.get("needs") or []
-            needs = [needs] if isinstance(needs, str) else list(needs)
-            strategy = job.get("strategy")
-            matrix = isinstance(strategy, dict) and bool(strategy.get("matrix"))
-            regex, literal = name_pattern(str(job.get("name") or key), matrix)
-            node = {"id": scope + str(key), "key": str(key), "needs": [scope + str(need) for need in needs],
-                    "rollup": is_rollup(job), "caller": "uses" in job,
-                    # The job as written, with every file and caller job above it, to tell a rollup the head changed
-                    # from the base's.
-                    "definition": json.dumps([context, job], sort_keys=True, default=str),
-                    "headers": [step_header(step) for step in job.get("steps") or []] if is_rollup(job) else []}
-            if node["caller"]:
-                # Every job of a called workflow shows as "<caller> / <job>".
-                node.update(pattern=re.compile(prefix + regex + " / .+"), literal=False)
-                if match := LOCAL_WORKFLOW.fullmatch(str(job["uses"]).strip()):
-                    self.add_file(match[1], prefix + regex + " / ", node["id"] + "/", depth + 1,
-                                  literal_prefix and literal, context + (job,))
-            else:
-                node.update(pattern=re.compile(prefix + regex), literal=literal_prefix and literal)
-            self.nodes[node["id"]] = node
-
-    def resolve(self, name: str) -> dict | None:
-        """The one job of the workflow that NAME is, or None when no job or more than one could be."""
-        found = [node for node in self.nodes.values() if not node["caller"] and node["pattern"].fullmatch(name)]
-        exact = [node for node in found if node["literal"]]
-        found = exact or found
-        return found[0] if len(found) == 1 else None
-
-    def under(self, node: dict) -> list[re.Pattern]:
-        """The display-name patterns of every job NODE depends on, directly or through other jobs; a called
-        workflow brings all of its jobs."""
-        patterns, seen, queue = [], {node["id"]}, list(node["needs"])
-        while queue:
-            need = queue.pop()
-            if need in seen:
-                continue
-            seen.add(need)
-            if need not in self.nodes:
-                raise Refused(f"'{node['key']}' needs '{need}', which its workflow does not declare")
-            found = self.nodes[need]
-            patterns.append(found["pattern"])
-            if found["caller"]:
-                patterns.extend(inner["pattern"] for inner in self.nodes.values()
-                                if inner["id"].startswith(need + "/"))
-            queue.extend(found["needs"])
-        return patterns
-
-
-def git_file(sha: str, path: str) -> str | None:
-    """PATH at commit SHA from a local git repository that has it (GIT_DIR_ENV, then this script's checkout)."""
-    if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        return None
-    for where in (os.environ.get(GIT_DIR_ENV), str(Path(__file__).resolve().parent)):
-        if not where:
-            continue
-        try:
-            # A partial clone would fetch a missing commit from its remote; only what is already here counts.
-            found = subprocess.run(["git", "-C", where, "show", f"{sha}:{path}"], capture_output=True, timeout=30,
-                                   stdin=subprocess.DEVNULL, env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if found.returncode == 0:
-            return found.stdout.decode()
-    return None
-
-
-def workflow_graph(repo: str, run: dict, github) -> Graph | None:
-    """RUN's job graph from its workflow file at its head commit, or None when that cannot be read."""
-    path, sha = run.get("path"), run.get("head_sha")
-    if not isinstance(path, str) or not isinstance(sha, str) or not path.startswith(".github/workflows/"):
-        return None
-    files: dict[str, str] = {}
-
-    def read(name: str) -> str:
-        if name not in files:
-            text = git_file(sha, name)
-            if text is None:
-                found = github.json(f"repos/{repo}/contents/{name}?ref={sha}")
-                if found.get("encoding") != "base64" or not isinstance(found.get("content"), str):
-                    raise ValueError(f"{name}: no file content at {sha}")
-                text = base64.b64decode(found["content"]).decode()
-            files[name] = text
-        return files[name]
-
-    graph = Graph(read)
-    try:
-        graph.add_file(path.split("@", 1)[0])
-    except Exception:  # noqa: BLE001 - any unreadable workflow leaves every job judged as itself (fail closed)
-        return None
-    return graph
-
-
-def failed(job: dict) -> bool:
-    return job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral")
-
-
-class HeadJobs:
-    """The head's failed jobs to compare with the base, with every rollup replaced by the failed jobs under it."""
-
-    def __init__(self, repo: str, sha: str, github):
-        self.repo, self.sha, self.github = repo, sha, github
-        self.jobs: dict[int, dict] = {}
-        self.notes: list[str] = []
-        self.runs: dict[int, dict] = {}
-        self.run_jobs: dict[int, list[dict]] = {}
-        self.graphs: dict[int, Graph | None] = {}
-        # Rollups found among the head's reds: compared with the base as well, minus the need for a test line.
-        self.rollups: dict[int, dict] = {}
-        self.rollup_nodes: dict[int, dict] = {}
-        # A job brought in by a rollup: the rollup's name, so a refusal says which red it stands for.
-        self.parents: dict[int, str] = {}
-        self.current: int | None = None  # the job judge_jobs is comparing now
-
-    def run(self, run_id: int) -> dict:
-        if run_id not in self.runs:
-            self.runs[run_id] = self.github.json(f"repos/{self.repo}/actions/runs/{run_id}")
-        return self.runs[run_id]
-
-    def jobs_of(self, run_id: int) -> list[dict]:
-        if run_id not in self.run_jobs:
-            self.run_jobs[run_id] = [job for page in self.github.json(
-                f"repos/{self.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", paginate=True)
-                for job in page.get("jobs") or []]
-        return self.run_jobs[run_id]
-
-    def graph(self, run_id: int, run: dict | None = None) -> Graph | None:
-        if run_id not in self.graphs:
-            self.graphs[run_id] = workflow_graph(self.repo, run or self.run(run_id), self.github)
-        return self.graphs[run_id]
-
-    def add(self, job: dict) -> None:
-        if job.get("head_sha") not in (None, self.sha):
-            raise Refused(f"{job.get('name')}: job is not for the exact SHA {self.sha}")
-        if job["id"] in self.jobs or job["id"] in self.rollups:
-            return
-        graph = self.graph(job["run_id"])
-        node = graph.resolve(job.get("name", "")) if graph is not None else None
-        if node is None or not node["rollup"]:
-            self.jobs[job["id"]] = job
-            return
-        self.rollups[job["id"]] = job
-        self.rollup_nodes[job["id"]] = node
-        patterns = graph.under(node)
-        under = [found for found in self.jobs_of(job["run_id"])
-                 if found["id"] != job["id"] and failed(found)
-                 and any(pattern.fullmatch(found.get("name", "")) for pattern in patterns)]
-        if not under:
-            raise Refused(f"'{job.get('name')}' rolls up {', '.join(sorted(need.rsplit('/', 1)[-1] for need in node['needs']))} "
-                          f"and no job under it failed in run {job['run_id']}: nothing to compare with the base")
-        self.notes.append(f"'{job.get('name')}' rolls up run {job['run_id']}'s jobs; judged by the failed ones under it: "
-                          + "; ".join(sorted(found.get("name", "") for found in under))[:600])
-        for found in under:
-            self.parents.setdefault(found["id"], self.parents.get(job["id"], job.get("name", "")))
-            self.add(found)
-
-
-def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, notes: list[str] | None = None,
-              head: HeadJobs | None = None) -> list[dict]:
-    head = head or HeadJobs(repo, sha, github)
+def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -> list[dict]:
+    jobs: dict[int, dict] = {}
     for run in runs:
-        for job in head.jobs_of(run):
-            if failed(job):
-                head.add(job)
+        guards = []
+        children = []
+        for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", paginate=True):
+            for job in page.get("jobs") or []:
+                if is_aggregate(job.get("name", "")):
+                    if job.get("name") not in AGGREGATES and job.get("conclusion") not in ("success", "skipped", "neutral", None):
+                        guards.append(job)
+                    continue
+                if job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral"):
+                    if job.get("head_sha") not in (None, sha):
+                        raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
+                    jobs[job["id"]] = job
+                    children.append(job)
+        for guard in guards:
+            if not children:
+                raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
+            validate_guard_routes(repo, sha, guard, children, github)
     if checks:
         latest = latest_checks(repo, sha, github)
+        aggregate_jobs = []
+        aggregate_runs = []
         for name in checks:
             if name not in latest:
                 raise Refused(f"{name}: has not run on exact head {sha}")
-            head.add(job_for(repo, latest[name], sha, github))
-    if notes is not None:
-        notes.extend(head.notes)
-    # A rollup only gets here with failed jobs under it (add refuses one without), so it is never alone. It is judged
-    # after them, so a refusal names the job under it that is not the base's before the rollup's own lines.
-    return list(head.jobs.values()) + list(head.rollups.values())
+            job = job_for(repo, latest[name], sha, github)
+            if is_aggregate(name):
+                if name in AGGREGATES:
+                    aggregate_runs.append(job["run_id"])
+                    continue
+                # The check-run can remain failed while its Actions job has
+                # been retried or replaced.  Never discard this exact job and
+                # rescan the run: a green/missing aggregate must not allow its
+                # child failures to be excused.
+                if job.get("conclusion") != "failure":
+                    raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
+                aggregate_jobs.append(job)
+            else:
+                jobs[job["id"]] = job
+        for run in aggregate_runs:
+            found = head_jobs(repo, sha, [run], [], github)
+            if not found:
+                raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
+            jobs.update((job["id"], job) for job in found)
+        for guard in aggregate_jobs:
+            found = head_jobs(repo, sha, [guard["run_id"]], [], github)
+            if not found:
+                raise Refused(f"run {guard['run_id']}: its aggregate check failed with no failed job to compare with the base")
+            validate_guard_routes(repo, sha, guard, found, github)
+            jobs.update((job["id"], job) for job in found)
+    return list(jobs.values())
+
+
+def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
+                      base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
+    """The newest completed tip suite run of BASE with a verdict for job NAME, and that job."""
+    others = tuple(title for job, title in TIP_SUITES.items() if job != name) + DISPATCHES_WITHOUT_TESTS
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
+                         f"&status=completed&per_page={BASE_RUNS_PAGE}")
+    candidates = [run for run in listed.get("workflow_runs") or []
+                  if run.get("conclusion") != "skipped"
+                  and not (run.get("display_title") or "").startswith(others)]
+    for run in candidates[:TIP_SUITE_JOB_READS]:
+        if run["id"] not in base_jobs:
+            base_jobs[run["id"]] = [found for page in github.json(
+                f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)
+                for found in page.get("jobs") or []]
+        found = next((found for found in base_jobs[run["id"]] if found.get("name") == name), None)
+        if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
+            return run, found
+    return None, None
 
 
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not."""
-    reds = HeadJobs(repo, sha, github)
-    try:
-        return judge_jobs(repo, base, sha, runs, github, list(checks), reds)
-    except Refused as error:
-        if reds.current in reds.parents:
-            raise Refused(f"'{reds.parents[reds.current]}' rolls up a red that is not excused: {error}") from None
-        raise
-
-
-def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: list[str], reds: HeadJobs) -> list[str]:
     audit: list[str] = []
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
     job_reads: dict[int, int] = {}
-    jobs = head_jobs(repo, sha, runs, checks, github, audit, reds)
+    jobs = head_jobs(repo, sha, runs, list(checks), github)
     if not jobs:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
     for job in jobs:
-        reds.current = job["id"]
         name = job.get("name", "")
         if job.get("conclusion") != "failure":
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
@@ -536,7 +382,7 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
         if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
-        workflow = reds.run(job["run_id"]).get("workflow_id")
+        workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
                                  f"&per_page={BASE_RUNS_PAGE}")
@@ -557,16 +403,18 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
             if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
                 base_run, base_job = candidate_run, found
                 break
+        if base_run is None and name in TIP_SUITES:
+            base_run, base_job = tip_suite_verdict(repo, base, workflow, name, github, base_jobs)
         if base_run is None:
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
-                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists)")
+                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
+                          f"and its tip suite runs)")
         if base_job.get("conclusion") != "failure":
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
-        # A rollup's red is the jobs under it, each compared on its own; its own lines, if any, are compared below.
-        if not head_tests and not head_errors and not head_crash and job["id"] not in reds.rollups:
+        if not head_tests and not head_errors and not head_crash:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
@@ -580,28 +428,10 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
-        if job["id"] in reds.rollup_nodes:
-            base_graph = reds.graph(base_run["id"], base_run)
-            base_node = base_graph.resolve(name) if base_graph is not None else None
-            if base_node is None or base_node["definition"] != reds.rollup_nodes[job["id"]]["definition"]:
-                raise Refused(f"'{name}': its job in the workflow at the head is not the one {base} run {base_run['id']} "
-                              "ran (or that workflow cannot be read); a changed rollup is never judged by its jobs")
-            steps = reds.rollup_nodes[job["id"]]["headers"]
-            said = step_output(job, head_log, steps)
-            if said is None:
-                raise Refused(f"'{name}': its own steps' output is not in its log whole; nothing to compare with the base")
-            base_said = step_output(base_job, base_log, steps)
-            if base_said is None:
-                raise Refused(f"'{name}': its own steps' output is not in {base} run {base_run['id']}'s log whole; "
-                              "nothing to compare with")
-            compared.append(("lines it printed", said, base_said))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
         what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
-        if job["id"] in reds.rollups:
-            what = what or "the failed steps " + "; ".join(sorted(head_steps))
-            what += " (and the jobs under it, each excused here)"
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
     return audit
