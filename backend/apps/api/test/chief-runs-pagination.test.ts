@@ -170,7 +170,7 @@ describe("Cloud Chief durable/P run route pagination", () => {
       .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
       .setIssuer(`https://api.stack-auth.com/api/v1/projects/${bindings.STACK_PROJECT_ID}`)
       .setAudience(bindings.STACK_PROJECT_ID).setSubject("chief-paging-route").setIssuedAt().setExpirationTime("10m")
-      .sign(await importJWK(JSON.parse(bindings.STACK_TEST_PRIVATE_JWK!) as JWK, "ES256"))
+      .sign(await importJWK(JSON.parse((testEnv as unknown as { STACK_TEST_PRIVATE_JWK: string }).STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
     const env = {
       ...bindings,
       CHIEF_DURABLE_ENABLED: "1",
