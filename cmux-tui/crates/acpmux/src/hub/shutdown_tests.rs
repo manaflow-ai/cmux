@@ -242,3 +242,112 @@ async fn a_cut_turn_of_agent_messages_puts_none_of_them_back() {
     assert!(queue.is_empty(), "the old daemon put the cut turn's messages back: {queue:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Quit Everything (`endAgents`) ends every turn in progress as cancelled, also one whose end was
+/// under way and held past the shutdown's grace (Sol review of #28503): the shutdown found no turn
+/// to take, and the held end lands after the seal. The log holds that turn's one end, cancelled,
+/// and nothing retries it.
+#[tokio::test]
+async fn quit_everything_ends_a_turn_whose_end_was_under_way_as_cancelled() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let opts = PromptOptions { prompt_id: Some("p-quit".to_owned()), ..PromptOptions::default() };
+    let blocks = vec![json!({"type": "text", "text": "die-later: gone"})];
+    let turn = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    hub.end_agents_at_shutdown(Default::default()).unwrap();
+    hub.shutdown_all().await;
+    let _ = release.send(());
+    let _ = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
+    let ends = records(&hub, &s, "turn_result");
+    assert_eq!(ends.len(), 1, "the turn's ends: {ends:?}");
+    assert_eq!((&ends[0]["status"], &ends[0]["detail"]), (&json!("cancelled"), &json!("quit")));
+    let retries = records(&hub, &s, "auto_resume_scheduled");
+    assert!(retries.is_empty(), "a turn Quit Everything ended was retried: {retries:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An answer that comes in while a restart's shutdown drains (its end under way when the
+/// shutdown began, held a moment) is the turn's end: the old daemon writes it whole, the
+/// shutdown hands nothing on, and the next daemon continues nothing (router review of #28503).
+/// Never a handed-on turn with an end, nor one with half of one.
+#[tokio::test]
+async fn an_answer_that_lands_while_the_shutdown_drains_ends_the_turn_once() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let opts = PromptOptions { prompt_id: Some("p-drain".to_owned()), ..PromptOptions::default() };
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let turn = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    let mut shutdown = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.shutdown_all().await })
+    };
+    until("the shutdown began", || hub.shutting_down()).await;
+    // The answer lands while the shutdown drains: a shutdown that does not wait for it is done
+    // by now, one that does is still waiting.
+    let _ = tokio::time::timeout(Duration::from_millis(500), &mut shutdown).await;
+    let _ = release.send(());
+    let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    let _ = tokio::time::timeout(WAIT, shutdown).await.unwrap();
+    let ends = records(&hub, &s, "turn_result");
+    let started = records(&hub, &s, "turn_started");
+    let cut = started.last().expect("the turn started")["turnId"].clone();
+    let id = s.id.clone();
+    drop(s);
+    drop(hub);
+
+    let hub = hub_in(&dir);
+    let s = hub.resolve(&id).unwrap();
+    hub.session_log(&s).await;
+    let mine: Vec<_> = ends.iter().filter(|m| m["turnId"] == cut).collect();
+    assert_eq!(mine.len(), 1, "the turn's ends: {ends:?}");
+    assert_eq!(mine[0]["status"], "completed", "{mine:?}");
+    let queued = records(&hub, &s, "queued");
+    assert!(
+        !queued.iter().any(|m| m["promptId"] == "p-drain~resume-1"),
+        "a turn that ended was continued: {queued:?}"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A shutdown that meets a detach ending its agent waits for that end (router review of #28503):
+/// the agent's kill takes up to its grace (`KILL_GRACE`), longer than the shutdown waits for the
+/// child lock, and a shutdown that gave up counted the agent kept while the detach ended it.
+#[tokio::test]
+async fn a_shutdown_waits_for_a_detach_that_is_ending_its_agent() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = queue_hub_in(&dir, json!({"FAKE_IGNORE_TERM": "1"}));
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await.unwrap();
+    let child = s.child.lock().await.clone().expect("the chat's agent");
+    let detach = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.detach_child(&s).await })
+    };
+    until("the detach holds the child lock", || s.child.try_lock().is_err()).await;
+    hub.shutdown_all().await;
+    assert!(detach.is_finished(), "the shutdown went on while a detach ended the agent");
+    assert!(!child.is_alive().await, "the detach did not end its agent");
+    let _ = std::fs::remove_dir_all(&dir);
+}
