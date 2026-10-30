@@ -25,18 +25,28 @@ import Testing
     /// The edge matrix deliberately crosses the app appearance density with the sidebar's own
     /// density. Search's side follows appearance tokens while row heights/insets follow the
     /// sidebar density, so either axis alone can miss a clipping or alignment regression.
+    nonisolated enum EdgeWidth: String, CaseIterable, Sendable { case minimum, `default`, wide }
+
     nonisolated struct EdgeLook: CustomTestStringConvertible, Sendable {
         var appearance: DensityPreset
         var density: SidebarDensity
-        var width: CGFloat
-        var testDescription: String { "\(appearance.rawValue)/\(density.rawValue)/\(width)pt" }
+        var width: EdgeWidth
+        var testDescription: String { "\(appearance.rawValue)/\(density.rawValue)/\(width.rawValue)" }
     }
 
     nonisolated static let edgeLooks: [EdgeLook] = DensityPreset.allCases.flatMap { appearance in
         SidebarDensity.allCases.flatMap { density in
-            [CGFloat(160), 208, 360].map {
+            EdgeWidth.allCases.map {
                 EdgeLook(appearance: appearance, density: density, width: $0)
             }
+        }
+    }
+
+    private static func edgeWidth(_ kind: EdgeWidth) -> CGFloat {
+        switch kind {
+        case .minimum: Metrics.sidebarMinWidth
+        case .default: Metrics.sidebarWidth
+        case .wide: Metrics.sidebarMaxWidth
         }
     }
 
@@ -160,7 +170,7 @@ import Testing
     func trailingAccessoriesStayInsideContentAndShareOneColumn(_ c: EdgeLook) throws {
         try Self.withAppearance(c.appearance) {
             try SidebarGroupRailAlignmentTests.with(c.density, .off) {
-                let width = c.width
+                let width = Self.edgeWidth(c.width)
                     let h = T.KindHarness(width: width)
                     defer { h.window.close() }
                     let column = try T.columnX(h)
@@ -170,7 +180,7 @@ import Testing
                         ("status", try h.row(.workspace(T.unread))),
                         ("selected", try h.row(.workspace(T.selected))),
                         ("group", try h.row(.group(T.open))),
-                        ("pinned", try h.bandRow(T.home)),
+                        ("pinned", try h.bandRow(T.lead)),
                     ]
                     for (name, row) in rows {
                         for mark in T.marks(in: row, named: name, list: h.list) {

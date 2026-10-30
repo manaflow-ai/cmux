@@ -5,15 +5,25 @@ import AppKit
 
 /// Footer Search geometry stays reachable in every pinned-row shape: empty, fitting, and overfull.
 @MainActor @Suite(.serialized) struct SidebarFooterSearchGeometryTests {
+    nonisolated enum WidthKind: String, CaseIterable, Sendable { case minimum, `default`, wide }
+
     nonisolated struct Case: Sendable, CustomTestStringConvertible {
         var appearance: DensityPreset
-        var width: CGFloat
-        var testDescription: String { "\(appearance.rawValue)/\(width)pt" }
+        var width: WidthKind
+        var testDescription: String { "\(appearance.rawValue)/\(width.rawValue)" }
     }
 
     nonisolated static let cases: [Case] = DensityPreset.allCases.flatMap { appearance in
-        [CGFloat(160), 208, 360].map {
+        WidthKind.allCases.map {
             Case(appearance: appearance, width: $0)
+        }
+    }
+
+    private static func width(_ kind: WidthKind) -> CGFloat {
+        switch kind {
+        case .minimum: Metrics.sidebarMinWidth
+        case .default: Metrics.sidebarWidth
+        case .wide: Metrics.sidebarMaxWidth
         }
     }
 
@@ -89,7 +99,7 @@ import AppKit
             defer { DesignSettings.shared.sidebarSections.showSearchButton = saved }
             for spaces in [SpacesPosition.bottom, .top] {
                 for (label, count) in [("empty", 0), ("fitting", 1), ("overfull", 12)] {
-                    let h = FooterHarness(width: c.width, itemCount: count, searchEnabled: true, spaces: spaces)
+                    let h = FooterHarness(width: Self.width(c.width), itemCount: count, searchEnabled: true, spaces: spaces)
                     defer { h.window.close() }
                     h.settle()
                     try Self.assertSearch(h, c, enabled: true)
@@ -99,11 +109,11 @@ import AppKit
                         if let row = h.sidebar.footerBand.bandFirstRow {
                             let search = h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar)
                             #expect(!search.intersects(row.frame),
-                                    "\(c)/\(spaces): dedicated Search (search) overlaps footer row (row.frame)")
+                                    "\(c)/\(spaces): dedicated Search \(search) overlaps footer row \(row.frame)")
                         }
                     }
                 }
-                let disabled = FooterHarness(width: c.width, itemCount: 12, searchEnabled: false, spaces: spaces)
+                let disabled = FooterHarness(width: Self.width(c.width), itemCount: 12, searchEnabled: false, spaces: spaces)
                 defer { disabled.window.close() }
                 disabled.settle()
                 try Self.assertSearch(disabled, c, enabled: false)
@@ -114,12 +124,13 @@ import AppKit
     @Test(arguments: cases)
     func everyAppearanceDensityKeepsEmptySearchClearOfResizeBand(_ c: Case) throws {
         try Self.withAppearance(c.appearance) {
-            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: c.width)
+            let width = Self.width(c.width)
+            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: width)
             let side = SidebarFooterBand.searchButtonSide
-            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: c.width, side: side, itemsMaxX: nil)
+            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: width, side: side, itemsMaxX: nil)
             let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
                                          gutter: Metrics.mainPaneGutter)
-            #expect(placement.x + side <= c.width - band.inside + 0.51,
+            #expect(placement.x + side <= width - band.inside + 0.51,
                     "\(c): Search (placement) enters resize band \(band)")
             #expect(abs(placement.x + side / 2 - column) <= 0.51,
                     "\(c): Search center \(placement.x + side / 2) is off the shared column \(column)")
@@ -129,9 +140,10 @@ import AppKit
     @Test(arguments: cases)
     func emptyPinnedRowUsesTheSharedColumn(_ c: Case) throws {
         try Self.withAppearance(c.appearance) {
-            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: c.width)
+            let width = Self.width(c.width)
+            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: width)
             let side = SidebarFooterBand.searchButtonSide
-            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: c.width, side: side, itemsMaxX: nil)
+            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: width, side: side, itemsMaxX: nil)
             #expect(!placement.needsDedicatedRow, "\(c): empty footer unexpectedly needs a dedicated row")
             #expect(abs(placement.x + side / 2 - column) <= 0.51,
                     "\(c): empty footer Search is off its shared column")
@@ -141,9 +153,10 @@ import AppKit
     @Test(arguments: cases)
     func presentPinnedRowThatFitsStaysOnItsSharedColumn(_ c: Case) throws {
         try Self.withAppearance(c.appearance) {
-            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: c.width)
+            let width = Self.width(c.width)
+            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: width)
             let side = SidebarFooterBand.searchButtonSide
-            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: c.width, side: side,
+            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: width, side: side,
                                                                itemsMaxX: column - side - Metrics.space4)
             #expect(!placement.needsDedicatedRow, "\(c): fitting footer unexpectedly needs a dedicated row")
             #expect(abs(placement.x - column + side / 2) <= 0.51,
@@ -154,13 +167,14 @@ import AppKit
     @Test(arguments: cases)
     func overfullPinnedRowGetsAReachableDedicatedFooterLine(_ c: Case) throws {
         try Self.withAppearance(c.appearance) {
-            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: c.width)
+            let width = Self.width(c.width)
+            let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: width)
             let side = SidebarFooterBand.searchButtonSide
             let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
                                          gutter: Metrics.mainPaneGutter)
-            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: c.width, side: side, itemsMaxX: c.width)
+            let placement = SidebarFooterBand.searchPlacement(sidebarWidth: width, side: side, itemsMaxX: width)
             #expect(placement.needsDedicatedRow, "\(c): overfull footer did not reserve its own row")
-            #expect(placement.x + side <= c.width - band.inside + 0.51,
+            #expect(placement.x + side <= width - band.inside + 0.51,
                     "\(c): overfull Search enters resize band")
             #expect(abs(placement.x + side / 2 - column) <= 0.51,
                     "\(c): overfull Search is not on the shared column fallback")
