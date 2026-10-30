@@ -105,6 +105,14 @@ public final class AgentPaneModel {
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// Takes back a long recording the pane's dictation gave the page, for chat `session`
+    /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
+    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
+    /// Gives back a long recording of chat `session` whose upload failed, so the page may try again
+    /// (``AgentPaneDictation/giveBackRecording(_:session:)``).
+    @ObservationIgnored var onDictationRecordingUnsent: ((_ recording: AgentPaneIssuedRecording, _ session: String) -> Void)?
+    /// The long recordings uploading now, and the ones whose chip's × stopped them.
+    @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
@@ -482,6 +490,8 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
+        case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
+        case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
             return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))

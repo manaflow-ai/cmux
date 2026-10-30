@@ -149,6 +149,7 @@ import {
   type DroppedKind,
   recordingAttachment,
   recordingLeftOutNotice,
+  remoteRecordingAttachment,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
@@ -7183,9 +7184,22 @@ function AcpmuxPane() {
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: (audio) => {
-      const recording = recordingAttachment(audio, translate("dictation.recording"), chatIsLocal.current);
+      const name = translate("dictation.recording");
+      const recording = recordingAttachment(audio, name, chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);
-      else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "tooLarge")));
+      else if (!audio.path) directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
+      // A chat on another computer: the host sends its file there. Until it answers, the recording
+      // is a pending chip that a send (Return, Send, the auto-send) waits for, as for a dropped
+      // file still uploading; one that fails says so on its chip, with Retry. A chip made after the
+      // pane moved to another chat is that chat's (it names a file on that chat's machine).
+      else
+        composerHandle.current?.attachLater(
+          `${name}.wav`,
+          () => remoteRecordingAttachment(audio, name, callNative),
+          translate(recordingLeftOutNotice("elsewhere")),
+          // Its ×: the host stops sending and drops what it staged on that machine.
+          () => void callNative("dictation.recording.cancel", { path: audio.path }).catch(() => {}),
+        );
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
     chat: () => sessionIdRef.current,
