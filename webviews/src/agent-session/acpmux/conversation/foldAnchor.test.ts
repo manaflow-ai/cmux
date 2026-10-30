@@ -3,7 +3,18 @@
 // "WHEN I EXPAND THEM IT JUMPS ME DOWN AND WHEN I COLLAPSE IT JUMPS ME UP").
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { foldHoldTarget, foldHolding, foldRoomFor, foldToggleAt, trimmedFoldRoom } from "./foldAnchor";
+import {
+  clickFold,
+  FOLD_HOLD_MAX_MS,
+  FOLD_SETTLE_MS,
+  foldHoldTarget,
+  foldHolding,
+  foldRoomFor,
+  foldToggleAt,
+  keepFold,
+  trimmedFoldRoom,
+  verticalWheel,
+} from "./foldAnchor";
 
 describe("foldRoomFor", () => {
   test("keeps the view's end, whole pixels up", () => {
@@ -49,13 +60,34 @@ describe("foldToggleAt", () => {
   // Every control that opens or closes something in a row is held, so none of them moves the view.
   for (const [kind, html, selector] of [
     ["a tool line", '<button class="cv-tool is-toggle" aria-expanded="false"><span class="x">ls</span></button>', ".x"],
-    ["a sent message's line (a div)", '<div class="cv-tool is-toggle cv-sent" role="button" aria-expanded="false"><b>to</b></div>', "b"],
-    ["Show more under a message", '<button class="cv-user__more cv-message__more" aria-expanded="false">Show more</button>', "button"],
-    ["Show all lines under an output", '<button class="cv-output-more" aria-expanded="false">Show all 80 lines</button>', "button"],
+    [
+      "a sent message's line (a div)",
+      '<div class="cv-tool is-toggle cv-sent" role="button" aria-expanded="false"><b>to</b></div>',
+      "b",
+    ],
+    [
+      "Show more under a message",
+      '<button class="cv-user__more cv-message__more" aria-expanded="false">Show more</button>',
+      "button",
+    ],
+    [
+      "Show all lines under an output",
+      '<button class="cv-output-more" aria-expanded="false">Show all 80 lines</button>',
+      "button",
+    ],
     ["a sub-session's Raw", '<button class="cv-subsession__toggle" aria-expanded="false">Raw</button>', "button"],
     ["a file list's +N more", '<button class="acpmux-edited-more" aria-expanded="false">+3 more</button>', "button"],
-    ["an agent message's words", '<div class="cv-tool cv-agentmsg__line"><span class="cv-agentmsg__words" data-interactive="">Asked</span></div>', "span"],
+    [
+      "an agent message's words",
+      '<div class="cv-tool cv-agentmsg__line"><span class="cv-agentmsg__words" data-interactive="">Asked</span></div>',
+      "span",
+    ],
     ["a summary", "<details><summary>Context</summary>body</details>", "summary"],
+    ["a block's Wrap lines", '<button class="cv-codeblock__action" aria-pressed="false">wrap</button>', "button"],
+    ["a diagram's chart or code", '<button class="cv-diagram__toggle">Code</button>', "button"],
+    ["a question's pill", '<button class="acpmux-question-pill" aria-expanded="false">Q</button>', "button"],
+    ["a permission's details", '<button class="acpmux-ask-toggle" aria-expanded="false">Details</button>', "button"],
+    ["a paste chip", '<button class="cv-user__paste" aria-expanded="false">pasted</button>', "button"],
   ] as const) {
     test(`holds ${kind}`, () => {
       expect(row(html).at(selector)).toBeDefined();
@@ -90,13 +122,46 @@ describe("foldHoldTarget", () => {
 describe("foldHolding", () => {
   const toggle = { isConnected: true } as HTMLElement;
   test("holds until its time is up", () => {
-    expect(foldHolding({ toggle, top: 0, until: 100 }, 50)).toBe(true);
-    expect(foldHolding({ toggle, top: 0, until: 100 }, 101)).toBe(false);
+    expect(foldHolding({ toggle, top: 0, until: 100, cap: 100 }, 50)).toBe(true);
+    expect(foldHolding({ toggle, top: 0, until: 100, cap: 100 }, 101)).toBe(false);
   });
   test("lets go of a line that left the transcript", () => {
-    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100 }, 50)).toBe(false);
+    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100, cap: 100 }, 50)).toBe(false);
   });
   test("nothing held", () => {
     expect(foldHolding(undefined)).toBe(false);
+  });
+});
+
+describe("hold timing", () => {
+  const line = (top: number) => ({ isConnected: true, getBoundingClientRect: () => ({ top }) }) as unknown as HTMLElement;
+  test("a click keeps the place its press held, timed from the click", () => {
+    const toggle = line(300);
+    const pressed = { toggle, top: 200, until: 1_000, cap: 2_000 };
+    const held = clickFold(toggle, pressed, 500);
+    expect(held.top).toBe(200);
+    expect(held.until).toBeGreaterThan(500);
+  });
+  test("a click on another line, or after its press let go, holds where the line is now", () => {
+    const toggle = line(300);
+    expect(clickFold(toggle, { toggle: line(0), top: 200, until: 1_000, cap: 2_000 }, 500).top).toBe(300);
+    expect(clickFold(toggle, { toggle, top: 200, until: 400, cap: 2_000 }, 500).top).toBe(300);
+  });
+  test("a line still settling holds a little longer, never past its cap", () => {
+    let top = 120;
+    const toggle = { isConnected: true, getBoundingClientRect: () => ({ top }) } as unknown as HTMLElement;
+    const scroller = { scrollTop: 0 } as HTMLElement;
+    const anchor = { toggle, top: 100, until: 200, cap: 100 + FOLD_HOLD_MAX_MS };
+    expect(keepFold(anchor, scroller, 190)).toBe(true);
+    expect(scroller.scrollTop).toBe(20);
+    expect(anchor.until).toBe(190 + FOLD_SETTLE_MS);
+    top = 140;
+    expect(keepFold(anchor, scroller, anchor.cap - 1)).toBe(true);
+    expect(anchor.until).toBe(anchor.cap);
+    expect(keepFold(anchor, scroller, anchor.cap + 1)).toBe(false);
+  });
+  test("only a vertical wheel lets go", () => {
+    expect(verticalWheel({ deltaX: 0, deltaY: 40 })).toBe(true);
+    expect(verticalWheel({ deltaX: 60, deltaY: 4 })).toBe(false);
   });
 });

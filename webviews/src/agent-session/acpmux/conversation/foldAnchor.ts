@@ -25,6 +25,9 @@ export const FOLD_TOGGLE = [
   '[role="button"][aria-expanded]:not([aria-haspopup])',
   "summary",
   ".cv-agentmsg__line > [data-interactive]",
+  // Toggles that change their block's height in place: Wrap lines, a diagram's chart or code.
+  "button[aria-pressed]",
+  "button.cv-diagram__toggle",
 ].join(", ");
 /// The controls a click lands on: one inside a toggle is its own, not the toggle's.
 const NESTED_CONTROL = 'button, a[href], [role="button"], summary, input, textarea, select, [role="menuitem"]';
@@ -33,6 +36,10 @@ const NESTED_CONTROL = 'button, a[href], [role="button"], summary, input, textar
 export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";
 /// How long a hold outlasts its fold: the last frame's measure, and rows a "Worked for" inserts.
 export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold, not an animation
+/// The longest a hold lasts from the press: each pass that puts the line back extends it by
+/// FOLD_SETTLE_MS (a body whose Markdown, images or highlighting settle late, or one that opens with
+/// no fold under Reduce Motion), up to this. The reader's own scroll lets go of it sooner.
+export const FOLD_HOLD_MAX_MS = 1500; // motion-allow: a hold's cap, not an animation
 
 export type FoldAnchor = {
   toggle: HTMLElement;
@@ -40,6 +47,8 @@ export type FoldAnchor = {
   top: number;
   /// When the hold ends (performance.now()).
   until: number;
+  /// The latest `until` may reach (FOLD_HOLD_MAX_MS after the press).
+  cap: number;
 };
 
 /// The disclosure line `target` is on, inside one of `scroller`'s rows; undefined for anything else.
@@ -67,7 +76,22 @@ export function foldHoldTarget(toggle: HTMLElement): HTMLElement {
 
 /// Holds `toggle` where it is drawn now, for its fold and a little after.
 export function holdFold(toggle: HTMLElement, now = performance.now()): FoldAnchor {
-  return { toggle, top: toggle.getBoundingClientRect().top, until: now + foldMs(toggle) + FOLD_SETTLE_MS };
+  const cap = now + Math.max(FOLD_HOLD_MAX_MS, foldMs(toggle) + FOLD_SETTLE_MS);
+  return { toggle, top: toggle.getBoundingClientRect().top, until: now + foldMs(toggle) + FOLD_SETTLE_MS, cap };
+}
+
+/// The hold for a click on `toggle`: the one its press started (`pressed`, same line, still on), kept
+/// at the place the line was pressed at and timed from the click, so a line that streaming moved
+/// between press and release goes back to where the reader pressed it; else a new one.
+export function clickFold(toggle: HTMLElement, pressed: FoldAnchor | undefined, now = performance.now()): FoldAnchor {
+  const fresh = holdFold(toggle, now);
+  return pressed && pressed.toggle === toggle && foldHolding(pressed, now) ? { ...fresh, top: pressed.top } : fresh;
+}
+
+/// Whether a wheel event is the reader scrolling the transcript: up or down, not sideways (a code
+/// block's horizontal scroll keeps the hold).
+export function verticalWheel(event: { deltaX: number; deltaY: number }): boolean {
+  return Math.abs(event.deltaY) > Math.abs(event.deltaX);
 }
 
 /// Puts the held line back where it was clicked by moving `scroller`'s offset. False once the hold
@@ -75,7 +99,11 @@ export function holdFold(toggle: HTMLElement, now = performance.now()): FoldAnch
 export function keepFold(anchor: FoldAnchor, scroller: HTMLElement, now = performance.now()): boolean {
   if (now > anchor.until || !anchor.toggle.isConnected) return false;
   const moved = anchor.toggle.getBoundingClientRect().top - anchor.top;
-  if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
+  if (Math.abs(moved) >= 0.5) {
+    scroller.scrollTop += moved;
+    // Still settling: hold a little longer, up to the cap.
+    anchor.until = Math.min(anchor.cap, Math.max(anchor.until, now + FOLD_SETTLE_MS));
+  }
   return true;
 }
 

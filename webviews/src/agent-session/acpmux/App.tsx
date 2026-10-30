@@ -279,6 +279,7 @@ import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
+  clickFold,
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
@@ -286,6 +287,7 @@ import {
   holdFold,
   keepFold,
   trimmedFoldRoom,
+  verticalWheel,
   type FoldAnchor,
 } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
@@ -2679,7 +2681,7 @@ export function VirtualTranscript({
             // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
             // height animation is placed before paint too, or the rows below overlap its body.
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
-            else if (followingRef.current || targets.some(heightFoldInFlight)) {
+            else if (followingRef.current || targets.some(heightFoldInFlight) || foldHolding(foldAnchor.current)) {
               for (let pass = 0; pass < 3; pass += 1) {
                 if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
                   pendingDrawn.current = new Map();
@@ -4119,8 +4121,18 @@ export function VirtualTranscript({
       if (!toggle) return;
       const line = foldHoldTarget(toggle);
       settleFold(line);
-      foldAnchor.current = holdFold(line);
+      foldAnchor.current = clickFold(line, foldAnchor.current);
       keepFoldRoom();
+    };
+    // The press holds the line already: streaming that would move it before the click lands keeps
+    // it where the reader pressed it, and the click's hold puts it back there.
+    const holdPressed = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const toggle = node ? foldToggleAt(event.target, node) : undefined;
+      if (!toggle) return;
+      const line = foldHoldTarget(toggle);
+      settleFold(line);
+      foldAnchor.current = holdFold(line);
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
     // or a header that is no disclosure button, as well as the click above.
@@ -4137,10 +4149,12 @@ export function VirtualTranscript({
     const release = (event: Event) => {
       const key = (event as KeyboardEvent).key;
       if (key === "Enter" || key === " ") return;
+      if (event.type === "wheel" && !verticalWheel(event as WheelEvent)) return;
       foldAnchor.current = undefined;
     };
     const releases = ["wheel", "touchstart", "keydown"] as const;
     node?.addEventListener("click", holdClicked, { capture: true });
+    node?.addEventListener("pointerdown", holdPressed, { capture: true });
     node?.addEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
     for (const name of releases) node?.addEventListener(name, release, { passive: true });
     // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
@@ -4180,6 +4194,7 @@ export function VirtualTranscript({
       ownerDocument?.removeEventListener("pointercancel", readerReleased, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
+      node?.removeEventListener("pointerdown", holdPressed, { capture: true });
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
       gutterRelease.current = undefined;
