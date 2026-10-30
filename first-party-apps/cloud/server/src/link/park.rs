@@ -114,7 +114,7 @@ impl<C: ControlPlane> Server<C> {
                     }
                 }
                 Some(Err(failure)) => {
-                    settled.push((op.id, Err(link_failure_for(&op.machine, failure))))
+                    settled.push((op.id, Err(link_failure_for(&op.machine, failure))));
                 }
             }
         }
