@@ -117,9 +117,12 @@ fn budget_with_soft_limit(soft: u64) -> u64 {
         .unwrap();
     let text = String::from_utf8_lossy(&output.stdout) + String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "the child run with soft limit {soft} failed:\n{text}");
+    // libtest prints its own "test <name> ... " before the child's output on
+    // the same line, so the marker is found anywhere in a line.
     text.lines()
-        .find_map(|line| line.strip_prefix("connection-budget="))
-        .and_then(|total| total.trim().parse().ok())
+        .find_map(|line| line.split_once("connection-budget=").map(|(_, rest)| rest))
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|total| total.parse().ok())
         .unwrap_or_else(|| panic!("the child run printed no budget:\n{text}"))
 }
 
@@ -137,7 +140,7 @@ fn the_connection_budget_follows_the_open_file_limit() {
         let lowered = libc::rlimit { rlim_cur: soft as libc::rlim_t, rlim_max: limit.rlim_max };
         // SAFETY: only the soft limit changes, within the hard limit.
         assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const lowered) }, 0);
-        println!("connection-budget={}", ConnectionBudget::of_process().total());
+        println!("\nconnection-budget={}", ConnectionBudget::of_process().total());
         return;
     }
     let hard = limit.rlim_max as u64;
