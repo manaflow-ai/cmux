@@ -177,8 +177,8 @@ final class LinkOpener {
               let content = source.workspace, let pane = content.panes[id] else { return nil }
         if let shown = browserTab(showing: url, in: pane) { return (pane, shown) }
         guard let column = content.layoutModel.screen(containing: id)?.layout.column(containing: id),
-              !column.root.contains(source.layoutPaneID) else { return nil }
-        for sibling in column.root.panes where sibling != id {
+              !column.trees.contains(where: { $0.contains(source.layoutPaneID) }) else { return nil }
+        for sibling in column.trees.flatMap(\.panes) where sibling != id {
             if let pane = content.panes[sibling], let shown = browserTab(showing: url, in: pane) {
                 return (pane, shown)
             }
