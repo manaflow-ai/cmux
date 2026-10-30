@@ -27,6 +27,15 @@ import CmuxNextCompat
 /// app therefore costs nothing, and a steadily busy app one check per 10-20 s.
 /// A spin on a background thread that never wakes the main thread is seen
 /// only in the window after the last main-thread wake.
+///
+/// It watches the main thread, so it never blocks it: every kernel read (each
+/// process's `proc_pid_rusage` and `proc_pidinfo`, the helper list, the main
+/// thread's `thread_info` and its stack sample) runs on its own serial queue
+/// (`com.cmuxterm.next.busy-watchdog`, threading-model.md), the window's open
+/// and close alike. The main thread's part is ``noteAwake()`` (an uptime read,
+/// atomics, and one queue hop when it opens a window) and the end's fire (one
+/// queue hop). v229 (2026-10-30): a window end on the main thread stalled it
+/// 1,261 ms in `proc_pidinfo`.
 public final class BusyWatchdog: Sendable {
     public struct Configuration: Sendable {
         /// The shortest window: its end never fires sooner.
@@ -90,7 +99,7 @@ public final class BusyWatchdog: Sendable {
     private let windowEnd = Atomic<UInt64>(0)
     /// Uptime ns, the clock of the window and of the wake queue's deadlines.
     private let uptime: @Sendable () -> UInt64
-    /// Runs the close off the main thread, which the close samples (``poolThread``; tests run it inline).
+    /// Runs every open and close, so every kernel read, off the main thread (``samplingQueue()``; tests run it inline).
     private let offMain: @Sendable (@escaping @Sendable () -> Void) -> Void
     private let window: Mutex<Window?> = Mutex(nil)
     private let timer: DemandTimer
@@ -120,7 +129,7 @@ public final class BusyWatchdog: Sendable {
                             activity: ExpectedActivity = .shared, clock: any Clock<Duration> = ContinuousClock(),
                             wakeUps: MainWakeUpQueue? = nil) {
         self.init(configuration: configuration, log: log, ledger: ledger, activity: activity, clock: clock, wakeUps: wakeUps,
-                  uptime: WakeupLedger.systemUptime, offMain: Self.poolThread)
+                  uptime: WakeupLedger.systemUptime, offMain: Self.samplingQueue())
     }
 
     /// The production watchdog with its window end on `clock` and `probe` reading the kernel (tests record where
@@ -128,11 +137,11 @@ public final class BusyWatchdog: Sendable {
     convenience init(configuration: Configuration, log: HangLog, ledger: WakeupLedger, activity: ExpectedActivity,
                      clock: any Clock<Duration>, probe: Probe) {
         self.init(configuration: configuration, log: log, ledger: ledger, activity: activity, clock: clock, wakeUps: nil,
-                  uptime: WakeupLedger.systemUptime, offMain: Self.poolThread, probe: probe)
+                  uptime: WakeupLedger.systemUptime, offMain: Self.samplingQueue(), probe: probe)
     }
 
     /// The seam initializer: `uptime` must be the clock of `wakeUps` (tests pass the queue's fake uptime) and
-    /// `offMain` runs the close (tests run it inline).
+    /// `offMain` runs each open and close (tests run it inline).
     init(configuration: Configuration, log: HangLog, ledger: WakeupLedger, activity: ExpectedActivity,
          clock: any Clock<Duration>, wakeUps: MainWakeUpQueue?, uptime: @escaping @Sendable () -> UInt64,
          offMain: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void, probe: Probe = .system) {
@@ -153,8 +162,14 @@ public final class BusyWatchdog: Sendable {
     /// The ledger owner of each window end.
     static let windowOwner = "BusyWatchdog.window"
 
-    /// Runs `work` on a pool thread: a `Task` made in a nonisolated context does not run on the main actor.
-    static let poolThread: @Sendable (@escaping @Sendable () -> Void) -> Void = { work in _ = Task { work() } }
+    /// The watchdog's own queue for every open and close: serial, so a window's close follows its open; utility,
+    /// never the main thread or the cooperative pool (a kernel read can block). At most one open or close is
+    /// pending (``measuring`` admits one window at a time, its deadline one close), so it needs no bound; a read
+    /// the kernel holds delays only the next window. Each production watchdog makes one.
+    static func samplingQueue() -> @Sendable (@escaping @Sendable () -> Void) -> Void {
+        let queue = DispatchQueue(label: "com.cmuxterm.next.busy-watchdog", qos: .utility)
+        return { work in queue.async(execute: work) }
+    }
 
     /// Sets the thread whose CPU and stack are watched (call on the main thread).
     public func watchCurrentThread() {
@@ -186,14 +201,15 @@ public final class BusyWatchdog: Sendable {
         return source()
     }
 
-    /// The main run loop woke. Cheap: an uptime read and two atomics, plus
-    /// opening a window when none is open.
+    /// The main run loop woke. Cheap, and it never reads the kernel: an uptime read and two atomics, plus one
+    /// hop that opens a window off the main thread when none is open.
     public func noteAwake() {
         if uptime() < windowEnd.load(ordering: .acquiring) { awakeDuringWindow.store(true, ordering: .relaxed) }
         guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
-        openWindow()
+        offMain { [self] in openWindow() }
     }
 
+    /// Takes the window's start samples. Through ``offMain``.
     private func openWindow() {
         awakeDuringWindow.store(false, ordering: .relaxed)
         let helperList = helperSource()()
@@ -212,8 +228,8 @@ public final class BusyWatchdog: Sendable {
         }
     }
 
-    /// The window's deadline fired (on the main thread when the end is on the wake queue). The close samples the
-    /// main thread's stack, which the main thread cannot do to itself, so it runs off it.
+    /// The window's deadline fired (on the main thread when the end is on the wake queue). The close reads the
+    /// kernel and samples the main thread's stack, which the main thread cannot do to itself, so it runs off it.
     private func endWindow() {
         offMain { [weak self] in self?.closeWindow() }
     }

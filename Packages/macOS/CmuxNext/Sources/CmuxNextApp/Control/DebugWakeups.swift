@@ -17,16 +17,20 @@ import Darwin
 /// - `vsync` (feature `vsyncHub`, else null): the ``VSyncHub``'s live links (displays with an armed subscriber),
 ///   paused links, threads and its main fan-out's hop (`main_hop_p99_ms`; threading-model.md's VSyncHub row).
 /// - `processes`: cumulative CPU time and wakeups per process (diff two
-///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled off
-///   the main actor.
+///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled on a
+///   ``BackgroundWork`` system lane: every read is a system call (`proc_pid_rusage`,
+///   `proc_listpids`, `proc_pidpath`, `KERN_PROCARGS2`), and a diagnostic never
+///   runs one on the main thread.
 /// - `main_run_loop` (with `run_loop: true`): the main run loop's description (`CFCopyDescription`):
 ///   every mode's timers with their interval and callout, sources and observers. An idle bench reads
 ///   the repeating timers from it to name what wakes the main thread outside the ledger.
 enum DebugWakeups {
     /// `helperParent`: whose children the Chromium helpers are (``ChromiumHelperParent/pid``).
-    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler, helperParent: pid_t?) async -> JSONValue {
+    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler, helperParent: pid_t?,
+                       work: BackgroundWork) async -> JSONValue {
         var object = mainActorPart(params, budgeted: budgeted)
-        object["processes"] = .array(AppProcesses.sample(helperParent: helperParent).map(\.json))
+        let processes = (try? await work.run(.bestEffort, mayBlock: .system) { AppProcesses.sample(helperParent: helperParent) }) ?? []
+        object["processes"] = .array(processes.map(\.json))
         return .object(object)
     }
 
@@ -69,7 +73,8 @@ enum DebugWakeups {
 }
 
 /// This app, its Chromium helpers, and the bundled cmux-tui (daemon and
-/// terminal hosts). The helpers are the children of `helperParent`
+/// terminal hosts). Every function here makes system calls: call them off the
+/// main thread (``BackgroundWork``, the busy watchdog's sampling queue). The helpers are the children of `helperParent`
 /// (``ChromiumHelperParent/pid``): the app in process, the Chromium Host in
 /// host mode, none while no host is attached.
 nonisolated enum AppProcesses {
