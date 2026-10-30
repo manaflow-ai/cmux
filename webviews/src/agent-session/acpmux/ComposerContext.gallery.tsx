@@ -449,6 +449,24 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openFolder,
     },
+    "computer-first-setup": {
+      note: "A fresh home, with Labs off and no other computer: Add a computer opens Add Device, and New Cloud Machine uses the existing creation action.",
+      props: { ...baseProps, sessions: [], peers: [], cloudMachines: [], localName: "Studio Mac" },
+      play: openComputer,
+    },
+    "computer-first-setup-chat": {
+      note: "The same first-computer setup footer in an existing local chat, without enabling Labs or allowing the chat to change its machine.",
+      props: {
+        ...baseProps,
+        started: true,
+        sessions: [],
+        peers: [],
+        cloudMachines: [],
+        localName: "Studio Mac",
+        summary: { sessionId: "gallery-local", harness: "claude", hostKind: "local" },
+      },
+      play: openComputer,
+    },
     "computer-menu": {
       note: "The computer menu keeps local and Cloud destinations together with SSH and cmux Cloud actions.",
       props: baseProps,

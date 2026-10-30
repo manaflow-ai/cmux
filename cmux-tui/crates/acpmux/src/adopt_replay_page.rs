@@ -221,8 +221,8 @@ mod tests {
     use std::io::Write;
 
     fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("acpmux-claude-page-{}-{name}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-claude-page-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("s.jsonl")
