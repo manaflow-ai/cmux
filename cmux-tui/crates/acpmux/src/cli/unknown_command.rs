@@ -184,7 +184,7 @@ mod tests {
     fn parse_error(args: &[&str]) -> (clap::Command, Vec<OsString>, clap::Error) {
         let mut cli = crate::cli::command::Cli::command();
         let argv = argv(args);
-        let e = cli.try_get_matches_from_mut(argv.clone()).err().expect("parses");
+        let e = cli.try_get_matches_from_mut(argv.clone()).expect_err("parses");
         (cli, argv, e)
     }
 
@@ -211,7 +211,7 @@ mod tests {
         let mut error = |args: &[&str]| {
             let argv: Vec<OsString> =
                 std::iter::once("prog").chain(args.iter().copied()).map(Into::into).collect();
-            let e = cli.try_get_matches_from_mut(argv.clone()).err().expect("parses");
+            let e = cli.try_get_matches_from_mut(argv.clone()).expect_err("parses");
             explain(&e, &cli, &argv, 1, "prog").map(|r| r.data.unwrap()["try"].clone())
         };
         assert_eq!(error(&["wipe", "lane"]), None);
