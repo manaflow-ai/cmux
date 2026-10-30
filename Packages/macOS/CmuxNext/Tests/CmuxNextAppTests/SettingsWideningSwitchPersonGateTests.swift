@@ -309,6 +309,30 @@ import Testing
         #expect(h.recorder.sets.isEmpty)
     }
 
+    /// One person gesture cannot be replayed across the other Settings switches that widen access,
+    /// including the joined-screen/control consent handled by the same page provider.
+    @Test func oneGestureCannotTurnOnJoinConsentAfterAWideningSwitch() async throws {
+        let h = try await make(owner: AlwaysConfirms())
+        defer { h.cleanUp() }
+        h.page.setJoinConsent = { surface, on in h.recorder.sets.append("join \(surface) \(on)"); return nil }
+        let click = try h.click(0)
+        h.ledger.record(click)
+        _ = try await h.page.call(Switch.fullAccess.rawValue,
+                                   params: ["id": "m1", "on": true],
+                                   context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true,
+                                                             gestureEvent: click.timestamp))
+        do {
+            _ = try await h.page.call("cmux.settings.devices.join_consent",
+                                      params: ["surface": "screen", "on": true],
+                                      context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true,
+                                                                gestureEvent: click.timestamp))
+            Issue.record("one person gesture enabled two widening settings")
+        } catch let error as PageError {
+            #expect(error.code == PageNativeOp.userOnlyCode)
+        }
+        #expect(h.recorder.sets == ["device true"])
+    }
+
     /// One confirm at a time: while one is up, a second click is refused without a second prompt (an agent
     /// cannot stack prompts behind the person's), and the first still turns on only its switch.
     @Test(.timeLimit(.minutes(1))) func aSecondAskWhileOneIsUpIsRefused() async throws {
