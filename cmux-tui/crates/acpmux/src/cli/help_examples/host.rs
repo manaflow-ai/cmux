@@ -121,21 +121,21 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "host consent",
         &[
             ("Request screen consent through the daemon", "acpmux host consent grant --screen"),
-            ("Revoke screen and control consent", "acpmux host consent revoke --screen --control"),
+            ("Revoke control consent", "acpmux host consent revoke --control"),
         ],
     ),
     (
         "host consent grant",
         &[
             ("Request screen consent through the daemon", "acpmux host consent grant --screen"),
-            ("Request screen and control consent", "acpmux host consent grant --screen --control"),
+            ("Request control consent", "acpmux host consent grant --control"),
         ],
     ),
     (
         "host consent revoke",
         &[
             ("Revoke control consent", "acpmux host consent revoke --control"),
-            ("Revoke screen and control consent", "acpmux host consent revoke --screen --control"),
+            ("Revoke screen consent", "acpmux host consent revoke --screen"),
         ],
     ),
     (
