@@ -117,6 +117,7 @@ test("learning an unnamed native chat thread publishes the fold rows it repairs"
 
   expect(client.rows.sorted().flatMap((row: any) => row.subagents ?? []).map((agent: any) => agent.id)).toEqual([
     "stale",
+    "child",
   ]);
-  expect(fold.takeRows().flatMap((row) => row.subagents ?? []).map((agent) => agent.id)).toEqual(["child"]);
+  expect(fold.takeRows()).toEqual([]);
 });

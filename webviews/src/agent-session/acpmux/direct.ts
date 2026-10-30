@@ -3618,7 +3618,10 @@ export class AcpmuxDirectClient {
   /// folded again by lineage, so the chat's own rows come back and its subagents stop nesting.
   private learnChatThread(): void {
     const thread = this.chatThread();
-    if (thread) this.subagents.setRoot(thread);
+    if (thread) {
+      this.subagents.setRoot(thread);
+      this.takeSubagentRows();
+    }
     // A shell call that started another family's agent before the chat's harness was known draws
     // as that agent now (subagentFold.ts ``deferredRun``).
     if (this.summary?.harness && !this.subagents.harness && this.subagents.deferredRun) {
