@@ -217,6 +217,27 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
   })
 
+  it("does not claim an old unmarked snapshot is gone when its creation ledger is absent", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true, value: { id: expect.any(String) } })
+    const id = saved.value.id as string
+    await inDO(stub, async (instance) => {
+      const rows = instance.boundEngine.rows
+      const snap = rows.get(TABLE_SNAPSHOT, id)
+      const { platform: _platform, ...unmarked } = snap.row
+      const created = rows.range(TABLE_LEDGER, { limit: 1000 }).find((entry: any) => entry.row.op === "snapshot" && entry.row.snapshot === id)
+      rows.apply([
+        { table: TABLE_SNAPSHOT, op: "upsert", key: id, n: snap.n, row: unmarked },
+        { table: TABLE_LEDGER, op: "delete", key: created.key },
+      ])
+    })
+    const before = (await stub.fakeControl({})) as any
+    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.snapshot.ownership_unknown", retryable: true })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(before.snapshot_deletes)
+  })
+
   it("refuses a non-platform snapshot without calling its provider", async () => {
     const c = caller()
     const { machine, stub } = await bootAndBind(c)
