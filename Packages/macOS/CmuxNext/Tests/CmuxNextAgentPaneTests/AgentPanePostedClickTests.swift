@@ -59,7 +59,7 @@ struct AgentPanePostedClickTests {
     /// A screenshot/file interaction can leave Chromium's child window temporarily not key while
     /// the pane still receives the person's Return. The send must keep its person proof in that
     /// transition; otherwise an attached prompt is refused as “Not sent”.
-    @Test func aReturnFromChromiumStillCountsWhenItsChildWindowIsNotKey() async throws {
+    @Test func aReturnFromChromiumStillCountsWhileHeldOrItsChildWindowIsNotKey() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
@@ -92,6 +92,24 @@ struct AgentPanePostedClickTests {
         let gestures = view.model.transport.gestures
         view.judge(keyDown, eventWindow: childWindow)
         #expect(gestures.consume(), "the person's Return after an attachment was rejected while Chromium was not key")
+        let witness = try #require(gestures.questionReturnWitness)
+        // A held Return can repeat while the isolated DOM proof is still crossing the bridge.
+        // It must neither revoke that original witness nor mint another one.
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        let repeated = try #require(NSEvent(cgEvent: event))
+        try #require(repeated.isARepeat)
+        view.judge(repeated, eventWindow: childWindow)
+        #expect(gestures.questionReturnWitness == witness)
+        #expect(!gestures.consume(), "a repeat minted another generic input gesture")
+        #expect(gestures.consumeQuestionReturn(witness))
+        #expect(!gestures.consumeQuestionReturn(witness))
+
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        let next = try #require(gestures.questionReturnWitness)
+        event.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()) + 1)
+        view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
+        #expect(!gestures.consumeQuestionReturn(next), "new posted page input left the old Return witness usable")
     }
 
     /// While the person types, a click another process posts on Allow must not spend the typing's

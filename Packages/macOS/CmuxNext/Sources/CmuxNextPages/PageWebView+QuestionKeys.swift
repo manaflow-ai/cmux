@@ -1,6 +1,14 @@
 import Foundation
 
 extension PageWebView {
+    /// True while this exact allowlist is installing or installed. A false result after an
+    /// asynchronous install failure lets the native owner retry its cached binding on its next
+    /// question refresh; navigation and visibility invalidation also return false.
+    public func hasQuestionKeyTargets(_ targets: [PageQuestionKeyTarget]) -> Bool {
+        guard descriptor.isAgentPage, !isClosed, let channel = chromiumSession?.questionKeys else { return false }
+        return channel.hasTargets(targets)
+    }
+
     /// Binds the agent pane's native pending question to Return in its Other field. Each key's
     /// proof is single-use; an incomplete answer leaves the next genuine key available. The page
     /// must label its fieldset with `data-cmux-question-session` and `data-cmux-question-id`.

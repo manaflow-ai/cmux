@@ -15,12 +15,14 @@ extension AgentPaneView {
         }
         let contexts = model.transport.decisions.questions(session: session)
         let binding = QuestionKeyBinding(connection: connection, session: session, contexts: contexts)
-        guard questionKeyBinding != binding else { return }
-        model.transport.gestures.recordQuestionReturn(false)
-        page.bindQuestionKeyTargets([]) { _ in }
         let targets = contexts.keys.map {
             PageQuestionKeyTarget(sessionID: session, permissionID: $0)
         }
+        // The cache describes the requested binding, not the async install's outcome. A failed
+        // install or navigation can revoke the channel while native pending state is unchanged.
+        guard questionKeyBinding != binding || !page.hasQuestionKeyTargets(targets) else { return }
+        model.transport.gestures.recordQuestionReturn(false)
+        page.bindQuestionKeyTargets([]) { _ in }
         let bound = page.bindQuestionKeyTargets(targets) { [weak self, weak page] snapshot in
             guard let self, let page, self.model.sessionId == snapshot.target.sessionID,
                   self.model.transport.connection == connection,
@@ -129,18 +131,21 @@ extension AgentPaneView {
     /// A key press with the page focused, or a click on the page, by the person (``AgentPanePersonInput``):
     /// the user's gesture. `eventWindow` is the event's window (tests pass it: a synthesized event cannot resolve it).
     public func judge(_ event: NSEvent, eventWindow: NSWindow?) {
-        model.transport.gestures.recordQuestionReturn(false)
         // A Chromium page has its own window, a child of the pane's.
         if let window, let eventWindow, eventWindow !== window, eventWindow.parent === window {
             return judgeChromium(event, eventWindow: eventWindow)
         }
-        guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
+        guard let window, eventWindow === window else { return }
         switch event.type {
         case .keyDown:
             guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
+        // Repeats belong to the original press, whose DOM proof may still be redeeming.
+        // A new page event revokes it, even when posted input cannot grant a fresh witness.
+        model.transport.gestures.recordQuestionReturn(false)
+        guard AgentPanePersonInput.isPerson(event) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(event.keyCode == 36) }
     }
@@ -148,11 +153,11 @@ extension AgentPaneView {
     /// The same for an event in the Chromium page's own window (a child of the pane's window): a key
     /// while the page has the keyboard, or a click on the page.
     private func judgeChromium(_ event: NSEvent, eventWindow: NSWindow?) {
-        guard page?.showsChromium == true, let eventWindow, AgentPanePersonInput.isPerson(event) else { return }
+        guard page?.showsChromium == true, let eventWindow else { return }
         switch event.type {
         case .keyDown:
             // CEF can leave its child window non-key while a native file picker or attachment
-            // handoff finishes. The event is still the person's physical key (checked above),
+            // handoff finishes. The event is still the person's physical key (checked below),
             // and the child is still this pane's page, so do not turn that brief focus transition
             // into a rejected send.
             guard !event.isARepeat,
@@ -160,6 +165,8 @@ extension AgentPaneView {
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
+        model.transport.gestures.recordQuestionReturn(false)
+        guard AgentPanePersonInput.isPerson(event) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(event.keyCode == 36) }
     }

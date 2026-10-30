@@ -30,8 +30,9 @@ import CmuxNextCompat
     /// How old the person's click may be when a permission answer uses it (cx-ocdz).
     public static let answerWindow: TimeInterval = 1.5
     private var lastClick: TimeInterval?
-    /// A distinct native witness for one nonrepeating Chromium Return. Any later page input
-    /// revokes it, including posted input; no generic gesture uptime can manufacture this.
+    /// A distinct native witness for one nonrepeating Chromium Return. New page input revokes
+    /// it, including posted input; repeats of a held key do not create or revoke a witness.
+    /// No generic gesture uptime can manufacture this.
     private var questionReturn: UUID?
 
     func recordQuestionReturn(_ isPersonReturn: Bool) {

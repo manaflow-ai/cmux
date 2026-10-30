@@ -42,6 +42,10 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         var byKey: [String: Context] = [:]
         /// The log seq each context came from: an older page replayed later never wins.
         var seqByKey: [String: UInt64] = [:]
+        /// A live pending notification can omit its log seq (notably a peer relay). It wins over
+        /// older replay until the same context is anchored by a seq, but is not an infinite seq:
+        /// a later explicit decision must still remove it.
+        var unsequencedPending: Set<String> = []
         var decisionSeqByKey: [String: UInt64] = [:]
         var decisionSeqBySession: [String: UInt64] = [:]
         var decisionSessionOrder: [String] = []
@@ -151,6 +155,7 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                     guard seq >= (state.seqByKey[key] ?? 0) else { continue }
                     changed = changed || state.byKey[key]?.isQuestion == true
                     state.byKey.removeValue(forKey: key)
+                    state.unsequencedPending.remove(key)
                     state.seqByKey[key] = seq
                 }
                 if let permission {
@@ -199,9 +204,18 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         state.withLock { state in
             if let seq, let known = state.seqByKey[key], seq < known { return }
             if let seq, seq <= (state.decisionSeqByKey[key] ?? 0) || seq <= (state.decisionSeqBySession[session] ?? 0) { return }
-            // An update without a seq is the newest the pane knows: no replayed record replaces it.
-            state.seqByKey[key] = seq ?? .max
             let previous = state.byKey[key]
+            if let seq {
+                // An unsequenced notification is current, but an old history page can arrive
+                // afterwards. Only an exact echo can anchor that context's position in the log.
+                if state.unsequencedPending.contains(key), previous != context { return }
+                state.seqByKey[key] = seq
+                state.unsequencedPending.remove(key)
+            } else {
+                // Keep the last known seq as a lower bound, so an older decision cannot erase a
+                // reissue already observed. Missing seq itself is not a value in that ordering.
+                state.unsequencedPending.insert(key)
+            }
             let changed = previous != context
             state.byKey[key] = context
             if changed {
@@ -219,6 +233,7 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
             if state.byKey[oldest]?.isQuestion == true { state.questionVersion &+= 1 }
             state.byKey.removeValue(forKey: oldest)
             state.seqByKey.removeValue(forKey: oldest)
+            state.unsequencedPending.remove(oldest)
             state.decisionSeqByKey.removeValue(forKey: oldest)
         }
     }

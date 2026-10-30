@@ -395,6 +395,69 @@ struct ChromiumQuestionKeyChannelTests {
         channel.invalidate()
     }
 
+    @Test func aFailedSameDocumentInstallCanBeRetriedAfterTheOwnerRefreshes() async throws {
+        let page = page()
+        page.senderURL = "cmux-page://another.example/index.html"
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        try await channel.prepareDocumentGuard()
+        let failed: Bool? = await PageTestWait.value("question listener install failure") { done in
+            page.onCall = {
+                if page.calls.contains(where: {
+                    $0.method == "Runtime.evaluate" &&
+                        ($0.params["expression"] as? String) == "[location.href, window === window.top]"
+                }) { done(true) }
+            }
+            channel.bind([Self.target]) { _ in }
+        }
+        #expect(failed == true)
+        page.onCall = nil
+        await Task.yield()
+        #expect(!channel.hasTargets([Self.target]), "a failed async install must not remain cached as active")
+        let callsBeforeRetry = page.calls.count
+        page.senderURL = Self.url
+        let rebound: Bool? = await PageTestWait.value("question listener retry") { done in
+            page.onCall = {
+                if page.calls.count > callsBeforeRetry,
+                   page.calls.dropFirst(callsBeforeRetry).contains(where: {
+                       ($0.params["expression"] as? String)?.contains("const nonce =") == true
+                   }) {
+                    done(true)
+                }
+            }
+            channel.bind([Self.target]) { _ in }
+        }
+        #expect(rebound == true)
+        page.onCall = nil
+        #expect(channel.hasTargets([Self.target]), "the same target collection must become active after retry")
+        channel.invalidate()
+    }
+
+    @Test func contextInvalidationClearsTheQueryAndAllowsSameTargetsToBindAgain() async throws {
+        let page = page()
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        let first = try await install(channel, page: page) { _ in }
+        #expect(channel.hasTargets([Self.target]))
+        channel.receive(#"{"method":"Runtime.executionContextsCleared","params":{}}"#)
+        #expect(!channel.hasTargets([Self.target]))
+        let before = page.calls.count
+        let rebound: Bool? = await PageTestWait.value("question listener after context reset") { done in
+            page.onCall = {
+                if page.calls.count > before,
+                   page.calls.dropFirst(before).contains(where: {
+                       ($0.params["expression"] as? String)?.contains("const nonce =") == true
+                   }) {
+                    done(true)
+                }
+            }
+            channel.bind([Self.target]) { _ in }
+        }
+        #expect(rebound == true)
+        page.onCall = nil
+        #expect(channel.hasTargets([Self.target]))
+        #expect(first.binding != (page.calls.last(where: { $0.method == "Runtime.addBinding" })?.params["name"] as? String))
+        channel.invalidate()
+    }
+
     @Test func anExistingDocumentWithoutTheEarlyGuardAndADocumentOpenResetFailClosed() async throws {
         let page = page()
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })

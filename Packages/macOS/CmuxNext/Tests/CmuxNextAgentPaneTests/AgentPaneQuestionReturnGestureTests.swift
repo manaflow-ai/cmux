@@ -1,6 +1,6 @@
 import Foundation
 import AppKit
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import Testing
 @testable import CmuxNextAgentPane
@@ -9,6 +9,38 @@ import Testing
 struct AgentPaneQuestionReturnGestureTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    @Test func anUnchangedOwnerBindingReinstallsAfterChromiumInvalidatesItsContext() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let source = try #require(AgentPageTestRoot.page)
+        let hosting = FakeChromiumHosting()
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "s"),
+                                             source: .bundled(source), pageHost: true, chromium: hosting))
+        let page = try #require(view.page)
+        await page.chromiumStart?.value
+        let chromium = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: view.bounds, styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { view.close(); window.close() }
+        _ = try await view.model.transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        let pending = try #require(try JSONSerialization.jsonObject(
+            with: Data(AgentPaneRelayedAllowTests.pendingQuestion().utf8)) as? [String: Any])
+        view.model.transport.decisions.observe(pending, replyTo: nil)
+        let targets = [PageQuestionKeyTarget(sessionID: "s", permissionID: "p1")]
+        view.refreshQuestionKeyBinding()
+        let cached = try #require(view.questionKeyBinding)
+        #expect(page.hasQuestionKeyTargets(targets))
+        // Navigation invalidates the channel independently of the native pending collection.
+        chromium.onEvent?(.devTools(#"{"method":"Runtime.executionContextsCleared"}"#))
+        #expect(!page.hasQuestionKeyTargets(targets))
+        #expect(view.questionKeyBinding == cached)
+        view.refreshQuestionKeyBinding()
+        #expect(page.hasQuestionKeyTargets(targets), "the owner's unchanged cache prevented a new installation")
+        #expect(view.questionKeyBinding == cached)
     }
 
     @Test func pageVisibilityRevokesTheOwnersCachedBindingAndRequiresANewReturn() throws {

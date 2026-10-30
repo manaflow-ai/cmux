@@ -215,6 +215,14 @@ final class ChromiumQuestionKeyChannel {
         }
     }
 
+    /// Whether this exact target collection is synchronized. An empty collection is synchronized
+    /// when no listener exists; a failed non-empty install deliberately returns false so the owner
+    /// can retry on its next refresh.
+    func hasTargets(_ targets: [PageQuestionKeyTarget]) -> Bool {
+        if targets.isEmpty { return self.targets.isEmpty && nonce == nil }
+        return self.targets == Set(targets) && nonce != nil
+    }
+
     private static func mainFrame(_ json: String) -> (id: String, url: URL?)? {
         guard let tree = ChromiumPageHostWire.object(json)?["frameTree"] as? [String: Any],
               let frame = tree["frame"] as? [String: Any], let id = frame["id"] as? String else { return nil }
