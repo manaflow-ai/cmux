@@ -333,6 +333,8 @@ export type ComputerUseState = {
   helper: string | null;
   /** Legacy Computer Use is off: its helper can't verify this cmux build (not team-signed). */
   host_unverified?: boolean;
+  /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
+  upstream_fallback?: boolean;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
