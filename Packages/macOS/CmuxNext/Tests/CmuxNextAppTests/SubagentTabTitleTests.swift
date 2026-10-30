@@ -31,8 +31,9 @@ struct SubagentTabTitleTests {
         strip.subagentTitle = { titles.title(ofTab: $0.id) }
         #expect(strip.title(subagentTab) == strip.title(chatTab), "fixture: before, the subagent's tab reads like its chat")
 
-        titles.name("agent-1", of: ref.session, title: "  Review the tray motion diff \n")
-        titles.bind("agent-1", of: ref.session, toTab: subagentTab.id)
+        let session = try #require(ref.session)
+        titles.name("agent-1", of: session, title: "  Review the tray motion diff \n")
+        titles.bind("agent-1", of: session, toTab: subagentTab.id)
         #expect(strip.title(subagentTab) == "Review the tray motion diff")
         #expect(strip.title(chatTab) == "claude-sr2-coord", "the chat lost its own name")
     }
