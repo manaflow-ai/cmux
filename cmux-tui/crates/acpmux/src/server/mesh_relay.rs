@@ -766,7 +766,7 @@ pub async fn deliver(
     } else {
         message.body.clone()
     };
-    let request = json!({
+    let mut request = json!({
         "sessionId": session.id,
         "prompt": [{"type": "text", "text": body}],
         "_meta": {"acpmux": {
@@ -778,6 +778,14 @@ pub async fn deliver(
             "startWork": message.start_work,
         }},
     });
+    // The sending session's id, which its daemon set from the caller it proved
+    // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The hub's sender
+    // record carries no harness yet, so a relayed message names none.
+    let sender = crate::prompt_provenance::BoundSender {
+        session_id: message.from.session_id.clone(),
+        harness: None,
+    };
+    crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
     use super::outbox::Next;
     match super::outbox::attempt_once(hub, None, request, Origin::Peer).await {
         Ok(_) => Some(Ack::delivered(prompt_id, None)),

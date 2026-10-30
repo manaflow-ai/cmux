@@ -20,6 +20,8 @@ use wait_timeout::ChildExt;
 
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod embedded;
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod embedded_service;
 
 /// How long one CLI call may take (status on a large tailnet is the
 /// slowest, about 100 ms measured on a 150-peer tailnet).

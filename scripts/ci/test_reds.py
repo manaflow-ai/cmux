@@ -78,6 +78,10 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+# Actions may preserve only the shell status when a process dies after printing its test summary.
+# A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
+# Match the runner annotation, never a test name or an assertion quoting the diagnostic.
+PROCESS_EXIT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*Process completed with exit code (\d{1,3})\.?$")
 # A signal or Mach exception named by a tool, the runtime or a crash report: a crash unless a test's own line
 # quotes it.
 SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
@@ -289,6 +293,11 @@ def read(log: str | None) -> Result:
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
+        exited = PROCESS_EXIT.match(text)
+        signal_exit = int(exited.group(1)) - 128 if exited else 0
+        if 1 <= signal_exit <= 64:
+            crashed = True
+            signals.append(str(signal_exit))
         runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
