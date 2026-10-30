@@ -343,6 +343,8 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
         ["Apple System Colors Light", "light"],
       ] as const) {
         const page = await open(variant, 760, theme, 2);
+        // The opened chips with the pointer on the first row: its × shows, the other's does not.
+        if (variant === "prs-open") await page.locator(".acpmux-pr-stack__link").first().hover();
         await page.screenshot({ path: path.join(out, "stills", `${variant}-${name}.png`) });
         await page.close();
       }
