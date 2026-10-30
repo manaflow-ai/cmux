@@ -34,6 +34,31 @@ import Testing
         #expect(session.daemonFailure == nil)
     }
 
+    /// Retry from a blocked link failure stamps a new attempt synchronously, but the link only
+    /// leaves its failure after an asynchronous `wake(.user)`. The mirrored status must not
+    /// carry the previous attempt's failure into the new one, or the recovery observer reopens
+    /// the stale sheet and keeps it over the real result of the retry.
+    @Test(arguments: [SSHConnectionMachine.Status.authFailed("Permission denied (publickey)"),
+                      .hostKeyUntrusted("REMOTE HOST IDENTIFICATION HAS CHANGED"),
+                      .installFailed("download failed")])
+    @MainActor func retryFromABlockedLinkFailureDoesNotReplayItForTheNewAttempt(
+        _ failure: SSHConnectionMachine.Status
+    ) throws {
+        let host = try SSHHost(destination: SSHDestination(parsing: "nohost.invalid"))
+        let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                        paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/remote-recovery-tests")),
+                                        environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        session.linkStatus = failure
+        let service = SSHService(machines: MachineRegistry(local: DaemonService()), bundleID: nil,
+                                 mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        service.reconnect(session)
+        #expect(session.connectionAttemptID == 1)
+        #expect(!session.linkStatus.needsRecovery)
+        #expect(!RemoteHandlers.shouldOpenRecoveryWindow(loaded: false, hasWindow: false,
+                                                         status: session.linkStatus, failure: session.daemonFailure,
+                                                         currentAttemptID: session.connectionAttemptID))
+    }
+
     @Test @MainActor func reconnectOnAHealthyConnectedLinkDoesNotStartARecoveryAttempt() throws {
         let host = try SSHHost(destination: SSHDestination(parsing: "nohost.invalid"))
         let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
