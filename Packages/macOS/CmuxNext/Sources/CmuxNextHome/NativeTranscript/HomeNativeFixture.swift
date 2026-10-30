@@ -111,6 +111,27 @@ public final class HomeNativeFixture {
         return true
     }
 
+    /// Shows the Chief working, as a running turn's owner does: its typing bubble and the status line
+    /// above it, made of each of `steps` in turn ("Reading", then "Starting agents"), the last begun
+    /// `elapsed` seconds ago. False before the conversation shows.
+    public func debugLive(_ steps: [String], elapsed: TimeInterval) -> Bool {
+        guard let shown, !steps.isEmpty else { return false }
+        let source = self.source
+        let run = "debug-live-\(UUID().uuidString)"
+        let start = Date().addingTimeInterval(-elapsed)
+        // task-owner: one mock event per step, ends when the mock source has published them
+        Task {
+            await source.typing(shown.chief, in: shown.conversation, on: true)
+            for (index, line) in steps.enumerated() {
+                let since = start.addingTimeInterval(Double(index - steps.count + 1))
+                let frame = HomeLiveActivityFrame(conversation: shown.conversation, author: shown.chief, run: run,
+                                                  activity: HomeLiveActivity(line: line, since: since))
+                await source.streamLive(.activity(frame))
+            }
+        }
+        return true
+    }
+
     private func addAttachments(in id: ConversationID) async {
         guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
         for file in files {

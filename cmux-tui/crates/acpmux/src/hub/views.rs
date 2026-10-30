@@ -320,6 +320,10 @@ impl Hub {
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
+        let stopping = turn.as_ref().is_some_and(|t| {
+            session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                == Some(t.turn_id.as_str())
+        });
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -327,7 +331,14 @@ impl Hub {
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
-            state: if stuck.is_some() { "stuck".to_owned() } else { m.status.to_string() },
+            // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
+            state: if stopping {
+                "stopping".to_owned()
+            } else if stuck.is_some() {
+                "stuck".to_owned()
+            } else {
+                m.status.to_string()
+            },
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
@@ -360,7 +371,9 @@ impl Hub {
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
-            moving: session.moving().is_some(),
+            moving: session.moving().is_some() && m.moved_to.is_none(),
+            // Moved away for good (`transfer_out.rs` commit): where it runs now.
+            moved_to: m.moved_to.clone(),
             // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
             watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
@@ -395,6 +408,11 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    // Another agent's message the person's Stop holds (`cancel.rs`): it waits for
+                    // their next completed turn or a resume, not for the turn to end.
+                    held_by_stop: q.held
+                        && q.run.agent.is_some()
+                        && session.stop_hold.load(Ordering::SeqCst) != 0,
                     from_agent: q.run.agent.clone(),
                     // The sending session and its harness, as the daemon bound them.
                     from_session_id: crate::prompt_provenance::sender_of(q.run.provenance.as_ref())

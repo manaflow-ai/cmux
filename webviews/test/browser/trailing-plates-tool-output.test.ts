@@ -47,6 +47,9 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       // Focus is deterministic in headless CI; :focus-within reveals the same actions without
       // depending on the pointer still being over the output box when styles are sampled.
       await button.focus();
+      // Reduce Motion still runs every transition, for 0.01ms (shared/desktop.css): the reveal's
+      // opacity reads 0 in the frame it starts. Read the actions once it has run.
+      await actions.evaluate((node) => Promise.all(node.getAnimations().map((animation) => animation.finished)));
       const style = await actions.evaluate((node) => {
         const computed = getComputedStyle(node);
         return {
