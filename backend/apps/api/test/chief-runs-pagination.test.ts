@@ -1,6 +1,11 @@
+import { env as testEnv } from "cloudflare:workers"
+import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { readRuns } from "../src/chief-brain/brain-runs.ts"
 import { LiveRuns, type LiveRunsDeps } from "../src/chief-brain-opencode/live-runs.ts"
+
+import { handleOpencodeRuns } from "../src/chief-brain-opencode/routes.ts"
+import type { Env } from "../src/env.ts"
 
 type Turn = {
   id: string
@@ -139,5 +144,61 @@ describe("Cloud Chief run pagination", () => {
     const ids = pageThrough((before) => live.runs("conv", before, 100) as { runs: Array<{ id: string; started_at: number }>; has_more: boolean })
     expect(ids).toHaveLength(102)
     expect(new Set(ids).size).toBe(102)
+  })
+})
+
+
+describe("Cloud Chief durable/P run route pagination", () => {
+  const conversation = "conv_00000000000000000000000000"
+  const fixtures = turnsFor(conversation)
+  const tied = fixtures.slice(0, 101)
+  const old = fixtures.slice(101)
+
+  it.each([
+    { name: "P-only oversized tie", durable: [], pi: fixtures, sizes: [101, 1] },
+    { name: "durable oversized tie with older P history", durable: tied, pi: old, sizes: [101, 1] },
+    { name: "tie spanning a full durable page and P", durable: tied.slice(0, 100), pi: [...tied.slice(100), ...old], sizes: [101, 1] },
+    { name: "short durable page and oversized P tie", durable: tied.slice(0, 1), pi: [...tied.slice(1), ...old], sizes: [101, 1] },
+    { name: "terminal tie without older history", durable: tied.slice(0, 1), pi: tied.slice(1), sizes: [101] },
+    { name: "interleaved durable and P timestamps", durable: old, pi: tied, sizes: [101, 1] }
+  ])("keeps all runs exactly once through routes.ts: $name", async ({ durable, pi, sizes }) => {
+    const durableSql = new RunsSql(durable)
+    const piSql = new RunsSql(pi)
+    const namespace = (reader: unknown) => ({ idFromName: (name: string) => name, get: () => reader })
+    const bindings = testEnv as unknown as Env
+    const token = await new SignJWT({ email: "paging@example.com", email_verified: true })
+      .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
+      .setIssuer(`https://api.stack-auth.com/api/v1/projects/${bindings.STACK_PROJECT_ID}`)
+      .setAudience(bindings.STACK_PROJECT_ID).setSubject("chief-paging-route").setIssuedAt().setExpirationTime("10m")
+      .sign(await importJWK(JSON.parse(bindings.STACK_TEST_PRIVATE_JWK!) as JWK, "ES256"))
+    const env = {
+      ...bindings,
+      CHIEF_DURABLE_ENABLED: "1",
+      CHIEF_DURABLE_DO: namespace({ runs: async (_conversation: string, before: number | undefined, limit: number) => readRuns(durableSql as never, "agent", conversation, before, limit) }),
+      MUX_DO: namespace({ brainImplOf: async () => "durable" }),
+      CONVERSATION_DO: namespace({ readOp: async () => ({ ok: true }) })
+    } as unknown as Env
+    const ids: Array<string> = []
+    const pageSizes: Array<number> = []
+    let before: number | undefined
+    for (let page = 0; page < 5; page++) {
+      const url = new URL(`https://api.test/v1/chiefs/agent/runs?conversation=${conversation}&limit=100`)
+      if (before !== undefined) url.searchParams.set("before", String(before))
+      const response = await handleOpencodeRuns(new Request(url, { headers: { authorization: `Bearer ${token}` } }), env, "agent", undefined, async () =>
+        Response.json({ ok: true, value: readRuns(piSql as never, "agent", conversation, before, 100) }))
+      expect(response.status).toBe(200)
+      const { value } = await response.json() as { value: { runs: Array<{ id: string; started_at: number }>; has_more: boolean } }
+      pageSizes.push(value.runs.length)
+      ids.push(...value.runs.map((run) => run.id))
+      expect(value.has_more).toBe(page < sizes.length - 1)
+      if (!value.has_more) break
+      const cursor = value.runs.at(-1)!.started_at
+      expect(cursor).toBeLessThan(before ?? Number.MAX_SAFE_INTEGER)
+      before = cursor
+    }
+    expect(pageSizes).toEqual(sizes)
+    const expected = [...durable, ...pi].sort((a, b) => b.started - a.started || b.id.localeCompare(a.id)).map((row) => row.id)
+    expect(ids).toEqual(expected)
+    expect(new Set(ids).size).toBe(expected.length)
   })
 })
