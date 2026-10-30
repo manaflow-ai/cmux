@@ -367,6 +367,61 @@ import Testing
         #expect(store.messages.compactMap(\.seq) == Array(61...101))
     }
 
+    /// A vote or an added choice made while recovery fetches is local intent
+    /// over the poll, not a newer revision of the message: the recovered edit
+    /// and other people's votes still apply, the intent stays on top, and a
+    /// refusal rolls back to the recovered poll, not the pre-disconnect one.
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterAPendingPollAction(addsChoice: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        var original = backend.makeMessage(seq: 25, sender: "lc")
+        original.text = "Lunch?"
+        original.poll = ConversationPoll(question: "Lunch?", options: [
+            ConversationPollOption(id: "a", text: "Tacos"),
+            ConversationPollOption(id: "b", text: "Ramen"),
+        ])
+        backend.setHistoryMessage(original)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // While disconnected the question was edited and someone voted.
+        var changed = original
+        changed.text = "Lunch on Friday?"
+        changed.poll?.setVote(participantID: "aw", optionID: "a", selected: true)
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // My poll action is held, then refused.
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.pollActionGate = action
+        if addsChoice {
+            store.addPollChoice(messageID: "m25", text: "Pho")
+        } else {
+            store.togglePollVote(messageID: "m25", optionID: "b")
+        }
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let recovered = try #require(store.message(id: "m25"))
+        #expect(recovered.text == changed.text)
+        #expect(recovered.poll?.hasVote(participantID: "aw", optionID: "a") == true)
+        if addsChoice {
+            #expect(recovered.poll?.options.map(\.text) == ["Tacos", "Ramen", "Pho"])
+        } else {
+            #expect(recovered.poll?.hasVote(participantID: "me", optionID: "b") == true)
+        }
+        action.open()
+        try await waitUntil { store.message(id: "m25")?.poll == changed.poll }
+        #expect(store.message(id: "m25")?.text == changed.text)
+    }
+
     /// A delivery receipt is not a newer revision of the message: a live
     /// receipt during recovery keeps its delivery, and the recovered edit or
     /// unsend still applies.
@@ -676,6 +731,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private var _nextHistoryGate: PreparationGate?
     private var _historyCount = 0
     private var _historyMessages: [String: ConversationMessage] = [:]
+    private var _pollActionGate: PreparationGate?
     private var _failNextSend = false
     private var _holdSend = false
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
@@ -690,6 +746,16 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var total: Int { get { lock.withLock { _total } } set { lock.withLock { _total = newValue } } }
     var failNextHistory: Int { get { lock.withLock { _failNextHistory } } set { lock.withLock { _failNextHistory = newValue } } }
     var nextHistoryGate: PreparationGate? { get { lock.withLock { _nextHistoryGate } } set { lock.withLock { _nextHistoryGate = newValue } } }
+    /// Holds a poll vote or added choice until opened, then refuses it.
+    var pollActionGate: PreparationGate? { get { lock.withLock { _pollActionGate } } set { lock.withLock { _pollActionGate = newValue } } }
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        await pollActionGate?.wait()
+        throw ConversationBackendError(code: -1, message: "vote refused")
+    }
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage {
+        await pollActionGate?.wait()
+        throw ConversationBackendError(code: -1, message: "choice refused")
+    }
     var historyCount: Int { lock.withLock { _historyCount } }
     func setHistoryMessage(_ message: ConversationMessage) {
         lock.withLock { _historyMessages[message.id] = message }
