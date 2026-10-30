@@ -84,3 +84,47 @@ fn a_progress_report_reads_only_its_own_terminals_tabs() {
         assert!(!read.contains(table), "a progress report read {table}: {read:?}");
     }
 }
+
+/// The read-only connection reads the last committed state. While a writer
+/// has an open transaction that changed the revision, a read returns the
+/// committed value, never the uncommitted one, and it does not wait for the
+/// transaction (SQLite WAL: a reader sees the snapshot at its start and is
+/// never blocked by the writer). After the commit it returns the new value.
+#[test]
+fn a_committed_read_during_an_open_write_transaction_sees_only_committed_data() {
+    let (mux, root) = persistent_mux("read-during-write");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let committed = mux.terminal_registry_revision().unwrap();
+
+    let connection = mux.registry_connection.get();
+    let transaction = connection.unchecked_transaction().unwrap();
+    transaction
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+            [(committed + 1000).to_string()],
+        )
+        .unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = mux.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(
+            reader
+                .registry_connection
+                .read_committed(crate::workspace_registry::current_terminal_revision),
+        );
+    });
+    let during = rx.recv_timeout(Duration::from_secs(5));
+    transaction.commit().unwrap();
+    drop(connection);
+
+    let during = during.expect("a committed read waited for the open write transaction");
+    assert_eq!(
+        during.map(Result::unwrap),
+        Some(committed),
+        "a committed read returned uncommitted data or no reader exists"
+    );
+    assert_eq!(mux.terminal_registry_revision().unwrap(), committed + 1000, "the commit is read");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
