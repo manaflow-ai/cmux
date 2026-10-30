@@ -204,6 +204,10 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
+        tabs.paneWidth = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            return services.paneController(for: pane)?.view.bounds.width
+        }
         tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
             guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane),
                   let side = MainPaneLayout.side(from: controller, services: services) else { return nil }
