@@ -102,7 +102,9 @@ struct AgentShareTests {
                                     paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-agent-share-remote-unused")),
                                     environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         f.services.machines.add(ssh)
-        var remote = TabSnapshot(surface: 1, kind: .conversation, title: "Remote chat", url: "about:blank")
+        // Its own surface, so its tab id is not the local chat's (an id both machines hold resolves to
+        // the first machine that has it, which is a different question).
+        var remote = TabSnapshot(surface: 7, kind: .conversation, title: "Remote chat", url: "about:blank")
         remote.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "lab", session: Self.session, harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [remote])])
         ssh.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "remote", screens: [screen])]))
@@ -110,9 +112,12 @@ struct AgentShareTests {
         #expect(!f.services.shareIsOnThisMac(remoteTab))
         #expect(f.services.shareIsOnThisMac(f.chat))
         let byTarget = ActionInvocation(target: ActionTargetRef(kind: .tab, id: remoteTab.id), arguments: [:], origin: .cli)
-        if case .success(let chat) = AgentShareActions.chat(byTarget, host: f.services), chat.surface == remoteTab.surface.rawValue {
-            #expect(!chat.isLocal, "another machine's chat counted as this Mac's")
+        #expect(remoteTab.id != f.chat.id)
+        guard case .success(let remoteChat) = AgentShareActions.chat(byTarget, host: f.services) else {
+            Issue.record("the remote chat's tab target names it"); return
         }
+        #expect(remoteChat.surface == remoteTab.surface.rawValue)
+        #expect(!remoteChat.isLocal, "another machine's chat counted as this Mac's")
         let local = ActionInvocation(target: ActionTargetRef(kind: .tab, id: f.chat.id), arguments: [:], origin: .cli)
         guard case .success(let chat) = AgentShareActions.chat(local, host: f.services) else {
             Issue.record("the local chat's tab target names it"); return
