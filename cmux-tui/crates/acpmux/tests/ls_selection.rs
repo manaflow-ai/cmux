@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
 use std::time::{Duration, Instant};
 
-fn scratch() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("acpmux-ls-{}", std::process::id()));
+fn scratch(tag: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("acpmux-ls-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(root.join("sessions")).unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
@@ -109,7 +109,7 @@ fn run(root: &Path, args: &[&str]) -> (Output, Duration) {
 
 #[test]
 fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
-    let root = scratch();
+    let root = scratch("large");
     write_sessions(&root, 3_000);
     let _daemon = start(&root);
 
@@ -182,42 +182,106 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     assert_eq!(recent["sessions"].as_array().map(Vec::len), Some(1));
 
     // Leo, 2026-10-29: "are the tools/commands/docs/etc clear and good enough for you guys? i
-    // feel like they could be better". A busy host's `ls` is thousands of rows: `--live`,
-    // `--name` and `--host` narrow it, the same in text and JSON.
+    // feel like they could be better". A busy host's `ls` is thousands of rows: `--live` and
+    // `--host` narrow it, the same in text and JSON.
     let (live, _) = run(&root, &["--json", "ls", "--live", "--fields", "name,status"]);
     assert!(live.status.success(), "--live failed: {live:?}");
     let live: Value = serde_json::from_slice(&live.stdout).unwrap();
     let live = live["sessions"].as_array().unwrap();
     assert_eq!(live.len(), 2_700);
     assert!(live.iter().all(|s| s["status"] != "closed"));
-    let (named, _) = run(&root, &["--json", "ls", "--name", "^lane-29[0-9][0-9]$", "--live"]);
-    let named: Value = serde_json::from_slice(&named.stdout).unwrap();
-    assert_eq!(named["sessions"].as_array().map(Vec::len), Some(90));
     let (here, _) = run(&root, &["--json", "ls", "--host", "local", "--limit", "5"]);
     let here: Value = serde_json::from_slice(&here.stdout).unwrap();
     assert_eq!(here["sessions"].as_array().map(Vec::len), Some(5));
     let (elsewhere, _) = run(&root, &["--json", "ls", "--host", "no-such-peer"]);
     let elsewhere: Value = serde_json::from_slice(&elsewhere.stdout).unwrap();
     assert_eq!(elsewhere["sessions"].as_array().map(Vec::len), Some(0));
-    let (bad, _) = run(&root, &["ls", "--name", "("]);
-    assert_eq!(bad.status.code(), Some(2), "a bad pattern is a usage error: {bad:?}");
-    let (text, _) = run(&root, &["ls", "--name", "^lane-299[0-9]$"]);
+    let (text, _) = run(&root, &["ls", "--live", "--limit", "10"]);
     let text = String::from_utf8_lossy(&text.stdout);
-    assert_eq!(text.lines().count(), 11, "a header and every match, closed too: {text}");
+    assert_eq!(text.lines().count(), 11, "a header and every match: {text}");
 
-    // With no filter, the text view is the live sessions, capped, and says what it left out.
+    // With no filter, the text view is every live named session, never cut short, and its last
+    // line counts what it hid.
     let (compact, _) = run(&root, &["ls"]);
     assert!(compact.status.success(), "compact ls failed: {compact:?}");
     let compact = String::from_utf8_lossy(&compact.stdout);
     let lines: Vec<&str> = compact.lines().collect();
-    assert_eq!(lines.len(), 42, "a header, 40 rows and the note: {compact}");
+    assert_eq!(lines.len(), 2_702, "a header, 2700 rows and the count: {compact}");
     assert!(lines[1].starts_with("lane-2999 "), "{compact}");
-    assert!(!compact.contains("closed  "), "{compact}");
-    assert_eq!(
-        lines[41],
-        "2660 more live and 300 closed not shown: --all lists every session; --live, --name \
-REGEX, --host HOST, --status S or --limit N narrow it"
-    );
+    assert!(!compact.contains(" closed "), "{compact}");
+    assert_eq!(lines[2_701], "300 more hidden (300 closed): acpmux ls --all");
     let (all, _) = run(&root, &["ls", "--all"]);
-    assert_eq!(String::from_utf8_lossy(&all.stdout).lines().count(), 3_001);
+    let all = String::from_utf8_lossy(&all.stdout);
+    assert_eq!(all.lines().count(), 3_001, "a header and every session");
+    // Live rows first, closed after.
+    assert!(all.lines().nth(2_700).unwrap().starts_with("lane-1 "), "{all}");
+    assert!(all.lines().nth(2_701).unwrap().starts_with("lane-2990 "), "{all}");
+}
+
+/// hq#4897 failure 4: `acpmux ls` on a home no daemon serves started an empty daemon there and
+/// printed "no sessions", which census probes read as a host with nothing on it. A listing
+/// starts none: it fails at once with `no_daemon`, and leaves no socket behind.
+#[test]
+fn ls_with_no_daemon_starts_none() {
+    let root = scratch("no-daemon");
+    for args in [&["ls"][..], &["--json", "ls"], &["ls", "--all"]] {
+        let (out, elapsed) = run(&root, args);
+        let started = root.join("acpmux.sock").exists();
+        if started {
+            // The bug: stop the daemon it started, so the red run leaves nothing running.
+            let _ = run(&root, &["daemon", "shutdown"]);
+        }
+        assert!(!started, "{args:?} started a daemon: {out:?}");
+        assert!(!out.status.success(), "{args:?} succeeded with no daemon: {out:?}");
+        let said = String::from_utf8_lossy(&out.stderr).to_string()
+            + &String::from_utf8_lossy(&out.stdout);
+        assert!(
+            said.contains("no_daemon") || said.contains("no acpmux daemon"),
+            "{args:?}: {said}"
+        );
+        assert!(elapsed < Duration::from_secs(5), "{args:?} took {elapsed:?}");
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// The default text list is the live named lanes; the rest (here a closed session and one with
+/// only its harness's generated name) are counted on its last line and come back with `--all`; `--json`
+/// keeps every row.
+#[test]
+fn the_default_text_list_is_compact_and_all_brings_the_rest_back() {
+    let root = scratch("compact");
+    write_sessions(&root, 3);
+    // lane-0 is closed (`write_sessions`); lane-1 gets only a generated name.
+    let unnamed = root.join("sessions/01a16c00-0000-7000-8000-000000000001/session.json");
+    let mut row: Value = serde_json::from_slice(&fs::read(&unnamed).unwrap()).unwrap();
+    row["name"] = json!("claude");
+    fs::write(&unnamed, row.to_string()).unwrap();
+    let _daemon = start(&root);
+
+    let (text, _) = run(&root, &["ls"]);
+    assert!(text.status.success(), "ls failed: {text:?}");
+    let text = String::from_utf8_lossy(&text.stdout);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with("NAME") && lines[0].contains("STATE"), "{text}");
+    assert!(!lines[0].contains("LAST"), "the compact list has no LAST column: {text}");
+    assert!(text.contains("lane-2"), "{text}");
+    assert!(!text.contains("lane-0"), "a closed session is hidden: {text}");
+    assert!(!text.contains("claude"), "an unnamed session is hidden: {text}");
+    assert_eq!(
+        lines.last().copied(),
+        Some("2 more hidden (1 closed, 1 unnamed): acpmux ls --all"),
+        "{text}"
+    );
+
+    let (all, _) = run(&root, &["ls", "--all", "--wide"]);
+    let all = String::from_utf8_lossy(&all.stdout);
+    assert!(
+        all.lines().any(|l| l.starts_with("claude "))
+            && all.lines().next().unwrap().ends_with("LAST"),
+        "{all}"
+    );
+
+    let (json_out, _) = run(&root, &["--json", "ls"]);
+    let v: Value = serde_json::from_slice(&json_out.stdout).unwrap();
+    assert_eq!(v["sessions"].as_array().map(Vec::len), Some(3), "--json is unchanged");
 }
