@@ -33,6 +33,7 @@ import Testing
         var candidateAnswers: [[HostCandidate]?] = []
         /// Streams the test drives by hand (``feed(_:)``), when set.
         var live: AsyncThrowingStream<String, any Error>.Continuation?
+        var termination: CheckedContinuation<Void, Never>?
         var holdNextRun = false
         var connectFails = false
 
@@ -52,7 +53,13 @@ import Testing
                     commands.append(command)
                     if holdNextRun {
                         holdNextRun = false
-                        return AsyncThrowingStream { self.live = $0 }
+                        return AsyncThrowingStream { continuation in
+                            self.live = continuation
+                            continuation.onTermination = { @Sendable _ in
+                                self.termination?.resume()
+                                self.termination = nil
+                            }
+                        }
                     }
                     let lines = scripts.isEmpty ? [] : scripts.removeFirst()
                     let stop = stops.isEmpty ? nil : stops.removeFirst()
@@ -371,13 +378,15 @@ import Testing
         #expect(model.phase == .running, "the report arrived, but the stream has not ended")
         #expect(host.installs.isEmpty)
 
-        // Start finished() before Cancel drops the model's task. Its wait then observes the
-        // canceled task settling, rather than returning early because the task is already nil.
-        let waiter = Task { await model.finished() }
-        for _ in 0..<10 { await Task.yield() }
+        let terminated = Task {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                host.termination = done
+            }
+        }
+        try await waitFor { host.termination != nil }
         #expect(model.perform(.cancel))
         live.finish()
-        _ = await waiter.value
+        _ = await terminated.value
 
         #expect(host.installs.isEmpty, "a retained report must not start installation after Cancel")
         #expect(host.connected.isEmpty)
