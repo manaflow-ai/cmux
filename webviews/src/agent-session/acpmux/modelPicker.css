@@ -461,12 +461,12 @@
   border-inline-end: 0;
   border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   /* The bottom inset is one gap, so a fourth row starts exactly where three rows end. */
-  padding: 6px 6px var(--acpmux-symbols-gap);
-  max-height: calc(6px + 3 * var(--ui-row-height) + 3 * var(--acpmux-symbols-gap));
+  padding: var(--ds-space-2) var(--ds-space-2) var(--acpmux-symbols-gap);
+  max-height: calc(var(--ds-space-2) + 3 * var(--ui-row-height) + 3 * var(--acpmux-symbols-gap));
   overflow-x: hidden;
   overflow-y: auto;
   scroll-snap-type: y mandatory;
-  scroll-padding-block: 6px;
+  scroll-padding-block: var(--ds-space-2);
   scrollbar-width: none;
 }
 .acpmux-quick-placement-symbols .acpmux-quick-rail-tab { position: relative; scroll-snap-align: start; }
@@ -480,7 +480,8 @@
   position: absolute;
   inset-inline: 25%;
   inset-block-end: -3px;
-  height: 2px;
+  /* Half a grid step: a thin bar, on the scale. */
+  height: calc(var(--ds-space-1) / 2);
   border-radius: 1px;
   background: var(--agent-accent, var(--agent-text));
 }
