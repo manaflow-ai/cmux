@@ -44,7 +44,7 @@ type Outcome = "paused" | "idle" | "active" | "unknown" | "off" | "error";
  * private address, is not probed; with the kill switch off
  * ({@link vmIdleAutoPauseEnabled}, the default) no machine is.
  */
-export function enforceVmIdlePause(input: { readonly now?: () => number; readonly limit?: number; readonly autoPause?: boolean } = {}) {
+export function enforceVmIdlePause(input: { readonly now?: () => number; readonly limit?: number } = {}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -55,7 +55,7 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
     const startedAt = Date.now();
     const rows = yield* candidates({ limit });
-    const autoPause = input.autoPause ?? vmIdleAutoPauseEnabled();
+    const autoPause = vmIdleAutoPauseEnabled();
     const outcomes = yield* Effect.forEach(
       rows,
       (vm) => checkMachine(vm, input.now ?? Date.now, autoPause).pipe(
