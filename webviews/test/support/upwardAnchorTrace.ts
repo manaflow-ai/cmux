@@ -84,6 +84,7 @@ export async function traceUpwardAnchors({
   const baselineDrift = baselineAnchor ? previous.mounted.get(baselineAnchor.id)!.y - baselineAnchor.y : null;
   const samples: UpwardAnchorFrame[] = [];
   let cancelledWheels = 0;
+  let foldToggleClicks = 0;
   const commands = [...steps, ...Array.from({ length: restFrames }, () => 0)];
   const driven = new Map<number, { asked: number; applied: number; geometry: number }>();
   let next = 0;
@@ -141,8 +142,14 @@ export async function traceUpwardAnchors({
         const asked = commands[next++]!;
         if (foldStream) {
           (window as unknown as { __stepFoldStream(): void }).__stepFoldStream();
-          if ([4, 32, 60, 88].includes(frame))
-            scroller.querySelector<HTMLButtonElement>('[data-row-id="gap-incoming"] .cv-received__toggle')?.click();
+          if ([4, 32, 60, 88].includes(frame)) {
+            const toggle = scroller.querySelector<HTMLButtonElement>(
+              '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
+            );
+            if (!toggle) throw new Error(`received fold toggle missing at frame ${frame}`);
+            toggle.click();
+            foldToggleClicks += 1;
+          }
         }
         let applied = 0;
         let geometry = 0;
@@ -184,6 +191,7 @@ export async function traceUpwardAnchors({
     blankEdgeFrames: samples.filter((sample) => Math.max(sample.topEdgeGap, sample.bottomEdgeGap) > 8).length,
     maxViewportEdgeGap: Math.max(0, ...samples.flatMap((sample) => [sample.topEdgeGap, sample.bottomEdgeGap])),
     cancelledWheels,
+    foldToggleClicks,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
     maxImmediateReadbackError: Math.max(
       0,

@@ -174,6 +174,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         foldStream: true,
       });
       console.log(`transcript-fold-stream: ${JSON.stringify({ sourceRows: seeded.rows, turns: 3000, ...result })}`);
+      expect(result.foldToggleClicks).toBe(4);
       expect(result.frames).toBe(136);
       expect(result.compared).toBe(result.frames);
       expect(result.missingAnchors).toBe(0);
