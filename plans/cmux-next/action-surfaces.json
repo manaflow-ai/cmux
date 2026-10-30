@@ -8315,7 +8315,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Mac Screen Tab",
+      "title" : "Screen Sharing",
       "title_key" : "action.macScreen.open",
       "title_table" : "ActionCatalog"
     },
@@ -22409,6 +22409,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-new-agent-chat-on",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.newAgentChatOn",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Agent Chat on…",
+      "title_key" : "action.palette.newAgentChatOn",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent toggle-session-info",
       "context_menu" : "guiOnly",
@@ -23272,7 +23300,7 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "agent fork-conversation-to-right",
+      "cli_name" : "agent fork-conversation",
       "context_menu" : "offered",
       "context_menus" : [
         "terminalSelection",
@@ -23289,6 +23317,64 @@
           "cmd"
         ]
       },
+      "id" : "palette.forkAgentConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fork Conversation",
+      "title_key" : "action.palette.forkAgentConversation",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-fork-agent-conversation-to",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.forkAgentConversationTo",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fork to…",
+      "title_key" : "action.palette.forkAgentConversationTo",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent fork-conversation-to-right",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
       "id" : "palette.forkAgentConversationRight",
       "main_menu" : null,
       "mcp" : "offered",
@@ -35438,6 +35524,90 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action machine-joined-check",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "joinedMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.joined.check",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "guiOnly",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Check Joined Machine",
+      "title_key" : "action.machine.joined.check",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action machine-joined-rotate",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "joinedMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.joined.rotate",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "guiOnly",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Rotate Joined Machine's Credential",
+      "title_key" : "action.machine.joined.rotate",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action machine-joined-revoke",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "joinedMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.joined.revoke",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "guiOnly",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Revoke Joined Machine…",
+      "title_key" : "action.machine.joined.revoke",
+      "title_table" : "RemoteActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "app store",
       "context_menu" : "offered",
@@ -37669,6 +37839,23 @@
           "order" : 1
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "palette.forkAgentConversation",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
           "children" : [
             {
               "enabled_when" : "can_perform",
@@ -37762,22 +37949,27 @@
               }
             }
           ],
-          "folder" : "agent",
-          "kind" : "folder",
-          "order" : 2,
-          "title" : "Agent",
-          "title_key" : "menu.folder.agent",
-          "title_table" : "Localizable"
+          "id" : "palette.forkAgentConversationTo",
+          "kind" : "submenu",
+          "order" : 4,
+          "title_from" : "action",
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
         },
         {
           "kind" : "separator",
-          "order" : 3
+          "order" : 5
         },
         {
           "enabled_when" : "can_perform",
           "id" : "appearance.changeBackground",
           "kind" : "action",
-          "order" : 4,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37893,7 +38085,7 @@
           "id" : "workspace.setTheme",
           "kind" : "choices",
           "label" : "Theme",
-          "order" : 5,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37904,13 +38096,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 6
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "cloudMove",
           "kind" : "action",
-          "order" : 7,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
@@ -37923,7 +38115,7 @@
           "enabled_when" : "can_perform",
           "id" : "cloudBringBack",
           "kind" : "action",
-          "order" : 8,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
@@ -37934,14 +38126,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 9
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
           "label" : "Zoom In",
-          "order" : 10,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37955,7 +38147,7 @@
           "id" : "agentPaneZoomOut",
           "kind" : "action",
           "label" : "Zoom Out",
-          "order" : 11,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37969,7 +38161,7 @@
           "id" : "agentPaneZoomReset",
           "kind" : "action",
           "label" : "Actual Size",
-          "order" : 12,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37980,14 +38172,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 13
+          "order" : 15
         },
         {
           "enabled_when" : "can_perform",
           "id" : "find",
           "kind" : "action",
           "label" : "Find in Chat…",
-          "order" : 14,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37998,13 +38190,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 15
+          "order" : 17
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentChat.copyIdentifier",
           "kind" : "action",
-          "order" : 16,
+          "order" : 18,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -38045,7 +38237,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 17,
+          "order" : 19,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
@@ -40381,6 +40573,59 @@
       ],
       "implied" : [
         "fileExplorerFocused"
+      ]
+    },
+    "joinedMachine" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "machine.joined.check",
+          "kind" : "action",
+          "label" : "Check",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "machine.joined.rotate",
+          "kind" : "action",
+          "label" : "Rotate Credential",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 2
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "machine.joined.revoke",
+          "kind" : "action",
+          "label" : "Revoke…",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
       ]
     },
     "machineSection" : {
@@ -46034,66 +46279,21 @@
           "order" : 7
         },
         {
-          "children" : [
-            {
-              "enabled_when" : "can_perform",
-              "id" : "splitRight",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "splitDown",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "splitLeft",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "splitUp",
-              "kind" : "action",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "split",
-          "kind" : "folder",
+          "enabled_when" : "can_perform",
+          "id" : "palette.forkAgentConversation",
+          "kind" : "action",
           "order" : 8,
-          "title" : "Split",
-          "title_key" : "menu.folder.split",
-          "title_table" : "Localizable"
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 9
         },
         {
           "children" : [
@@ -46189,16 +46389,83 @@
               }
             }
           ],
-          "folder" : "agent",
+          "id" : "palette.forkAgentConversationTo",
+          "kind" : "submenu",
+          "order" : 10,
+          "title_from" : "action",
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "splitRight",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "splitDown",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "splitLeft",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "splitUp",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "split",
           "kind" : "folder",
-          "order" : 9,
-          "title" : "Agent",
-          "title_key" : "menu.folder.agent",
+          "order" : 11,
+          "title" : "Split",
+          "title_key" : "menu.folder.split",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 12
         },
         {
           "children" : [
@@ -46244,20 +46511,20 @@
           ],
           "folder" : "options",
           "kind" : "folder",
-          "order" : 11,
+          "order" : 13,
           "title" : "Options",
           "title_key" : "menu.folder.options",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 14
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSplitZoom",
           "kind" : "action",
-          "order" : 13,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -46268,13 +46535,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 14
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "palette.terminalOpenDirectory",
           "kind" : "action",
-          "order" : 15,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
