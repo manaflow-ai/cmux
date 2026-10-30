@@ -80,6 +80,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
+                windows.pendingPlacements[key.rawValue] = nil
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }

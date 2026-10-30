@@ -11,6 +11,10 @@ struct PendingPlacement {
     /// `workspaces.newPlacement`, used when `slot` is nil.
     var byDefault: NewWorkspaceDefaultSlot?
     var then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
+    /// Distinguishes a create that has not reached the daemon yet from a
+    /// workspace that was later removed. Failed creates clear their entry;
+    /// observed removals can therefore be pruned safely here.
+    var hasReported = false
     /// The action run that asked for the placement: `then` runs later,
     /// outside its task, and keeps its view-change permission.
     var run: ActionRunScope? = ActionRunScope.current
@@ -35,13 +39,16 @@ extension WindowManager {
 
     func applyPendingPlacements(live: Set<String>) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
-        for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
-            // A failed create or a workspace whose target window was closed
-            // must not leave an unfulfillable callback in the pending map.
-            if services.machines.workspace(id: id) == nil {
-                pendingPlacements[id] = nil
+        for (id, pending) in pendingPlacements where live.contains(id) {
+            guard let workspace = services.machines.workspace(id: id) else {
+                // Before the create reply, retain the placement; the create
+                // failure path removes it explicitly. Once the daemon has
+                // reported it, an absent workspace is a confirmed removal.
+                if pending.hasReported { pendingPlacements[id] = nil }
                 continue
             }
+            guard workspace.0.isProvisional != true else { continue }
+            pendingPlacements[id]?.hasReported = true
             if let requestedWindow = pending.window {
                 let target = registry.value.window(requestedWindow)
                 if target?.isOpen == false || (target == nil && pendingClaims[id] != requestedWindow) {
