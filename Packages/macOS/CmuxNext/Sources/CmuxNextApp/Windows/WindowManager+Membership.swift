@@ -178,7 +178,9 @@ extension WindowManager {
             claim(workspaceID: workspaceID, in: active.state, select: shows)
             return active
         }
-        return openWindow(workspaces: [workspaceID])
+        let opened = openWindow(workspaces: [workspaceID], incognito: holdsUnownedEphemeral(workspaceID))
+        if let opened { fileOpenedMachine(of: workspaceID, into: opened.state.id) }
+        return opened
     }
 
     /// Moves `workspaceID` into `state`'s window and selects it there. Use
@@ -195,6 +197,14 @@ extension WindowManager {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
         }
+        // An ephemeral workspace no window lists (a Cloud machine nobody had opened holds its
+        // workspaces out of every window) goes to an incognito window, never into a normal one.
+        if holdsUnownedEphemeral(workspaceID), !registry.value.isIncognito(state.id) {
+            if let opened = openWindow(workspaces: [workspaceID], incognito: true, behind: !shows) {
+                fileOpenedMachine(of: workspaceID, into: opened.state.id)
+            }
+            return
+        }
         protectIfUnknown([workspaceID], window: state.id)
         // Not reported yet: it lands when the daemon reports it, shown only
         // when asked (reconcileMembership).
@@ -207,6 +217,27 @@ extension WindowManager {
         // after the move finds it shown there and picks it (Home took a second click otherwise).
         if shows { enterProfile(of: workspaceID, in: state) }
         transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
+        fileOpenedMachine(of: workspaceID, into: state.id)
+    }
+
+    /// Whether `workspaceID` is an ephemeral workspace no window lists.
+    func holdsUnownedEphemeral(_ workspaceID: String) -> Bool {
+        registry.value.owner(of: workspaceID) == nil && EphemeralWorkspaces.isEphemeral(workspaceID, self)
+    }
+
+    /// Opening a Cloud machine (a claim of one of its workspaces) brings its other workspaces in:
+    /// reconcile held them while nobody had opened the machine, and nothing else re-runs it after a
+    /// claim. They are filed quietly into `windowID`; an ephemeral one goes to an incognito window
+    /// through the usual ephemeral placement.
+    func fileOpenedMachine(of workspaceID: String, into windowID: String) {
+        guard let daemon = services.machines.daemon(forWorkspace: workspaceID), services.machines.session(daemon.machineID) != nil else { return }
+        let value = registry.value
+        for workspace in daemon.store.workspaces where workspace.id != workspaceID && value.owner(of: workspace.id) == nil
+            && pendingClaims[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self) {
+            pendingClaims[workspace.id] = windowID
+            quietClaims.insert(workspace.id)
+        }
+        reconcileMembership()
     }
 
     /// Moves workspaces into an existing window and selects the first there;
