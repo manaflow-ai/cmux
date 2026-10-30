@@ -133,6 +133,39 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.isIncognito(owner), "an ephemeral workspace joined a normal window")
     }
 
+    /// Review finding: Open Machine with no window open shows through `CloudHandlers.show`, which
+    /// opens a window directly (not through reveal): the machine's other workspaces come in there too.
+    @Test func openMachineWithNoWindowBringsInItsOtherWorkspaces() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-open", workspaces: ["ws-first", "ws-second"])
+        services.windows.reconcileMembership()
+        try #require(services.windows.active == nil)
+
+        CloudHandlers.show("ws-first", AppActionContext(services: services))
+
+        let owner = try #require(services.windows.registry.value.owner(of: "ws-first"))
+        #expect(services.windows.registry.value.owner(of: "ws-second") == owner)
+    }
+
+    /// Review finding: showing an unopened machine's ephemeral workspace from a normal window
+    /// opens its incognito window, and that window is the one that shows it, not the normal one.
+    @Test func showingAnEphemeralWorkspaceFromANormalWindowShowsItsIncognitoWindow() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-normal", workspaces: ["ws-normal"])
+        let session = Self.machine(services, id: "vm-eph2", workspaces: ["ws-eph2"])
+        try #require(session.daemon.store.workspace(id: "ws-eph2")).applyState(ephemeral: true)
+        services.windows.reconcileMembership()
+        let normal = try #require(services.windows.reveal(workspaceID: "ws-normal")?.state)
+
+        services.windows.show(workspaceID: "ws-eph2", in: normal)
+
+        let owner = try #require(services.windows.registry.value.owner(of: "ws-eph2"))
+        #expect(owner != normal.id && services.windows.registry.value.isIncognito(owner))
+        #expect(services.windows.controller(for: owner)?.state.workspaceID == "ws-eph2", "the incognito window does not show it")
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
