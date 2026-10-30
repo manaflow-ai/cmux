@@ -79,9 +79,10 @@ OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]
 ROLE_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.(?:gui_runner|session_runner)\b")
 RESCUE = WORKFLOWS / "ci-owned-pool-rescue.yml"
 # A session label (glaeda-session-<class>-xcode-<v>, pr_runner_pool.session_label()) and a variable naming one
-# (vars.CI_SESSION_LANE_RUNNER). A runs-on takes one only from a placement output that role_room() judged.
+# (vars.CI_SESSION_LANE_RUNNER; a switch like vars.CI_SESSION_LABEL names no label). A runs-on takes one only
+# from a placement output that role_room() judged.
 SESSION_LITERAL = re.compile(r"'(glaeda-(?:[a-z]+-)*?session-[a-z0-9.-]+)'")
-SESSION_VARIABLE = re.compile(r"\bvars\.([A-Z0-9_]*SESSION[A-Z0-9_]*)\b")
+SESSION_VARIABLE = re.compile(r"\bvars\.([A-Z0-9_]*SESSION[A-Z0-9_]*RUNNER[A-Z0-9_]*)\b")
 SESSION_LANE_GUARD = re.compile(r"needs\.[\w-]+\.outputs\.session_lane_runner\s*!=\s*''")
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
