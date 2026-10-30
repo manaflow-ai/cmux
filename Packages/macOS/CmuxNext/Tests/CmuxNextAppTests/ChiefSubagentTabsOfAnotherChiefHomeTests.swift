@@ -147,6 +147,7 @@ import CmuxNextWakeups
         lock.release()
         // The home's own host on its own acpmux owns that daemon too: the tab only attaches.
         let homeLockPath = current.root.appendingPathComponent("state/host.lock")
+        try FileManager.default.createDirectory(at: homeLockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         let homeLock = try #require(ChiefMigration.HostLock(path: homeLockPath))
         #expect(await reached(pane, session: kept) == "home acpmux")
         // That host runs on the app's acpmux (its launch mark names another home): it owns nothing
