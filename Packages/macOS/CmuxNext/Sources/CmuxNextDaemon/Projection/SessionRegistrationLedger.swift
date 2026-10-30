@@ -5,9 +5,9 @@ import Foundation
 public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     /// What a failed `put-session` means for the next attempt.
     public enum Failure: Equatable, Sendable {
-        /// The daemon answered with a refusal (size, validation): the same record fails again.
+        /// A `bad request:` answer (size, validation): the same record fails again.
         case refused(String)
-        /// No answer (not connected, closed, timed out) or a refusal the daemon marks retryable.
+        /// No answer (not connected, closed, timed out), a store error, or a retryable refusal.
         case unreachable
     }
 
@@ -57,6 +57,13 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
 
     /// A backoff wait of `session` ended.
     public mutating func retryDue(session: String) {}
+
+    /// The current record of `session` got no answer and its timed retries are spent: only a changed
+    /// record or a new connection sends it again.
+    public func isWaitingForEvent(session: String) -> Bool {
+        if case .backingOff(waitingForEvent: true) = entries[session]?.state { return true }
+        return false
+    }
 
     /// The daemon has recorded `session`'s current record.
     public func isRecorded(session: String) -> Bool { sent[session] != nil }
