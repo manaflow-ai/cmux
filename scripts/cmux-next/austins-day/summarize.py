@@ -16,6 +16,8 @@ below 0, `worse` when it is above 0, else `no difference`. No verdict at all ("i
 - the head commit changes scripts/cmux-next/austins-day/ ("invalid: head edits the harness"): the
   harness is held out; only its owner changes it, in its own PR;
 - a run has no results.
+Per metric, a verdict also needs every base run to show that metric's own failure (METRIC_FAILURE: a
+budget the product or the brief states); else that metric says "invalid: base did not reproduce".
 
 `austin_failure` per run names which of Austin's failures the run showed: refused daemon
 connections, app requests with no reply in time, registry lock waits over 1 s at p99, acpmux
@@ -203,6 +205,8 @@ def run_metrics(run):
         "app_control_ms": dist(c["ms"] for c in control), "app_control_errors": sum(1 for c in control if c.get("error")),
         "person_cli_ms": dist(p["ms"] for p in person), "person_cli_refusals": counts(p.get("code") for p in person),
         "agent_hook_ms": dist(h["ms"] for h in hooks), "agent_hooks": len(hooks),
+        "agent_hook_cpu_ms": dist(h.get("cpu_ms") for h in hooks),
+        "agent_hook_cpu_total_s": round(sum(h.get("cpu_ms") or 0 for h in hooks) / 1000, 2),
         "agent_hook_failures": counts(h.get("rc") for h in hooks if h.get("rc") not in (0, None)),
         "agent_tool_ms": dist(t["ms"] for t in tools),
         "agent_cli_ms": dist(c["ms"] for c in agent_cli), "agent_cli_refusals": counts(c.get("code") for c in agent_cli),
@@ -260,10 +264,14 @@ KEY = [  # (label, path in metrics) for the text summary
     ("app request p99 ms", ("app_requests", "p99")),
     ("app no-reply timeouts (log)", ("app_no_reply_within",)),
     ("person CLI p99 ms", ("person_cli_ms", "p99")),
+    ("agent CLI p99 ms", ("agent_cli_ms", "p99")),
     ("agent hook p99 ms", ("agent_hook_ms", "p99")),
+    ("agent hook CPU total s", ("agent_hook_cpu_total_s",)),
+    ("agent hook CPU p99 ms", ("agent_hook_cpu_ms", "p99")),
     ("daemon refused", ("daemon_connections", "refused")),
     ("daemon peak/limit", ("daemon_connections", "peak")),
     ("lock wait p99 us", ("daemon_lock_wait_us", "p99")),
+    ("workspace close p99 ms", ("workspace_close_app_ms", "p99")),
     ("workspace close p95 ms", ("workspace_close_app_ms", "p95")),
     ("workspace close not done", ("workspace_close_not_done",)),
     ("acpmux restarts", ("acpmux_restarts",)),
@@ -334,6 +342,49 @@ def verdict(low, high):
     return "no difference"
 
 
+# Per metric: what counts as Austin's failure for it, so a metric whose failure the base did not show gets
+# no verdict ("invalid: base did not reproduce"). Each bound is a budget the product or the brief already
+# states, not a number fitted to a run:
+#   refused connections: any (#27698; diagnostics.rs: a refused connect is a lost hook event);
+#   lock wait p99: over 100 ms (LOCK_STALL_THRESHOLD, diagnostics.rs: the daemon's own stall line);
+#   app request: p99 over 50 ms or any time-out (P-AUSTIN B3 target: p99 under 50 ms, 0 time-outs);
+#   workspace close: over the 2 s action.run deadline, or a close that never finished;
+#   CLI and hook latency and hook CPU: the base refused connections (their failure in #27698 is the full
+#   connection pool: retries, server.busy, session.no_answer).
+def _refused(m):
+    return m["austin_failure"]["refused_connections"]
+
+
+def _app(m):
+    a = m.get("app_requests") or {}
+    return (a.get("p99") or 0) > 50 or bool(a.get("timeouts")) or (m.get("app_no_reply_within") or 0) > 0
+
+
+def _close(label):
+    def failed(m):
+        if (m.get("workspace_close_not_done") or 0) > 0:
+            return True
+        return (pick(m, {"workspace close p95 ms": ("workspace_close_app_ms", "p95"),
+                         "workspace close p99 ms": ("workspace_close_app_ms", "p99")}[label]) or 0) > 2000
+    return failed
+
+
+METRIC_FAILURE = {
+    "daemon refused": _refused,
+    "person CLI p99 ms": _refused,
+    "agent CLI p99 ms": _refused,
+    "agent hook p99 ms": _refused,
+    "agent hook CPU total s": _refused,
+    "agent hook CPU p99 ms": _refused,
+    "lock wait p99 us": lambda m: (pick(m, ("daemon_lock_wait_us", "p99")) or 0) > 100_000,
+    "app request p99 ms": _app,
+    "app no-reply timeouts (log)": _app,
+    "workspace close p95 ms": _close("workspace close p95 ms"),
+    "workspace close p99 ms": _close("workspace close p99 ms"),
+    "workspace close not done": _close("workspace close p99 ms"),
+}
+
+
 def compare(runs):
     """The A/B verdict per metric over rounds that have both a base and a head run on one host."""
     by_round = {}
@@ -349,8 +400,11 @@ def compare(runs):
         pairs = [(pick(v["base"]["metrics"], path), pick(v["head"]["metrics"], path)) for v in rounds]
         pairs = [(b, h) for b, h in pairs if isinstance(b, (int, float)) and isinstance(h, (int, float))]
         mean, low, high = paired_bootstrap(pairs)
+        failed = METRIC_FAILURE.get(label)
+        quiet = [r for r in rounds if failed and not failed(r["base"]["metrics"])]
         out["metrics"][label] = {"pairs": len(pairs), "mean_diff": mean, "ci_low": low, "ci_high": high,
-                                 "verdict": verdict(low, high)}
+                                 "verdict": ("not measured" if not pairs else
+                                             "invalid: base did not reproduce" if quiet else verdict(low, high))}
     return out
 
 

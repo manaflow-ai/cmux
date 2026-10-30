@@ -105,16 +105,48 @@ def run_hooks(hooks, event, payload, tool=None):
     threads = []
 
     def one(command, timeout):
+        """Runs one hook command; logs its wall time and its CPU time (user + system of the `sh -c` and the
+        children it waited for, from wait4: a helper's detached child is not counted)."""
         start = time.monotonic()
-        rc = None
+        rc, cpu_ms = None, None
         try:
-            done = subprocess.run(["sh", "-c", command], input=data, capture_output=True, timeout=timeout)
-            rc = done.returncode
-        except subprocess.TimeoutExpired:
-            rc = "timeout"
+            child = subprocess.Popen(["sh", "-c", command], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
         except OSError as error:
-            rc = f"oserror:{error.errno}"
-        log({"kind": "hook", "event": event, "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc})
+            log({"kind": "hook", "event": event, "ms": round((time.monotonic() - start) * 1000, 2), "rc": f"oserror:{error.errno}",
+                 "cpu_ms": None})
+            return
+        # Our own child, stopped at the hook's timeout as Claude Code stops a hook that runs too long. The
+        # kill happens only while the child is not reaped (`ended` is set under the lock after a WNOWAIT
+        # wait, while it is still a zombie), so it never reaches a pid the kernel gave to another process.
+        guard = threading.Lock()
+        state = {"ended": False, "killed": False}
+
+        def expire():
+            with guard:
+                if not state["ended"]:
+                    state["killed"] = True
+                    os.kill(child.pid, signal.SIGKILL)
+        timer = threading.Timer(timeout, expire)
+        timer.daemon = True
+        timer.start()
+        try:
+            try:
+                child.stdin.write(data)
+                child.stdin.close()
+            except OSError:
+                pass
+            os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
+            with guard:
+                state["ended"] = True
+            timer.cancel()
+            _, status, usage = os.wait4(child.pid, 0)
+            child.returncode = os.waitstatus_to_exitcode(status)
+            rc = "timeout" if state["killed"] else child.returncode
+            cpu_ms = round((usage.ru_utime + usage.ru_stime) * 1000, 2)
+        except ChildProcessError:
+            rc = "lost"
+        log({"kind": "hook", "event": event, "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc, "cpu_ms": cpu_ms})
 
     for command, timeout, detached in commands:
         thread = threading.Thread(target=one, args=(command, timeout), daemon=True)

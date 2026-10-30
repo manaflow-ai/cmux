@@ -35,7 +35,9 @@ class FakeClaude(unittest.TestCase):
             settings = {"hooks": {
                 "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "cat >/dev/null; echo {}", "timeout": 5}]}],
                 "PostToolUse": [{"hooks": [{"type": "command", "command": "cat >/dev/null"}]}],
-                "Stop": [{"hooks": [{"type": "command", "command": "cat >/dev/null; sleep 30", "async": True}]}]}}
+                "Stop": [{"hooks": [{"type": "command", "command": "cat >/dev/null; sleep 30", "async": True}]}],
+                # Runs past its timeout: stopped and logged as a time-out.
+                "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "cat >/dev/null; sleep 30", "timeout": 1}]}]}}
             path = os.path.join(tmp, "settings.json")
             json.dump(settings, open(path, "w"))
             cli = os.path.join(tmp, "cmux")
@@ -43,7 +45,7 @@ class FakeClaude(unittest.TestCase):
                 f.write('#!/bin/sh\necho \'{"ok":false,"error":{"code":"server.busy"}}\'; exit 1\n')
             os.chmod(cli, 0o755)
             log = os.path.join(tmp, "log.jsonl")
-            env = {**os.environ, "AD_AGENT_LOG": log, "AD_AGENT_DEADLINE": str(int(time.time()) + 3), "AD_TOOL_GAP": "0.1",
+            env = {**os.environ, "AD_AGENT_LOG": log, "AD_AGENT_DEADLINE": str(int(time.time()) + 4), "AD_TOOL_GAP": "0.1",
                    "AD_TOOLS_PER_TURN": "3", "AD_CLI_EVERY": "1", "CMUX_BUNDLED_CLI_PATH": cli}
             start = time.monotonic()
             run(sys.executable, "-I", os.path.join(HERE, "fake_claude.py"), "--settings", path, cwd=work, env=env, timeout=60)
@@ -57,6 +59,10 @@ class FakeClaude(unittest.TestCase):
             self.assertEqual(sum(1 for k in kinds if k == ("hook", "PreToolUse")), tools)
             self.assertEqual(sum(1 for k in kinds if k == ("hook", "PostToolUse")), tools)
             self.assertTrue(all(r["code"] == "server.busy" for r in records if r["kind"] == "cli"))
+            hooks = [r for r in records if r["kind"] == "hook" and r["event"] in ("PreToolUse", "PostToolUse")]
+            self.assertTrue(all(isinstance(r["cpu_ms"], float) and r["rc"] == 0 for r in hooks), hooks[:2])
+            prompts = [r for r in records if r["kind"] == "hook" and r["event"] == "UserPromptSubmit"]
+            self.assertTrue(prompts and all(r["rc"] == "timeout" and r["ms"] < 5000 for r in prompts), prompts)
 
 
 class Packs(unittest.TestCase):
@@ -209,6 +215,30 @@ class Verdicts(unittest.TestCase):
             self.assertEqual(metrics["person CLI p99 ms"]["verdict"], "better")
             self.assertLess(metrics["person CLI p99 ms"]["ci_high"], 0)
             # Identical in every round: the interval is [0, 0], which is not outside 0.
+            self.assertEqual(metrics["daemon refused"]["verdict"], "no difference")
+            # The base's lock wait p99 is 17 s (over the daemon's 100 ms stall line): it has a verdict.
+            self.assertEqual(metrics["lock wait p99 us"]["verdict"], "no difference")
+
+    def test_a_metric_whose_failure_the_base_did_not_show_is_invalid(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for r in range(1, 3):
+                for arm in ("base", "head"):
+                    d = write_run(tmp, f"{arm}-{r}", arm, head, r)
+                    path = os.path.join(d, "run.json")
+                    with open(path) as f:
+                        run_ = json.load(f)
+                    run_["series"]["server_stats"][-1]["stats"]["registry_lock"]["wait_us"]["p99"] = 50_000  # under 100 ms
+                    run_["app_probe"] = {"start": None, "end": None}  # a build without the probe
+                    with open(path, "w") as f:
+                        json.dump(run_, f)
+                    dirs.append(d)
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertIsNone(summary["invalid"])  # the base still shows refused connections and the rest
+            metrics = summary["comparison"]["metrics"]
+            self.assertEqual(metrics["lock wait p99 us"]["verdict"], "invalid: base did not reproduce")
+            self.assertEqual(metrics["app request p99 ms"]["verdict"], "not measured")
             self.assertEqual(metrics["daemon refused"]["verdict"], "no difference")
         with tempfile.TemporaryDirectory() as tmp:
             # Two rounds that disagree (one better, one worse): no difference.

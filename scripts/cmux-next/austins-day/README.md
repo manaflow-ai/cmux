@@ -77,6 +77,12 @@ to explore, and say so next to any number you cite.
   CODE stalls over 100 ms. If any base run shows none of them, the summary says "invalid: base did not
   reproduce" and gives no verdict.
 - **The head must not change the harness** ("invalid: head edits the harness").
+- **Per metric, the base must show that metric's failure**, by a budget the product or the brief states
+  (`METRIC_FAILURE` in `summarize.py`): refused connections, any; lock wait p99, over the daemon's own
+  100 ms stall line; app request, p99 over 50 ms or any time-out (the B3 target); workspace close, over
+  the 2 s action deadline or never finished; CLI and hook latency and hook CPU, the base refused
+  connections. Else that metric says "invalid: base did not reproduce". A metric the build cannot report
+  (the app probe in an older build) says "not measured".
 - **Noise.** For each metric the summary gives a paired percentile bootstrap 95 % confidence interval of
   mean(head - base) over the rounds (one base and one head run on one host per round; 10,000 resamples,
   fixed seed). It says `better` or `worse` only when the whole interval is on one side of 0, otherwise
@@ -104,7 +110,9 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
   "no reply within" time-outs in the app's log, by command.
 - `person_cli_ms` / `person_cli_refusals`: a `cmux workspace list` from outside every terminal,
   once a second, and its refusals (`server.busy`, `session.busy`, `session.no_answer`).
-- `agent_hook_ms`, `agent_cli_ms`, `agent_cli_refusals`, `agent_tool_ms`: from the agents' logs.
+- `agent_hook_ms`, `agent_hook_cpu_ms`, `agent_hook_cpu_total_s`, `agent_cli_ms`, `agent_cli_refusals`,
+  `agent_tool_ms`: from the agents' logs. Hook CPU is user plus system time of each hook command and the
+  children it waited for (`wait4`); a helper's detached child is not counted.
 - `daemon_connections` (accepted, refused, peak, limit), `daemon_lock_wait_us`,
   `daemon_lock_hold_us`, `daemon_lock_top_sites`, `journal_commit_us`: from `cmux server stats`.
 - `workspace_close_app_ms` / `workspace_close_daemon_ms`: time from the close action until the
