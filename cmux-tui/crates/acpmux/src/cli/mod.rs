@@ -33,6 +33,7 @@ pub mod host_peering;
 pub mod host_steps;
 pub mod hosts;
 pub mod join_input;
+pub mod ls_table;
 pub(crate) mod machine_consent;
 pub mod mesh_control;
 pub mod mesh_node_key;

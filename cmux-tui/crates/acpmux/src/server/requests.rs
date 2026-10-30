@@ -1399,9 +1399,12 @@ async fn dispatch_request(
             let env = crate::session_env::parse(mux_meta(&params))?;
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
+            let start_later = super::fork_through::starts_later(&params);
             let who = who(conn);
             let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-            let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
+            let new = admitted
+                .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
+                .await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
