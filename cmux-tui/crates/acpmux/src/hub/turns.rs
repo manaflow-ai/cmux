@@ -682,9 +682,14 @@ impl Hub {
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
             // Nor does one MDM's off ended (review 3 of #26034).
+            let stderr =
+                session.stderr_tail.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n");
+            let dead_limit = e.message.starts_with("agent process closed")
+                && is_limit_error(&stderr)
+                && !super::turn_errors::is_gateway_error(&stderr);
             let mut target = if ((is_limit_error(&e.message)
                 && !super::turn_errors::is_gateway_error(&e.message))
-                || e.message.starts_with("agent process closed"))
+                || dead_limit)
                 && session.stops.load(Ordering::SeqCst) == stops
                 && !child.ended_on_purpose()
             {

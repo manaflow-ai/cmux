@@ -107,7 +107,7 @@ pub(super) fn reset_at(error: &str, usage_limits: Option<&Value>, now_ms: u64) -
             let lower = error.to_ascii_lowercase();
             let usage_error =
                 lower.contains("limit") || lower.contains("quota") || lower.contains("credit");
-            (!usage_error).then_some(())?;
+            usage_error.then_some(())?;
             usage_limits
                 .and_then(|v| v.get("windows"))
                 .and_then(Value::as_array)
