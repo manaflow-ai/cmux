@@ -73,7 +73,7 @@ let package = Package(
 """
 # The review fields every hand-written exception needs (reward-hacking audit 2026-10-30): an author, an owner, an
 # independent receipt (a reviewer who is not the author) and an expiry.
-REVIEW = {"author": "agent-a", "owner": "PL-arch", "expiry": "2026-11-06",
+REVIEW = {"author": "agent-a", "owner": "PL-arch", "expiry": "2999-12-31",
           "receipt": "Review (reviewer-b): SHIP at " + "a" * 40}
 LAYERS = {"order": ["core", "service", "domain", "ui", "app"],
           "targets": {"CmuxNextCore": {"layer": "core"}, "CmuxNextDomain": {"layer": "domain"},
@@ -1222,6 +1222,22 @@ class RatchetTests(Repo):
         self.commit("a hand raise of the recorded App size")
         refusals, _ = self.check(base=base)
         self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+
+    def test_an_exception_added_after_its_expiry_allows_nothing(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        base = self.commit("record")
+        self.add_singleton()
+        entry = {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW,
+                 "expiry": "2026-10-24"}
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [entry]}))
+        self.commit("an exception that expired before it was added")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"], notes)
+        self.assertTrue(any("is before today" in n for n in notes), notes)
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [dict(entry, expiry="2999-01-01")]}))
+        self.commit("the same exception with an expiry ahead")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
 
     def test_the_audit_lists_expired_and_unreviewed_exceptions(self):
         old = {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": "fixture", **REVIEW,

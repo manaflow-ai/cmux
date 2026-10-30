@@ -19,7 +19,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 # The review fields every arch-ratchet.json exception needs (reward-hacking audit 2026-10-30): an author, an
 # owner, an independent receipt and an expiry.
-RATCHET_REVIEW = {"author": "agent-a", "owner": "PL-arch", "expiry": "2026-11-06",
+RATCHET_REVIEW = {"author": "agent-a", "owner": "PL-arch", "expiry": "2999-12-31",
                   "receipt": "Review (reviewer-b): SHIP at " + "a" * 40}
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 SCRIPT = HERE.parent / "arch_rules" / "layer_gate.py"

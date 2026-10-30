@@ -355,18 +355,33 @@ def generated(entry) -> bool:
     return isinstance(entry, dict) and "raised_by" in entry
 
 
-def added_exceptions(old: dict | None, new: dict | None, known) -> tuple[dict[str, int], list[str]]:
+def added_exceptions(old: dict | None, new: dict | None, known,
+                     today: str | None = None) -> tuple[dict[str, int], list[str]]:
     """{row: allowance} the push adds, and notes.
 
     Per row: the allowance of NEW's open entries (pending, or applied by this push) minus that of OLD's
     pending entries, never below 0. Counted as sums, not by identity: an edit of an entry's `why` or `date`
-    gives nothing, and a second identical entry gives its allowance again. A generated entry gives nothing.
+    gives nothing, and a second identical entry gives its allowance again. A generated entry gives nothing, and
+    neither does an entry the push adds whose `expiry` is already past (TODAY, default the local date).
     """
+    today = today or datetime.date.today().isoformat()
     old_pending = [e for e in exceptions_of(old) if isinstance(e, dict) and not e.get("applied_sha") and not generated(e)]
-    opened = [e for e in open_entries(old, new) if not generated(e)]
+    known_keys = collections.Counter(exception_key(e) for e in exceptions_of(old) if isinstance(e, dict))
+    opened, expired = [], []
+    for e in open_entries(old, new):
+        if generated(e):
+            continue
+        key = exception_key(e) if isinstance(e, dict) else verbatim(e)
+        if known_keys[key] > 0:
+            known_keys[key] -= 1  # the base had it: it keeps its standing (expiry is --audit's report)
+        elif isinstance(e, dict) and load_counts().valid_date(e.get("expiry")) and e["expiry"] < today:
+            expired.append(e)  # expired the day it is added: it allows nothing
+            continue
+        opened.append(e)
     before, after = allowance(old_pending, known), allowance(opened, known)
     allow = {row: after[row] - before.get(row, 0) for row in after if after[row] > before.get(row, 0)}
-    notes = []
+    notes = [f"arch-ratchet: ignored exception {e!r}: its expiry {e['expiry']} is before today ({today}), so it "
+             "allows nothing; an exception is added with an expiry in the future" for e in expired]
     seen = collections.Counter(exception_key(e) for e in exceptions_of(old) if isinstance(e, dict))
     for entry in opened:
         key = exception_key(entry) if isinstance(entry, dict) else verbatim(entry)
