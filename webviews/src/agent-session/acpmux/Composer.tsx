@@ -339,6 +339,8 @@ type Props = {
   blocked?: SendBlock;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
+  /// Keeps auth refusal blocking sends when its text is represented by another notice.
+  authBlocked?: boolean;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -407,6 +409,7 @@ export function Composer({
   switching,
   blocked,
   authBlock,
+  authBlocked = false,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -975,7 +978,7 @@ export function Composer({
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
-    if (authBlock || (blocked && !force)) return false;
+    if (authBlock || authBlocked || (blocked && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {

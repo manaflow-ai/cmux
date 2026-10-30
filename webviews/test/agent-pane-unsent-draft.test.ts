@@ -123,6 +123,8 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       const prompt = page.locator(".acpmux-composer-prompt .ProseMirror");
       const notice = page.locator('[data-harness-notice="signedOut"]');
       await notice.waitFor();
+      expect(await notice.count()).toBe(1);
+      expect(await page.locator(".acpmux-composer-trust-note").count()).toBe(0);
       expect(await notice.innerText()).toContain("Log In");
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("set up the retry policy");
