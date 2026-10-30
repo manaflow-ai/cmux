@@ -1137,7 +1137,8 @@ impl Hub {
             }
         }
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
-        // no agent starts after it, so the lane reports nothing (`lane_reports.rs`).
+        // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
+        // handed it to the next daemon, which continues it: its end is that daemon's to write.
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }

@@ -115,8 +115,11 @@ impl Hub {
             children.extend(taken);
             if ends {
                 self.settle_cancelled(s);
-            } else {
-                *s.turn.lock().unwrap() = None;
+            } else if let Some(turn) = s.turn.lock().unwrap().take() {
+                // Handed to the next daemon, which continues it (`restart_resume.rs`): its
+                // prompt future ends with the agent and must write no end of its own, or a
+                // next daemon that reads the log after it finds no cut turn.
+                self.settled_by_shutdown.lock().unwrap().insert(turn.turn_id);
             }
             if s.status() != SessionStatus::Closed {
                 self.set_status(s, SessionStatus::Idle);
