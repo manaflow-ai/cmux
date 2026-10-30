@@ -318,8 +318,11 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       await dropdown.waitFor();
       const box = (await dropdown.boundingBox())!;
       expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-      // The first row's model takes the pointer and closes the dropdown it does not own.
-      await rows.first().locator(":scope > .acpmux-quick-item:first-child").hover();
+      // The first row's model takes the pointer and closes the dropdown it does not own. The pointer
+      // travels there (a hover-opened submenu blocks the rows behind its safe path until the pointer
+      // leaves it, so Playwright's hover() sees the menu's positioner on top and never moves).
+      const first = (await rows.first().locator(":scope > .acpmux-quick-item:first-child").boundingBox())!;
+      await page.mouse.move(first.x + first.width / 3, first.y + first.height / 2, { steps: 8 });
       await dropdown.waitFor({ state: "detached" });
     } finally {
       await page.close();
