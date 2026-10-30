@@ -159,7 +159,8 @@ import {
   remoteRecordingAttachment,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
-import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
+import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
+import type { AccessGrant } from "./inspector/EnvironmentSection";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { ChatUnavailableState } from "./ChatUnavailableState";
@@ -4643,14 +4644,12 @@ const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
 function DefaultComposerChips({
   snapshot,
   cwd,
-  permissionAccess,
   onAddAgent,
   startsChat = false,
 }: {
   snapshot: AcpmuxSnapshot;
   /// The folder a chat the chips start opens in (the New Tab page's project).
   cwd?: string;
-  permissionAccess?: ComposerPermissionAccess;
   onAddAgent?(): void;
   /// The chips belong to a page with no chat yet: a model, mode or effort pick starts one first.
   startsChat?: boolean;
@@ -4698,7 +4697,6 @@ function DefaultComposerChips({
         snapshot.switching !== undefined ||
         (startsChat && !!snapshot.summary?.harness && window.cmuxAcpmuxActions?.["chat.new"] !== undefined)
       }
-      permissionAccess={permissionAccess}
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
@@ -7044,11 +7042,47 @@ function AcpmuxPane() {
       workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
     [workflows, stopSubagent, showWorkflowAgent],
   );
+  // What the chat was granted, revoked from Session Info's Environment (EnvironmentSection.tsx),
+  // never from the composer's mode menu, which lists the modes alone (Leo, 2026-10-29). The trusted
+  // grant names where the answer lives (the repository, a worktree's root, the folder), from the
+  // answer just given or the last read; its × forgets it there.
+  const trustScope =
+    trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted" ? trustAsk.ask : trustAsk.scope;
+  const trustLabel = trustScope
+    ? isAgentHome(trustScope.cwd)
+      ? t("trust.trustedPrivate")
+      : trustedLabel(t, trustScope)
+    : undefined;
+  const accessGrants: AccessGrant[] = [
+    ...(trustAsk.trusted
+      ? [
+          {
+            id: "folder-trust",
+            label: trustLabel ?? t("trust.trustedPrivate"),
+            onRemove: trustAsk.undo,
+          },
+        ]
+      : []),
+    ...(snapshot.permissionGroups?.chatAllowance
+      ? [
+          {
+            id: "chat-permission",
+            label: t("permission.allowChat"),
+            // A grant shown from the chat's last read until its refresh lands: removable once it is read.
+            onRemove: () =>
+              snapshot.permissionGroups?.ready === false
+                ? undefined
+                : void callNative("chat.permission_chat.revoke", {}),
+          },
+        ]
+      : []),
+  ];
   const inspector = useChatInspector({
     snapshot,
     machineName,
     repository: githubRepository,
     shell,
+    grants: accessGrants,
     onOpenOutput: quick ? undefined : inspectorSubagent ? openSubagentOutput : openOutput,
     onOpenSourceFile: quick || !inspectorLocal ? undefined : (path) => openSourceFile(path, callNative),
     onOpenUrl: quick
@@ -9273,7 +9307,7 @@ function AcpmuxPane() {
     // the early New Tab flag, one object from a useState initializer).
   }, [harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate, sandbox]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
-    | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
+    | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
     | undefined;
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
@@ -10607,41 +10641,6 @@ function AcpmuxPane() {
       )}
     </div>
   ) : null;
-  // The trusted grant names where the answer lives (the repository, a worktree's root, the
-  // folder), from the answer just given or the last read; its × forgets it there.
-  const trustScope =
-    trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted" ? trustAsk.ask : trustAsk.scope;
-  const trustLabel = trustScope
-    ? isAgentHome(trustScope.cwd)
-      ? t("trust.trustedPrivate")
-      : trustedLabel(t, trustScope)
-    : undefined;
-  const permissionAccess: ComposerPermissionAccess = {
-    grants: [
-      ...(trustAsk.trusted
-        ? [
-            {
-              id: "folder-trust",
-              label: trustLabel ?? t("trust.trustedPrivate"),
-              onRemove: trustAsk.undo,
-            },
-          ]
-        : []),
-      ...(snapshot.permissionGroups?.chatAllowance
-        ? [
-            {
-              id: "chat-permission",
-              label: t("permission.allowChat"),
-              // A grant shown from the chat's last read until its refresh lands: removable once it is read.
-              onRemove: () =>
-                snapshot.permissionGroups?.ready === false
-                  ? undefined
-                  : void callNative("chat.permission_chat.revoke", {}),
-            },
-          ]
-        : []),
-    ],
-  };
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -10888,7 +10887,6 @@ function AcpmuxPane() {
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
             chips={ComposerChips}
-            permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}

@@ -2,7 +2,9 @@
 // that says so. The machine by its own name and kind (this Mac, an SSH machine, a Cloud machine),
 // never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
 // repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
-// Control, when the App offers it. A chat in a temporary or internal folder (a harness's scratchpad)
+// Control, when the App offers it. Last, what the chat was granted (the folder's trust, a chat-wide
+// allowance), each with Revoke: their one home, since the composer's mode menu lists the modes
+// alone (Leo, 2026-10-29). A chat in a temporary or internal folder (a harness's scratchpad)
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
@@ -17,6 +19,13 @@ import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
+
+/// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
+export type AccessGrant = {
+  id: string;
+  label: string;
+  onRemove(): void;
+};
 
 const ROW_ICON = rowIconSize(12);
 
@@ -115,6 +124,7 @@ export function EnvironmentSection({
   peerKinds,
   repository,
   remoteControl,
+  grants = [],
   onSave,
   onOpenFolder,
   projectLook = "name",
@@ -126,6 +136,8 @@ export function EnvironmentSection({
   repository?: string;
   /// Remote Control's state and switch, when the App offers it for this chat.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// What the chat was granted, each with Revoke.
+  grants?: readonly AccessGrant[];
   /// Saves this machine and folder as a reusable environment, when the App offers it.
   onSave?: () => Promise<unknown> | void;
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
@@ -231,6 +243,20 @@ export function EnvironmentSection({
           </label>
         </li>
       )}
+      {grants.map((grant) => (
+        <li className="acpmux-chat-inspector-row" key={grant.id} data-grant={grant.id}>
+          <Icon name="security.lock" size={ROW_ICON} row />
+          <span className="acpmux-chat-inspector-row__name">{grant.label}</span>
+          <button
+            type="button"
+            className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end"
+            aria-label={`${t("permission.revoke")}: ${grant.label}`}
+            onClick={grant.onRemove}
+          >
+            {t("permission.revoke")}
+          </button>
+        </li>
+      ))}
     </ul>
   );
 }

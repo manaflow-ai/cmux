@@ -67,7 +67,7 @@ import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequest
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
-import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
+import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { InspectorGroup } from "./InspectorGroup";
 import { InspectorSection } from "./InspectorSection";
 import { SourcesSection } from "./SourcesSection";
@@ -250,6 +250,7 @@ export function useChatInspector({
   machineName,
   repository,
   shell,
+  grants,
   onOpenOutput,
   onOpenSourceFile,
   onOpenUrl,
@@ -293,6 +294,8 @@ export function useChatInspector({
   repository?: string;
   /// The pane's shell: the Inspector measures it to float or push.
   shell?: HTMLElement | null;
+  /// What the chat was granted (folder trust, a chat-wide allowance), each revocable in Environment.
+  grants?: readonly AccessGrant[];
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
@@ -445,6 +448,7 @@ export function useChatInspector({
         machineName={machineName}
         repository={repository}
         shell={shell}
+        grants={grants}
         beside={beside}
         wide={wide}
         openedOutputAt={openedOutputAt}
@@ -494,6 +498,7 @@ function InspectorPresence({
   machineName,
   repository,
   shell,
+  grants,
   beside,
   wide,
   openedOutputAt,
@@ -526,6 +531,7 @@ function InspectorPresence({
   machineName?: string;
   repository?: string;
   shell?: HTMLElement | null;
+  grants?: readonly AccessGrant[];
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
   /// A handoff review's form shows: whether the panel lies over the chat is measured against it.
@@ -701,6 +707,8 @@ function InspectorPresence({
         machineName={machineName}
         peerKinds={snapshot.peerKinds}
         repository={repository}
+        // A subagent's view lists its own things: the grants are the chat's.
+        grants={scope ? undefined : grants}
         made={made}
         links={links}
         artifacts={artifacts}
@@ -885,6 +893,7 @@ export function ChatInspector({
   machineName,
   peerKinds,
   repository,
+  grants,
   made,
   links = [],
   artifacts = 0,
@@ -928,6 +937,8 @@ export function ChatInspector({
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
+  /// What the chat was granted, revocable in Environment.
+  grants?: readonly AccessGrant[];
   /// What the chat produced (sessionSummary).
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links?: readonly OutputLink[];
@@ -1079,6 +1090,7 @@ export function ChatInspector({
         peerKinds={peerKinds}
         repository={repository}
         remoteControl={remoteControl}
+        grants={grants}
         onSave={onSaveEnvironment}
         onOpenFolder={onOpenFolder}
         projectLook={projectRowLook}
