@@ -129,6 +129,16 @@ public final class CmuxDialogButtonView: ClickableButton {
         CATransaction.commit()
     }
 
+    /// The overlay surface (the dialog's card) this button draws on, if any.
+    private var enclosingSurface: OverlaySurfaceView? {
+        var view = superview
+        while let current = view {
+            if let surface = current as? OverlaySurfaceView { return surface }
+            view = current.superview
+        }
+        return nil
+    }
+
     /// How far outside the button the focus ring reaches: its line only. Dialog button rows are
     /// `Metrics.space2` (4 pt) apart, and a ring reaching further overlapped the next button (a
     /// 4 pt outset, ring plus gap, drew over the neighbor's edge). The gap is inside (``focusGap``).
@@ -168,7 +178,9 @@ public final class CmuxDialogButtonView: ClickableButton {
             focusRing.borderColor = Palette.focusRing.cgColor
             // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
             focusGap.isHidden = !hasFocus || look.fill.alpha < 1
-            focusGap.borderColor = look.card.nsColor.cgColor
+            // The card's own color: the opaque surface under Reduce Transparency, else the glass.
+            let onOpaqueCard = enclosingSurface?.material == .opaque
+            focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
             alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body

@@ -226,6 +226,9 @@ public final class WindowOverlayHost {
             detachAfterEmptyFrame()
         }
         placeAgentCursor()
+        // The cursor may just have left a panel that is leaving: route the mouse again, or the empty
+        // panel keeps catching clicks (and its mouse monitor runs) until it orders out.
+        updateMouseRouting()
         onPanelChange?()
     }
 
