@@ -34,9 +34,10 @@ extension WindowManager {
     func applyPendingPlacements(live: Set<String>) {
         // A placement's rows refresh runs the sidebar's rows pass, whose callback retries deferred
         // placements: a nested call returns at once (no re-entry).
-        guard !PlacementPass.running else { return }
-        PlacementPass.running = true
-        defer { PlacementPass.running = false }
+        let rows = PendingWorkspaceRows.shared
+        guard !rows.placing else { return }
+        rows.placing = true
+        defer { rows.placing = false }
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
         // A placement waiting on its current row keeps its entry and its place in the order.
@@ -86,10 +87,4 @@ extension WindowManager {
         NewWorkspacePlacements.expect(id, in: windowID, slot: slot, byDefault: slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: self) : nil,
                                       then: then, windows: self)
     }
-}
-
-/// Whether `applyPendingPlacements` is running (one main-actor pass at a time).
-@MainActor
-private enum PlacementPass {
-    static var running = false
 }

@@ -35,6 +35,8 @@ final class PendingWorkspaceRows {
     /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
+    /// `WindowManager.applyPendingPlacements` is running (it refreshes a rows pass that retries placements).
+    @ObservationIgnored var placing = false
 
     func add(_ row: Row, name: String) {
         rows.append(row)
