@@ -239,9 +239,20 @@ fn refusal(target: &str, e: HubError) -> RpcError {
         ),
         _ if e.refused => RpcError::invalid_params(format!("the mesh hub refused it: {e}"))
             .with_data(json!({"reason": "mesh.refused", "session": target})),
-        _ => RpcError::internal(format!("the mesh hub did not take it: {e}"))
+        _ if e.unsent => RpcError::internal(format!("the mesh hub did not take it: {e}"))
             .with_data(json!({"reason": "mesh.unavailable", "retryable": true})),
+        // The hub may have stored it: asking again with the same prompt id finds that message
+        // rather than making a second one.
+        _ => RpcError::internal(format!(
+            "the mesh hub's answer was lost ({e}); it may have taken the send, and sending it again with the same prompt id does not repeat it"
+        ))
+        .with_data(json!({"reason": "mesh.unknown_outcome", "retryable": true})),
     }
+}
+
+/// Whether `e`, from [`send`], proves the hub kept nothing, so the send may go another way.
+pub(super) fn untaken(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")) != Some(&json!("mesh.unknown_outcome"))
 }
 
 /// Team-scoped addresses are intentionally narrow so they cannot be confused

@@ -74,9 +74,21 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
             .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
     }
+    // The prompt id is fixed before any route is tried: the relay keys its message by it, so a
+    // second ask is the same message.
+    let mux = request
+        .as_object_mut()
+        .map(|r| r.entry("_meta").or_insert_with(|| json!({})))
+        .and_then(Value::as_object_mut)
+        .map(|meta| meta.entry("acpmux").or_insert_with(|| json!({})))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| RpcError::invalid_params("request._meta.acpmux must be an object"))?;
+    if mux.get("promptId").and_then(Value::as_str).is_none_or(str::is_empty) {
+        mux.insert("promptId".into(), json!(uuid::Uuid::now_v7().to_string()));
+    }
     // A peer-qualified session whose link is down fails over to the durable mesh relay even when
     // its stale cache row is still present, when the relay can carry the send as asked. Anything
-    // else (attachments, `--supersede`, a class, a refusal, a hub that does not answer, no relay)
+    // else (attachments, `--supersede`, a class, a refusal, a hub the request never reached, no relay)
     // stays in the local outbox, which retries it when the direct link is back.
     if hub.peer_down_for(&target).is_some() {
         if let Some(mesh) = hub.mesh.get()
@@ -84,10 +96,18 @@ pub(super) async fn handle(
             && super::mesh_send::carries(&request)
             && let Some(relayed) = relay_name(hub, &target)
         {
-            match super::mesh_send::send(hub, conn, mesh, &request, &relayed).await {
-                Ok(queued) => return Ok(queued),
-                Err(e) => {
-                    tracing::info!(%target, "the mesh relay did not take it ({}); kept in the outbox", e.message)
+            // Only a send the hub surely kept nothing of is kept here: the outbox would deliver it
+            // under another id than the relay's, so the target could run it twice. A lost answer
+            // is asked once more under the same key, then is the caller's error.
+            for last in [false, true] {
+                match super::mesh_send::send(hub, conn, mesh, &request, &relayed).await {
+                    Ok(queued) => return Ok(queued),
+                    Err(e) if super::mesh_send::untaken(&e) => {
+                        tracing::info!(%target, "the mesh relay did not take it ({}); kept in the outbox", e.message);
+                        break;
+                    }
+                    Err(e) if last => return Err(e),
+                    Err(_) => {}
                 }
             }
         }
@@ -107,16 +127,6 @@ pub(super) async fn handle(
     }
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
-    let mux = request
-        .as_object_mut()
-        .map(|r| r.entry("_meta").or_insert_with(|| json!({})))
-        .and_then(Value::as_object_mut)
-        .map(|meta| meta.entry("acpmux").or_insert_with(|| json!({})))
-        .and_then(Value::as_object_mut)
-        .ok_or_else(|| RpcError::invalid_params("request._meta.acpmux must be an object"))?;
-    if mux.get("promptId").and_then(Value::as_str).is_none_or(str::is_empty) {
-        mux.insert("promptId".into(), json!(uuid::Uuid::now_v7().to_string()));
-    }
     let now = crate::store::now_ms();
     let new = Delivery {
         id: uuid::Uuid::now_v7().to_string(),
@@ -387,15 +397,20 @@ fn next(e: &RpcError) -> Next {
     }
 }
 
-/// The relay addresses a session as `HOST/NAME`: a down peer's session named by its id is sent
-/// by the name its cached row has, and one no row names (or several do) as written, unless it is
-/// ambiguous. None: the target cannot be named to the relay; it stays in the outbox.
+/// The relay addresses a session as `HOST/NAME`: a down peer's session named by its cached
+/// row's name is sent by that name, and one no row names as written, unless it is ambiguous.
+/// None: the target cannot be named to the relay; it stays in the outbox. A session named by its
+/// id is one of them: while the link is down its name can pass to another session, which the
+/// relay would deliver to.
 fn relay_name(hub: &Hub, target: &str) -> Option<String> {
-    let (peer, _) = target.split_once('/')?;
+    let (peer, key) = target.split_once('/')?;
     match hub.resolve_remote(target) {
         Some((_, _, summary)) => {
             let name = summary.get("name").and_then(Value::as_str)?;
             let qualified = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
+            if qualified != key {
+                return None;
+            }
             let relayed = format!("{peer}/{qualified}");
             // A name another row on that peer shares would make the relay pick one.
             (hub.remote_matches(&relayed) <= 1).then_some(relayed)

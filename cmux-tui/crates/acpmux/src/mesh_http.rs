@@ -273,10 +273,12 @@ impl HttpHub {
             if let Some(body) = body {
                 request = request.json(body);
             }
-            let mut response = request
-                .send()
-                .await
-                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
+            // No connection: the request never reached the hub. Any later failure may come after
+            // it stored the message.
+            let mut response = request.send().await.map_err(|e| HubError {
+                unsent: e.is_connect(),
+                ..HubError::unavailable(format!("the hub: {}", e.without_url()))
+            })?;
             let status = response.status().as_u16();
             if self.credential.as_deref() == Some("join") {
                 if status == 401 {
@@ -345,6 +347,7 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
         format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
     );
     error.refused = !(status == 408 || status == 429 || status >= 500);
+    error.unsent = error.refused || status == 429;
     error.status = Some(status);
     error.retry_after =
         body.get("retryAfterSeconds").and_then(Value::as_u64).map(Duration::from_secs);
