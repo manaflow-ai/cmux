@@ -214,6 +214,7 @@ async fn a_chat_started_under_a_name_gets_a_generated_title_and_keeps_its_name()
     assert_eq!(info["title"], json!("Three-Dish Picnic Menu"));
     assert_eq!(info["titleSource"], json!("generated"));
     assert_eq!(info["name"], json!("p0m-as-p2"), "the title never renames it");
+    assert_eq!(info["nameGiven"], json!(true), "ls still lists it as a named lane");
     let request = std::fs::read_to_string(&asked).unwrap();
     assert!(request.contains("Plan a three-dish picnic menu"), "{request}");
     assert_eq!(request.matches("---").count(), 1, "one request: {request}");
@@ -257,7 +258,9 @@ async fn a_chat_the_person_renamed_asks_no_model_for_a_title() {
     assert_eq!(client.info(&launched).await["titleSource"], json!("named"));
 
     let renamed = client.new_session().await;
+    assert_eq!(client.info(&renamed).await.get("nameGiven"), None, "the daemon named it");
     client.call("_acpmux/rename", json!({"sessionId": renamed, "newName": "menu-ideas"})).await;
+    assert_eq!(client.info(&renamed).await["nameGiven"], json!(true));
     client.prompt(&renamed, "Plan a three-dish picnic menu").await;
     assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed chat");
     assert!(!asked.exists(), "the title command ran: {:?}", std::fs::read_to_string(&asked));

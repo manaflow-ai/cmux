@@ -195,11 +195,21 @@ fn a_short_or_empty_row_pads_without_panicking() {
 #[test]
 fn a_lane_keeps_its_row_once_its_chat_is_titled() {
     // A lane started under a name gets a generated title after its first prompt (`titles.rs`);
-    // ls lists it by its name, as before.
-    for source in ["launched", "prompt", "asked", "generated", "harness"] {
-        let row = with(lane("p0m-as-p2"), json!({"titleSource": source, "title": "Fix the rail"}));
-        let out = compact(&[row]);
-        assert!(out.lines().nth(1).is_some_and(|l| l.starts_with("p0m-as-p2 ")), "{source}: {out}");
-        assert!(!out.contains("hidden"), "{source}: {out}");
+    // ls lists it by its name, as before, also one named like the daemon's `HARNESS-N` default.
+    for name in ["p0m-as-p2", "codex-2"] {
+        for source in ["launched", "prompt", "asked", "generated", "harness"] {
+            let row = with(
+                lane(name),
+                json!({"harness": "codex", "nameGiven": true, "titleSource": source,
+                       "title": "Fix the rail"}),
+            );
+            let out = compact(&[row]);
+            let listed = out.lines().nth(1).is_some_and(|l| l.starts_with(&format!("{name} ")));
+            assert!(listed, "{name} {source}: {out}");
+            assert!(!out.contains("hidden"), "{name} {source}: {out}");
+        }
     }
+    // The daemon's own name stays hidden once the chat is titled.
+    let unnamed = with(lane("codex-2"), json!({"harness": "codex", "titleSource": "generated"}));
+    assert!(compact(&[unnamed]).contains("1 unnamed"));
 }

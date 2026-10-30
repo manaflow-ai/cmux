@@ -108,6 +108,10 @@ pub struct SessionMeta {
     pub schema: String,
     pub id: String,
     pub name: String,
+    /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+    /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub name_given: bool,
     #[serde(alias = "harness")]
     pub harness: String,
     #[serde(default, alias = "agent_argv")]
