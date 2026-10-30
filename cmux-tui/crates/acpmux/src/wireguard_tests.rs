@@ -305,12 +305,20 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     let payload_len = payload.len();
-    let bulk_started = std::time::Instant::now();
+    let (done_tx, mut done_rx) = tokio::sync::watch::channel(false);
     let bulk_fut = async move {
-        bulk.send(Frame::Binary(payload.into())).await.unwrap();
-        let echoed = tokio::time::timeout(BOUND, bulk.next()).await.unwrap().unwrap().unwrap();
-        assert_eq!(echoed.into_data().len(), payload_len, "bulk bytes changed in transit");
-        (payload_len * 2) as f64 / (1024.0 * 1024.0) / bulk_started.elapsed().as_secs_f64()
+        let started = std::time::Instant::now();
+        let mut bytes = 0usize;
+        // Keep a completed bulk chunk in flight for the whole interactive sample
+        // window. A single frame can finish before the p99 probes have started,
+        // which would hide contention in the result.
+        while !*done_rx.borrow() {
+            bulk.send(Frame::Binary(payload.clone().into())).await.unwrap();
+            let echoed = tokio::time::timeout(BOUND, bulk.next()).await.unwrap().unwrap().unwrap();
+            assert_eq!(echoed.into_data().len(), payload_len, "bulk bytes changed in transit");
+            bytes += payload_len * 2;
+        }
+        bytes as f64 / (1024.0 * 1024.0) / started.elapsed().as_secs_f64()
     };
     let interactive_fut = async move {
         let mut samples = Vec::with_capacity(100);
@@ -328,9 +336,29 @@ where
             samples.push(started.elapsed());
         }
         samples.sort_unstable();
-        samples[98].as_secs_f64() * 1000.0
+        let p99 = samples[98].as_secs_f64() * 1000.0;
+        done_tx.send_replace(true);
+        p99
     };
     tokio::join!(bulk_fut, interactive_fut)
+}
+
+async fn measure_interactive<S>(mut interactive: tokio_tungstenite::WebSocketStream<S>) -> f64
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let mut samples = Vec::with_capacity(100);
+    for sequence in 0u8..100 {
+        let message = vec![sequence; 64];
+        let started = std::time::Instant::now();
+        interactive.send(Frame::Binary(message.clone().into())).await.unwrap();
+        let echoed =
+            tokio::time::timeout(BOUND, interactive.next()).await.unwrap().unwrap().unwrap();
+        assert_eq!(echoed.into_data().as_ref(), message.as_slice(), "interactive bytes changed");
+        samples.push(started.elapsed());
+    }
+    samples.sort_unstable();
+    samples[98].as_secs_f64() * 1000.0
 }
 
 async fn echo_connection(stream: TcpStream) {
@@ -378,7 +406,7 @@ fn loopback_bulk_and_interactive_latency() {
         let target_address = target.local_addr().unwrap();
         let echo = tokio::spawn(async move {
             let mut connections = JoinSet::new();
-            for _ in 0..4 {
+            for _ in 0..6 {
                 let (stream, _) = target.accept().await.unwrap();
                 connections.spawn(echo_connection(stream));
             }
@@ -386,12 +414,16 @@ fn loopback_bulk_and_interactive_latency() {
         });
         let (a, b, _homes) = pair(target_address, false).await;
         let payload: Vec<u8> = (0..8 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+        let direct_idle_interactive_p99 = measure_interactive(direct_ws(target_address).await).await;
         let direct = measure_competing(
             direct_ws(target_address).await,
             direct_ws(target_address).await,
             payload.clone(),
         )
         .await;
+        let wireguard_idle_interactive_p99 =
+            measure_interactive(connect_ws(&a, TOKEN, Some("benchmark-peer-token")).await.unwrap())
+                .await;
         let wireguard = measure_competing(
             connect_ws(&a, TOKEN, Some("benchmark-peer-token")).await.unwrap(),
             connect_ws(&a, TOKEN, Some("benchmark-peer-token")).await.unwrap(),
@@ -399,8 +431,13 @@ fn loopback_bulk_and_interactive_latency() {
         )
         .await;
         println!(
-            "WIREGUARD_COMPETING_PERF direct_bulk_mib_s={:.3} direct_interactive_p99_ms={:.3} wg_bulk_mib_s={:.3} wg_interactive_p99_ms={:.3}",
-            direct.0, direct.1, wireguard.0, wireguard.1
+            "WIREGUARD_COMPETING_PERF direct_bulk_mib_s={:.3} direct_interactive_idle_p99_ms={:.3} direct_interactive_loaded_p99_ms={:.3} wg_bulk_mib_s={:.3} wg_interactive_idle_p99_ms={:.3} wg_interactive_loaded_p99_ms={:.3}",
+            direct.0,
+            direct_idle_interactive_p99,
+            direct.1,
+            wireguard.0,
+            wireguard_idle_interactive_p99,
+            wireguard.1
         );
         a.shutdown().await;
         b.shutdown().await;
