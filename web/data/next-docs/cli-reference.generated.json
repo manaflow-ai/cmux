@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 753,
-    "mcp": 671
+    "verbs": 756,
+    "mcp": 674
   },
   "nouns": [
     {
@@ -278,6 +278,13 @@
           "id": "computerUseStop",
           "mcp": true,
           "mcpTool": "app_agent_stop_computer_use"
+        },
+        {
+          "command": "cmux agent stop-reading-aloud",
+          "title": "Stop Reading Aloud",
+          "id": "agentPane.stopReadingAloud",
+          "mcp": true,
+          "mcpTool": "app_agent_stop_reading_aloud"
         },
         {
           "command": "cmux agent stop-turn",
@@ -1779,6 +1786,13 @@
           "id": "home.invite",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux home invite-to-team",
+          "title": "Invite to Team…",
+          "id": "home.inviteToTeam",
+          "mcp": true,
+          "mcpTool": "app_home_invite_to_team"
         },
         {
           "command": "cmux home leave",
@@ -4556,6 +4570,18 @@
           "id": "tasks.show",
           "mcp": true,
           "mcpTool": "app_task_open"
+        }
+      ]
+    },
+    {
+      "noun": "team",
+      "verbs": [
+        {
+          "command": "cmux team invite",
+          "title": "Invite to Team…",
+          "id": "team.invite",
+          "mcp": true,
+          "mcpTool": "app_team_invite"
         }
       ]
     },
