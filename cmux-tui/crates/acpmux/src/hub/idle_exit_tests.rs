@@ -162,7 +162,7 @@ async fn idle_exit_a_waiting_continuation_is_live() {
     hub.config.write().await.auto_resume_delays_ms = Some(vec![1_200_000]);
     let session = chat(&hub, "cut");
     *session.turn.lock().unwrap() = Some(turn("t1"));
-    assert!(hub.take_turn(&session, "t1").is_some());
+    assert!(hub.take_turn(&session, "t1", None).is_some());
     let cut = auto_resume::CutTurn {
         from: None,
         prompt_id: "p1",

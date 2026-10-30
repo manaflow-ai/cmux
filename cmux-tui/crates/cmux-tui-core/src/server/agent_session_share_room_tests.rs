@@ -5,11 +5,11 @@ use super::*;
 use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with,
 };
+use cmux_threads::sync::Condvar;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Condvar;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;

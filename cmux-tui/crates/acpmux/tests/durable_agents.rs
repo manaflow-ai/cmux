@@ -3205,7 +3205,7 @@ async fn an_older_option_report_does_not_hide_a_bare_answer_under_mdm_off() {
 async fn a_null_options_answer_is_saved_as_before() {
     let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
                       "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "null"}});
-    let (daemon, mut rpc) = proven_daemon("mdmnullsave", fake, &[]).await;
+    let (mut daemon, mut rpc) = proven_daemon("mdmnullsave", fake, &[]).await;
     let session = new_session(&daemon).await;
     let full = json!({"sessionId": session,
                       "prompt": [{"type": "text", "text": "set-mode-option: full-access"}]});
