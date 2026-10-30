@@ -11,8 +11,17 @@ const snapshot = chat([
   user("Why does the retry test fail on CI?", 6, { id: "transcript-view-user" }),
   activity(
     [
+      // Long enough to fold in Normal (ThoughtRow folds a thought taller than the fold threshold),
+      // so Thinking visibly opens it.
       thought(
-        "The test waits on real timers. On a loaded runner the second retry lands after the assertion, so check how the helper schedules its delay before touching the test.",
+        [
+          "The test waits on real timers. On a loaded runner the second retry lands after the assertion, so check how the helper schedules its delay before touching the test.",
+          "The helper computes the delay from the attempt number, doubles it each time, and adds jitter from Math.random, so two runs never wait the same amount.",
+          "The test asserts two calls after advancing nothing: it relies on the first delay being shorter than the test's own await, which only holds on an idle machine.",
+          "On CI the runner is shared, so a 200 ms sleep can stretch past the assertion. The failure output shows exactly one call, which matches the second attempt not having started yet.",
+          "Options: inject the clock into the helper, or switch the test to fake timers and advance them explicitly. Fake timers keep the helper unchanged and make the test deterministic.",
+          "Before changing anything, confirm the helper has no other caller that depends on real timing, and that the jitter can be seeded or stubbed in the test.",
+        ].join("\n\n"),
         { startedAt: 0, endedAt: 9_000 },
       ),
       tool("Read src/net/retry.ts", "read", "completed", { locations: [{ path: "src/net/retry.ts" }] }),
@@ -76,7 +85,7 @@ export default agentPaneEntry({
     thinking: {
       note: "Play: Thinking from the menu. The thought opens; the commands stay folded.",
       snapshot,
-      play: pick("Thinking", '.cv-thought[aria-expanded="true"]'),
+      play: pick("Thinking", '.cv-thought.is-toggle[aria-expanded="true"]'),
     },
     verbose: {
       note: "Play: Verbose from the menu. The thought, the command group and each command's output open.",
