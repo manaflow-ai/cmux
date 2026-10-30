@@ -401,7 +401,7 @@ import Testing
         // My poll action is held, then refused.
         let action = PreparationGate()
         defer { action.open() }
-        backend.pollActionGate = action
+        backend.localActionGate = action
         if addsChoice {
             store.addPollChoice(messageID: "m25", text: "Pho")
         } else {
@@ -420,6 +420,121 @@ import Testing
         action.open()
         try await waitUntil { store.message(id: "m25")?.poll == changed.poll }
         #expect(store.message(id: "m25")?.text == changed.text)
+    }
+
+    /// My edit made while recovery fetches is local intent over the row: the
+    /// recovered revision still applies under it, and a refusal rolls back to
+    /// that recovered revision, not the copy from before the disconnect.
+    @Test(arguments: [false, true])
+    func editDuringRecoveryRollsBackToTheRecoveredRevision(unsentElsewhere: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        var original = backend.makeMessage(seq: 25, sender: "me")
+        original.sentAt = Date()
+        original.text = "Original"
+        backend.setHistoryMessage(original)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // While disconnected my other device edited or unsent it.
+        var changed = original
+        if unsentElsewhere {
+            changed.text = ""
+            changed.unsentAt = Date()
+        } else {
+            changed.text = "Edited elsewhere"
+            changed.editedAt = Date()
+            changed.editCount = 1
+        }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.localActionGate = action
+        store.edit(messageID: "m25", text: "Edited here")
+        #expect(store.message(id: "m25")?.text == "Edited here")
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        if unsentElsewhere {
+            #expect(store.message(id: "m25")?.unsentAt == changed.unsentAt)
+            #expect(store.message(id: "m25")?.text == "")
+        } else {
+            // My edit is still in flight: it stays on top of the recovered row.
+            #expect(store.message(id: "m25")?.text == "Edited here")
+        }
+        action.open()
+        try await waitUntil { store.message(id: "m25")?.text == changed.text }
+        let result = try #require(store.message(id: "m25"))
+        #expect(result.unsentAt == changed.unsentAt)
+        #expect(result.editCount == changed.editCount)
+    }
+
+    enum PendingLocalAction: CaseIterable, Sendable { case react, vote, edit, unsend }
+
+    /// Whatever local action is in flight (a reaction, a poll vote, an edit,
+    /// an unsend), it holds back only the fields it changes: the recovered
+    /// revision's other fields apply, during the action and after a refusal.
+    @Test(arguments: PendingLocalAction.allCases)
+    func aPendingLocalActionHoldsBackOnlyItsOwnFields(action pending: PendingLocalAction) async throws {
+        let backend = ScriptedBackend(total: 30)
+        var original = backend.makeMessage(seq: 25, sender: "me")
+        original.sentAt = Date()
+        if pending == .vote {
+            original.poll = ConversationPoll(question: "Lunch?", options: [
+                ConversationPollOption(id: "a", text: "Tacos"),
+                ConversationPollOption(id: "b", text: "Ramen"),
+            ])
+        }
+        backend.setHistoryMessage(original)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // While disconnected, two replies arrived in its thread.
+        var changed = original
+        changed.replyCount = 2
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.localActionGate = action
+        switch pending {
+        case .react: store.react(messageID: "m25", reaction: .heart)
+        case .vote: store.togglePollVote(messageID: "m25", optionID: "a")
+        case .edit: store.edit(messageID: "m25", text: "Edited here")
+        case .unsend: store.unsend(messageID: "m25")
+        }
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        #expect(store.message(id: "m25")?.replyCount == 2)
+        switch pending {
+        case .react: #expect(store.message(id: "m25")?.reactions.isEmpty == false)
+        case .vote: #expect(store.message(id: "m25")?.poll?.hasVote(participantID: "me", optionID: "a") == true)
+        case .edit: #expect(store.message(id: "m25")?.text == "Edited here")
+        case .unsend: #expect(store.message(id: "m25")?.isUnsent == true)
+        }
+        action.open()
+        switch pending {
+        case .react: try await Task.sleep(for: .milliseconds(50))
+        case .vote: try await waitUntil { store.message(id: "m25")?.poll == changed.poll }
+        case .edit: try await waitUntil { store.message(id: "m25")?.text == changed.text }
+        case .unsend: try await waitUntil { store.message(id: "m25")?.unsendFailed == true }
+        }
+        #expect(store.message(id: "m25")?.replyCount == 2)
     }
 
     /// A delivery receipt is not a newer revision of the message: a live
@@ -731,7 +846,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private var _nextHistoryGate: PreparationGate?
     private var _historyCount = 0
     private var _historyMessages: [String: ConversationMessage] = [:]
-    private var _pollActionGate: PreparationGate?
+    private var _localActionGate: PreparationGate?
     private var _failNextSend = false
     private var _holdSend = false
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
@@ -746,14 +861,20 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var total: Int { get { lock.withLock { _total } } set { lock.withLock { _total = newValue } } }
     var failNextHistory: Int { get { lock.withLock { _failNextHistory } } set { lock.withLock { _failNextHistory = newValue } } }
     var nextHistoryGate: PreparationGate? { get { lock.withLock { _nextHistoryGate } } set { lock.withLock { _nextHistoryGate = newValue } } }
-    /// Holds a poll vote or added choice until opened, then refuses it.
-    var pollActionGate: PreparationGate? { get { lock.withLock { _pollActionGate } } set { lock.withLock { _pollActionGate = newValue } } }
+    /// When set, a reaction, poll vote or choice, edit or unsend is held
+    /// until it opens and then refused.
+    var localActionGate: PreparationGate? { get { lock.withLock { _localActionGate } } set { lock.withLock { _localActionGate = newValue } } }
+    private func refuseHeldLocalAction() async throws {
+        guard let gate = localActionGate else { return }
+        await gate.wait()
+        throw ConversationBackendError(code: -1, message: "refused")
+    }
     func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
-        await pollActionGate?.wait()
+        try await refuseHeldLocalAction()
         throw ConversationBackendError(code: -1, message: "vote refused")
     }
     func addPollOption(messageID: String, text: String) async throws -> ConversationMessage {
-        await pollActionGate?.wait()
+        try await refuseHeldLocalAction()
         throw ConversationBackendError(code: -1, message: "choice refused")
     }
     var historyCount: Int { lock.withLock { _historyCount } }
@@ -850,10 +971,12 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
         throw ConversationBackendError(code: -1, message: "unsupported")
     }
 
     func edit(messageID: String, text: String) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
         var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
         message.text = text
         message.editedAt = Date()
@@ -866,6 +989,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var failNextUnsend: Bool { get { lock.withLock { _failNextUnsend } } set { lock.withLock { _failNextUnsend = newValue } } }
 
     func unsend(messageID: String) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
         let fail = lock.withLock { () -> Bool in
             defer { _failNextUnsend = false }
             return _failNextUnsend
