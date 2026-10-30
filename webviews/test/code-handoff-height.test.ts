@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import type { FenceName, FenceReport } from "./browser/code-handoff-height.harness";
+import { devHighlightWorker } from "./support/devHighlightWorker";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -41,6 +42,8 @@ await requireBrowserLane("code-handoff-height.test.ts", async () => {
       configFile: path.join(webviews, "vite.config.ts"),
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
+      // The dev server serves no built highlight worker (#25876): the page runs Pierre's own.
+      plugins: [devHighlightWorker()],
     });
     await vite.listen();
     await warmViteServer(vite, "/test/browser/code-handoff-height.html");

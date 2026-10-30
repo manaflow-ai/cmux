@@ -70,7 +70,7 @@ run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
   fi
   status=0
   local start=$SECONDS
-  env -u ZIG_GLOBAL_CACHE_DIR PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
+  env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG CMUX_ZIG_SEED=0 PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
     FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="$TMP/cache" \
     CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_STALL_TIMEOUT=2 CMUX_ZIG_FETCH_SAMPLE=1 \
     CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-60}" CMUX_ZIG_FETCH_RETRY_DELAY=0 \
@@ -148,7 +148,7 @@ children_gone || fail "a hung attempt's child process outlived its deadline"
 # stops the fetch too, though the fetch runs in a process group of its own.
 rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/p"/* "$TMP/src/zig-pkg"; : > "$TMP/children"
 set -m
-env -u ZIG_GLOBAL_CACHE_DIR PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS=5 \
+env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG CMUX_ZIG_SEED=0 PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS=5 \
   FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="$TMP/cache" \
   CMUX_ZIG_FETCH_STALL_TIMEOUT=60 "$SCRIPT" "$TMP/src" >"$TMP/out" 2>&1 &
 script_pid=$!
@@ -165,5 +165,17 @@ children_gone || fail "cancelling the script left the fetch running"
 # fetch seen (20 minutes, publisher run 40630560459 attempt 3).
 default_limit="$(sed -n 's/^attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$SCRIPT")"
 [ -n "$default_limit" ] && (( default_limit >= 1500 )) || fail "the default attempt limit (${default_limit:-unset}s) would stop a healthy 20-minute fetch"
+
+# Workflows fetch through the action, which skips the download when the
+# packages are on the machine or in the cache store, and runs this script.
+direct="$(grep -ln 'fetch-ghostty-zig-packages\.sh' "$ROOT"/.github/workflows/*.yml || true)"
+[ -z "$direct" ] || { echo "FAIL: these workflows run the fetch script directly instead of .github/actions/ghostty-zig-packages: $direct" >&2; exit 1; }
+grep -q 'scripts/ci/fetch-ghostty-zig-packages.sh' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" \
+  || { echo "FAIL: the ghostty-zig-packages action no longer runs the deadlined fetch" >&2; exit 1; }
+# Only a push writes the package cache: a pull request or pull_request_target
+# run must never be able to seed what later builds restore.
+save_if="$(grep -A1 'name: Save the Zig packages' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" | sed -n 's/.*if: //p')"
+[[ "$save_if" == *"github.event_name == 'push'"* ]] \
+  || { echo "FAIL: the Zig package cache is saved on more than push events: $save_if" >&2; exit 1; }
 
 echo "PASS: Ghostty Zig packages are fetched with bounded, progress-deadlined retries"

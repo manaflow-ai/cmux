@@ -1,4 +1,4 @@
-import { copyKeysToMysql, verifyTables, type MyLike, type PgLike, type TableReport } from "@cmux/db/projection-compare"
+import { copyKeysToMysql, junkTeams, verifyTables, type MyLike, type PgLike, type TableReport } from "@cmux/db/projection-compare"
 import type { Env } from "./env.ts"
 
 /**
@@ -12,6 +12,10 @@ import type { Env } from "./env.ts"
  * difference that are missing or changed in MySQL are copied again from Postgres through the
  * projection's seq guard, so a lost best-effort shadow write converges within one run instead of
  * staying behind forever. A row only MySQL has is reported, never deleted.
+ *
+ * Junk teams (projection-compare.ts JUNK_TEAMS_SQL, read from Postgres each run) are left out on both
+ * sides, as the production copy leaves them out (copy-pg-to-mysql.ts --exclude-junk-teams), so they
+ * are never a difference and never repaired into MySQL.
  */
 export interface CompareDeps {
   readonly postgres: PgLike
@@ -39,12 +43,13 @@ const both = (first: ReadonlyArray<string>, second: ReadonlyArray<string>) => se
 
 export const runProjectionCompare = async (deps: CompareDeps): Promise<{ diffs: Array<CompareDiff>; repaired: Record<string, number> }> => {
   const maxRows = deps.maxRows ?? 5000
-  const first = await verifyTables(deps.postgres, deps.mysql, { maxRows })
+  const excludeTeams = await junkTeams(deps.postgres)
+  const first = await verifyTables(deps.postgres, deps.mysql, { maxRows, excludeTeams })
   const suspect = first.filter((r) => !r.equal)
   const diffs: Array<CompareDiff> = []
   if (suspect.length > 0) {
     await deps.betweenPasses?.()
-    const second = await verifyTables(deps.postgres, deps.mysql, { maxRows, tables: suspect.map((r) => r.table) })
+    const second = await verifyTables(deps.postgres, deps.mysql, { maxRows, excludeTeams, tables: suspect.map((r) => r.table) })
     for (const again of second) {
       const was = suspect.find((r) => r.table === again.table) as TableReport
       const diff: CompareDiff = {
@@ -86,32 +91,36 @@ export const runProjectionCompare = async (deps: CompareDeps): Promise<{ diffs: 
       }
     }
   }
-  if (diffs.length === 0) console.log(JSON.stringify({ event: "projection.compare.ok", tables: first.length, partial: first.filter((r) => r.partial).map((r) => r.table) }))
+  if (diffs.length === 0) console.log(JSON.stringify({ event: "projection.compare.ok", tables: first.length, junk_teams: excludeTeams.length, partial: first.filter((r) => r.partial).map((r) => r.table) }))
   return { diffs, repaired }
 }
 
-/** The cron entry: runs only while a MySQL shadow or primary is configured, with both bindings. */
+/** The cron entry: runs only while a MySQL shadow or primary is configured; without both bindings the run fails. */
 export const compareFromEnv = async (env: Env): Promise<void> => {
   const active = env.PROJECTION_SHADOW === "mysql" || env.PROJECTION_PRIMARY === "mysql"
   if (!active) return
   if (!env.HYPERDRIVE || !env.PS_MYSQL_RO) {
     console.error(JSON.stringify({ event: "projection.compare.unconfigured", level: "error", postgres: !!env.HYPERDRIVE, mysql: !!env.PS_MYSQL_RO }))
-    return
+    // A failed cron run, not a quiet skip: a config that drops a binding must not look like a clean compare.
+    throw new Error("projection compare unconfigured: a MySQL switch is set without HYPERDRIVE and PS_MYSQL_RO")
   }
   const { default: pg } = await import("pg")
   const { connectMysql } = await import("./mysql-connect.ts")
   // The writer role reads every projected table (the -ro role is search-ro); the session is read-only.
   const pgc = new pg.Client({ connectionString: env.HYPERDRIVE.connectionString, statement_timeout: 20_000, query_timeout: 25_000, connectionTimeoutMillis: 10_000 })
-  await pgc.connect()
-  const my = await connectMysql(env.PS_MYSQL_RO)
-  // Repairs flow primary -> shadow only: while Postgres is the primary and the writer binding exists.
-  const writer = env.PROJECTION_PRIMARY !== "mysql" && env.PS_MYSQL ? await connectMysql(env.PS_MYSQL) : undefined
+  let my: Awaited<ReturnType<typeof connectMysql>> | undefined
+  let writer: Awaited<ReturnType<typeof connectMysql>> | undefined
+  // Every connection opened is closed, also when a later one fails (a PlanetScale outage must not leak Postgres clients).
   try {
+    await pgc.connect()
+    my = await connectMysql(env.PS_MYSQL_RO)
+    // Repairs flow primary -> shadow only: while Postgres is the primary and the writer binding exists.
+    if (env.PROJECTION_PRIMARY !== "mysql" && env.PS_MYSQL) writer = await connectMysql(env.PS_MYSQL)
     await pgc.query("SET default_transaction_read_only = on")
     await runProjectionCompare({ postgres: pgc, mysql: my, ...(writer ? { repair: writer } : {}) })
   } finally {
     await pgc.end().catch(() => undefined)
-    await my.end().catch(() => undefined)
+    await my?.end().catch(() => undefined)
     await writer?.end().catch(() => undefined)
   }
 }
