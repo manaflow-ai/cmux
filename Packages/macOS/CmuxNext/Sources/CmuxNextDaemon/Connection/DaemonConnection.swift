@@ -178,16 +178,27 @@ public actor DaemonConnection {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
         do {
-            return try await sendAdmitted(request, timeout: configuration.spawnTimeout) { request, identity in
-                guard identity.supports(DaemonCapability.terminalShellArgs.rawValue),
-                      let carrier = request as? any ShellIntegrationArgumentCarrying,
-                      let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
-                return integrated
-            }
+            return try await sendAdmitted(request, timeout: configuration.spawnTimeout, forDaemon: Self.withShellIntegration)
         } catch DaemonError.timedOut(let what) {
             // cmux-tui keeps starting the terminal after the client gave up.
             throw DaemonError.terminalStartTimedOut(what)
         }
+    }
+
+    /// A terminal start the daemon makes exactly once under its client-chosen terminal id (`new-tab` with
+    /// `terminal-placement-env-v1`): sent once, with the shell-integration arguments ``request(_:)`` adds, and answered
+    /// by its reply or the connection's end (``LineTransport`` fails every pending request on close). No client deadline
+    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5).
+    nonisolated func requestAwaitingStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        try await sendAdmitted(request, timeout: nil, forDaemon: Self.withShellIntegration)
+    }
+
+    /// `request` with Ghostty's shell-integration arguments when the daemon that carries it serves them.
+    private static func withShellIntegration<R: DaemonRequest>(_ request: R, identity: DaemonIdentity) -> R {
+        guard identity.supports(DaemonCapability.terminalShellArgs.rawValue),
+              let carrier = request as? any ShellIntegrationArgumentCarrying,
+              let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
+        return integrated
     }
 
     /// Runs on the caller's executor with no actor hop: it reads the ready connection from
