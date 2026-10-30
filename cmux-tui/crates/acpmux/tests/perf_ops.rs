@@ -535,21 +535,22 @@ fn row(prefix: &str, kind: &str, ns: &mut Vec<u64>, errors: u64) -> Value {
 }
 
 /// The kinds that change state (they wait for their record in arm B).
-const WRITE_KINDS: &[&str] = &[
-    "queue_edit_update",
-    "queue_edit_move",
-    "queue_remove",
-    "prompt_withdraw",
-    "rename",
-    "draft_set",
-];
+const WRITE_KINDS: &[&str] =
+    &["queue_edit_update", "queue_edit_move", "queue_remove", "rename", "draft_set"];
 
 /// One client's request mix on chat `s` until `until`.
-async fn client_loop(mut c: Client, s: String, tag: String, until: Instant) -> Samples {
+async fn client_loop(
+    mut c: Client,
+    s: String,
+    idle: String,
+    tag: String,
+    until: Instant,
+) -> Samples {
     let mut out = Samples::new();
     let mut cycle = 0u64;
     while Instant::now() < until {
         let (p1, p2) = (format!("{tag}-{cycle}-a"), format!("{tag}-{cycle}-b"));
+        let idle = idle.as_str();
         let v = c.queue_prompt(&s, &p1).await;
         record(&mut out, "prompt_queue", v);
         let v = c.queue_prompt(&s, &p2).await;
@@ -570,8 +571,10 @@ async fn client_loop(mut c: Client, s: String, tag: String, until: Instant) -> S
         record(&mut out, "queue_edit_move", v);
         let v = c.timed("_acpmux/queue_remove", json!({"sessionId": s, "promptId": p1})).await;
         record(&mut out, "queue_remove", v);
-        let v = c.timed("_acpmux/prompt_withdraw", json!({"sessionId": s, "promptId": p2})).await;
-        record(&mut out, "prompt_withdraw", v);
+        // p2 leaves the queue too, so the queue stays short (prompt_withdraw is not timed: it
+        // refuses a person's prompt, `withdraw.not_a_message`, before any write).
+        let v = c.timed("_acpmux/queue_remove", json!({"sessionId": s, "promptId": p2})).await;
+        record(&mut out, "queue_remove", v);
         let v = c
             .timed("_acpmux/rename", json!({"sessionId": s, "newName": format!("{tag}-{cycle}")}))
             .await;
@@ -582,7 +585,10 @@ async fn client_loop(mut c: Client, s: String, tag: String, until: Instant) -> S
         record(&mut out, "draft_set", v);
         let v = c.timed("_acpmux/status", json!({})).await;
         record(&mut out, "status", v);
-        let v = c.timed("_acpmux/events", json!({"sessionId": s, "limit": 50})).await;
+        // On the idle chat: a log read of a streaming chat waits in `LogWriter::settle` until
+        // the chat has no queued line at all, which a chat streaming every 10 ms seldom has
+        // (job 88f5f7da34f5: every such read went past 30 s, in both arms).
+        let v = c.timed("_acpmux/events", json!({"sessionId": idle, "limit": 50})).await;
         record(&mut out, "events", v);
         cycle += 1;
     }
@@ -637,6 +643,8 @@ async fn run_arm(
             )
             .await;
     }
+    // The chat the reads go to: one with a short log and no turn.
+    let idle = app.new_chat(&daemon.work).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let mut by_n = BTreeMap::new();
     for n in PHASES {
@@ -648,7 +656,8 @@ async fn run_arm(
         let mut tasks = Vec::new();
         for (i, c) in clients.into_iter().enumerate() {
             let tag = format!("{arm}{round}-n{n}-c{i}");
-            tasks.push(tokio::spawn(client_loop(c, chats[i].clone(), tag, until)));
+            let (chat, idle) = (chats[i].clone(), idle.clone());
+            tasks.push(tokio::spawn(client_loop(c, chat, idle, tag, until)));
         }
         let mut merged = Samples::new();
         for t in tasks {
