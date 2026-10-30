@@ -14,6 +14,7 @@ import CmuxNextWebUpdates
 import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
         self?.services?.crashRecovery.applicationWillTerminate()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
         self?.services?.home.applicationWillTerminate()
     }, save: { [weak self] in
         await self?.services?.home.flushCacheForQuit()
@@ -334,9 +336,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings?.managedPreferencesMayHaveChanged()
                 services?.windows.enterRestoredFullScreens()
                 await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
+                await services?.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
             }
         }
         services.configActions.start(settings: settings)
+        services.personInput.start()
+        services.joinConsent.follow(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
@@ -497,7 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.crashRecovery.applicationWillTerminate()
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
-        services?.agentTabs.pageChats.runNotices?.stop()
+        services?.agentTabs.pageChats.stopNotices()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
@@ -505,6 +510,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.editorPages.terminate()
         // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
         BrowserDesignModeController.tempFiles.removeAll()
+        // The agent panes' state files (unsent drafts, scroll places) save off the main thread.
+        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()

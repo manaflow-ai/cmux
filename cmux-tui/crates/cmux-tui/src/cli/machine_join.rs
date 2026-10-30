@@ -31,6 +31,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_json::JsonSet as _;
 
 /// The development platform: joining is on there alone until it is flipped.
 pub(super) const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
@@ -698,7 +699,7 @@ fn add_machine(
         }
         OutputMode::JsonLines => {
             let mut event = summary.clone();
-            event["event"] = json!("minted");
+            event.set("event", json!("minted"));
             if let Some(event) = event.as_object_mut() {
                 event.remove("joined");
             }
@@ -734,9 +735,9 @@ fn add_machine(
                 machine.last_heartbeat.clone()
             };
             let joined = json!({ "machineId": machine.machine_id, "name": machine.name, "at": at });
-            summary["joined"] = joined.clone();
+            summary.set("joined", joined.clone());
             let mut event = joined;
-            event["event"] = json!("joined");
+            event.set("event", json!("joined"));
             (event, 0)
         }
         WaitEnd::Expired => (json!({ "event": "expired" }), 3),

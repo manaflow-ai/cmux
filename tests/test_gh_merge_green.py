@@ -1409,7 +1409,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
                 "import sys\n"
                 "assert sys.argv[1:] == ['heavy-local-ok', '--json']\n"
                 f"print({policy_payload!r})\n"
-                f"sys.exit({policy_status})\n"
+                + ("import os, signal; os.kill(os.getpid(), signal.SIGTERM)\n" if policy_status == -15
+                   else f"sys.exit({policy_status})\n")
             )
         saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG"), os.environ.get("LEO_WORKSPACE")
         HEAD = head
@@ -1612,27 +1613,30 @@ class MergedHeadChecksRegression(unittest.TestCase):
                 else:
                     self.assertIn("missing", result.stderr)
 
-    def test_host_policy_error_refuses_without_starting_bun(self):
-        for policy_status in (1, 2):
+    def test_host_policy_error_or_crash_skips_without_starting_bun(self):
+        for policy_status in (1, 2, 77, -15):
             with self.subTest(policy_status=policy_status), tempfile.TemporaryDirectory() as directory:
                 result, marker, log = self.run_merge(
-                    directory, {"webviews/Good.tsx": "x\n"}, policy_status=policy_status)
-                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertFalse(marker.exists())
+                    directory, {"webviews/BAD.tsx": "x\n"}, policy_status=policy_status)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
                 self.assertNotIn("bun", log)
-                self.assertIn("host policy", result.stderr)
+                self.assertIn("skipped merged-head web check", result.stderr)
+                self.assertIn("not checked", result.stderr)
 
-    def test_malformed_host_policy_refuses_without_starting_bun(self):
+    def test_malformed_host_policy_skips_without_starting_bun(self):
         for policy_status, payload in ((0, "not json"), (3, "not json"),
-                                       (0, '{"host":"fixture","policy":"no-build","reason":"denied"}')):
+                                       (0, '{"host":"fixture","policy":"no-build","reason":"denied"}'),
+                                       (0, '{} {"host":"fixture","policy":"heavy-ok","reason":"allowed"}')):
             with self.subTest(status=policy_status, payload=payload), tempfile.TemporaryDirectory() as directory:
                 result, marker, log = self.run_merge(
-                    directory, {"webviews/Good.tsx": "x\n"},
+                    directory, {"webviews/BAD.tsx": "x\n"},
                     policy_status=policy_status, policy_payload=payload)
-                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertFalse(marker.exists())
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
                 self.assertNotIn("bun", log)
-                self.assertIn("host policy failed", result.stderr)
+                self.assertIn("skipped merged-head web check", result.stderr)
+                self.assertIn("not checked", result.stderr)
 
     def test_host_policy_skip_preserves_swift_failure(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -65,7 +65,27 @@ final class AgentDialogDesk {
     }
 
     private func pending(on line: any AgentDialogLine) async -> [Pending] {
-        let sessions = (await line.call("_acpmux/sessions", [:]))?["sessions"] as? [[String: Any]] ?? []
+        // Page the list until a server-side pending-permission filter is
+        // available. Status alone does not guarantee whether prompts remain.
+        var sessions: [[String: Any]] = []
+        var cursor: String?
+        var seen: Set<String> = []
+        var seenSessions: Set<String> = []
+        while true { // wakeup-allow: each pass awaits a daemon page; a terminal page, malformed reply, or repeated cursor ends it
+            var params: [String: Any] = ["limit": 64]
+            if let cursor { params["cursor"] = cursor }
+            guard let page = await line.call("_acpmux/sessions", params) else { return [] }
+            guard let pageRows = page["sessions"] as? [[String: Any]] else { return [] }
+            for row in pageRows {
+                guard let id = row["sessionId"] as? String, !id.isEmpty else { continue }
+                let peer = row["peer"] as? String ?? ""
+                let key = "\(peer)/\(id)"
+                if seenSessions.insert(key).inserted { sessions.append(row) }
+            }
+            guard let next = (page["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { break }
+            guard seen.insert(next).inserted else { return [] }
+            cursor = next
+        }
         var out: [Pending] = []
         for summary in sessions where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
             guard let session = summary["sessionId"] as? String else { continue }
