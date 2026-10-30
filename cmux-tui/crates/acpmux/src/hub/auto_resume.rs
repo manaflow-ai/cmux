@@ -49,8 +49,9 @@
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
 //!   to the turn the connection first cut, and resumes what each of those held.
-//! - The fallback profile handles account failures first (`turns.rs`). A remaining usage
-//!   limit retries after its reset hint; a sign-in failure never retries by itself. A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
+//! - Sign-in failures may use the fallback profile (`turns.rs`). Usage limits stay on the
+//!   current account and retry after their reset hint; a sign-in failure never retries by itself.
+//!   A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
 //!   and queues its continuation first in the chat's queue (`restart_resume.rs`).
 //! - A wait is restored from its scheduled event after a restart, at the same deadline.
 //!   Stop, close, newer turns and explicit retry decisions prevent restoring it.
@@ -467,6 +468,14 @@ impl Hub {
             // between these operations must leave an event that restart restoration can replay.
             hub.append(&session, "mux", "auto_resume_scheduled", msg);
             if hub.set_retry(&session, &turn_id, retry) {
+                // Publish after installing the in-memory row so watchers do not retain
+                // `retry: null` for a long reset wait.
+                hub.append(
+                    &session,
+                    "mux",
+                    "auto_resume_state",
+                    json!({"turnId": turn_id, "nextAt": next_at}),
+                );
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}

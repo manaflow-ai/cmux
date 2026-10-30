@@ -125,7 +125,7 @@ mod tests {
             } else {
                 assert_eq!(row["retry"]["nextAt"], at, "{row}");
                 assert_eq!(row["retry"]["attempt"], 1, "{row}");
-                hub.cancel(&session).await.unwrap();
+                hub.stop_auto_resume(&session);
                 assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
             }
             hub.shutdown_all().await;

@@ -686,8 +686,10 @@ impl Hub {
                 session.stderr_tail.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n");
             let dead_limit = e.message.starts_with("agent process closed")
                 && is_limit_error(&stderr)
+                && !super::turn_errors::is_usage_limit_error(&stderr)
                 && !super::turn_errors::is_gateway_error(&stderr);
             let mut target = if ((is_limit_error(&e.message)
+                && !super::turn_errors::is_usage_limit_error(&e.message)
                 && !super::turn_errors::is_gateway_error(&e.message))
                 || dead_limit)
                 && session.stops.load(Ordering::SeqCst) == stops

@@ -94,7 +94,9 @@ async fn a_limit_is_resumed_even_when_the_agent_dies_of_it() {
     let r = c
         .request(
             method::SESSION_PROMPT,
-            prompt(&died, "die: You've hit your limit · resets 3pm", None),
+            // Keep this integration test fast; the real Claude clock hint is covered by
+            // reset_hint unit tests, while this exercises the same usage-limit recovery path.
+            prompt(&died, "die: You've hit your limit · retry after 20ms", None),
         )
         .await;
     assert!(r.unwrap_err().contains("hit your limit"));

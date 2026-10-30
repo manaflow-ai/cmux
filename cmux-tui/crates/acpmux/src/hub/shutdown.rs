@@ -49,13 +49,20 @@ impl Hub {
     /// as cancelled. Returns how many hosted agents it left running for the
     /// next daemon (the local router stays for them).
     pub async fn shutdown_all(&self) -> usize {
+        self.shutdown_all_with_auto_resume(false).await
+    }
+
+    /// Shutdown for a supervisor handoff: keep durable provider retries so the next daemon
+    /// restores them at their recorded reset deadline.
+    pub(crate) async fn shutdown_all_with_auto_resume(&self, preserve_auto_resume: bool) -> usize {
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
-        let ((), kept) = tokio::join!(self.stop_pool(), self.shutdown_sessions());
+        let ((), kept) =
+            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume));
         kept
     }
 
-    async fn shutdown_sessions(&self) -> usize {
+    async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();
@@ -69,6 +76,13 @@ impl Hub {
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();
+        // A scheduled provider retry must not survive an explicit daemon shutdown.  Settle
+        // every pending continuation before teardown so restart restoration cannot replay it.
+        if !preserve_auto_resume {
+            for s in &sessions {
+                self.stop_auto_resume(s);
+            }
+        }
         // Startup may have been cancelled before adoption reached these hosts. Keep their
         // state and router on an ordinary restart, even when no child link exists yet.
         let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();

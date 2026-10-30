@@ -122,6 +122,8 @@ pub(super) enum Step {
     NoRetry,
     /// A failed turn's automatic continuation is scheduled (`auto_resume_scheduled`).
     RetryScheduled,
+    /// A follow-up retry state carries the exact provider reset deadline.
+    RetryScheduledAt(u64),
     /// The session was closed.
     Closed,
     /// A closed session was opened again.
@@ -156,6 +158,7 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
             Some(Step::NoRetry)
         }
         "auto_resume_scheduled" => Some(Step::RetryScheduled),
+        "auto_resume_state" => msg["nextAt"].as_u64().map(Step::RetryScheduledAt),
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
@@ -421,6 +424,10 @@ impl<I: Io> Reporter<I> {
             (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
             (Step::RetryScheduled, Now::Retrying { turn, why, .. }) => {
                 let until = queued + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn, why, until });
+            }
+            (Step::RetryScheduledAt(next_at), Now::Retrying { turn, why, .. }) => {
+                let until = next_at;
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
             (Step::Asks(what), Now::Reporting { turn, last })

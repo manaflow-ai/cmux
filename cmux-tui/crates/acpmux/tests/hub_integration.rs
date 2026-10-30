@@ -832,7 +832,7 @@ async fn turn_markers_history_and_cursor() {
 }
 
 #[tokio::test]
-async fn limit_error_fails_over_to_the_fallback_profile() {
+async fn limit_error_stays_on_the_current_profile() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -891,9 +891,7 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     )
     .await
     .unwrap();
-    // The direct profile reports a usage limit; the pool profile answers.
-    // The fake agent echoes the same prompt text, so the failover reply is
-    // the echo of the limit prompt from the second process.
+    // A usage limit stays on the current account even when a fallback is configured.
     let r = c
         .request(
             method::SESSION_PROMPT,
@@ -903,12 +901,9 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     let session = hub.resolve(&id).unwrap();
     let kinds: Vec<String> =
         hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
-    assert!(kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
-    assert_eq!(hub.session_summary(&session)["harness"], "fake-pool");
-    // The pool profile is the same fake agent, so it reports the limit too:
-    // no second failover, the turn fails once and stays on the pool.
+    assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
+    assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
-    assert_eq!(kinds.iter().filter(|k| *k == "failover").count(), 1);
     let ok = c
         .request(
             method::SESSION_PROMPT,

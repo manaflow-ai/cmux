@@ -609,7 +609,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
-    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    let restarting = hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst);
+    if restarting {
         ws_shutdown.restart();
     } else {
         ws_shutdown.normal_shutdown();
@@ -653,7 +654,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // A signal can arrive while metadata loads. Snapshot every stored session before
         // detaching or ending hosts. A timeout conservatively keeps their router below.
         let _ = metadata.await;
-        hub.shutdown_all().await
+        if restarting {
+            hub.shutdown_all_with_auto_resume(true).await
+        } else {
+            hub.shutdown_all().await
+        }
     })
     .await
     {

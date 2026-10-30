@@ -20,8 +20,8 @@ pub(crate) fn has_status(m: &str, code: &str) -> bool {
 }
 
 /// Does an agent error mean the account cannot serve, not that the prompt
-/// was wrong? Usage and rate limits, and missing or rejected credentials:
-/// all of them are solved by another account, which the fallback provides.
+/// was wrong? Sign-in failures are solved by another account; usage and rate
+/// limits recover on the same account after their reset.
 pub fn is_limit_error(message: &str) -> bool {
     let m = message.to_lowercase();
     m.contains("not logged in")
@@ -34,7 +34,7 @@ pub fn is_limit_error(message: &str) -> bool {
 }
 
 /// A usage window or rate limit can recover without changing the person's sign-in.
-fn is_usage_limit_error(message: &str) -> bool {
+pub(crate) fn is_usage_limit_error(message: &str) -> bool {
     let m = message.to_lowercase();
     (m.contains("reached your") && m.contains("limit"))
         // Claude Code: "You've hit your limit · resets 3pm" (2026-10-20).
@@ -72,7 +72,7 @@ pub(super) fn is_gateway_error(message: &str) -> bool {
 }
 
 /// Does an agent error mean the connection to the model dropped, not that the prompt or the
-/// account was at fault? Limit and sign-in errors are excluded: another account solves those.
+/// account was at fault? Limit and sign-in errors are excluded from transport classification.
 pub fn is_transport_error(message: &str) -> bool {
     !is_limit_error(message) && says_connection_dropped(message)
 }
@@ -178,8 +178,7 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 /// ([`transient_cause`]), or `agent_exited` (its agent process died mid-turn: "agent process
 /// closed"). `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
-/// line, or the sign-in explanation). Usage limits retry as capacity after the fallback
-/// profile has had its chance. A sign-in failure (including an expired credential unless the
+/// line, or the sign-in explanation). Usage limits retry as capacity on the same profile. A sign-in failure (including an expired credential unless the
 /// provider was unreachable) is never continued. Nor is a
 /// refused request ([`is_refused_request`]) in either: an agent that died of one would be
 /// refused the same way again.
@@ -193,8 +192,8 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     {
         return None;
     }
-    // Limits are account capacity, not sign-in failures. The fallback profile already got
-    // its chance; retry this same conversation when the reset permits it.
+    // Limits are account capacity, not sign-in failures. Retry this same conversation when the
+    // reset permits it; do not switch accounts.
     if is_usage_limit_error(raw) || is_usage_limit_error(shown) {
         return Some("capacity");
     }
