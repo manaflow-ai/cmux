@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import CmuxNextAgentPane
 
 /// A click on a subagent whose pane is still opening without focus (each new subagent opens a pane
@@ -61,6 +62,21 @@ struct AgentSubagentPanesFocusTests {
         recorder.land("tab-explore")
         #expect(recorder.focused.map({ $0.key }) == ["tab-explore"])
         #expect(recorder.focused.first?.script == false, "the person asked for it")
+    }
+
+    /// A source tab's provisional id gives way to the store's: its tracker follows, so a later click
+    /// reuses the tab the first one opened.
+    @Test func aRekeyedSourceKeepsItsOpenTab() {
+        let session = "rekey-\(UUID().uuidString)"
+        let recorder = Recorder()
+        let first = AgentSubagentPanes.session("\(session):provisional")
+        #expect(first.open("explore", focus: false, chat: "provisional", hooks: recorder.hooks))
+        recorder.land("tab-explore")
+        AgentSubagentPanes.rekeySource("provisional", to: "real")
+        let moved = AgentSubagentPanes.session("\(session):real")
+        #expect(moved === first)
+        #expect(moved.tab(for: "explore", isOpen: recorder.hooks.isOpen) == "tab-explore")
+        #expect(AgentSubagentPanes.session("\(session):provisional") !== first)
     }
 
     @Test func anUnfocusedOpenAloneTakesNoFocus() {

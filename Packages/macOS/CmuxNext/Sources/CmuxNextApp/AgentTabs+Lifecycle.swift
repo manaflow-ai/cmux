@@ -212,6 +212,7 @@ extension AgentTabStore {
         }
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
         if let value = subagentSources.removeValue(forKey: key) { subagentSources[real] = value }
+        AgentSubagentPanes.rekeySource(key, to: real) // its subagent trackers (AgentTabs+Header `openSubagent`)
         unsentDrafts.move(key, to: real)
         if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }

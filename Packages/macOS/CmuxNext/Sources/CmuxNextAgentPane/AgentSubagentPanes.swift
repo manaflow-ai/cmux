@@ -42,6 +42,18 @@ public final class AgentSubagentPanes {
         return panes
     }
 
+    /// Moves the trackers keyed `<session>:<source>` (the app keys one per session and source chat tab)
+    /// from provisional tab `old` to `real` once the store names it, so a click queued meanwhile
+    /// still finds the tab its first click opened instead of opening a second one.
+    public static func rekeySource(_ old: String, to real: String) {
+        guard old != real else { return }
+        for key in sessions.keys where key.hasSuffix(":\(old)") {
+            let moved = String(key.dropLast(old.count)) + real
+            if sessions[moved] == nil { sessions[moved] = sessions[key] }
+            sessions[key] = nil
+        }
+    }
+
     /// The open tab of subagent `agent`; `isOpen` says whether a tab key still exists.
     public func tab(for agent: String, isOpen: (String) -> Bool) -> String? {
         prune(isOpen)

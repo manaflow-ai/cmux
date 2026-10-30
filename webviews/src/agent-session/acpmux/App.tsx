@@ -1,5 +1,5 @@
 import { SubagentListPanel, useSubagentList } from "./subagents/SubagentListPanel";
-import { openChildSession, type SubagentClick } from "./subagents/subagentNavigation";
+import { openChildSession, subagentName, type SubagentClick } from "./subagents/subagentNavigation";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
@@ -6666,10 +6666,12 @@ function AcpmuxPane() {
   const inspectorSubagent = useMemo((): SubagentScope | undefined => {
     if (!scopedAgent) return undefined;
     const parent = scopedAgent.parent;
+    // Its parent subagent by the same readable name its row shows (never a raw transport id), else the chat.
+    const parentAgent = parent === null ? undefined : chatAgents.find((agent) => agent.id === parent);
     return {
       agent: scopedAgent,
       rows: scopedRows ?? [],
-      parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
+      parent: parentAgent ? subagentName(parentAgent) : chatName,
       agents: descendants(chatAgents, scopedAgent.id),
       // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
       onBack: () => setSubagentView(parent ?? undefined),
