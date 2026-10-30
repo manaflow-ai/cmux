@@ -115,11 +115,13 @@ import Testing
         }
     }
 
-    /// The one line reads the folded steps, then the step now: "Reading › · Starting agents · 7s".
+    /// The one line reads the folded steps, then the step now: "Reading › Starting agents · 7s"
+    /// (the "›" already parts them; a dot after it would read "› ·").
     @Test func theStepsAndTheStepNowShareOneLine() {
         let font = HomeFonts.system(ofSize: 11)
         let notice = "Reading ›\nStarting agents · 7s"
-        #expect(HomeNoticeRows.width(notice) == TextDraw.width("Reading › · Starting agents · 7s", font: font))
+        #expect(HomeNoticeRows.width(notice) == TextDraw.width("Reading › Starting agents · 7s", font: font))
+        #expect(HomeNoticeRows.line(notice) == "Reading › Starting agents · 7s")
     }
 
     /// A narrow column cuts the folded steps first: the step now and its time stay whole.
@@ -127,7 +129,7 @@ import Testing
         let font = HomeFonts.system(ofSize: 11)
         let notice = "Ran 3 commands · Read 2 files ›\nWaiting for a31's tests\nStarting agents · 7s"
         let wide = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: 1000)
-        #expect(wide.lead == "Ran 3 commands · Read 2 files › · Waiting for a31's tests")
+        #expect(wide.lead == "Ran 3 commands · Read 2 files › Waiting for a31's tests")
         #expect(wide.last == "Starting agents · 7s")
         let now = TextDraw.width("Starting agents · 7s", font: font)
         let narrow = HomeNoticeRows.fittedParts(notice, font: font, maxWidth: now + 80)
