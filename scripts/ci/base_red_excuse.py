@@ -573,7 +573,11 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
             said = step_output(job, head_log, steps)
             if said is None:
                 raise Refused(f"'{name}': its own steps' output is not in its log whole; nothing to compare with the base")
-            compared.append(("lines it printed", said, step_output(base_job, base_log, steps) or set()))
+            base_said = step_output(base_job, base_log, steps)
+            if base_said is None:
+                raise Refused(f"'{name}': its own steps' output is not in {base} run {base_run['id']}'s log whole; "
+                              "nothing to compare with")
+            compared.append(("lines it printed", said, base_said))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")

@@ -848,6 +848,13 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
             with self.subTest(cut=cut[-60:]), self.assertRaisesRegex(excuse.Refused, "not in its log whole"):
                 self.judge()
 
+    def test_a_cut_short_base_rollup_log_stays_red(self):
+        # The head's rollup printed nothing of its own, and the base's log has no whole section to compare with.
+        self.gh.logs[3] = rollup_log(GUARD_STATUS, GUARD_STATUS_SCRIPT)
+        self.gh.logs[4] = self.gh.logs[4].split("##[endgroup]")[0]
+        with self.assertRaisesRegex(excuse.Refused, "not in feat-cmux-next run 20's log whole"):
+            self.judge()
+
     def test_a_step_the_api_does_not_list_leaves_the_rollup_red(self):
         self.gh.jobs[3]["steps"] = [step for step in self.gh.jobs[3]["steps"] if step["name"] != "Check routed guard jobs"]
         self.gh.jobs[3]["steps"].append({"name": "Report", "status": "completed", "conclusion": "failure"})
