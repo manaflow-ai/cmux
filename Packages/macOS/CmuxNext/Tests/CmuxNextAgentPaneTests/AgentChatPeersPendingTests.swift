@@ -50,23 +50,24 @@ struct AgentChatPeersPendingTests {
 
 /// Two writers of daemon.log at once keep both lines: a person's restart and the lookup that its
 /// SIGTERM ends both write their cause at the same moment (green 79253da2c3e5c6f9c12e7344: a seek
-/// to the end, then a write, let the later writer overwrite the earlier line).
+/// to the end, then a write, let the later writer overwrite the earlier line). The interleaving is
+/// forced, not left to timing: writer A has opened the log for its line when writer B writes its
+/// whole line, then A writes.
 nonisolated struct AcpmuxFailureLogConcurrentTests {
-    @Test func twoRecordsAtOnceKeepBothLines() throws {
+    @Test func aLineWrittenWhileAnotherWriterHoldsTheLogIsKept() throws {
         let root = URL(fileURLWithPath: "/tmp/afl-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        for round in 0..<300 {
-            let path = root.appendingPathComponent("daemon-\(round).log").path
-            FileManager.default.createFile(atPath: path, contents: nil)
-            let log = AcpmuxFailureLog(logPath: path)
-            DispatchQueue.concurrentPerform(iterations: 2) { writer in
-                log.record(writer == 0 ? .personRestart : .other, detail: "round \(round)")
-            }
-            let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-            let both = text.contains(AcpmuxFailureCause.personRestart.logText) && text.contains(AcpmuxFailureCause.other.logText)
-            #expect(both, "round \(round) lost a line: \(text)")
-            if !both { return }
-        }
+        let path = root.appendingPathComponent("daemon.log").path
+        FileManager.default.createFile(atPath: path, contents: nil)
+        // B's line is shorter than A's, so a write of A at B's start would cover it whole.
+        let other = AcpmuxFailureLog(logPath: path)
+        let person = AcpmuxFailureLog(logPath: path, beforeWrite: { other.record(.other, detail: "b") })
+
+        #expect(person.record(.personRestart, detail: "pid 1"))
+        let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        #expect(text.contains(AcpmuxFailureCause.other.logText), "writer B's line was overwritten: \(text)")
+        #expect(text.contains(AcpmuxFailureCause.personRestart.logText), "writer A's line is missing: \(text)")
+        #expect(text.split(separator: "\n").count == 2, "\(text)")
     }
 }

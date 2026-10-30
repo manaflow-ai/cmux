@@ -15,9 +15,13 @@ nonisolated struct AcpmuxFailureLog: Sendable {
 
     let logPath: String
     let now: @Sendable () -> Date
+    /// Runs after the log is open for this line and before the line is written (tests put another
+    /// writer's whole line there, the interleaving of two writers at once).
+    let beforeWrite: @Sendable () -> Void
 
-    init(logPath: String, now: @escaping @Sendable () -> Date = Date.init) {
+    init(logPath: String, now: @escaping @Sendable () -> Date = Date.init, beforeWrite: @escaping @Sendable () -> Void = {}) {
         self.logPath = logPath
+        self.beforeWrite = beforeWrite
         self.now = now
     }
 
@@ -41,6 +45,7 @@ nonisolated struct AcpmuxFailureLog: Sendable {
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
         let bytes = Array(line(cause, detail: detail).utf8)
+        beforeWrite()
         return bytes.withUnsafeBytes { blockingWrite(descriptor, $0.baseAddress, $0.count) } == bytes.count
     }
 }
