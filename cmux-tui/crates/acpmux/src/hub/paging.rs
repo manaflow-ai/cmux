@@ -16,6 +16,7 @@ const NON_TRANSCRIPT_UPDATES: &[&str] = &[
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
 pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
+    "_acpmux/message",
     "user_message",
     "queued",
     "dequeued",

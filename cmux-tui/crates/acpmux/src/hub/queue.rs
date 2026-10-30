@@ -115,6 +115,9 @@ pub(super) struct PromptRun {
     /// The paired machine whose Full-access setting covered its sender (`PromptOptions`); an
     /// edit keeps it only from that machine.
     pub(super) full_access_device: Option<String>,
+    /// Delivery metadata normalized before queueing or recovered from a durable queued record.
+    pub(super) message_id: Option<String>,
+    pub(super) message_sender: Option<Value>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -353,6 +356,11 @@ impl Hub {
                 } else {
                     match self.take_run_slot(session, p.provenance) {
                         Ok(slot) => {
+                            let mut message_opts = PromptOptions::default();
+                            super::message_events::restore_message_options(
+                                &mut message_opts,
+                                p.provenance,
+                            );
                             let run = PromptRun {
                                 blocks: p.blocks.to_vec(),
                                 display_parts: p.display_parts.cloned(),
@@ -363,6 +371,8 @@ impl Hub {
                                 class: p.class,
                                 supersede: p.supersede.map(str::to_owned),
                                 full_access_device: p.full_access_device.map(str::to_owned),
+                                message_id: message_opts.message_id,
+                                message_sender: message_opts.message_sender,
                             };
                             return Ok((
                                 turn_id,
@@ -490,12 +500,14 @@ impl Hub {
         let (prompt_id, provenance) = (Some(prompt_id.to_owned()), run.provenance.clone());
         let opts = PromptOptions {
             prompt_id,
+            message_id: run.message_id.clone(),
             control,
             trust_gate,
             // An inbox digest whose turn ended first waits behind the person's prompts
             // (`enqueue`), and stops no turn.
             interrupt: !digest,
             provenance,
+            message_sender: run.message_sender.clone(),
             agent: run.agent.clone(),
             class: run.class,
             display_parts: run.display_parts.clone(),
@@ -578,6 +590,8 @@ impl Hub {
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
         let at = at.unwrap_or(queue.len());
+        let mut message_opts = PromptOptions::default();
+        super::message_events::restore_message_options(&mut message_opts, p.provenance);
         queue.insert(
             at,
             QueuedPrompt {
@@ -597,6 +611,8 @@ impl Hub {
                     class: p.class,
                     supersede: p.supersede.map(str::to_owned),
                     full_access_device: p.full_access_device.map(str::to_owned),
+                    message_id: message_opts.message_id,
+                    message_sender: message_opts.message_sender,
                 }),
                 restored: false,
                 resume: false,
@@ -1155,6 +1171,8 @@ impl Hub {
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
                             {
                                 meta.remove("provenance");
+                                // The person rewrote it: no longer another session's message.
+                                meta.remove(crate::prompt_provenance::MESSAGE_META);
                             }
                             if let Some(p) = e.msg.pointer("/_meta/provenance") {
                                 let kept = json!({"provenance": p});
@@ -1240,7 +1258,12 @@ impl Hub {
             };
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
-            let provenance = e.msg.pointer("/_meta/provenance").filter(|p| p.is_object()).cloned();
+            let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
+            let mut restored_message_opts = PromptOptions::default();
+            super::message_events::restore_message_options(
+                &mut restored_message_opts,
+                provenance.as_ref(),
+            );
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
@@ -1275,6 +1298,8 @@ impl Hub {
                     // A restored prompt names no machine: it does not run a chat out of its
                     // policy's mode (`Hub::full_access_hold`).
                     full_access_device: None,
+                    message_id: restored_message_opts.message_id,
+                    message_sender: restored_message_opts.message_sender,
                 }),
                 restored: true,
                 resume: true,
@@ -1330,10 +1355,12 @@ impl Hub {
                     hub.wait_startup().await;
                     let opts = PromptOptions {
                         prompt_id: Some(q.prompt_id.clone()),
+                        message_id: q.run.message_id.clone(),
                         control: q.run.control,
                         trust_gate: q.run.trust_gate,
                         // Who sent it: a queued agent message stays that agent's after a restart.
                         provenance: q.run.provenance.clone(),
+                        message_sender: q.run.message_sender.clone(),
                         agent: q.run.agent.clone(),
                         class: q.run.class,
                         display_parts: q.run.display_parts.clone(),

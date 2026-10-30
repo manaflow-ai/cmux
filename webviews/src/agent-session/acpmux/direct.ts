@@ -6687,6 +6687,19 @@ export class AcpmuxDirectClient {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
+    // Fork Conversation (`stay`): the chat says "Forking…" until acpmux answers and the app opens
+    // the fork, so a slow fork never looks like nothing happened.
+    const pendingId = stay ? noticeId("notice-forking") : undefined;
+    if (pendingId) {
+      this.rows.set(pendingId, {
+        id: pendingId,
+        version: 1,
+        at: Date.now(),
+        kind: "notice",
+        text: translate("notice.forking"),
+      });
+      this.emit();
+    }
     try {
       const sessionId = from ?? this.actingSessionId;
       const result = await this.request(
@@ -6713,6 +6726,10 @@ export class AcpmuxDirectClient {
       return undefined;
     } finally {
       this.forking = false;
+      if (pendingId && this.rows.has(pendingId)) {
+        this.rows.delete(pendingId);
+        this.emit();
+      }
     }
   }
   /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
