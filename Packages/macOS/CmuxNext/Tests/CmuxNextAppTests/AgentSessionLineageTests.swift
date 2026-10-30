@@ -172,30 +172,25 @@ import Testing
         #expect(!links.descends("same-child", from: "same-parent", host: "registry:b"))
     }
 
-    /// A hostless route (an older wire with no host) notes its links in the unqualified map. A host
-    /// with no map of its own reads them, so its remote children still nest and still open from their
-    /// parent; a host that has its own map never reads them.
-    @Test func aHostWithNoMapReadsTheHostlessLinks() {
+    /// A hostless route (an older wire with no host) notes its links in the unqualified map; only a
+    /// hostless query reads them. A host-qualified query never does, even before that host reports
+    /// (a restored tab whose wire has not answered yet), so a reused id never borrows another daemon's link.
+    @Test func onlyAHostlessQueryReadsTheHostlessLinks() {
         let links = RemoteAgentSessionLinks()
         links.note([["sessionId": "legacy-child", "startedBy": "legacy-parent"]])
-        #expect(links.parent(of: "legacy-child", host: "registry:legacy") == "legacy-parent")
-        #expect(links.descends("legacy-child", from: "legacy-parent", host: "registry:legacy"))
-        links.note([["sessionId": "other", "startedBy": "x"]], host: "registry:a")
-        #expect(links.parent(of: "legacy-child", host: "registry:a") == nil)
-        #expect(!links.descends("legacy-child", from: "legacy-parent", host: "registry:a"))
+        #expect(links.parent(of: "legacy-child") == "legacy-parent")
+        #expect(links.descends("legacy-child", from: "legacy-parent"))
+        #expect(links.parent(of: "legacy-child", host: "registry:unreported") == nil)
+        #expect(!links.descends("legacy-child", from: "legacy-parent", host: "registry:unreported"))
 
         let parent = WorkspaceID("ws-legacy-parent"), child = WorkspaceID("ws-legacy-child")
         let chats: [(WorkspaceID, [AgentSessionRef])] = [
-            (parent, [AgentSessionRef(host: "registry:legacy", session: "legacy-parent")]),
-            (child, [AgentSessionRef(host: "registry:legacy", session: "legacy-child")]),
+            (parent, [AgentSessionRef(host: "registry:unreported", session: "legacy-parent")]),
+            (child, [AgentSessionRef(host: "registry:unreported", session: "legacy-child")]),
         ]
-        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: ["legacy-child": "legacy-parent"],
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParentsByHost: links.parentsByHost,
                                                localHost: Self.localHost, pullRequests: [:])
-        #expect(pass.state.parents[child] == parent)
-        let qualified = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: ["legacy-child": "legacy-parent"],
-                                                    remoteParentsByHost: ["registry:legacy": [:]],
-                                                    localHost: Self.localHost, pullRequests: [:])
-        #expect(qualified.state.parents[child] == nil, "a host with its own map never reads the hostless links")
+        #expect(pass.state.parents[child] == nil, "a tab's host never reads the hostless links")
     }
 
     /// A daemon that reported no lineage at all (an empty list) still gets a map of its own, so it
@@ -214,8 +209,7 @@ import Testing
             (parent, [AgentSessionRef(host: "registry:b", session: "same-parent")]),
             (child, [AgentSessionRef(host: "registry:b", session: "same-child")]),
         ]
-        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: links.parents,
-                                               remoteParentsByHost: links.parentsByHost,
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParentsByHost: links.parentsByHost,
                                                localHost: Self.localHost, pullRequests: [:])
         #expect(pass.state.parents.isEmpty)
     }

@@ -63,7 +63,7 @@ public final class SidebarSessionTreeFeed {
                         if let session = ref.session, let link = lanes.links(session) { links[session] = link }
                     }
                 }
-                var pass = Self.pass(chats, links: links, remoteParents: remote.parents, remoteParentsByHost: remote.parentsByHost,
+                var pass = Self.pass(chats, links: links, remoteParentsByHost: remote.parentsByHost,
                                      hostAliases: remote.hostAliases, recordedParents: storedParents.parents,
                                      localHost: localHost, pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
@@ -91,19 +91,17 @@ public final class SidebarSessionTreeFeed {
     }
 
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], lanes: [String: AgentActivityLane],
-                     remoteParents: [String: String] = [:], remoteParentsByHost: [String: [String: String]] = [:],
-                     hostAliases: [String: Set<String>] = [:],
+                     remoteParentsByHost: [String: [String: String]] = [:], hostAliases: [String: Set<String>] = [:],
                      recordedParents: [AgentSessionParents.Identity: AgentSessionParents.Identity] = [:], localHost: String?,
                      pullRequests: [String: AgentPanePullRequest]) -> Pass {
-        pass(chats, links: lanes.mapValues(AgentLaneLinks.init), remoteParents: remoteParents,
+        pass(chats, links: lanes.mapValues(AgentLaneLinks.init),
              remoteParentsByHost: remoteParentsByHost, hostAliases: hostAliases, recordedParents: recordedParents,
              localHost: localHost, pullRequests: pullRequests)
     }
 
     /// The pass over each session's links (`AgentLaneLinks`): all it reads of a lane.
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], links lanes: [String: AgentLaneLinks],
-                     remoteParents: [String: String] = [:], remoteParentsByHost: [String: [String: String]] = [:],
-                     hostAliases: [String: Set<String>] = [:],
+                     remoteParentsByHost: [String: [String: String]] = [:], hostAliases: [String: Set<String>] = [:],
                      recordedParents: [AgentSessionParents.Identity: AgentSessionParents.Identity] = [:],
                      localHost: String?, pullRequests: [String: AgentPanePullRequest]) -> Pass {
         // Each workspace's acpmux sessions on this Mac (the lanes cover this Mac's acpmux only), and
@@ -130,13 +128,13 @@ public final class SidebarSessionTreeFeed {
             }
             return nil
         }
-        /// The daemon's own links (under `host` or another of its keys); the hostless map only for a
-        /// daemon that never reported any.
+        /// The daemon's own links (under `host` or another of its keys); none until it reports. Never the
+        /// hostless map (``RemoteAgentSessionLinks/parents``): another daemon's ids may collide there.
         func daemonLinks(_ host: String) -> [String: String] {
             for key in keys(host) {
                 if let links = remoteParentsByHost[key] { return links }
             }
-            return remoteParents
+            return [:]
         }
         func recordedParent(_ host: String, _ session: String) -> AgentSessionParents.Identity? {
             for key in keys(host) {

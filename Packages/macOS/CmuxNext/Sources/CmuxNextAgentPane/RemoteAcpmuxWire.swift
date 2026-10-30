@@ -294,8 +294,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// The parents of the children the daemon listed or changed, for the sidebar's session tree
     /// and the Subagents rows' open (``RemoteAgentSessionLinks``). A wire with a host notes even an
-    /// empty list: that daemon then has a map of its own (none of its sessions has a parent) and its
-    /// lookups never read the hostless map another daemon's links may sit in. The tab's host and the
+    /// empty list, so that daemon has a map of its own (none of its sessions has a parent); a hostless
+    /// wire notes into the hostless map, which only hostless lookups read. The tab's host and the
     /// daemon's store host are noted as aliases of one daemon, so the sidebar finds a parent tab under either.
     private func noteLinks(_ summaries: [[String: Any]]) {
         guard host != nil || !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),

@@ -52,17 +52,18 @@ public final class RemoteAgentSessionLinks {
         hostAliases[b, default: []].insert(a)
     }
 
-    /// The parent recorded by one daemon. A host-qualified query reads that host's map; it falls back
-    /// to the unqualified legacy map only when that host has no map at all (a hostless route noted
-    /// its links there), so identical session ids from a daemon that has its own map stay isolated.
+    /// The parent recorded by one daemon. A host-qualified query reads only that host's map (nothing
+    /// until that daemon reports); the unqualified legacy map serves only a hostless query (a route
+    /// with no host, whose wire noted its links there), so another daemon's reused ids never leak in.
     public func parent(of child: String, host: String? = nil) -> String? {
         links(host)[child]
     }
 
-    /// The links one daemon's queries read: `host`'s own map, else (no map for `host`, or no host)
+    /// The links one daemon's queries read: `host`'s own map (empty until it reports), or for no host
     /// the unqualified legacy map.
     public func links(_ host: String?) -> [String: String] {
-        host.flatMap { parentsByHost[$0] } ?? parents
+        guard let host else { return parents }
+        return parentsByHost[host] ?? [:]
     }
 
     /// True when `session` descends from `root` (a child, or a child's child, ...).
