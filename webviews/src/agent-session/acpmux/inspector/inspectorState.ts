@@ -250,7 +250,14 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       if (left) update(closed(), false);
       save(pane, current());
     },
+    /// The page starts another chat by way of no session (the host's new chat in this tab, or another
+    /// chat it hands the tab: App.tsx's handshake reset): the new chat shows closed from its first
+    /// frame, and the chat the pane showed keeps its saved state. A harness switch keeps what it shows.
+    startNewChat() {
+      update(closed(), false);
+    },
     setOpen(open: boolean) {
+      // Read by no default since #26692; written so an older build reading it keeps the last choice.
       write(OPEN_KEY, open ? "1" : "0");
       update({ ...current(), open }, true);
     },
@@ -298,6 +305,7 @@ export const useInspectorOpen = (sessionId?: string): boolean => {
 };
 /// Keys this pane's state by the chat it shows (useChatInspector, from the snapshot's session).
 export const bindInspectorPane = page.bind;
+export const startNewInspectorChat = page.startNewChat;
 export const setInspectorOpen = page.setOpen;
 export const setInspectorWidth = page.setWidth;
 export const setInspectorSection = page.setSection;

@@ -116,6 +116,22 @@ test("a new chat never opens Session Info by itself, whatever another chat or an
   expect(store.shownFor("chat-switched").open).toBe(true);
   store.bind("chat-switched");
   expect(store.current().open).toBe(true);
+
+  // The host hands the tab a new chat (its handshake reset: no session, then the new chat's): it
+  // shows closed before its first prompt and is saved closed, while the chat it left keeps its open.
+  store.startNewChat();
+  store.bind(undefined);
+  expect(store.current().open).toBe(false);
+  expect(store.shownFor("chat-handed").open).toBe(false);
+  store.bind("chat-handed");
+  expect(store.current().open).toBe(false);
+  expect(store.shownFor("chat-switched").open).toBe(true);
+  // The viewer opens it on the new chat before its first prompt: that open is the viewer's and stays.
+  store.startNewChat();
+  store.bind(undefined);
+  store.setOpen(true);
+  store.bind("chat-opened-early");
+  expect(store.current().open).toBe(true);
 });
 
 test("after a relaunch each pane shows its own state again", async () => {

@@ -203,7 +203,7 @@ import {
   type ProcessSource,
   useProcessRegistry,
 } from "./inspector/processes";
-import { useInspectorOpen } from "./inspector/inspectorState";
+import { startNewInspectorChat, useInspectorOpen } from "./inspector/inspectorState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
 import { descendants, subagentChangesFolder, type SubagentScope } from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
@@ -7617,10 +7617,13 @@ function AcpmuxPane() {
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
-        )
+        ) {
+          // Another chat in this tab: Session Info does not carry over open from the last (#26692).
+          startNewInspectorChat();
           // The chats list and peers stay (the New Tab page, the hero's projects and Recents draw from
           // them); the client's first frame replaces them.
           setSnapshot((previous) => ({ ...emptySnapshot(), sessions: previous.sessions, peers: previous.peers }));
+        }
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
