@@ -429,8 +429,14 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
-import { HostError } from "./HostError";
-import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
+import { HostError, HostUnavailableLine } from "./HostError";
+import {
+  AcpmuxRestartGate,
+  hostErrorShows,
+  hostIsReconnecting,
+  nextRetryDelay,
+  offersAcpmuxRestart,
+} from "./hostRetry";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunCard } from "./subagents/AgentRunCard";
@@ -2841,7 +2847,7 @@ export function VirtualTranscript({
   const {
     rowId: prRow,
     report: reportPullRequestHost,
-    fallback: fallbackPullRequests,
+    fallback: pullRequestFallback,
   } = usePullRequestPlacement(rows, estimated.layout, pullRequests.length > 0, sessionId);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
@@ -3079,6 +3085,9 @@ export function VirtualTranscript({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
+  const fallbackPullRequests = pullRequestFallback((index) =>
+    mountedRanges.some(({ first, last }) => index >= first && index < last),
+  );
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
@@ -7091,9 +7100,10 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
-  /// A daemon/socket is recovering. While true the old error is retained for diagnostics but never
-  /// painted as an alert; a successful client clears it, and a non-retryable refusal remains red.
-  const [hostRetrying, setHostRetrying] = useState(false);
+  /// Whether `hostError` is said (one line above the composer, hostRetry.ts `hostErrorShows`): a
+  /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
+  /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
+  const [hostErrorShown, setHostErrorShown] = useState(false);
   /// A Retry the user asked for that waits on the attempt in flight.
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
@@ -7535,8 +7545,10 @@ function AcpmuxPane() {
     let retryDelay = 250;
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
-    const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
+    /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
+    /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
+    let failingSince: number | undefined;
     let connecting = false;
     /// The user asked to retry while an attempt was in flight; run a full one when it ends.
     let retryPending = false;
@@ -7726,7 +7738,7 @@ function AcpmuxPane() {
         if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
           // A host with no daemon to reach has nothing left to fail.
           setHostError(undefined);
-          setHostRetrying(false);
+          setHostErrorShown(false);
           return;
         }
         // A new chat in mock mode starts without a session too, as against a real daemon.
@@ -7785,9 +7797,10 @@ function AcpmuxPane() {
             catalogClientId.current += 1;
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
-            setHostRetrying(true);
+            // Quiet while it comes back: nothing shows until the handshakes fail past the deadline.
+            failingSince = Date.now();
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+            retryDelay = nextRetryDelay(retryDelay, true);
           },
           mock
             ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
@@ -7852,7 +7865,8 @@ function AcpmuxPane() {
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
-        setHostRetrying(false);
+        setHostErrorShown(false);
+        failingSince = undefined;
         setAcpmuxRestartOffered(false);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
@@ -8630,7 +8644,9 @@ function AcpmuxPane() {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           setHostError(errorMessage(error) || String(error));
-          setHostRetrying(hostIsReconnecting(error));
+          failingSince ??= Date.now();
+          const recovering = hostIsReconnecting(error);
+          setHostErrorShown(hostErrorShows(error, Date.now() - failingSince));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
           // Another binary's daemon on this app's socket: the card offers Restart acpmux.
@@ -8639,14 +8655,15 @@ function AcpmuxPane() {
           // in flight asks again itself when it ends.
           if (restartGate.mayAsk()) {
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+            retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
           }
         }
       } finally {
         connecting = false;
+        // The Retry this attempt ran for (`retryNow`) has its answer.
+        setRetryQueued(false);
         if (retryPending) {
           retryPending = false;
-          setRetryQueued(false);
           // The attempt in flight may have connected; then there is nothing left to retry.
           // A Restart acpmux in flight asks again itself when it ends.
           if (!cancelled && !directClient.current && restartGate.mayAsk()) retryNow();
@@ -8659,7 +8676,8 @@ function AcpmuxPane() {
       retryTimer = undefined;
       reconnect = false;
       retryDelay = 250;
-      setHostRetrying(true);
+      // The line's Retry waits on this attempt; the line itself stays until a connect clears it.
+      setRetryQueued(true);
       void connectHost();
     };
     cancelRetry.current = () => {
@@ -8684,7 +8702,7 @@ function AcpmuxPane() {
       setStartModeSource(undefined);
       retryHost.current = undefined;
       cancelRetry.current = undefined;
-      setHostRetrying(false);
+      setHostErrorShown(false);
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -8700,7 +8718,9 @@ function AcpmuxPane() {
     | undefined;
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
-  const header = paneHeader(composerSnapshot, t);
+  // A socket the pane is already asking for again is quiet in the header; only a failure said above
+  // the composer is a failure.
+  const header = paneHeader(composerSnapshot, t, { hostRecovering: !hostErrorShown });
   // The pane header never says where the chat runs (Leo 2026-10-26); the Inspector's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
@@ -10270,15 +10290,12 @@ function AcpmuxPane() {
       </>
     )
   );
+  // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
+  // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).
   const hostErrorCard = (
-    <Notice
-      id="host-error"
-      tier={hostRetrying || restartingAcpmux ? "status" : "error"}
-      when={hostError || hostRetrying}
-    >
-      <HostError
+    <Notice id="host-error" tier="error" when={hostError !== undefined && (hostErrorShown || restartingAcpmux)}>
+      <HostUnavailableLine
         message={hostError ?? ""}
-        reconnecting={hostRetrying || restartingAcpmux}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
         restarting={restartingAcpmux}
