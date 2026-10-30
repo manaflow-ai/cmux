@@ -562,3 +562,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
+
+## Priority drag holds through updates and scrolling (2026-10-29)
+
+- 0075119003a (PR [#27583](https://github.com/manaflow-ai/cmux/pull/27583)), from the PR's independent review (two P2 findings at 204b5fee431). A held Priority row no longer snaps back to its slot when another chat's text updates, and scrolling while holding a row adds the scroll to the drag offset, so the row stays under the pointer and drops where it shows. No visual change at rest: drawing, layout and motion are unchanged. The commit was pushed without a `Sidebar-Look:` trailer; reviewed and logged here. Test: `SidebarPriorityDragTests.anotherChatsTextUpdateKeepsTheHeldRowUnderThePointer`.
