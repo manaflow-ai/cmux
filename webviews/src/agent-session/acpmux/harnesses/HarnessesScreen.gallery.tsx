@@ -47,9 +47,13 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update, signIn
             });
           return new Promise<never>(() => {});
         }
+        // Record the request before simulating a rejected terminal launch so the play can
+        // observe the attempted login even though the page handles the failure asynchronously.
         setAsked(`${method} ${JSON.stringify(params)}`);
         if (method === "tab.open" && params.kind === "terminal" && signInFails)
-          return Promise.reject(new Error("Terminal could not open"));
+          return Promise.resolve().then(() => {
+            throw new Error("Terminal could not open");
+          });
         return Promise.resolve({});
       },
     [signedOut, install, update, signInFails],
