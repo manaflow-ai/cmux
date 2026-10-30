@@ -625,6 +625,8 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
+    #[cfg(unix)]
+    agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -664,6 +666,9 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// The maintenance worker's stop and journal-change wake; every
+    /// published journal event marks it.
+    journal_maintenance_control: Arc<journal_maintenance::JournalMaintenanceControl>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
