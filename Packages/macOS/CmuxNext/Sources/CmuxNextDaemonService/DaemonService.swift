@@ -477,10 +477,12 @@ public final class DaemonService {
     /// What each connection calls when it refuses a request that names a pane still opening, from any sender
     /// (`DaemonConnection.observePaneNotReady`): the notice shows on the next frame (the drain batcher: work a person's
     /// action caused), once.
+    /// The service stays on the main actor: the hook carries only a main-actor closure (Sendable because it runs
+    /// there), never the service itself.
     var paneNotReadyReporter: @Sendable (PaneNotReady) -> Void {
         let batcher = drainScheduler
-        weak let service = self
-        return { notReady in batcher.scheduleFrame { service?.showPaneNotReady(notReady) } }
+        let show: @MainActor @Sendable (PaneNotReady) -> Void = { [weak self] notReady in self?.showPaneNotReady(notReady) }
+        return { notReady in batcher.scheduleFrame { show(notReady) } }
     }
 
     private func showPaneNotReady(_ notReady: PaneNotReady) {
