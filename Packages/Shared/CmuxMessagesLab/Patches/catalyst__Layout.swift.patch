@@ -54,12 +54,12 @@
 +            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
              if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
                  a.addAttribute(.font, value: f, range: range)
-+            }
+             }
 +            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
 +            // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
 +            if r.style?.contains("code") == true {
 +                a.addAttribute(.font, value: HomeFonts.code, range: range)
-             }
++            }
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
              }
@@ -150,7 +150,7 @@
          } else {
              let (title, sub) = p.lines
              let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
-@@ -309,25 +383,78 @@
+@@ -309,25 +383,81 @@
          }
          return p
      }
@@ -204,29 +204,32 @@
 +        }
 +        return max(0, reach(r) - reach(r0))
 +    }
-+    /// cmux: the quote's height for `lines` lines: 23.5 pt for one, 11 pt more per line (Messages: 34.5 pt for two; both
-+    /// end in half circles).
++    /// cmux: the quote's height for `lines` lines: 23.5 pt for one, 11 pt more per line (Messages: 34.5 pt for two). Every
++    /// line count keeps the one-line quote's corners (`outline`).
 +    static func textHeight(lines: Int) -> CGFloat {
 +        textOneLineHeight + textLinePitch * CGFloat(max(0, lines - 1))
 +    }
 +    /// cmux: the first baseline under the quote's top (Messages: 16 pt).
 +    func textFirstBaseline() -> CGFloat { ThreadPreview.textFirstBaselineY }
-+    /// cmux: the quote's outline in `box`: a text quote is a pill with the bubbles' tail at `tailScale` on its root's side
++    /// cmux: the quote's outline in `box`: a text quote is a rounded box with the one-line pill's corners and the bubbles' tail at `tailScale` on its root's side
 +    /// (Messages draws a quote with its own small tail); a card or thumbnail is its bubble shape without a tail, except a
 +    /// group's card quote, which has the tail too (Messages, 2026-10-29 group reference).
 +    func outline(in box: CGRect) -> UIBezierPath {
 +        let cardTail = cmuxGroup && !isText && !isThumbnail
 +        guard isText || cardTail else { return BubblePath.balloon(frame: box, row: shapeRow) }
-+        let body = cardTail ? BubblePath.balloon(frame: box, row: shapeRow) : BubblePath.make(body: box, outgoing: outgoing, tail: false, circularEnds: true)
-+        let t = BubblePath.tailPath(outgoing: outgoing)
-+        // cmux (user 2026-10-29, "when multiline the bottom right thing doesnt look drawn well"): the tail is fitted to a
-+        // one-line quote's end; a taller quote's half-circle end is wider, so its curve at the tail's join (2 pt above the
-+        // bottom) lies further in. Move the tail in by that difference so it joins the curve as on one line. A card's
-+        // corner is the bubbles' 15 pt one.
++        // cmux (user 2026-10-30, "bottom right thing still looks bad (multiline stuff)"): a text quote's corners are the
++        // one-line quote's half-circle radius at every line count, so a taller quote runs straight between its corners as a
++        // Messages bubble does and its tail joins the same corner it was fitted to. (A taller quote used to end in one
++        // larger half circle; the small tail met that curve at another angle and hooked out of it, 1df1022 only moved it.)
 +        let oneLine = ThreadPreview.textOneLineHeight / 2
-+        let r = cardTail ? 15 : min(box.width, box.height) / 2
-+        let inset = ThreadPreview.tailInset(endRadius: r,
-+                                            oneLineRadius: cardTail ? oneLine : r - ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1)) / 2)
++        let corner = min(box.width, box.height - ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1))) / 2
++        let body = cardTail
++            ? BubblePath.balloon(frame: box, row: shapeRow)
++            : UIBezierPath(cgPath: CGPath(roundedRect: box, cornerWidth: max(0, corner), cornerHeight: max(0, corner), transform: nil))
++        let t = BubblePath.tailPath(outgoing: outgoing)
++        // A group card's corner is the bubbles' 15 pt one: move the tail in so it joins that curve as it joins the
++        // one-line text quote's end it was fitted to.
++        let inset = cardTail ? ThreadPreview.tailInset(endRadius: 15, oneLineRadius: oneLine) : 0
 +        var xf = outgoing
 +            ? CGAffineTransform(translationX: box.maxX - inset, y: box.maxY).scaledBy(x: ThreadPreview.tailScale, y: ThreadPreview.tailScale)
 +            : CGAffineTransform(translationX: box.minX + inset, y: box.maxY).scaledBy(x: -ThreadPreview.tailScale, y: ThreadPreview.tailScale)
@@ -242,7 +245,7 @@
      /// The widest text preview (outline outside): 383 pt at the 628 pt window (outside 225.0-608.5 pt
      /// measured; our outline's right edge is the bubbles' 608), with the bubble column at other widths.
      static func maxTextBoxWidth(width: CGFloat) -> CGFloat { Metrics(width: width).maxTextWidth + 24.6 }
-@@ -353,7 +480,10 @@
+@@ -353,7 +483,10 @@
                  break
              }
              guard TextLayout.range(line.range.location, line.range.length, in: ns.length) != nil else { break }
@@ -254,7 +257,7 @@
          }
          return lines.isEmpty ? [""] : lines
      }
-@@ -368,6 +498,12 @@
+@@ -368,6 +501,12 @@
          let safe = cut < ns.length ? ns.rangeOfComposedCharacterSequence(at: cut).location : cut
          var head = ns.substring(to: safe)
          while head.last == " " { head.removeLast() }
@@ -267,7 +270,7 @@
          return head + "…"
      }
      static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-@@ -389,7 +525,9 @@
+@@ -389,7 +528,9 @@
      /// Box to stub: 3.5 pt under a card, 5.5 pt under a thumbnail (its tail is between).
      /// Text previews (macOS 27, lossless stills): stub 5.15 pt under the box, 12.25 pt long.
      var stubGap: CGFloat { isThumbnail ? 5.5 : isText ? 5.15 : ThreadPreview.stubGap }
@@ -278,7 +281,7 @@
      /// The row's height: box, stub, rounded to the device pixel grid (Fixture.renderScale). A text preview's parts are
      /// 41.65 pt (24.25 + 5.15 + 12.25; 52.65 with 2 lines); Messages' rows under a preview sit on whole device pixels
      /// (nosb-active against deactivate-activate tp0000ms: incoming edges 798.00 / 864.00 px, ours were 798.31 / 864.31
-@@ -428,6 +566,13 @@
+@@ -428,6 +569,13 @@
      /// The message is marked markdown (Message.format): a long text part takes the markdown
      /// tiles only then (LongTextStore.layout).
      var markdownFormat: Bool = false
@@ -292,7 +295,7 @@
      /// The message format of this row (Message.format).
      var format: MessageFormat? { markdownFormat ? .markdown : nil }
      /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
-@@ -491,7 +636,8 @@
+@@ -491,7 +639,8 @@
              case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
              case "contact": return (CGSize(width: 250, height: 56), nil)
              // File and audio rows (measured): 275 x 89.5, icon centred.
@@ -302,7 +305,7 @@
              }
          case let .location(lat, lon, _, _):
              // A map snapshot (macOS 26): 500 pt wide, caption inside; its
-@@ -693,6 +839,7 @@
+@@ -693,6 +842,7 @@
          case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
          case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
          case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
@@ -310,7 +313,7 @@
          default: return 0
          }
          return h.finalize()
-@@ -858,6 +1005,8 @@
+@@ -858,6 +1008,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -319,7 +322,7 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -911,6 +1060,8 @@
+@@ -911,6 +1063,8 @@
              let outgoing = m.senderId == me
              var gap: CGFloat
              var connector: String?
@@ -328,7 +331,7 @@
              if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
                  // The time label sits 17.5 pt under a thread reply and 13.5 pt under any other bubble, and the next
                  // bubble 5 pt under the label (macOS 27, AX walk of the real transcript, 2026-10-14, cx-3cb row-gap:
-@@ -973,13 +1124,22 @@
+@@ -973,13 +1127,22 @@
              if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
                  let root = s.conversation.messages.first { $0.id == r.messageId }
                  let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
@@ -352,7 +355,7 @@
              }
  
              if m.retractedAt != nil {
-@@ -989,6 +1149,23 @@
+@@ -989,6 +1152,23 @@
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                      || next.retractedAt != nil || next.replyTo != m.replyTo
                      || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
@@ -376,7 +379,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      // A streaming bubble (past the loaded messages) is always measured: it draws now.
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
-@@ -1015,21 +1192,40 @@
+@@ -1015,21 +1195,40 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -421,14 +424,14 @@
                  }
                  // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
                  // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
-@@ -1043,17 +1239,24 @@
+@@ -1043,16 +1242,23 @@
              }
              prev = m; prevIndex = idx
          }
 +        // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
 +        // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
 +        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
-+            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
++            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 8, height: 35.5))
 +        }
          // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
          let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
@@ -442,16 +445,15 @@
 +        }
          if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
              rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-         }
+-        }
 -        // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
 -        // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
 -        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
 -            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
--        }
+         }
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
-     }
-@@ -1076,7 +1279,9 @@
+@@ -1076,7 +1282,9 @@
              var row = row
              row.width = width
              if case let .threadPreview(pv) = row.kind, pv.isText {
@@ -462,7 +464,7 @@
                  row.kind = .threadPreview(again)
                  row.height = again.height(scale: scale)
              }
-@@ -1118,6 +1323,8 @@
+@@ -1118,6 +1326,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -471,7 +473,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,7 +1352,7 @@
+@@ -1145,7 +1355,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -480,7 +482,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1371,7 @@
+@@ -1164,7 +1374,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -489,7 +491,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1421,8 @@
+@@ -1214,7 +1424,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -499,7 +501,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1463,8 @@
+@@ -1255,7 +1466,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

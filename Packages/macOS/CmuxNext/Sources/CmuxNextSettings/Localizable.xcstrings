@@ -183795,7 +183795,151 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏的“新建工作区”按钮、空间、个人资料按钮和“搜索”按钮，以及其上方的边栏按钮、“后退”和“前进”，仅在指针位于边栏上方时显示。关闭时始终显示。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和「搜尋」按鈕，以及其上方的側邊欄按鈕、「上一頁」和「下一頁」，僅在指標位於側邊欄上方時顯示。關閉時一律顯示。"}}
       }
-    }
+    },
+    "settings.agentPane.showMachineLoadWarnings": {
+        "comment": "Agent Chat setting: whether the Computer menu warns about remote machine CPU or memory pressure.",
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Show Machine Load Warnings"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Warnungen zur Maschinenlast anzeigen"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Afficher les avertissements de charge de la machine"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "إظهار تحذيرات حمل الجهاز"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Mostrar advertencias de carga de la máquina"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "顯示機器負載警告"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "显示机器负载警告"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "컴퓨터 부하 경고 표시"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "マシン負荷の警告を表示"
+            }
+          },
+          "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži upozorenja o opterećenju mašine"}},
+          "da": {"stringUnit": {"state": "needs_review", "value": "Vis advarsler om maskinbelastning"}},
+          "it": {"stringUnit": {"state": "needs_review", "value": "Mostra avvisi sul carico della macchina"}},
+          "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញការព្រមានអំពីបន្ទុកម៉ាស៊ីន"}},
+          "nb": {"stringUnit": {"state": "needs_review", "value": "Vis advarsler om maskinbelastning"}},
+          "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj ostrzeżenia o obciążeniu maszyny"}},
+          "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar avisos de carga da máquina"}},
+          "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать предупреждения о нагрузке на машину"}},
+          "th": {"stringUnit": {"state": "needs_review", "value": "แสดงคำเตือนการใช้งานเครื่องสูง"}},
+          "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yükü uyarılarını göster"}},
+          "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати попередження про навантаження на машину"}},
+          "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị cảnh báo tải máy"}}
+        }
+      },
+    "settings.agentPane.showMachineLoadWarnings.help": {
+        "comment": "Agent Chat setting help: explains the Computer menu machine-load warning.",
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Zeigt im Computermenü eine Warnung an, wenn ein entfernter Rechner sein CPU- oder Speicherlimit erreicht."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Affiche un avertissement dans le menu Ordinateur lorsqu’une machine distante atteint sa limite de processeur ou de mémoire."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "يعرض تحذيرًا في قائمة الكمبيوتر عندما يصل جهاز بعيد إلى حد المعالج أو الذاكرة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Muestra una advertencia en el menú Ordenador cuando una máquina remota alcanza su límite de CPU o memoria."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "遠端機器達到 CPU 或記憶體上限時，在「電腦」選單中顯示警告。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "远程机器达到 CPU 或内存上限时，在“电脑”菜单中显示警告。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "원격 컴퓨터가 CPU 또는 메모리 한도에 도달하면 컴퓨터 메뉴에 경고를 표시합니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "リモートマシンが CPU またはメモリの上限に達したとき、「コンピュータ」メニューに警告を表示します。"
+            }
+          },
+          "bs": {"stringUnit": {"state": "needs_review", "value": "Prikazuje upozorenje u meniju Računar kada udaljena mašina dostigne ograničenje procesora ili memorije."}},
+          "da": {"stringUnit": {"state": "needs_review", "value": "Viser en advarsel i menuen Computer, når en fjernmaskine når sin CPU- eller hukommelsesgrænse."}},
+          "it": {"stringUnit": {"state": "needs_review", "value": "Mostra un avviso nel menu Computer quando una macchina remota raggiunge il limite di CPU o memoria."}},
+          "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញការព្រមានក្នុងម៉ឺនុយកុំព្យូទ័រ នៅពេលម៉ាស៊ីនពីចម្ងាយឈានដល់កម្រិត CPU ឬអង្គចងចាំ។"}},
+          "nb": {"stringUnit": {"state": "needs_review", "value": "Viser en advarsel i Datamaskin-menyen når en ekstern maskin når CPU- eller minnegrensen."}},
+          "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuje ostrzeżenie w menu Komputer, gdy zdalna maszyna osiągnie limit procesora lub pamięci."}},
+          "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostra um aviso no menu Computador quando uma máquina remota atinge seu limite de CPU ou memória."}},
+          "ru": {"stringUnit": {"state": "needs_review", "value": "Показывает предупреждение в меню «Компьютер», когда удалённая машина достигает лимита ЦП или памяти."}},
+          "th": {"stringUnit": {"state": "needs_review", "value": "แสดงคำเตือนในเมนูคอมพิวเตอร์เมื่อเครื่องระยะไกลใช้ CPU หรือหน่วยความจำถึงขีดจำกัด"}},
+          "tr": {"stringUnit": {"state": "needs_review", "value": "Uzak bir makine CPU veya bellek sınırına ulaştığında Bilgisayar menüsünde uyarı gösterir."}},
+          "uk": {"stringUnit": {"state": "needs_review", "value": "Показує попередження в меню «Комп’ютер», коли віддалена машина досягає обмеження ЦП або пам’яті."}},
+          "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị cảnh báo trong menu Máy tính khi máy từ xa đạt đến giới hạn CPU hoặc bộ nhớ."}}
+        }
+      }
   },
   "version": "1.0"
 }
