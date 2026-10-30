@@ -4,9 +4,9 @@ import CmuxNextWakeups
 import Testing
 @testable import CmuxNextApp
 
-/// AppServices never reads the global `NSApp` for the key window: `NSApp` is `NSApplication!`, nil in
-/// a test process that never made `NSApplication.shared`, and its implicit unwrap ended the whole
-/// test process (and hid every later test) as soon as a test reached a key-window lookup.
+/// AppServices never reads the global `NSApp` for the key window or whether the app is active: `NSApp`
+/// is `NSApplication!`, nil in a test process that never made `NSApplication.shared`, and its implicit
+/// unwrap ended the whole test process (and hid every later test) as soon as a test reached a lookup.
 ///
 /// The fleet runs a suite alone in its own process (`swift test --filter`), where nothing makes the
 /// application object, so a lookup that still reads `NSApp` traps here.
@@ -14,12 +14,16 @@ import Testing
 @Suite(.serialized)
 struct AppServicesKeyWindowSourceTests {
     /// The lookups the quit's sheet (`QuitCoordinator.sheetWindow`), the action handlers
-    /// (`windows.active`) and the key routing (`keyWindowRole`) make.
+    /// (`windows.active`), the key routing (`keyWindowRole`) and the notifications (`viewedTabs`,
+    /// `isViewed`) make, with the services every test builds. Only that they return is checked: on a GUI
+    /// lane an earlier test can leave a real key window and an active app, which these may report.
     @Test func keyWindowLookupsWithNoApplicationObjectDoNotTrap() {
         let services = AppServices(environment: AppEnvironment.current([:]))
-        #expect(services.keyWindowSource() == nil)
-        #expect(services.windows.active == nil)
-        #expect(services.keyWindowRole == nil)
+        _ = services.keyWindowSource()
+        _ = services.windows.active
+        _ = services.keyWindowRole
+        _ = services.notifications.viewedTabs(services.daemon.store)
+        _ = services.notifications.isViewed("no-such-tab")
     }
 
     /// The same checks when an earlier test in this process already made `NSApplication.shared` (then

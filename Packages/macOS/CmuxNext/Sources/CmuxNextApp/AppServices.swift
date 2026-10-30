@@ -83,8 +83,10 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The key window and whether the app is active, from the composition root (never the global `NSApp`); tests and `debug.key` replace them.
+    /// The app's key window, from the composition root (AppServices never reads the global `NSApp`, nil in a
+    /// test process). Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow?
+    /// Whether the app is active, from the composition root (never the global `NSApp`); tests replace it.
     var appActiveSource: @MainActor () -> Bool
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
@@ -105,7 +107,8 @@ final class AppServices {
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
         showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self)
+        acpmuxEnvironment: QuitAgents.environment(self),
+        appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
@@ -485,8 +488,10 @@ final class AppServices {
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
-    /// - Parameter launchReveal: The launch load-in the windows' sidebars hold for; the app-wide one by default.
-    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default instance unless a test passes its own.
+    /// - Parameter launchReveal: The launch load-in the windows' sidebars
+    ///   hold for; the app-wide one by default.
+    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default
+    ///   instance unless a test passes its own.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
     init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, appActiveSource: @escaping @MainActor () -> Bool,
