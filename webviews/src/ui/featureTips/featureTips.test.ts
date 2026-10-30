@@ -4,7 +4,7 @@
 // infrequent like app installation level frequent and if they havent used the browser".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createTipController, type ShownTip, type TipAnchor, type TipController } from "./controller";
+import { createTipController, pageOverlayOpen, type ShownTip, type TipAnchor, type TipController } from "./controller";
 import { firstSentence, highlightTip } from "./catalog";
 import { TIP_IDLE_MS, TIP_SETTLE_MS, type FeatureTipEntry } from "./policy";
 import { memoryTipHost, TIP_INTERVAL_DAYS, type TipHost } from "./store";
@@ -70,6 +70,8 @@ interface PageOptions {
   typing?: () => boolean;
   enabled?: boolean;
   tips?: FeatureTipEntry[];
+  /** Look for open overlays in the page (default: none open). */
+  overlays?: boolean;
 }
 
 async function page(options: PageOptions = {}) {
@@ -91,7 +93,7 @@ async function page(options: PageOptions = {}) {
       timers = timers.filter((entry) => entry !== timer);
     },
     focused: () => true,
-    overlayOpen: () => false,
+    overlayOpen: options.overlays ? undefined : () => false,
   });
   pages.push(controller);
   controller.update({ enabled: options.enabled ?? true, streaming: false });
@@ -254,6 +256,50 @@ describe("feature tips", () => {
     expect(controller.shown).not.toBeNull();
     controller.update({ enabled: false, streaming: false });
     expect(controller.shown).toBeNull();
+  });
+
+  test("never over an open card, menu or dialog: an AnchoredCard opening in the idle wait holds it", async () => {
+    const { controller } = await page({ tips: [TIPS[0]!], overlays: true });
+    await settle(TIP_SETTLE_MS - 1000);
+    const card = dom.window.document.createElement("div");
+    card.className = "ui-tooltip ui-card ui-glass";
+    card.setAttribute("role", "dialog");
+    dom.window.document.body.append(card);
+    await settle(TIP_SETTLE_MS * 4);
+    expect(controller.shown).toBeNull();
+    expect(install.records["browser-tip"]).toBeUndefined();
+    card.remove();
+    await settle(TIP_SETTLE_MS * 4);
+    expect(controller.shown).toBeNull();
+    press("#elsewhere", "keydown");
+    await settle(TIP_IDLE_MS - 1);
+    expect(controller.shown).toBeNull();
+    await settle(1);
+    expect(controller.shown?.tip.id).toBe("browser-tip");
+  });
+
+  test("the overlay check sees every open surface, and never the tip itself", () => {
+    const doc = dom.window.document;
+    const kinds: [string, string][] = [
+      ["div", 'role="menu"'],
+      ["div", 'role="listbox"'],
+      ["div", 'role="dialog"'],
+      ["div", 'role="alertdialog"'],
+      ["div", 'aria-modal="true"'],
+      ["div", 'role="tooltip"'],
+      ["div", 'class="ui-popup"'],
+      ["div", 'class="ui-tooltip ui-card"'],
+      ["div", 'class="acpmux-menu"'],
+      ["dialog", "open"],
+    ];
+    for (const [tag, attribute] of kinds) {
+      doc.body.insertAdjacentHTML("beforeend", `<${tag} id="overlay" ${attribute}></${tag}>`);
+      expect(`${tag} ${attribute}: ${pageOverlayOpen(doc)}`).toBe(`${tag} ${attribute}: true`);
+      doc.getElementById("overlay")!.remove();
+    }
+    doc.body.insertAdjacentHTML("beforeend", '<div class="ui-popup" role="dialog" data-feature-tip=""></div>');
+    doc.body.insertAdjacentHTML("beforeend", '<div class="ui-popup" role="menu" data-ending-style=""></div>');
+    expect(pageOverlayOpen(doc)).toBe(false);
   });
 
   test("a control removed from the page puts its tip away", async () => {

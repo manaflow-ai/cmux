@@ -21,6 +21,7 @@ import {
   type TipState,
 } from "./policy";
 import type { TipHost } from "./store";
+import { openOverlay } from "../openOverlay";
 
 export interface TipAnchor {
   /** The control, found in the page by this selector. */
@@ -57,11 +58,10 @@ export interface TipControllerOptions {
   openedAt?: number;
 }
 
-const OVERLAY =
-  '[role="menu"], [role="listbox"], [role="alertdialog"], [aria-modal="true"], .ui-popup:not([data-feature-tip])';
-
+/** A menu, popover, dialog, picker, hover card or tooltip is open: never a tip over one. Checked
+    each time the scheduler looks, when its timer fires and again when the app answers. */
 export function pageOverlayOpen(doc: Document): boolean {
-  return doc.querySelector(OVERLAY) !== null;
+  return openOverlay(doc, "[data-feature-tip]");
 }
 
 export function pageFocused(doc: Document): boolean {
