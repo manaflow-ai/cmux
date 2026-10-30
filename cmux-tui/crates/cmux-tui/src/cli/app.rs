@@ -213,9 +213,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                         }))
             });
             if rest.iter().any(|argument| argument == "--") || !has_command {
-                return Err(UsageError::new(
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
-                ));
+                let usage = super::cloud_help::usage("exec").unwrap_or_default();
+                return Err(UsageError::new(format!("usage: {usage}")));
             }
             run_action("cloud exec", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
@@ -361,7 +360,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             AppCommand::Events { params: Value::Object(params) }
         }
         // `team invite` is Invite to Team's other name (`home invite-to-team`): one action, one dialog.
-        ("team", Some("invite")) => run_action("home invite-to-team", &rest[1..], ActionName::Cli)?,
+        ("team", Some("invite")) => {
+            run_action("home invite-to-team", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
+        }
         // Any other words name an action by its CLI name (`app new-window`).
         _ => {
             let words: Vec<&String> = args.iter().take_while(|arg| !arg.starts_with('-')).collect();

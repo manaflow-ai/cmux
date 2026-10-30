@@ -222,6 +222,15 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
+/// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.
+#[test]
+fn a_bare_team_invite_runs_the_home_action_with_no_arguments() {
+    let (method, params) = call(parse(&args(&["team", "invite"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "home invite-to-team");
+    assert!(params.get("args").is_none_or(|a| a == &json!({})), "{params}");
+}
+
 #[test]
 fn action_runs_wait_by_default_and_no_wait_opts_out() {
     let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());
