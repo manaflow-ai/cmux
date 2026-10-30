@@ -155,6 +155,27 @@ import Testing
         try expectAtNewest(again, "back at a chat last left at the bottom")
     }
 
+    @Test func aChatScrolledBackDownForgetsItsPlaceWithoutClosing() async throws {
+        let rig = try await HomeChatRig(history: 300)
+        defer { rig.stop() }
+        close(rig.view, in: rig)
+
+        let first = try await open(rig)
+        try scrollUp(first, by: 600)
+        close(first, in: rig)
+        #expect(rig.store.scrollAnchor(for: HomeChatRig.conversation) != nil)
+
+        // Opened at the kept place, then scrolled back to the newest message. The app quits (or
+        // crashes) without closing the view: the Home cache must not keep the old place.
+        let second = try await open(rig)
+        defer { second.stop() }
+        let demo = try #require(second.controller.demo)
+        second.controller.host.scrollView.scroll(toModelOffset: demo.pinnedOffset)
+        demo.userScrolled()
+        second.superview?.layoutSubtreeIfNeeded()
+        #expect(rig.store.scrollAnchor(for: HomeChatRig.conversation) == nil, "the place is forgotten at the newest message")
+    }
+
     @Test func aKeptPlaceWhoseMessageIsNotLoadedOpensAtTheNewest() async throws {
         let rig = try await HomeChatRig(history: 300)
         defer { rig.stop() }
