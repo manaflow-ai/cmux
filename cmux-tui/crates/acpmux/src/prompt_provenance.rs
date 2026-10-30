@@ -23,6 +23,7 @@
 //! result to the chat that gave it (`hub/tasks.rs`), and `{kind: "turn_cap", turnId, capMs}` on
 //! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`).
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use crate::rpc::RpcError;
@@ -187,9 +188,9 @@ pub fn stamp_chief(
     let Some(chief) = live(CHIEF_PARTICIPANT_TAG).filter(|c| c.len() <= MAX_FIELD_BYTES) else {
         return provenance;
     };
-    provenance[FROM_CHIEF] = json!(chief);
+    provenance.set(FROM_CHIEF, json!(chief));
     if let Some(label) = live(LABEL_TAG).filter(|l| l.chars().count() <= MAX_NAME_CHARS) {
-        provenance["fromName"] = json!(label);
+        provenance.set("fromName", json!(label));
     }
     provenance
 }
