@@ -5,11 +5,8 @@ import CmuxNextCloud
 import Foundation
 import Testing
 
-/// Pause Machine and Resume Machine follow the machine's state: a paused machine's menu offers
-/// Resume and not Pause, a running or starting one's offers Pause and not Resume, and the palette
-/// refuses the one that does not apply, with why. Before, both were offered whatever the state.
-/// A CLI, MCP or script run is not refused on the app's record (both calls are idempotent on the
-/// server, and the record of a machine with no link may be stale), so the server decides.
+/// Cached API status can lag server idle-pause and app-link resume. Commands remain
+/// idempotent; only a live daemon connection can remove redundant Resume from the menu.
 @MainActor @Suite(.serialized)
 struct CloudPauseResumeAvailabilityTests {
     static let pause: ActionID = "cloudPauseMachine"
@@ -38,41 +35,39 @@ struct CloudPauseResumeAvailabilityTests {
         services.registry.action(for: id)?.targetUnavailableReason?(invocation)
     }
 
-    @Test func aPausedMachineOffersResumeAndNotPause() {
+    /// The server idle-paused a machine whose last API record still says running.
+    @Test(arguments: [CloudMachine.Status.running, .provisioning])
+    func staleRunningRecordKeepsResumeAvailable(status: CloudMachine.Status) {
+        let f = Self.fixture(status)
+        let ids = Self.menuIDs(f.services, f.session)
+        #expect(ids.contains(Self.pause) && ids.contains(Self.resume))
+        let run = ActionInvocation(target: Self.target(f.session))
+        #expect(Self.reason(f.services, Self.resume, run) == nil)
+        #expect(Self.reason(f.services, Self.resume, ActionInvocation()) == nil)
+    }
+
+    /// The app link resumed a machine without refreshing its paused API record.
+    @Test func stalePausedRecordKeepsPauseAvailable() {
         let f = Self.fixture(.paused)
         let ids = Self.menuIDs(f.services, f.session)
-        #expect(ids.contains(Self.resume), "a paused machine's menu leaves out Resume: \(ids)")
-        #expect(!ids.contains(Self.pause), "a paused machine's menu offers Pause: \(ids)")
-
+        #expect(ids.contains(Self.pause) && ids.contains(Self.resume))
         let run = ActionInvocation(target: Self.target(f.session))
-        #expect(Self.reason(f.services, Self.pause, run) != nil, "Pause on a paused machine is not refused")
+        #expect(Self.reason(f.services, Self.pause, run) == nil)
+        #expect(Self.reason(f.services, Self.pause, ActionInvocation()) == nil)
+    }
+
+    @Test(arguments: [CloudMachine.Status.paused, .running, .unknown])
+    func aLiveDaemonHidesOnlyResumeAndNeverRefusesCommands(status: CloudMachine.Status) {
+        let f = Self.fixture(status)
+        f.session.daemon.store.connectionState = .connected(CloudCLITargetTests.fullIdentity())
+        let ids = Self.menuIDs(f.services, f.session)
+        #expect(ids.contains(Self.pause))
+        #expect(!ids.contains(Self.resume))
+        let run = ActionInvocation(target: Self.target(f.session))
+        #expect(Self.reason(f.services, Self.pause, run) == nil)
         #expect(Self.reason(f.services, Self.resume, run) == nil)
     }
 
-    @Test(arguments: [CloudMachine.Status.running, .provisioning])
-    func aLiveMachineOffersPauseAndNotResume(status: CloudMachine.Status) {
-        let f = Self.fixture(status)
-        let ids = Self.menuIDs(f.services, f.session)
-        #expect(ids.contains(Self.pause), "a \(status) machine's menu leaves out Pause: \(ids)")
-        #expect(!ids.contains(Self.resume), "a \(status) machine's menu offers Resume: \(ids)")
-
-        let run = ActionInvocation(target: Self.target(f.session))
-        #expect(Self.reason(f.services, Self.resume, run) != nil, "Resume on a \(status) machine is not refused")
-        #expect(Self.reason(f.services, Self.pause, run) == nil)
-    }
-
-    /// The palette runs with no target: the machine it acts on (the window's, else the only one) decides.
-    @Test func thePalettesTargetlessRunIsJudgedOnTheMachineItActsOn() {
-        let paused = Self.fixture(.paused)
-        #expect(Self.reason(paused.services, Self.pause, ActionInvocation()) != nil)
-        #expect(Self.reason(paused.services, Self.resume, ActionInvocation()) == nil)
-
-        let running = Self.fixture(.running)
-        #expect(Self.reason(running.services, Self.resume, ActionInvocation()) != nil)
-        #expect(Self.reason(running.services, Self.pause, ActionInvocation()) == nil)
-    }
-
-    /// A machine whose state the app cannot tell (failed, unknown) keeps both: the server decides.
     @Test(arguments: [CloudMachine.Status.failed, .unknown])
     func aMachineInAnUnclearStateOffersBoth(status: CloudMachine.Status) {
         let f = Self.fixture(status)
