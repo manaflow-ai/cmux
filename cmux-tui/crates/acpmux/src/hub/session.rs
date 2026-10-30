@@ -428,14 +428,6 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
     keyed.into_iter().map(|(_, s)| s).collect()
 }
 
-/// Which pipe of an agent a line of `Inbound::Stderr` came from: its stderr, or a `[non-json
-/// stdout]` note. Each is its own stream.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum StderrPipe {
-    Stderr,
-    Stdout,
-}
-
 /// A session's agent output streams, one per agent generation and pipe (`Inbound::Stderr`). Only a
 /// stream inside a string control is kept (a closed one is the same as a new one), and it is kept
 /// until its own terminator arrives, after its agent exited too: its reader may still be draining.
@@ -443,14 +435,19 @@ pub(crate) enum StderrPipe {
 /// cannot grow it without bound.
 #[derive(Debug, Default)]
 pub(crate) struct SessionStderr {
-    open: std::collections::VecDeque<((u64, StderrPipe), crate::stderr::StderrStream)>,
+    open:
+        std::collections::VecDeque<((u64, crate::agent::StderrPipe), crate::stderr::StderrStream)>,
 }
 
 impl SessionStderr {
     const MAX_OPEN: usize = 64;
 
     /// `line` from `source` (an agent generation and its pipe), cleaned in that source's stream.
-    pub(crate) fn clean_line(&mut self, source: (u64, StderrPipe), line: &str) -> String {
+    pub(crate) fn clean_line(
+        &mut self,
+        source: (u64, crate::agent::StderrPipe),
+        line: &str,
+    ) -> String {
         let mut stream = match self.open.iter().position(|(s, _)| *s == source) {
             Some(index) => self.open.remove(index).map(|(_, s)| s).unwrap_or_default(),
             None => crate::stderr::StderrStream::default(),

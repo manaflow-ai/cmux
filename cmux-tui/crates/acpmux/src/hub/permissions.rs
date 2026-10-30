@@ -1560,7 +1560,7 @@ mod stderr_tests {
         for line in lines {
             super::remember_stderr(
                 &mut tail,
-                &stream.clean_line((1, super::super::StderrPipe::Stderr), line),
+                &stream.clean_line((1, crate::agent::StderrPipe::Stderr), line),
             );
         }
         tail.into_iter().collect()
@@ -1602,17 +1602,17 @@ mod stderr_tests {
         let mut tail = std::collections::VecDeque::new();
         super::remember_stderr(
             &mut tail,
-            &stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1bPsecret"),
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1bPsecret"),
         );
         tail.clear();
         super::remember_stderr(
             &mut tail,
-            &stream.clean_line((1, super::super::StderrPipe::Stderr), "leaked payload"),
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "leaked payload"),
         );
         super::remember_stderr(
             &mut tail,
             &stream.clean_line(
-                (1, super::super::StderrPipe::Stderr),
+                (1, crate::agent::StderrPipe::Stderr),
                 "\x1b\\error: request timed out",
             ),
         );
@@ -1625,28 +1625,28 @@ mod stderr_tests {
         let mut tail = std::collections::VecDeque::new();
         super::remember_stderr(
             &mut tail,
-            &stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1bPsecret"),
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1bPsecret"),
         );
         for generation in 2..10 {
             super::remember_stderr(
                 &mut tail,
-                &stream.clean_line((generation, super::super::StderrPipe::Stderr), "ok"),
+                &stream.clean_line((generation, crate::agent::StderrPipe::Stderr), "ok"),
             );
         }
         super::remember_stderr(
             &mut tail,
-            &stream.clean_line((1, super::super::StderrPipe::Stderr), "late payload"),
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "late payload"),
         );
         assert!(tail.iter().all(|line| !line.contains("payload")), "{tail:?}");
         // Its open control lasts until its own terminator, even after it exited.
-        assert_eq!(stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1b\\done"), "done");
+        assert_eq!(stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1b\\done"), "done");
     }
 
     #[test]
     fn an_agents_stdout_notes_are_their_own_stream() {
         let mut stream = crate::hub::session::SessionStderr::default();
-        let out = (1, super::super::StderrPipe::Stdout);
-        let err = (1, super::super::StderrPipe::Stderr);
+        let out = (1, crate::agent::StderrPipe::Stdout);
+        let err = (1, crate::agent::StderrPipe::Stderr);
         assert_eq!(stream.clean_line(out, "[non-json stdout] \x1bPsecret"), "[non-json stdout]");
         assert_eq!(stream.clean_line(err, "error: on stderr"), "error: on stderr");
         assert_eq!(stream.clean_line(out, "[non-json stdout] more payload"), "");
@@ -1661,15 +1661,15 @@ mod stderr_tests {
         let mut tail = std::collections::VecDeque::new();
         super::remember_stderr(
             &mut tail,
-            &stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1bPsecret"),
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1bPsecret"),
         );
         super::remember_stderr(
             &mut tail,
-            &stream.clean_line((2, super::super::StderrPipe::Stderr), "error: request timed out"),
+            &stream.clean_line((2, crate::agent::StderrPipe::Stderr), "error: request timed out"),
         );
         super::remember_stderr(
             &mut tail,
-            &stream.clean_line((1, super::super::StderrPipe::Stderr), "late payload"),
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "late payload"),
         );
         assert_eq!(tail.into_iter().collect::<Vec<_>>(), vec!["error: request timed out"]);
     }

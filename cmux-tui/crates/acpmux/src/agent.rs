@@ -31,6 +31,14 @@ pub enum Direction {
     In,
 }
 
+/// Which pipe of an agent a line of `Inbound::Stderr` came from: its stderr, or a `[non-json
+/// stdout]` note. The hub cleans each as its own stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StderrPipe {
+    Stderr,
+    Stdout,
+}
+
 /// Something the agent sent that acpmux must act on.
 #[derive(Debug)]
 pub enum Inbound {
@@ -60,7 +68,7 @@ pub enum Inbound {
     },
     /// One stderr line of the agent of `agent` (its generation and which of its pipes); `host_seq`
     /// names the agent host entry it came from. A `[non-json stdout]` note is the agent's stdout.
-    Stderr(String, Option<u64>, Option<(u64, crate::hub::StderrPipe)>),
+    Stderr(String, Option<u64>, Option<(u64, StderrPipe)>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
     Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
@@ -819,11 +827,7 @@ impl ChildAgent {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = inbound
-                        .send(Inbound::Stderr(
-                            line,
-                            None,
-                            Some((generation, crate::hub::StderrPipe::Stderr)),
-                        ))
+                        .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
                         .await;
                 }
             })
@@ -881,10 +885,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
-                                        Some((
-                                            agent_for_exit.generation,
-                                            crate::hub::StderrPipe::Stdout,
-                                        )),
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -923,10 +924,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
-                                        Some((
-                                            agent_for_exit.generation,
-                                            crate::hub::StderrPipe::Stdout,
-                                        )),
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -961,10 +959,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
-                                        Some((
-                                            agent_for_exit.generation,
-                                            crate::hub::StderrPipe::Stdout,
-                                        )),
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -2075,7 +2070,7 @@ impl ChildAgent {
                     .send(Inbound::Stderr(
                         line,
                         Some(h),
-                        Some((self.generation, crate::hub::StderrPipe::Stderr)),
+                        Some((self.generation, StderrPipe::Stderr)),
                     ))
                     .await;
                 true
