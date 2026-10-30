@@ -976,27 +976,32 @@ impl Hub {
     /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
     /// (`Hub::local_matches`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
-        // Read before the peers' rows are locked: never this daemon's sessions under them.
-        let bare_is_local = !key.contains('/') && self.local_matches(key) > 0;
         let map = self.remote_sessions.lock().unwrap();
         let row = |r: &RemoteSession| {
             (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone())
         };
-        let hit = if let Some(r) = map.get(key) {
-            Some(row(r))
+        let (hit, by_short_name) = if let Some(r) = map.get(key) {
+            (Some(row(r)), false)
         } else {
             let mut matches: Vec<_> = map
                 .iter()
                 .filter(|(id, r)| names_remote(id, r, key))
                 .map(|(_, r)| row(r))
                 .collect();
-            if matches.is_empty() && !bare_is_local {
+            let short = matches.is_empty();
+            if short {
                 matches = map.values().filter(|r| remote_segment(r, key)).map(|r| row(r)).collect();
             }
-            if matches.len() == 1 { matches.pop() } else { None }
+            (if matches.len() == 1 { matches.pop() } else { None }, short)
         };
         drop(map);
         let (peer_name, id, summary) = hit?;
+        // A bare short name gives way to any session here `key` names. Read only now, with the
+        // peers' rows unlocked and a candidate in hand, so no other lookup scans this daemon's
+        // sessions a second time.
+        if by_short_name && !key.contains('/') && self.local_matches(key) > 0 {
+            return None;
+        }
         let peer = self.peer(&peer_name)?;
         Some((peer, id, summary))
     }

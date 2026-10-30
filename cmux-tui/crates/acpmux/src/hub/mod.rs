@@ -1180,27 +1180,24 @@ impl Hub {
             names.dedup();
             crate::session_name::ambiguous(key, &names)
         };
-        // A short name, only where the rules above find nothing here and no peer lists a session
-        // `key` names: then this answers as it did before short names matched. The peers' rows
-        // are read with this daemon's sessions unlocked.
+        // A short name here, only where the rules above find nothing here and no peer lists a
+        // session `key` names: then this answers as it did before short names matched. The
+        // peers' rows are read only with a local candidate in hand (a plain miss, as for every
+        // request a peer's session serves, reads none), with this daemon's sessions unlocked.
+        // A short name only a peer's session has is `resolve_remote`'s.
         if by_name.is_empty()
             && by_prefix.is_empty()
-            && bare
+            && !by_segment.is_empty()
             && self.remote_strict_matches(key) == 0
         {
             let remote = self.remote_segment_names(key);
-            match (by_segment.len(), remote.len()) {
-                (0, 0) => {}
-                (1, 0) => return Ok(by_segment.remove(0)),
-                // The peer's alone: `resolve_remote` takes it.
-                (0, 1) => return Err(crate::session_name::not_found(key, &[])),
-                // Several, here or on peers: a tie, refused with every name.
-                _ => {
-                    let mut names = named(&by_segment);
-                    names.extend(remote);
-                    return Err(tied(names));
-                }
+            if by_segment.len() == 1 && remote.is_empty() {
+                return Ok(by_segment.remove(0));
             }
+            // Several, here or on peers: a tie, refused with every name.
+            let mut names = named(&by_segment);
+            names.extend(remote);
+            return Err(tied(names));
         }
         match by_prefix.len() {
             1 => Ok(by_prefix.remove(0)),
