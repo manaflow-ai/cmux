@@ -1,6 +1,6 @@
 import { createContext, useCallback, useState } from "react";
 import type { AcpmuxRow, ConversationLayout } from "../model";
-import { latestMessage } from "../conversation/messagePlacement";
+import { latestMessageIndex } from "../conversation/messagePlacement";
 
 export const PullRequestHostVisibility = createContext<((visible: boolean) => void) | undefined>(undefined);
 
@@ -12,7 +12,8 @@ export function usePullRequestPlacement(
   enabled: boolean,
   sessionId: string | undefined,
 ) {
-  const row = enabled ? latestMessage(rows, layout) : undefined;
+  const index = enabled ? latestMessageIndex(layout) : -1;
+  const row = index >= 0 ? rows[index] : undefined;
   const rowId = row?.id;
   const [shown, setShown] = useState<{ rowId: string | undefined; sessionId: string | undefined; visible: boolean }>();
   const report = useCallback(
@@ -25,6 +26,11 @@ export function usePullRequestPlacement(
     },
     [rowId, sessionId],
   );
-  const mounted = shown && shown.rowId === rowId && shown.sessionId === sessionId && shown.visible;
-  return { rowId, report, fallback: enabled && (!row || !mounted) };
+  const hosted = shown && shown.rowId === rowId && shown.sessionId === sessionId && shown.visible;
+  /// Whether the links stand in after the latest row: with no host, or while the host is drawn
+  /// (`drawn(index)`, the transcript's mounted rows) and shows none. A host the transcript unmounted
+  /// because it scrolled out of the mounted window still holds them: its unmount reports them gone,
+  /// and standing them in then put a tray over the stack that cut the transcript short mid-scroll.
+  const fallback = (drawn: (index: number) => boolean) => enabled && (!row || (drawn(index) && !hosted));
+  return { rowId, report, fallback };
 }

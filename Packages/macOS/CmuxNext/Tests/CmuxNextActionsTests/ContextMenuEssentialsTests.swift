@@ -69,6 +69,19 @@ struct ContextMenuEssentialsTests {
         #expect(more.map(allActions)?.contains("palette.copyWorkspaceLink") == true)
     }
 
+    /// The link comes before the ID, as on the tab and pane menus (Leo 2026-10-29: "there's no link to
+    /// workspace, which is, I mean, that seems pretty important, doesn't it?").
+    @Test func theWorkspaceRowMenuCopiesItsLinkThenItsID() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        let more = menu.items.first { $0.title == "More" }?.submenu
+        #expect(more != nil, "the workspace row menu has no More")
+        let ids = more.map(allActions) ?? []
+        let link = ids.firstIndex(of: "palette.copyWorkspaceLink"), id = ids.firstIndex(of: "palette.copyWorkspaceID")
+        #expect(link != nil, "More has no Copy Workspace Link: \(ids)")
+        #expect(id != nil, "More has no Copy Workspace ID: \(ids)")
+        if let link, let id { #expect(link < id, "the link comes before the ID") }
+    }
+
     /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
     /// ... obviously don't remove things from being searchable in the command palette". The row's
     /// menu drops the global, copy and diagnostic long tail; the palette and the sidebar
