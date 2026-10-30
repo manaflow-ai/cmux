@@ -39,6 +39,8 @@ const FRAME_HEADER_BYTES: usize = 16;
 const UNCHANGED_FLUSH_BYTES: usize = 1024 * 1024;
 /// The largest raw frame a reader accepts (a flush is at most a few MB).
 const MAX_FRAME_RAW_BYTES: u32 = 64 * 1024 * 1024;
+/// Bytes a terminal keeps in memory while its segment writes fail.
+const MAX_UNWRITTEN_BYTES: usize = SEGMENT_FILE_BYTES as usize;
 
 /// Whether full mode collects bytes (set by the writer from the policy).
 #[derive(Default)]
@@ -133,22 +135,43 @@ pub(super) fn flush_logs(
             (state.generation.clone(), state.pending_start, bytes)
         };
         let terminal_directory = terminal_directory(directory, &log.terminal_id);
-        match append_frame(segments, &terminal_directory, &generation, start, &bytes) {
-            Ok(()) => wrote = true,
-            Err(error) => eprintln!(
-                "cmux-tui: terminal {} output segment was not written: {error:#}",
-                log.terminal_id
-            ),
-        }
-        // Drop the flushed bytes (written or, as before, given up on), unless
-        // a new generation, a mode change or a clear replaced them meanwhile.
-        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.generation == generation
-            && state.pending_start == start
-            && state.pending.len() >= bytes.len()
+        let written = match append_frame(segments, &terminal_directory, &generation, start, &bytes)
         {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: terminal {} output segment was not written: {error:#}",
+                    log.terminal_id
+                );
+                false
+            }
+        };
+        wrote |= written;
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // A new generation, a mode change or a clear replaced the bytes
+        // meanwhile: nothing here is ours to drop.
+        let ours = state.generation == generation
+            && state.pending_start == start
+            && state.pending.len() >= bytes.len();
+        if ours && written {
+            // Only written bytes leave memory: every byte before
+            // `unflushed_start` is in a segment file (read_after relies on it).
             state.pending.drain(..bytes.len());
             state.pending_start = start + bytes.len() as u64;
+        } else if ours {
+            // Not written (a full disk, an IO error): the next pass tries
+            // again, changed content or not. Memory stays bounded: past
+            // MAX_UNWRITTEN_BYTES the oldest go (a gap a read reports).
+            state.segment_digest = None;
+            let excess = state.pending.len().saturating_sub(MAX_UNWRITTEN_BYTES);
+            if excess > 0 {
+                state.pending.drain(..excess);
+                state.pending_start += excess as u64;
+                eprintln!(
+                    "cmux-tui: terminal {} dropped {excess} output bytes that could not be stored",
+                    log.terminal_id
+                );
+            }
         }
         drop(state);
         enforce_terminal_cap(&terminal_directory, policy.max_bytes_per_terminal);
@@ -337,8 +360,8 @@ fn frame_extent(path: &Path, file_start: u64) -> Option<(u64, u64)> {
     Some((at, end))
 }
 
-/// The stored stream end of every terminal and generation key (newest file
-/// of each generation, frame headers only): read once at start.
+/// The stored stream end of every terminal and generation key (frame
+/// headers only): read once at start.
 pub(super) fn all_stream_ends(
     directory: &Path,
 ) -> std::collections::HashMap<(TerminalPublicId, String), u64> {
@@ -354,7 +377,9 @@ pub(super) fn all_stream_ends(
             continue;
         };
         let Ok(files) = fs::read_dir(&path) else { continue };
-        let mut newest = std::collections::HashMap::<String, (u64, PathBuf)>::new();
+        // The end is the largest frame end in any of the key's files (frame
+        // headers only): the file that starts last need not end last.
+        let mut key_ends = std::collections::HashMap::<String, u64>::new();
         for file in files.flatten().map(|file| file.path()) {
             let Some((key, start)) = file
                 .file_stem()
@@ -365,12 +390,11 @@ pub(super) fn all_stream_ends(
             else {
                 continue;
             };
-            if newest.get(&key).is_none_or(|(current, _)| start > *current) {
-                newest.insert(key, (start, file));
-            }
-        }
-        for (key, (start, file)) in newest {
             let end = frame_extent(&file, start).map_or(start, |(_, end)| end);
+            let known = key_ends.entry(key).or_insert(end);
+            *known = (*known).max(end);
+        }
+        for (key, end) in key_ends {
             ends.insert((terminal_id.clone(), key), end);
         }
     }

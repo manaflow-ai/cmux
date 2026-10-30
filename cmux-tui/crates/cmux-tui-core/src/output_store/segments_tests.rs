@@ -120,24 +120,29 @@ fn files_named_with_the_legacy_key_are_still_read_and_resumed() {
     fs::remove_dir_all(&directory).unwrap();
 }
 
-#[test]
-fn a_flush_keeps_its_bytes_in_memory_until_the_frame_is_written() {
-    let directory = store_directory("flush");
-    let log = Arc::new(TerminalLog {
+/// A log of one generation with `bytes` unflushed from offset 0.
+fn pending_log(bytes: &[u8]) -> Arc<TerminalLog> {
+    Arc::new(TerminalLog {
         terminal_id: terminal(),
         state: std::sync::Mutex::new(super::super::LogState {
             generation: Arc::from("g1"),
             tail_start: 0,
-            tail: std::collections::VecDeque::from(b"abcd".to_vec()),
+            tail: std::collections::VecDeque::from(bytes.to_vec()),
             dirty: false,
             snapshot_digest: None,
             snapshot_at: None,
             segment_digest: None,
             last_output: std::time::Instant::now(),
-            pending: b"abcd".to_vec(),
+            pending: bytes.to_vec(),
             pending_start: 0,
         }),
-    });
+    })
+}
+
+#[test]
+fn a_flush_keeps_its_bytes_in_memory_until_the_frame_is_written() {
+    let directory = store_directory("flush");
+    let log = pending_log(b"abcd");
     let policy = PersistencePolicy::resolve(Some("full"), None, None);
     flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
     {
@@ -147,5 +152,51 @@ fn a_flush_keeps_its_bytes_in_memory_until_the_frame_is_written() {
     }
     let window = read_after(&directory, &terminal(), "g1", 0, 1024).unwrap();
     assert_eq!(window.bytes, b"abcd");
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn a_failed_write_keeps_the_bytes_for_the_next_flush() {
+    let directory = store_directory("failed");
+    // The terminal's folder cannot be made: a file is in the way.
+    fs::write(terminal_directory(&directory, &terminal()), b"").unwrap();
+    let log = pending_log(b"abcd");
+    let policy = PersistencePolicy::resolve(Some("full"), None, None);
+    flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+    {
+        let state = log.state.lock().unwrap();
+        assert_eq!(state.pending, b"abcd", "unwritten bytes stay in memory");
+        assert_eq!(state.pending_start, 0);
+        assert_eq!(state.segment_digest, None, "the next pass writes them, changed or not");
+    }
+    fs::remove_file(terminal_directory(&directory, &terminal())).unwrap();
+    // Same content digest as before: still written.
+    flush_logs(&Segments::default(), &directory, &[(log.clone(), Some(1))], policy, false);
+    assert!(log.state.lock().unwrap().pending.is_empty());
+    let window = read_after(&directory, &terminal(), "g1", 0, 1024).unwrap();
+    assert_eq!(window.bytes, b"abcd");
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn the_stream_end_is_the_largest_frame_end_of_any_file() {
+    let directory = store_directory("ends-any");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    // A file that starts at 10 and ends at 12, and one that starts lower
+    // but ends later (an older daemon resumed behind).
+    append_frame(&Segments::default(), &terminal_directory, "g1", 10, b"kl").unwrap();
+    let early = terminal_directory.join(format!("{}-{:020}.{SUFFIX}", generation_key("g1"), 5));
+    let mut frame = Vec::new();
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(b"fghijklmnop").unwrap();
+    let compressed = encoder.finish().unwrap();
+    frame.extend_from_slice(&5_u64.to_le_bytes());
+    frame.extend_from_slice(&u32::try_from(compressed.len()).unwrap().to_le_bytes());
+    frame.extend_from_slice(&11_u32.to_le_bytes());
+    frame.extend_from_slice(&compressed);
+    fs::write(&early, frame).unwrap();
+    let ends = all_stream_ends(&directory);
+    assert_eq!(ends.get(&(terminal(), generation_key("g1"))), Some(&16));
     fs::remove_dir_all(&directory).unwrap();
 }

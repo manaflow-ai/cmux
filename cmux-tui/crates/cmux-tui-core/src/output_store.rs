@@ -473,9 +473,12 @@ impl OutputStore {
         let log =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
         let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
-        // Two tries: the writer can flush the unflushed bytes into a segment
-        // between the segment read and the memory read.
-        for _ in 0..2 {
+        // A flush drops bytes from memory only after their frame is written,
+        // so every byte before an observed `unflushed_start` is already in a
+        // segment file. A try that finds the bytes at `after` in neither
+        // place saw a flush finish meanwhile; the next try's segment read
+        // then has them (a pruned or cleared file is the only other cause).
+        for _ in 0..3 {
             let (generation, end, unflushed_start) = {
                 let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                 (state.generation.clone(), state.next_offset(), state.unflushed_start())
@@ -492,6 +495,7 @@ impl OutputStore {
             let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
             if self.full.enabled()
                 && after < state.tail_start
+                && after < state.unflushed_start()
                 && state.unflushed_start() != unflushed_start
             {
                 continue;
