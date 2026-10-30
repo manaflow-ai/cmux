@@ -3376,6 +3376,20 @@ esac
                     self.assertEqual(evaluate(job["timeout-minutes"], context), 5)
                 skipped = {**base, f"needs.{client}.result": "skipped"}
                 self.assertEqual(evaluate(job["runs-on"], skipped), "blacksmith-6vcpu-macos-26")
+                # A tier placement listed for the fleet has no other route (no fast runner, Blacksmith list,
+                # owned list or retry runner): it still starts, to report its client's verdict. Without a
+                # client it still starts too (the base's deferred owned queue): it is never skipped.
+                unplaced = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                            "github.event_name": "pull_request", "github.base_ref": "feat-cmux-next",
+                            "github.run_attempt": 1, "github.triggering_actor": "someone",
+                            "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                            "vars.CI_PR_POOL_OWNED": "1", "inputs.same_tree_sha": "", "inputs.dev_daily": False,
+                            "needs.push-head-preflight.outputs.current": "true",
+                            "needs.path_route.outputs.macos": "true", "needs.path_route.outputs.fast_tier": "true",
+                            "needs.macos-placement.outputs.placed_attempt": "1"}
+                for result in ("success", "failure", "cancelled"):
+                    self.assertTrue(evaluate(job["if"], {**unplaced, f"needs.{client}.result": result}), result)
+                self.assertTrue(evaluate(job["if"], {**unplaced, f"needs.{client}.result": "skipped"}))
                 self.assertEqual(evaluate(job["timeout-minutes"], skipped), 20)
                 # In report mode the first step reports; every other step is off.
                 report, *rest = job["steps"]
