@@ -121,7 +121,9 @@ Add a case = add a file. Never edit another owner's file.
   the case's real memory. `stop`/`sleep` end the turn and drop text after
   the last send, as the brain does; with a person message still unanswered
   they are refused (the reply ledger), and a turn that ends unanswered gets
-  the brain's `[no reply]` retry turn (counted in `retry_turns`, +5 s).
+  the brain's `[no reply]` retry turn (counted in `retry_turns`, +5 s). A turn
+  whose last post ends with an offer that needs nothing from the person gets
+  the brain's `[decide]` turn (counted in `decide_turns`), as production does.
 - Checks (all posted text of the turn, retry included): `reply_matches` /
   `reply_not_matches` (Rust `regex` crate: no look-around or backreferences), `no_raw_ids` (no ws_/tab_/pane_ id,
   sha, URL, path or #NNN outside a Markdown link), `posted`, `silent`
@@ -167,5 +169,6 @@ the baseline. The diff is in the job summary.
 Per run: pass count per group, wall time, turn latency p50/p90 (wake to the
 turn's end, retry turn included), first request latency, requests per turn,
 input/output tokens per turn, cache hit (cache read / all input), `retry_turns`
-and `unsummarized_max` (placeholder lines in the view a turn read: summary
+`decide_turns` (the host's `[decide]` turn after a reply that ended with an
+offer such as "Want me to fix it?") and `unsummarized_max` (placeholder lines in the view a turn read: summary
 lag).

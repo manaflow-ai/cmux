@@ -426,6 +426,9 @@ impl Brain {
         self.length_refused = false;
         self.tool_stopped = false;
         self.denial_stopped = None;
+        self.turn_said.clear();
+        self.turn_slept = false;
+        self.turn_nudged = items.iter().any(|i| crate::assistant::is_nudge(&i.text));
         // A user message or a report replaces the `until: event` wakes.
         self.drop_event_wakes(
             items
@@ -492,9 +495,13 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
+        // Preferences `remember` kept since the system text was made
+        // (assist.rs): they hold in this turn although the prompt predates them.
+        let learned = self.learned_line();
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = at_work
             .iter()
+            .chain(learned.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()
@@ -1347,6 +1354,7 @@ impl Brain {
         } else {
             Vec::new()
         };
+        let in_main = conversation.is_some() && conversation == self.state.conversation;
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
@@ -1395,6 +1403,11 @@ impl Brain {
             _ => Vec::new(),
         };
         let main = self.turn_side().is_none();
+        // A promise with no wake gets one; an offer that hands back a
+        // decision gets one `[decide]` note (assist.rs).
+        if !quiet && in_main {
+            self.follow_through(&text);
+        }
         // Any other end leaves what no post answered to a retry check.
         self.reply_not_needed(&not_needed);
         self.state.turn = None;

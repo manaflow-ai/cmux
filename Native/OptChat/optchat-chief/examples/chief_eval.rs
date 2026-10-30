@@ -297,6 +297,8 @@ struct TurnResult {
     unanswered: Option<(u64, String)>,
     /// `[no reply]` retry turns the reply ledger started after this turn.
     retry_turns: u32,
+    /// `[decide]` turns after a reply that ended with an offer (assist.rs).
+    decide_turns: u32,
 }
 
 fn label(item: &Item) -> String {
@@ -549,10 +551,12 @@ impl CaseRun<'_> {
             // As the real tool: the line goes into the person's profile.
             "remember" => {
                 let p = self.dir.join("home/optchat/person.md");
-                let mut text = std::fs::read_to_string(&p).unwrap_or_default();
-                text.push_str(&format!("\n- {}\n", input["text"].as_str().unwrap_or("")));
-                let _ = std::fs::write(&p, text);
-                ("outcome: done. remembered".into(), false)
+                let text = input["text"].as_str().unwrap_or("");
+                match optchat_chief::remember::remember(&p, text, &optchat_chief::remember::today())
+                {
+                    Ok(answer) => (answer, false),
+                    Err(e) => (e, true),
+                }
             }
             // The subagents this run started are running (none: the old answer).
             "control" => {
@@ -647,13 +651,30 @@ impl CaseRun<'_> {
                 .map(|d| d.matches(optchat_core::PLACEHOLDER).count())
                 .sum::<usize>();
         r.view_bytes = input.view.len();
+        // As turns.rs: the case's tail, then the preferences `remember` kept
+        // since the system text was made (brain/assist.rs).
+        let learned = std::fs::read_to_string(self.dir.join("home/optchat/person.md"))
+            .ok()
+            .and_then(|p| {
+                optchat_chief::assistant::learned_note(&optchat_chief::assistant::learned_since(
+                    &p,
+                    &self.system,
+                ))
+            });
+        let tail: Vec<String> = turn
+            .tail
+            .iter()
+            .chain(learned.iter())
+            .filter(|t| !t.is_empty())
+            .cloned()
+            .collect();
         let layout = input_layout(
             &self.system,
             &input.view,
             &input.delta,
             prev_end,
             &[],
-            turn.tail.as_deref().unwrap_or(""),
+            &tail.join("\n\n"),
             Some(CacheTtl::FiveMinutes),
         );
         let mut messages = vec![json!({"role": "user", "content": layout.blocks})];
@@ -1125,6 +1146,39 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
             r.cache_write += again.cache_write;
             r.error = r.error.or(again.error);
         }
+        // As brain/assist.rs: a last post that hands a decision back gets
+        // one `[decide]` turn (never after a `[decide]` turn).
+        let offer = r
+            .posted
+            .last()
+            .and_then(|p| optchat_chief::assistant::trailing_offer(p));
+        if let Some(offer) = offer.filter(|_| {
+            !turn
+                .item
+                .text
+                .starts_with(optchat_chief::assistant::DECIDE_TAG)
+        }) {
+            let nudge = Turn {
+                item: Item {
+                    kind: "user".into(),
+                    text: optchat_chief::assistant::decide_note(&offer),
+                    ..Item::default()
+                },
+                tail: turn.tail.clone(),
+                ..Turn::default()
+            };
+            let again = run.run_turn(&nudge);
+            r.decide_turns += 1;
+            r.posted.extend(again.posted);
+            r.calls.extend(again.calls);
+            r.wall_ms += again.wall_ms;
+            r.requests += again.requests;
+            r.input += again.input;
+            r.output += again.output;
+            r.cache_read += again.cache_read;
+            r.cache_write += again.cache_write;
+            r.error = r.error.or(again.error);
+        }
         grade(&run, turn, &mut r, &history);
         history.push_str(&format!("user: {}\n", label(&turn.item)));
         for p in &r.posted {
@@ -1332,6 +1386,7 @@ fn summarize(rows: &[Value], wall: f64, opts: &Opts) -> Value {
         "cache_hit": if input + read + write > 0 { ((read as f64 / (input + read + write) as f64) * 1000.0).round() / 1000.0 } else { 0.0 },
         "unsummarized_max": col("unsummarized").into_iter().max().unwrap_or(0),
         "retry_turns": sum("retry_turns"),
+        "decide_turns": sum("decide_turns"),
         "tokens_per_turn": (input + read + write + sum("output")) / turns.len().max(1) as u64,
         "groups": groups.iter().map(|(k, (p, n))| (k.clone(), json!(format!("{p}/{n}")))).collect::<serde_json::Map<_, _>>(),
         "group_pass_rate": groups.iter().map(|(k, (p, n))| (k.clone(), json!(rate(*p, *n)))).collect::<serde_json::Map<_, _>>(),

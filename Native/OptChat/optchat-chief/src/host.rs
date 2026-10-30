@@ -1613,6 +1613,7 @@ fn start(
         turn_preset: claude_installed.then_some(claude_preset_name),
         chief_id: crate::paths::home_id(home),
         system_text: claude_text,
+        person: Some(paths.person.clone()),
         engine_file: Some(crate::engine::path(home)),
         families,
         codex_preset,

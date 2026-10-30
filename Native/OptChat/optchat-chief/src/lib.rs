@@ -14,6 +14,7 @@ pub mod agent_keys;
 pub mod agent_memory;
 pub mod agents;
 pub mod approval;
+pub mod assistant;
 pub mod auto_resume;
 pub mod backup;
 pub mod brain;

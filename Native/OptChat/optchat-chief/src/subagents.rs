@@ -465,6 +465,10 @@ pub struct Spawner {
     /// The person profile `remember` writes (`optchat/person.md`); None: no
     /// profile on this host.
     person: Option<std::path::PathBuf>,
+    /// The profile as the subagents' system text has it (read with
+    /// `with_person`, as the host read it at start): a task names the
+    /// lines learned since (assistant.rs).
+    person_start: String,
     /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
     /// None: no cmux app behind this host.
     cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
@@ -496,6 +500,7 @@ impl Spawner {
             cloud_vms: None,
             agent_keys: None,
             person: None,
+            person_start: String::new(),
             cloud_workspaces: None,
         }
     }
@@ -511,8 +516,24 @@ impl Spawner {
 
     /// `remember` keeps preferences in the profile at `path`.
     pub fn with_person(mut self, path: std::path::PathBuf) -> Spawner {
+        self.person_start = std::fs::read_to_string(&path).unwrap_or_default();
         self.person = Some(path);
         self
+    }
+
+    /// `task` with the preferences learned since the subagents' system text
+    /// was made, so a subagent follows them too (assistant.rs).
+    fn with_learned(&self, task: &str) -> String {
+        let learned = self
+            .person
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|now| crate::assistant::learned_since(&now, &self.person_start))
+            .and_then(|lines| crate::assistant::learned_note(&lines));
+        match learned {
+            Some(note) => format!("{task}\n\n{note}"),
+            None => task.to_owned(),
+        }
     }
 
     /// Cloud subagents get their own sandbox key from `keys` (None: off).
@@ -818,7 +839,7 @@ impl Spawner {
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
         self.agents.start_prompt(
             &session,
-            crate::prompt::subagent_blocks(view, task),
+            crate::prompt::subagent_blocks(view, &self.with_learned(task)),
             &prompt_id,
             tx,
         )?;

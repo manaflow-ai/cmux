@@ -22,6 +22,7 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod assist;
 mod children;
 mod control;
 mod drafts;
@@ -573,6 +574,10 @@ pub struct Settings {
     /// prefix). The session runs with Claude Code's own cache marks.
     /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
     pub keep_turn_session: bool,
+    /// The person profile `remember` writes (`optchat/person.md`): each
+    /// turn's tail names the lines learned since `system_text` was made
+    /// (assistant.rs). None: no profile.
+    pub person: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -874,6 +879,14 @@ pub struct Brain {
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
+    /// What the running turn posted (send, reply), for the promise and
+    /// offer checks at its end (assist.rs).
+    turn_said: Vec<String>,
+    /// The running turn called `sleep`: it set its own wake.
+    turn_slept: bool,
+    /// The running turn answers the host's own nudge (a `[decide]` note or a
+    /// promise wake): it gets no nudge again.
+    turn_nudged: bool,
     /// The running turn was stopped for asking again and again for a tool
     /// call it was denied (approvals.rs): later requests are denied, and the
     /// turn posts one line saying so (what it asked for) instead of its text.
@@ -1031,6 +1044,9 @@ impl Brain {
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
+            turn_said: Vec::new(),
+            turn_slept: false,
+            turn_nudged: false,
             denial_stopped: None,
             unanswered: Vec::new(),
             approval_told: HashSet::new(),

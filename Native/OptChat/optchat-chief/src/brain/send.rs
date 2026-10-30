@@ -164,6 +164,7 @@ impl Brain {
                 super::REPLY_BYTES
             ));
         }
+        let main = self.state.conversation.as_deref() == Some(conversation.as_str());
         let mut entry = super::reply_entry(conversation, &key, &text);
         if let (
             Some((_, parent, root)),
@@ -181,6 +182,9 @@ impl Brain {
             *thread_root = Some(root.clone());
         }
         self.sent_keys.insert(key);
+        if main {
+            self.note_said(call.text.as_deref());
+        }
         let entry = self.reply_with_media(entry, files.clone());
         self.state.outbox.push(entry);
         self.save();

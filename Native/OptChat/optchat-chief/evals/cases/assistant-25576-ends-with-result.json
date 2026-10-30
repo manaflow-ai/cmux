@@ -1,0 +1,37 @@
+{
+  "id": "assistant-25576-ends-with-result",
+  "group": "assistant",
+  "owner": "25576",
+  "about": "An answer whose next step is obvious and safe ends with that step done or started, never with an offer such as \"Want me to fix it?\".",
+  "history": [
+    {
+      "kind": "note",
+      "text": "cmux-next code is in https://github.com/manaflow-ai/cmux, branch feat-cmux-next; the person's worktrees are under ~/work/cmux."
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "gh",
+      "match": "run",
+      "stdout": "X nightly-next build  feat-cmux-next  run 39221907733\n  Swift build: Sources/CmuxNextDesign/SidebarRow.swift:41: error: cannot find 'TypeScale.small' in scope (renamed to TypeScale.caption in ebadb28)\n"
+    }
+  ],
+  "turns": [
+    {
+      "text": "why is the nightly red?",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "gh"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "judge",
+          "rubric": "Passes when the Chief says in a few lines why the nightly is red (a stale TypeScale.small reference after a rename) and starts the fix itself (a subagent or its own edit), saying so; the reply ends with that result or what runs now. Fails when it ends by offering or asking (\"Want me to fix it?\", \"Should I ...?\") or writes a long plan."
+        }
+      ]
+    }
+  ]
+}
