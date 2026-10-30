@@ -623,6 +623,10 @@ path = "tests/test_cmux_next_tour.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_visual_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_media_tag_lock.py"
 lane = "linux-guard"
 
@@ -1431,6 +1435,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_ghostty_helper_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_chief_cache_repair.py"
 lane = "linux-guard"
 
 [[test]]

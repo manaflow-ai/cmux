@@ -177,6 +177,23 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         await page.close();
       });
 
+      // The sidebar's Updated card (surface.tsx): the host draws the glass natively under the page,
+      // so the lens draws nothing over it, from the start or once the page says so.
+      test("a page whose host draws its glass (data-glass-native) gets no lens", async () => {
+        const page = await open(browser, "lens", "data-glass-native");
+        expect(await canvases(page)).toBe(0);
+        expect((await state(page)).running).toBe(false);
+        await page.close();
+        if (!webgl) return;
+        const later = await open(browser, "lens");
+        expect(await canvases(later)).toBe(1);
+        await later.evaluate(() => document.documentElement.setAttribute("data-glass-native", ""));
+        await later.evaluate(() => new Promise(requestAnimationFrame));
+        expect(await canvases(later)).toBe(0);
+        expect((await state(later)).running).toBe(false);
+        await later.close();
+      });
+
       test("lens glass bends the stripes at the rim and leaves the center", async () => {
         if (!webgl) return;
         const page = await open(browser, "lens");

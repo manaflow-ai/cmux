@@ -468,7 +468,7 @@ struct CloudBringBackTests {
         let record = AgentSessionRef(host: try #require(services.agentTabs.localHost), hostName: "This Mac", session: "chat-live", harness: "claude")
         let created = try await connection.request(NewConversationTabRequest(agentSession: record, pane: pane.handle))
         let tabID = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        while services.locateTab(tabID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        while services.locateTab(tabID, onMachine: services.machines.local.machineID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
         // Setup only needs the moved chat; waiting for the full move action
         // couples setup to the control deadline and turns slow daemon startup
         // into a false timeout.
