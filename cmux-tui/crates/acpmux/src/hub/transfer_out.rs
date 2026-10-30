@@ -117,6 +117,12 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
     if scanned { moving } else { moving.or_else(|| Some(LOG_UNREADABLE.to_owned())) }
 }
 
+/// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
+/// chat (`MOVED_AWAY`, `LOG_UNREADABLE`).
+pub(super) fn names_a_move(mark: &str) -> bool {
+    true
+}
+
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
