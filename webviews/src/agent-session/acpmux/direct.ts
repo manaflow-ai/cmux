@@ -680,7 +680,11 @@ export function mergeQueue(
     const listed = entry?.fromAgent;
     const listedMessage = queuedMessage({ text: preview, fromAgent: listed, fromHarness: entry?.fromHarness });
     const kept = whole ? had.message : undefined;
-    const message = listed === undefined ? kept : listed === null ? undefined : (kept ?? listedMessage);
+    // A queue listing may carry the full provenance even when its compatibility `fromAgent`
+    // field is absent. Preserve that parsed agent message; only an explicit null says that the
+    // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
+    // user prompt until it left the queue, so its received card (and reply actions) disappeared.
+    const message = listed === null ? undefined : (kept ?? listedMessage);
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const author =

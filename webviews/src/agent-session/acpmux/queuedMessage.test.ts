@@ -86,6 +86,21 @@ test("a queue row the pane never read the record of is an agent's message when t
   ]);
 });
 
+test("a queue listing with agent_message provenance keeps its sender without fromAgent", () => {
+  const listed = mergeQueue([], [{
+    promptId: "p-provenance",
+    prompt: "Rebase first",
+    client: "acpmux",
+    _meta: { provenance: { kind: "agent_message", from: "acp:s-deputy", fromName: "coord-deputy" } },
+  }]);
+  expect(listed[0]?.message).toEqual({
+    name: "coord-deputy",
+    sessionId: "s-deputy",
+    text: "Rebase first",
+    raw: "Rebase first",
+  });
+});
+
 test("a queue row the list says is the person's drops the agent's name its record gave", () => {
   const message = { name: "lane-a", text: "Rebase first", raw: "Rebase first" };
   // Edited past the preview's cut: the head the list shows is the same, the sender is not.
