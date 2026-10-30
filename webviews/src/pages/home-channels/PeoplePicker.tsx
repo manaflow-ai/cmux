@@ -65,7 +65,7 @@ export function PeoplePicker({ people, picked, onPicked, strings, loading }: Peo
               ? t("sheet.selected.one")
               : format("sheet.selected.many", String(picked.length))}
         </p>
-        <fieldset className="lg-picker-rows" aria-label={t("sheet.search")} aria-busy={initialLoading || undefined}>
+        <fieldset className="lg-picker-rows" aria-label={t("sheet.search")} aria-busy={loading === true || undefined}>
           {initialLoading &&
             Array.from({ length: 4 }, (_, index) => (
               <div key={index} className="lg-picker-row lg-picker-loading-row" aria-hidden="true">
