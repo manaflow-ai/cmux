@@ -5,20 +5,17 @@ import AppKit
 /// centres. AppKit puts an unbezeled field's text at its frame's top, 3 pt above the magnifier in a
 /// 22 pt field (the user, 2026-10-29, "search is not centered"). A bezeled field keeps AppKit's own
 /// placement.
+///
+/// Editing takes the whole cell frame, as drawing does: AppKit places the field editor in
+/// `searchTextRect(forBounds:)` of that frame, which is centred here. A frame already cut to one
+/// line gave AppKit a short cell whose magnifier slot is narrower, so the typed text and caret
+/// started over the magnifier (https://github.com/manaflow-ai/cmux/issues/27967).
 final class CmuxSidebarSearchFieldCell: NSSearchFieldCell {
     override func drawingRect(forBounds rect: NSRect) -> NSRect { centred(super.drawingRect(forBounds: rect)) }
 
     override func titleRect(forBounds rect: NSRect) -> NSRect { centred(super.titleRect(forBounds: rect)) }
 
     override func searchTextRect(forBounds rect: NSRect) -> NSRect { centred(super.searchTextRect(forBounds: rect)) }
-
-    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
-        super.edit(withFrame: centred(rect), in: controlView, editor: textObj, delegate: delegate, event: event)
-    }
-
-    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
-        super.select(withFrame: centred(rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
-    }
 
     /// `rect` cut to one line of the field's font, centred on it (pixel-rounded by whole points).
     private func centred(_ rect: NSRect) -> NSRect {
