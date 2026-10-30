@@ -173,6 +173,45 @@ import Testing
         #expect(target == .position(DropPosition(section: .machine(machine.id), group: parent.id, index: 0)))
     }
 
+    /// Sol review: whether a group draws one row depends on its member's title, so a rename into or out of the group's
+    /// name is a structural change, never an in-place row patch (which keeps the old header or one row).
+    @Test func aRenameIntoOrOutOfTheGroupNameRebuildsTheRows() throws {
+        func sections(_ title: String) -> [SidebarSection] {
+            [SidebarSection(kind: .machine(machine), nodes: [
+                .group(SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", title)])),
+            ])]
+        }
+        let into = SidebarModel(sections: sections("Draft"))
+        #expect(!into.patchWorkspaces([ws("w-coord", "release-coord")]), "renamed into the group's name: not a patch")
+        let outOf = SidebarModel(sections: sections("release-coord"))
+        #expect(!outOf.patchWorkspaces([ws("w-coord", "release-coord notes")]), "renamed out of the group's name: not a patch")
+        // A rename that keeps the name's match, or a status tick, still patches in place.
+        let tick = SidebarModel(sections: sections("release-coord"))
+        var busy = ws("w-coord", " release-coord ")
+        busy.activity = .busy(progress: nil)
+        #expect(tick.patchWorkspaces([busy]))
+        let other = SidebarModel(sections: sections("Draft"))
+        #expect(other.patchWorkspaces([ws("w-coord", "Draft 2")]))
+    }
+
+    /// Sol review: opening a folded same-named single-member group draws its one row, as a full layout does (the
+    /// fold's splice assumes a header over member rows, so it leaves this group to the full layout).
+    @Test func openingAFoldedSameNameGroupMatchesAFullLayout() throws {
+        var group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", isCollapsed: true, workspaces: [ws("w-coord", "release-coord")])
+        let section = SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(group)])
+        let folded = SidebarLayout.make(sections: [section], metrics: metrics)
+        #expect(folded.row(for: .group(group.id)) != nil, "folded: the header")
+        group.isCollapsed = false
+        let open = SidebarLayout.make(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(group)])],
+                                      metrics: metrics)
+        if let spliced = folded.folding(group, collapsed: false, in: section, metrics: metrics, options: SidebarLayoutOptions()) {
+            #expect(spliced.rows == open.rows, "the splice gives the full layout's rows")
+            #expect(spliced.totalHeight == open.totalHeight)
+        }
+        #expect(open.row(for: .group(group.id)) == nil)
+        #expect(try #require(open.row(for: .workspace(WorkspaceID("w-coord")))).standsForGroup)
+    }
+
     /// The group's line runs along the one row, at the header bar's left edge, in the group's color.
     @Test func theOneRowCarriesTheGroupsLine() throws {
         let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", color: .purple, workspaces: [ws("w-coord", "release-coord")])
