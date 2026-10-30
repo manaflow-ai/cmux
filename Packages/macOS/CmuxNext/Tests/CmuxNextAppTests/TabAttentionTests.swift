@@ -162,6 +162,30 @@ import Testing
         #expect(service.attentionMarks(for: workspace).isEmpty, "Dismiss Highlight left the ring")
     }
 
+    /// An older daemon's mark has no request id. Its owner clear stays refused, but going in and
+    /// Dismiss Highlight still hide its ring, and a press on a mark since replaced hides nothing.
+    @Test func aLegacyMarksRingHidesOnEntryAndDismissHighlight() throws {
+        _ = NSApplication.shared
+        let store = DaemonStore()
+        let (workspace, tab) = try Self.markedWorkspace(in: store, name: "legacy", reason: "Confirm GitHub access")
+        let service = NotificationCenterService()
+        let legacy = TabAttention(reason: "Confirm GitHub access", atMs: 1_500)
+        tab.applyState(SessionStateMirror.TabRecord(attention: legacy), progress: nil)
+        #expect(tab.attention?.requestID == nil)
+        #expect(service.attentionMarks(for: workspace).count == 1, "the legacy mark has no ring")
+        service.interacted(.click, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "going in left the legacy mark's ring")
+        #expect(tab.showsUnread, "going in keeps the legacy mark")
+        tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Approve the deploy", atMs: 2_000)), progress: nil)
+        #expect(service.attentionMarks(for: workspace).count == 1, "a new legacy request did not ring again")
+        service.dismissHighlight(workspace)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "Dismiss Highlight left the legacy mark's ring")
+        let pressed = NotificationCenterService.TabInteractionTarget(tab: tab, store: store, local: true)
+        tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Approve the deploy", atMs: 3_000)), progress: nil)
+        service.interacted(.click, target: pressed)
+        #expect(service.attentionMarks(for: workspace).count == 1, "a press on a replaced legacy mark hid the new ring")
+    }
+
     /// A marked tab in `store`'s one workspace, with the same id on every store.
     private static func markedWorkspace(in store: DaemonStore, name: String, reason: String,
                                         markedUnread: Bool = false) throws -> (WorkspaceModel, TabModel) {

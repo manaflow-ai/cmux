@@ -337,12 +337,22 @@ final class NotificationCenterService {
         let store: DaemonStore
         let local: Bool
         let attentionRequestID: String?
+        /// A mark from a daemon without request ids has only this client's generation to say
+        /// it is still the mark pressed.
+        let attentionGeneration: UInt64
 
         init(tab: TabModel, store: DaemonStore, local: Bool) {
             self.tab = tab
             self.store = store
             self.local = local
             attentionRequestID = tab.attention?.requestID
+            attentionGeneration = tab.attentionGeneration
+        }
+
+        /// Whether the tab still shows the mark it showed when pressed.
+        var attentionUnchanged: Bool {
+            guard tab.attention?.requestID == attentionRequestID else { return false }
+            return attentionRequestID != nil || tab.attentionGeneration == attentionGeneration
         }
     }
 
@@ -362,8 +372,7 @@ final class NotificationCenterService {
 
     func interacted(_ trigger: NotificationTrigger, target: TabInteractionTarget) {
         // A closed tab or replaced store is no longer the object pressed, even if its id is reused.
-        guard target.store.tab(idOrResource: target.tab.id) === target.tab,
-              target.tab.attention?.requestID == target.attentionRequestID else { return }
+        guard target.store.tab(idOrResource: target.tab.id) === target.tab, target.attentionUnchanged else { return }
         interacted(trigger, tab: target.tab, local: target.local)
     }
 
@@ -418,8 +427,10 @@ final class NotificationCenterService {
     /// The person went into a tab an agent marked (a click or a key): its ring has done its job,
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
-        guard let attention = tab.attention, trigger == .click || trigger == .keystroke else { return }
-        if attention.requestID != nil { tab.attentionRingHiddenThrough = tab.attentionGeneration }
+        // Hiding the ring is this client's view state, so a mark without a request id (an older
+        // daemon's) hides it too, by its generation; only the owner's clear needs the id.
+        guard tab.attention != nil, trigger == .click || trigger == .keystroke else { return }
+        tab.attentionRingHiddenThrough = tab.attentionGeneration
     }
 
     /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread

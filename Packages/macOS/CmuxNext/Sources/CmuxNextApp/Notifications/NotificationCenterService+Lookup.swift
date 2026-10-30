@@ -248,7 +248,7 @@ extension NotificationCenterService {
         for tab in tabs where tab.markedUnread {
             dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration
         }
-        for tab in tabs where tab.attention?.requestID != nil { tab.attentionRingHiddenThrough = tab.attentionGeneration }
+        for tab in tabs where tab.attention != nil { tab.attentionRingHiddenThrough = tab.attentionGeneration }
         guard newest > (dismissedHighlights[key] ?? 0) else { return }
         dismissedHighlights[key] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")
