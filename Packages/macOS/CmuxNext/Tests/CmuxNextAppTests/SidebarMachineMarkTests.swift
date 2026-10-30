@@ -82,6 +82,20 @@ import Testing
         #expect(text.components(separatedBy: "gpu · box").count - 1 == 1, "\(text)")
     }
 
+    @Test func oneListCloudRowsShowPausedConnectingAndReconnecting() {
+        let states: [(SidebarMachine.Status, String)] = [
+            (.paused, Strings.statusPaused),
+            (.connecting, Strings.statusConnecting),
+            (.reconnecting, Strings.statusReconnecting),
+        ]
+        for (status, label) in states {
+            let cloud = SidebarMachine(id: MachineID("cloud-\(label)"), name: "cloud", kind: .cloud, status: status)
+            let cloudSection = SidebarSection(kind: .machine(cloud), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("cloud-ws"), title: "ws"))])
+            let options = SidebarModel(sections: [section(mac), cloudSection]).listOptions()
+            #expect(SidebarLayout.machineLabel(cloudSection, options: options) == "cloud · \(label)")
+        }
+    }
+
     @Test func oneMachineDrawsNoMark() {
         #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
     }

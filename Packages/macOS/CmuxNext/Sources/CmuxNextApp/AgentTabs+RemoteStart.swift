@@ -25,8 +25,9 @@ extension AgentTabStore {
 
     /// Starts tab `key`'s chat on its machine (`agent-session-start`) once, from the page's first
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
-    func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil,
+    func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil, model: String? = nil,
                          personKey: AgentSessionAttachClient.PersonKey? = nil, ownerLink: AgentSessionAttachClient.OwnerLink? = nil,
+                         reconnect: AgentSessionAttachClient.Reconnect? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
@@ -34,16 +35,17 @@ extension AgentTabStore {
         // handshake that overlap share it (the daemon refuses a second start with `limit`)
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
-            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey,
-                                            ownerLink: ownerLink, endpoint: endpoint)
+            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
+                                            ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
         }
         remoteStarts[resolveRemote(key)] = task
         defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
         return try await task.value
     }
 
-    private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?,
+    private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?, model chosenModel: String?,
                                 personKey: AgentSessionAttachClient.PersonKey?, ownerLink: AgentSessionAttachClient.OwnerLink?,
+                                reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
@@ -59,10 +61,14 @@ extension AgentTabStore {
         guard let cwd = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key) else {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
-        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
+        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         let result: Result<String, any Error>
         let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
-        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink)) } catch { result = .failure(error) }
+        let harness = chosenHarness ?? seed?.harness
+        // A default model pick is omitted by the page. After a harness switch it must remain
+        // that harness's default, rather than restoring the previous harness's seeded model.
+        let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
+        do { result = .success(try await client.start(cwd: cwd, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):

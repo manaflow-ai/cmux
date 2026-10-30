@@ -39,8 +39,7 @@ struct Parsed {
 fn parse_flags(args: &[String], flags: Flags) -> Result<Parsed> {
     let mut parsed = Parsed::default();
     let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
+    while let Some(arg) = args.get(i) {
         i += 1;
         if !arg.starts_with('-') || arg == "-" {
             parsed.positionals.push(arg.clone());
@@ -89,12 +88,13 @@ fn request(
     branch_here: &dyn Fn() -> Result<String>,
 ) -> Result<GithubActionParams> {
     let words: Vec<&str> = args.iter().take(2).map(String::as_str).collect();
+    let tail = args.get(2..).unwrap_or_default();
     let (action, rest, flags): (GithubAction, &[String], Flags) = match words.as_slice() {
-        ["repo", "view", ..] => (GithubAction::Read, &args[2..], &[REPO]),
-        ["pr", "view", ..] => (GithubAction::Read, &args[2..], &[REPO]),
+        ["repo", "view", ..] => (GithubAction::Read, tail, &[REPO]),
+        ["pr", "view", ..] => (GithubAction::Read, tail, &[REPO]),
         ["pr", "create", ..] => (
             GithubAction::DraftPr,
-            &args[2..],
+            tail,
             &[
                 REPO,
                 TITLE,
@@ -105,10 +105,8 @@ fn request(
                 ("--base", Some("-B"), true),
             ],
         ),
-        ["issue", "create", ..] => {
-            (GithubAction::Issue, &args[2..], &[REPO, TITLE, BODY, BODY_FILE])
-        }
-        ["issue", "comment", ..] => (GithubAction::Comment, &args[2..], &[REPO, BODY, BODY_FILE]),
+        ["issue", "create", ..] => (GithubAction::Issue, tail, &[REPO, TITLE, BODY, BODY_FILE]),
+        ["issue", "comment", ..] => (GithubAction::Comment, tail, &[REPO, BODY, BODY_FILE]),
         _ => bail!("{USAGE}"),
     };
     let mut p = parse_flags(rest, flags)?;
@@ -116,7 +114,10 @@ fn request(
     let wants_number = matches!(action, GithubAction::Comment) || (words == ["pr", "view"]);
     let allowed = usize::from(repo_view || wants_number);
     if p.positionals.len() > allowed {
-        bail!("acpmux gh: unexpected argument {:?}\n{USAGE}", p.positionals[allowed]);
+        bail!(
+            "acpmux gh: unexpected argument {:?}\n{USAGE}",
+            p.positionals.get(allowed).map_or("", String::as_str)
+        );
     }
     if action == GithubAction::DraftPr && !p.switches.contains(&"--draft") {
         bail!("acpmux gh: only draft pull requests: add --draft");

@@ -272,8 +272,17 @@ export const PAGES = {
                 "message.sending",
                 "message.sent",
                 "message.delivered",
+                "message.deliveredShort",
+                "message.queued",
+                "message.notDelivered",
+                "message.notDeliveredStopped",
+                "message.notDeliveredNoAgent",
                 // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
                 "message.recipientId",
+                // A run of messages' summary line (MessageGroupRow.tsx), which Channels draws too.
+                "messages.group.sending",
+                "messages.group.sentTo",
+                "messages.group.sent",
               ].includes(key),
           ),
       },

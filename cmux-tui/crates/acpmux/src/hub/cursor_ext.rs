@@ -15,6 +15,7 @@
 //! `cursor/task`, `cursor/generate_image`) need no reply.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::HashSet;
 
 /// Which `cursor/` request a method is.
@@ -193,7 +194,10 @@ fn plan_request(params: &Value) -> Value {
         "rawInput": {"plan": plan, "todos": params["todos"]},
     });
     if !plan.is_empty() {
-        tool["content"] = json!([{"type": "content", "content": {"type": "text", "text": plan}}]);
+        tool.set(
+            "content",
+            json!([{"type": "content", "content": {"type": "text", "text": plan}}]),
+        );
     }
     json!({
         "toolCall": tool,
@@ -238,7 +242,7 @@ impl Hub {
             CursorRequest::CreatePlan => plan_request(&params),
         };
         // The agent's own session id, as in its session/request_permission.
-        request["sessionId"] = json!(session.meta().agent_session_id);
+        request.set("sessionId", json!(session.meta().agent_session_id));
         let outcome =
             self.handle_permission_for(session, request, epoch, turn_id, None, None, None).await;
         Ok(match kind {

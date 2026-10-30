@@ -26,16 +26,42 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "large-preview", "large-preview-low-space"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
+        if name.hasPrefix("retry-") {
+            // Public capture fixtures contain no person's name or machine name.
+            shell.store.teams = shell.store.teams.enumerated().map { index, team in
+                var team = team
+                team.name = "Demo Team \(index + 1)"
+                team.macs = team.macs.enumerated().map { index, mac in
+                    var mac = mac
+                    mac.name = "Demo Mac \(index + 1)"
+                    return mac
+                }
+                return team
+            }
+        }
         switch name {
         case "drawer": await drawer()
         case "settings": await settings()
         case "settings-bottom": await settingsScrolled(to: "bottom")
         case "settings-middle": await settingsScrolled(to: "appearance")
         case "states": await states()
+        case "retry-workspaces":
+            shell.tab = .workspaces
+            shell.store.teamDataState = .failed
+        case "retry-feed":
+            shell.tab = .feed
+            // A failed real refresh is the fixture; no private connection is used.
+            FeedStore.shared.actions = nil
+            FeedStore.shared.setRefreshErrorForDemo()
+        case "retry-terminal":
+            shell.terminalTabs.mockDataEnabled = false
+            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            if let workspace = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [workspace] }
         case "editor": await editor()
         case "rubber": await rubber()
         case "workspaces": await workspaces()
@@ -65,8 +91,20 @@ struct DemoDriver {
         case "connect-mac": await connectMac()
         case "connect-mac-elsewhere": await connectMacElsewhere()
         case "relay-only": await relayOnly()
+        case "large-preview": largePreview()
+        case "large-preview-low-space": largePreview(lowSpace: true)
         // Keyboard verification (verify/keyboard.md): open a screen and leave
         // it to real touches.
+        case "offline-send":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.name = "Offline draft"
+                summary.macName = "Mac"
+                summary.cwd = "~/project"
+                return DisconnectedAgentSource(summary: summary)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "kbd-chat":
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))

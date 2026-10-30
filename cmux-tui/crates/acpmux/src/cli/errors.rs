@@ -7,6 +7,7 @@
 //! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
 
+use cmux_json::JsonSet as _;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +106,7 @@ impl AppError {
     pub fn envelope(&self) -> serde_json::Value {
         let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.exit_status(), "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
         if let Some(data) = &self.data {
-            envelope["error"]["data"] = data.clone();
+            envelope.set_path(&["error", "data"], data.clone());
             for key in ["errorKind", "recovery"] {
                 if let Some(v) = data.get(key) {
                     envelope["error"][key] = v.clone();
@@ -179,7 +180,7 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if lower.contains("connection closed") {
+    if e.is::<crate::client::TransportClosed>() {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
     }
     if lower.contains("no session matches")
@@ -219,6 +220,19 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
         eprintln!("{}", app.envelope());
     } else {
         eprintln!("{}", app.text());
+        // A name several sessions answer to: the exact command for each (`hub/key_route.rs`).
+        if app.detail == crate::hub::key_route::AMBIGUOUS
+            && let Some(data) = &app.data
+        {
+            let args: Vec<String> = std::env::args().collect();
+            let lines = crate::cli::resolve::choice_commands(&args, data);
+            for line in lines.iter().take(10) {
+                eprintln!("  {line}");
+            }
+            if lines.len() > 10 {
+                eprintln!("  … and {} more (`--json` lists every one)", lines.len() - 10);
+            }
+        }
     }
     std::process::exit(app.exit_status());
 }

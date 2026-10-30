@@ -25,6 +25,8 @@ public actor AcpmuxConnection {
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var readTask: Task<Void, Never>?
+    private var terminalError: (any Error)?
+    var isClosed: Bool { terminalError != nil }
     public nonisolated let notifications: AsyncStream<Notification>
     private let continuation: AsyncStream<Notification>.Continuation
 
@@ -34,27 +36,37 @@ public actor AcpmuxConnection {
     }
 
     public func start() {
-        guard readTask == nil else { return }
+        guard readTask == nil, terminalError == nil else { return }
         readTask = Task { await self.readLoop() }
     }
 
     public func request(_ method: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
+        try Task.checkCancellation()
+        if let terminalError { throw terminalError }
         start()
         let id = nextID
         nextID += 1
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            Task {
-                do { try await channel.send(data) } catch { self.fail(id, error) }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                pending[id] = continuation
+                Task {
+                    do { try await channel.send(data) } catch { self.fail(id, error) }
+                }
             }
+        } onCancel: {
+            Task { await self.fail(id, CancellationError()) }
         }
     }
 
     /// `request` that gives up after `timeout` (a read the person waits on: the
-    /// agent catalog). A late reply is dropped.
+    /// agent catalog), or when the task that asked is cancelled. A late reply is dropped.
     public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
         let id = nextID
         let timer = Task { [weak self] in
@@ -63,11 +75,16 @@ public actor AcpmuxConnection {
             await self?.fail(id, LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"))
         }
         defer { timer.cancel() }
-        return try await request(method, params)
+        return try await withTaskCancellationHandler {
+            try await request(method, params)
+        } onCancel: {
+            Task { [weak self] in await self?.fail(id, CancellationError()) }
+        }
     }
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
     public func notify(_ method: String, _ params: JSONValue) async throws {
+        if let terminalError { throw terminalError }
         start()
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "method": .string(method), "params": params])
         try await channel.send(try JSONEncoder().encode(message))
@@ -172,6 +189,8 @@ public actor AcpmuxConnection {
     }
 
     private func finish(_ error: any Error) {
+        guard terminalError == nil else { return }
+        terminalError = error
         for (_, continuation) in pending { continuation.resume(throwing: error) }
         pending.removeAll()
         continuation.finish()
