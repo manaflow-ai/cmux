@@ -2205,6 +2205,25 @@ mod message_notice_tests {
         assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
     }
 
+    /// A replay's older record still goes once more live records than the bound have raised the
+    /// low-water mark past it: the replay never sent it, and a repeat beats a loss.
+    #[test]
+    fn a_replay_record_below_a_risen_floor_still_goes() {
+        let mut n = MessageNotices::default();
+        // The reopen's replay is at seq 10 when the live stream sends more than the bound.
+        let live_from = 1_000u64;
+        for seq in live_from..live_from + MESSAGE_NOTICES_KEPT as u64 + 10 {
+            assert!(n.live(seq));
+        }
+        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+        // The replay reaches records the live stream never sent, below the risen mark.
+        assert!(n.replay(10));
+        assert!(n.replay(live_from + 5), "the replay sends what the bound forgot again");
+        // Ones the live stream sent and still keeps are not sent again.
+        assert!(!n.replay(live_from + MESSAGE_NOTICES_KEPT as u64));
+        assert!(n.kept() <= MESSAGE_NOTICES_KEPT);
+    }
+
     /// A peer's chat that keeps the raw id of one here (an export and import keeps ids) counts its
     /// own seqs: neither chat's record silences the other's of the same seq.
     #[test]
