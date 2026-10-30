@@ -435,8 +435,3 @@ private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
 
-/// Separates observable page ownership from AppKit's non-observable view hierarchy.
-@Observable
-final class PaneNativeToolOwner {
-    weak var model: AgentPaneModel?
-}
