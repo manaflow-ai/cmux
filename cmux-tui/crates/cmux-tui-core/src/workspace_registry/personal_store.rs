@@ -31,7 +31,7 @@ pub(crate) use blobs::require_icon_asset;
 pub const DEFAULT_PROFILE_ID: &str = "default";
 const MIGRATED_META_KEY: &str = "personal_migrated_v1";
 const REVISION_META_KEY: &str = "personal_revision";
-/// Longest accepted transport, browser profile source or proxy JSON, in
+/// Longest accepted session transport or browser profile source JSON, in
 /// bytes. Each is a small object of short fields (a route, a profile folder),
 /// and the longest field is a path, at most 4096 bytes (`PATH_MAX`).
 pub const MAX_PERSONAL_JSON_BYTES: usize = 4096;
