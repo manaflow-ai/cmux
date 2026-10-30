@@ -60,6 +60,25 @@ import Testing
         }
     }
 
+    @Test func galleryParentRailIncludesNestedMembers() throws {
+        try Self.withShape(true) {
+            let fleet = GroupID("g-fleet")
+            let list = SidebarNestedGroupAlignmentTests.list(AAGroupLineGalleryTests.sections(), width: 260)
+            let header = try #require(list.rowViews[.group(fleet)])
+            let rail = try #require(list.groupLineViews.shown[fleet], "the expanded Agent fleet group must draw its rail")
+            let last = try #require(list.rowViews[.workspace(WorkspaceID("tab-switch"))])
+            #expect(rail.alpha == 1)
+            #expect(rail.frame.minX == header.frame.minX)
+            #expect(rail.frame.minY == header.frame.maxY)
+            #expect(rail.frame.width == 4)
+            #expect(rail.frame.maxY == last.frame.maxY)
+            for row in list.displayed.rows where row.y >= rail.frame.minY && row.y < rail.frame.maxY {
+                #expect(rail.frame.maxX <= list.frame(for: row).minX, "the parent rail must remain clear of every member and nested header")
+            }
+            #expect(list.groupLineViews.shown[GroupID("g-design")] == nil, "only the collapsed group omits its rail")
+        }
+    }
+
     @Test func shippedGeometryRemainsTheDefault() throws {
         #expect(SidebarTunables.groupChromeShape.defaultValue == false)
         #expect(SidebarGroupLineLayout.tunable.defaultValue == .edge)

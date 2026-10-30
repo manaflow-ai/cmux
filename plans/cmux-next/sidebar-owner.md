@@ -9,6 +9,9 @@
   quiet header styles and existing defaults stay as shipped. The prototype uses the existing
   group rows and fold animation. `SidebarGroupChromeShapeTests` and `AAGroupLineGalleryTests`
   cover its geometry and before/after variants. Structural change: HOLD for dogfood.
+  Default rationale: `sidebar.groupChromeShape` defaults to false, so existing sidebar geometry
+  remains unchanged until explicitly enabled. Expanded parent groups retain a rail through their
+  nested members; the gallery's Agent fleet group is not an exception.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
