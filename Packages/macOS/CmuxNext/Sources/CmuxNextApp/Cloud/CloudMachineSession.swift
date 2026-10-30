@@ -412,6 +412,8 @@ extension CloudMachineSession {
     /// Wakes this machine for a Cloud space (a paused machine resumes, an ended link connects) and returns once its
     /// daemon is connected. A failed resume ends the wait at once with its reason; the bound is `CloudMove`'s.
     func connectedForSpace() async throws {
+        // A machine the person disconnected stays so until they connect it (its menu's Connect): no wait for it.
+        if disconnected { throw ActionFailure(message: CloudStrings.notConnected) }
         if daemon.connection == nil {
             await refreshIfMaybePaused()
             if machine.status == .paused { attach(origin: .user) } else { connect(origin: .user) }

@@ -148,11 +148,14 @@ extension AppActions {
             services.registry.track(Task { ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) })
             return
         }
+        // With no machine asked for, the create goes where the space creates (a Cloud space's machine), so the page
+        // decision and the key hold below are that daemon's.
+        let spaceDaemon = windows.spaceCreation(spawn, into: target).daemon ?? services.daemon
         // A person's Cmd-N onto the New Tab page in the window they type in: every key from this
         // moment waits for the new page's field, in order (cx-kql5h), not for the workspace to show.
         let input = services.keyRouter.newTabInputCoordinator
         let opensPage = show && hasOpenWindow && spawn.opensNewTabPage && spawn.command == nil && spawn.firstChat == nil
-            && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
+            && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? spaceDaemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.

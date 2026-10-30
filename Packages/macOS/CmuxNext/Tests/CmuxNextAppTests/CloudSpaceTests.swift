@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextCloud
 @testable import CmuxNextDaemon
 import Foundation
@@ -36,6 +37,9 @@ struct CloudSpaceTests {
         return services
     }
 
+    static func isMac(_ creation: MachineRegistry.SpaceCreation) -> Bool { if case .mac = creation { true } else { false } }
+    static func isUnresolved(_ creation: MachineRegistry.SpaceCreation) -> Bool { if case .unresolved = creation { true } else { false } }
+
     /// A Cloud machine `id` this run has not connected (paused, or its link has not answered).
     static func cloudMachine(_ services: AppServices, id: String) -> CloudMachineSession {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-cloud-space-\(UUID().uuidString.prefix(8))")
@@ -51,18 +55,35 @@ struct CloudSpaceTests {
         let services = Self.services()
         let machine = Self.cloudMachine(services, id: "vm-space")
         #expect(machine.daemon.identity == nil, "the machine has not connected in this run")
-        let daemon = try #require(services.machines.creationDaemon(for: Self.cloudSpace), "a Cloud space resolved to no machine")
-        #expect(daemon === machine.daemon, "a Cloud space's new workspace must go to its machine, not the Mac")
-        #expect(services.machines.cloudSession(of: daemon) === machine)
+        #expect(services.machines.creation(in: Self.cloudSpace).daemon === machine.daemon,
+                "a Cloud space's new workspace must go to its machine, not the Mac")
+        #expect(services.machines.cloudSession(of: machine.daemon) === machine)
+        #expect(services.windows.spaceCreation(WorkspaceSpawn(profile: Self.cloudSpace), into: nil).daemon === machine.daemon)
     }
 
-    @Test func aSpaceWithoutADefaultSessionOrWithItsMachineGoneCreatesOnTheMac() {
+    @Test func aPlainSpaceCreatesOnTheMacAndAnUnknownMachineIsRefusedNotMadeOnTheMac() {
         let services = Self.services()
         _ = Self.cloudMachine(services, id: "vm-space")
-        #expect(services.machines.creationDaemon(for: Self.plainSpace) == nil)
-        #expect(services.machines.creationDaemon(for: .defaultProfile) == nil)
-        #expect(services.machines.creationDaemon(for: Self.goneSpace) == nil, "a deleted machine's space falls back to the Mac")
+        #expect(Self.isMac(services.machines.creation(in: Self.plainSpace)))
+        #expect(Self.isMac(services.machines.creation(in: .defaultProfile)))
+        #expect(Self.isUnresolved(services.machines.creation(in: Self.goneSpace)),
+                "a space whose machine is not listed must refuse, never pin a Mac workspace into it")
         #expect(services.machines.cloudSession(of: services.machines.local) == nil)
+    }
+
+    /// Finder's New Workspace Here, `cmux open <dir>`, a resumed or imported chat: what they open is on this Mac.
+    @Test func aCreateCarryingSomethingOfThisMacStaysOnTheMacInACloudSpace() {
+        let services = Self.services()
+        _ = Self.cloudMachine(services, id: "vm-space")
+        var folder = WorkspaceSpawn(opening: "/Users/someone/project")
+        folder.profile = Self.cloudSpace
+        #expect(Self.isMac(services.windows.spaceCreation(folder, into: nil)))
+        var command = WorkspaceSpawn(profile: Self.cloudSpace)
+        command.command = "make"
+        #expect(Self.isMac(services.windows.spaceCreation(command, into: nil)))
+        var session = WorkspaceSpawn(profile: Self.cloudSpace)
+        session.firstSession = "claude-session-1"
+        #expect(Self.isMac(services.windows.spaceCreation(session, into: nil)))
     }
 
     @Test func theSpaceFollowsTheMachineSoItsWorkspacesLeaveTheDefaultSpace() {
@@ -72,13 +93,6 @@ struct CloudSpaceTests {
         let onTheMachine = RoomMembership.Workspace(session: "s-vm", key: "w1")
         #expect(membership.rooms(of: onTheMachine) == [Self.cloudSpace])
         #expect(membership.rooms(of: .init(session: "s-local", key: "w2")) == [.defaultProfile])
-    }
-
-    @Test func onlyACloudTransportNamesAMachine() {
-        #expect(MachineRegistry.cloudMachineID(of: SessionRecord(id: "a", transport: .object(["kind": .string("cloud"), "machine": .string("vm-1")]))) == "vm-1")
-        #expect(MachineRegistry.cloudMachineID(of: SessionRecord(id: "a", transport: .object(["kind": .string("local")]))) == nil)
-        #expect(MachineRegistry.cloudMachineID(of: SessionRecord(id: "a", transport: .object(["kind": .string("cloud"), "machine": .string("")]))) == nil)
-        #expect(MachineRegistry.cloudMachineID(of: SessionRecord(id: "a")) == nil)
     }
 
     /// `create-profile` makes the space, its follow and its default session in one command (the daemon reads

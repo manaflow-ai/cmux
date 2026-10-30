@@ -40,6 +40,20 @@ final class MachineRegistry {
         self.local = local
     }
 
+    /// Where a create in a space goes (`creation(in:)`).
+    enum SpaceCreation {
+        /// The space has no default session: this Mac.
+        case mac
+        /// The space's default session's daemon.
+        case machine(DaemonService)
+        /// The space names a session no listed machine serves (the machine list has not come yet, the account
+        /// signed out, or the machine was deleted): the create is refused, never made on the Mac instead.
+        case unresolved
+
+        /// The machine's daemon, nil for the other cases.
+        var daemon: DaemonService? { if case let .machine(daemon) = self { daemon } else { nil } }
+    }
+
     /// Local first, then Cloud machines, then SSH machines, then servers.
     var daemons: [DaemonService] { [local] + remoteDaemons }
 
@@ -233,25 +247,19 @@ nonisolated struct MachineRoutingRefusal: Error, Equatable {
 // creates there. A Cloud space follows one Cloud machine's session and creates on it, so the window shows that
 // machine's own workspaces, terminals and browser tabs. The session is the stable key; the machine is found
 // through the daemon that serves it now, else through the home registry's record of how to reach it, so a
-// paused machine (no daemon identity yet this launch) still resolves to its Cloud session and wakes.
+// paused machine (no daemon identity yet this launch) still resolves to its session and wakes.
 extension MachineRegistry {
-    /// The space's default session (nil: the local daemon, or the space's machine is gone).
-    func creationDaemon(for profile: ProfileID) -> DaemonService? {
-        guard let session = local.store.profile(profile)?.defaultSessionID else { return nil }
-        return daemon(forSession: session)
+    func creation(in profile: ProfileID) -> SpaceCreation {
+        guard let session = local.store.profile(profile)?.defaultSessionID else { return .mac }
+        guard let daemon = daemon(forSession: session) else { return .unresolved }
+        return daemon.isLocal ? .mac : .machine(daemon)
     }
 
-    /// The daemon serving `sessionID` now, else the Cloud machine the home registry recorded for it.
+    /// The daemon serving `sessionID` now, else the machine the home registry recorded for it.
     func daemon(forSession sessionID: String) -> DaemonService? {
         if let live = daemon(session: sessionID) { return live }
         let record = local.store.personal.session(sessionID.lowercased()) ?? local.store.personal.session(sessionID)
-        return record.flatMap(Self.cloudMachineID(of:)).flatMap(self.session)?.daemon
-    }
-
-    /// The Cloud machine id a session record's transport names (`SessionRegistrar.transport`), nil for any other.
-    nonisolated static func cloudMachineID(of record: SessionRecord) -> String? {
-        guard case let .object(fields)? = record.transport, fields["kind"]?.stringValue == "cloud" else { return nil }
-        return fields["machine"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        return Self.machineID(transport: record?.transport).flatMap(anyDaemon(machine:))
     }
 
     /// The Cloud machine behind `daemon`, if it is one.
