@@ -53,24 +53,12 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// not know is moved to: inside the current workspace's group, after the window's current one.
     func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
-        // The local daemon applies `afterCurrent` in the create commit. When the selected
-        // workspace is present in this sidebar, that is already the desired slot; sending the
-        // same slot through the drag path would create a second state/layout pass.
-        if placement == .afterCurrent,
-           let current,
-           current != id,
-           current != home,
-           slot == .below(current),
-           sections.contains(where: { section in
-               section.nodes.contains { node in
-                   guard case let .workspace(workspace) = node else { return false }
-                   return workspace.id.rawValue == current
-               }
-           }) {
-            return nil
-        }
-        let isPinnedCurrent = placement == .afterCurrent && current.map { Self.isPinned($0, in: sections) } == true
-        if slot == Self.top(for: id, section: section, in: sections, home: home), !isPinnedCurrent { return nil }
+        // The local daemon normally applies the setting in the create commit. Compare the
+        // resulting row's actual position with the desired slot before using the drag path: this
+        // keeps the common case to one layout pass while repairing a pinned or cross-window race.
+        guard let desired = slot.position(moving: [id], section: section, in: sections),
+              let actual = Self.position(of: id, in: section, sections: sections),
+              desired != actual else { return nil }
         return slot
     }
 
@@ -107,6 +95,26 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             guard case let .workspace(workspace) = node else { return false }
             return workspace.id.rawValue == id
         } == true
+    }
+
+    private static func position(of id: String, in section: SectionID, sections: [SidebarRowSection]) -> DropPosition? {
+        guard let listed = sections.first(where: { $0.id == section }) else { return nil }
+        for (index, node) in listed.nodes.enumerated() {
+            switch node {
+            case let .workspace(workspace) where workspace.id.rawValue == id:
+                return DropPosition(section: section, index: index)
+            case let .group(group):
+                if let index = group.members.firstIndex(where: { member in
+                    if case let .workspace(workspace) = member { return workspace.id.rawValue == id }
+                    return false
+                }) {
+                    return DropPosition(section: section, group: group.id, index: index)
+                }
+            default:
+                break
+            }
+        }
+        return nil
     }
 }
 
