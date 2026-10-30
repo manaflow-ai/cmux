@@ -17,8 +17,9 @@ extension LiveCoordinator {
         }
         await withTaskGroup(of: Void.self) { group in
             for mac in eligible {
-                group.addTask { @MainActor in
-                    await recover(mac.id)
+                let id = mac.id
+                group.addTask {
+                    await recover(id)
                 }
             }
         }
