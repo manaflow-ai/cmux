@@ -152,7 +152,7 @@ final class ChatsOpenCoordinator {
         // The page's store id (it may have been provisional at the click). The New Tab page is an
         // agent tab, not an internal page tab: its pane is found by its tab model.
         let page = services.agentTabs.resolve(page)
-        guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTabOnAnyMachine(page),
+        guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page, onMachine: services.machines.local.machineID),
               let pane = services.paneController(for: model) else { return false }
         // A page of another machine never becomes a chat of this Mac (cx-k21v): the chat opens in a
         // new workspace of this Mac instead, as before open-here.

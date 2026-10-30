@@ -86,7 +86,7 @@ struct HistoryRestorer {
     /// Resolves the old pane for a history session on the session's machine.
     /// A duplicate tab id on another machine must never redirect a resume.
     func paneForResume(_ session: AgentSession) -> PaneModel? {
-        session.tab.flatMap { services.locateTabOnAnyMachine($0)?.1 }
+        session.tab.flatMap { services.locateTab($0, onMachine: session.machine)?.1 }
     }
 
     /// Runs a command again in a new terminal tab, in its directory, on its
