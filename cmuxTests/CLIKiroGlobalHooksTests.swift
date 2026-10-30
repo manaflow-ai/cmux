@@ -166,6 +166,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ownership = try XCTUnwrap(afterPartial.last)
         XCTAssertEqual(ownership["enabled"] as? Bool, false, "the ownership marker must never run")
 
+        // The marker alone is not a global install, so the default install
+        // must not warn about double-firing hooks.
+        let defaultInstall = try runKiroHooksCLI(["hooks", "kiro", "install", "--yes"], environment: env)
+        XCTAssertEqual(defaultInstall.status, 0, defaultInstall.stderr)
+        XCTAssertFalse(defaultInstall.stdout.contains("twice"), defaultInstall.stdout)
+
         // The marker lets a later install adopt the file again, keeping the user entry.
         let reinstall = try runKiroHooksCLI(["hooks", "kiro", "install", "--global", "--yes"], environment: env)
         XCTAssertEqual(reinstall.status, 0, reinstall.stderr)

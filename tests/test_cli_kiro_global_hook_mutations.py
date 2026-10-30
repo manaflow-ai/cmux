@@ -50,6 +50,32 @@ class KiroGlobalHookMutationTests(unittest.TestCase):
             self.assertTrue(path.is_symlink())
             self.assertFalse(missing.exists())
 
+    def test_live_user_symlink_is_written_through(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            path = root / ".kiro" / "hooks" / "cmux.json"
+            path.parent.mkdir(parents=True)
+            target = root / "dotfiles" / "kiro-hooks.json"
+            target.parent.mkdir()
+            user = {"name": "user-hook", "trigger": "Stop",
+                    "action": {"type": "command", "command": "true"}}
+            target.write_text(json.dumps({"version": "v1", "hooks": [
+                {"name": "cmux-session-start", "trigger": "SessionStart",
+                 "action": {"type": "command", "command": ": cmux-kiro-global-hook; exit 0"}}, user]}))
+            target.chmod(0o600)
+            path.symlink_to(target)
+            env = {"HOME": str(root), "CFFIXED_USER_HOME": str(root), "PATH": "/usr/bin:/bin",
+                   "CMUX_CLI_SENTRY_DISABLED": "1", "CMUX_SOCKET_PATH": str(root / "no-socket")}
+            for action in ("install", "uninstall"):
+                result = subprocess.run([str(resolve_cmux_cli()), "hooks", "kiro", action, "--global", "--yes"],
+                                        env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(path.is_symlink(), action)
+                self.assertEqual(os.readlink(path), str(target))
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600, action)
+                self.assertIn(user, json.loads(target.read_text())["hooks"])
+            self.assertFalse((path.parent / "cmux.json.lock").exists())
+
     def test_competing_file_is_preserved_for_install_and_uninstall(self):
         for action, keep_foreign in (("install", False), ("uninstall", False), ("uninstall", True)):
             with self.subTest(action=action, keep_foreign=keep_foreign), tempfile.TemporaryDirectory() as root:
@@ -68,7 +94,8 @@ class KiroGlobalHookMutationTests(unittest.TestCase):
                     "CMUX_SOCKET_PATH": str(root / "no-socket"),
                     "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                 }
-                with open(str(path) + ".lock", "a") as lock:
+                lock_path = str(root / ".kiro" / ".cmux-global-hooks.lock")
+                with open(lock_path, "a") as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX)
                     child = subprocess.Popen(
                         [str(resolve_cmux_cli()), "hooks", "kiro", action, "--global", "--yes"],
@@ -82,10 +109,10 @@ class KiroGlobalHookMutationTests(unittest.TestCase):
                         while time.monotonic() < deadline:
                             self.assertIsNone(child.poll(), "CLI mutated the file without taking the held lock")
                             opened = subprocess.run(
-                                ["/usr/sbin/lsof", "-a", "-p", str(child.pid), "-Fn", str(path) + ".lock"],
+                                ["/usr/sbin/lsof", "-a", "-p", str(child.pid), "-Fn", lock_path],
                                 capture_output=True, text=True, timeout=5,
                             )
-                            if str(path) + ".lock" in opened.stdout:
+                            if lock_path in opened.stdout:
                                 break
                             time.sleep(0.02)
                         else:
