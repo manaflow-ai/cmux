@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -130,6 +131,73 @@ struct HomeDockOpensTests {
             try await PasswordManagerRouteTests.until({ window.focusedPane?.pane === right }, report: {
                 "the foreground \(kind) did not take focus in its destination"
             })
+        }
+    }
+
+    /// The create reply is not the end of a terminal open from Home: its move is another async
+    /// step. Hold the store listing to leave placement pending, then let the move fail normally.
+    /// Both optimistic and non-optimistic creators resolve their ticket immediately after `placed`.
+    @Test func aHomePlacementKeepsCreationInputPendingAfterTheCreateReply() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, _, dock) = try await Self.openHome(services, connection)
+            let shell = try #require(window.window)
+            let content = try #require(dock.workspace)
+            let input = services.keyRouter.creationInputCoordinator
+            let creation = try #require(input.begin(in: shell, generation: content.beginFocusIntent()))
+            let pending = ProvisionalTab()
+            let placed = try #require(HomeDockOpens.placing(dock.pane, services: services, focus: true, then: nil))
+            // The surface is not listed yet, so LinkOpener waits rather than starting the move.
+            placed(pending.surface)
+            input.resolve(creation, landed: true, in: shell)
+            await Task.yield()
+            #expect(input.hasPendingCreation(in: shell), "create reply released the keys before placement")
+            #expect(content.focus.state.expectation?.awayFrom == dock.paneKey,
+                    "the old Home terminal may not satisfy destination focus")
+
+            // List a stand-in the real daemon does not own: the attempted move fails and releases
+            // the placement hold through its ordinary failure fallback, not the expiration timer.
+            let transaction = ClientTransactionID.generate()
+            defer { services.daemon.store.rejectIntent(transaction) }
+            services.daemon.store.intend(.createTab(pane: dock.pane.handle, provisional:
+                TabSnapshot(surface: pending.surface, tabResourceID: ResourceID(rawValue: pending.id))), transaction: transaction)
+            try await PasswordManagerRouteTests.until({ !input.hasPendingCreation(in: shell) }, report: {
+                "the failed Home placement kept its input ticket"
+            })
+        }
+    }
+
+    /// A foreground page kept its provisional tab unselected to avoid flashing Home's strip.
+    /// If creation fails, the same local view must become visible; a background or superseded
+    /// request must leave the old selection alone.
+    @Test(arguments: ["foreground", "background", "superseded"])
+    func aFailedHomePageOpenRevealsOnlyItsCurrentForegroundFallback(_ request: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, _, dock) = try await Self.openHome(services, connection)
+            let original = try #require(dock.stripModel.selectedID)
+            let create = services.pages.createStoreTab
+            var fail: CheckedContinuation<Void, Never>?
+            services.pages.createStoreTab = { _, _, _, _, _ in
+                await withCheckedContinuation { fail = $0 }
+                throw DaemonError.notConnected
+            }
+            defer { services.pages.createStoreTab = create; fail?.resume() }
+            let view = try #require(services.pages.openStoreTab(.inbox, in: dock, window: window,
+                                                              focus: request != "background"))
+            try await PasswordManagerRouteTests.until({ fail != nil })
+            #expect(dock.stripModel.selectedID == original, "the provisional page selected itself in Home")
+            if request == "superseded" { _ = dock.workspace?.beginFocusIntent() }
+            let reply = fail
+            fail = nil
+            reply?.resume()
+            try await PasswordManagerRouteTests.until({ services.pages.tabIDs(in: dock.paneKey).contains(view.key) })
+            if request == "foreground" {
+                try await PasswordManagerRouteTests.until({ dock.currentTabKey == view.key }, report: {
+                    "the failed foreground page stayed hidden behind \(dock.currentTabKey ?? "nil")"
+                })
+            } else {
+                #expect(dock.stripModel.selectedID == original, "a \(request) failure stole focus")
+            }
+            #expect(services.pages.existingView(view.key) === view, "fallback replaced the page's view")
         }
     }
 

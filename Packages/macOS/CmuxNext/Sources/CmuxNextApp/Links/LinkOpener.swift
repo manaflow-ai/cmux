@@ -300,7 +300,16 @@ final class LinkOpener {
         outbound?.made(surface)
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
+        let window = source.view.window
+        let input = services.keyRouter.creationInputCoordinator
+        let keys = focus ? input.continueCreation(in: window, generation: intent) : nil
+        if keys != nil, let intent {
+            // The source still holds the tab: only the destination may satisfy this focus request.
+            source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent)
+        }
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
+            var landed = false
+            defer { input.resolve(keys, landed: landed, in: window) }
             let listed = Task { @MainActor () -> TabModel? in
                 if let tab = store.tab(surface: surface) { return tab }
                 // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
@@ -337,10 +346,12 @@ final class LinkOpener {
             if moved {
                 if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
+                landed = true
                 return nil
             }
             source.select(StripTabID(tab.id))
             if focus { source.focusContent() }
+            landed = focus
             return "link open: the move to the right failed (see the app log)"
         })
     }

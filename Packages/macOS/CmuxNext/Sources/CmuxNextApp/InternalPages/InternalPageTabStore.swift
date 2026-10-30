@@ -252,6 +252,9 @@ final class InternalPageTabStore {
                 pane.apply(pane.snapshot())
             }
         }
+        // Home kept the provisional tab unselected for placement. If creation fails, its local
+        // fallback must still honor a foreground open, unless the person chose something else.
+        let fallbackIntent = focus && !selectHere ? pane?.workspace?.beginFocusIntent() : nil
         let create = createStoreTab, handle = model.handle, paneKey = model.id
         services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
@@ -265,7 +268,8 @@ final class InternalPageTabStore {
             } catch {
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
                 if !store.creations.wasCancelled(transaction) {
-                    self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window)
+                    self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window,
+                                        focus: fallbackIntent.map { pane?.workspace?.focus.state.generation == $0 } == true)
                 }
                 store.rejectIntent(transaction)
             }
@@ -290,9 +294,10 @@ final class InternalPageTabStore {
     }
 
     /// The store refused provisional page tab `id`: its page stays, as an
-    /// app-only tab in `pane` holding the same view, selected if it was.
+    /// app-only tab in `pane` holding the same view, selected if it was or its still-current
+    /// foreground Home open deferred selection to placement.
     private func keepAsLocalTab(_ id: String, key: String, page: InternalPageID, in paneKey: String, controller pane: PaneController?,
-                                store: DaemonStore, window: WindowController) {
+                                store: DaemonStore, window: WindowController, focus: Bool) {
         storeKeys[id] = nil
         storeTabStores[id] = nil
         seenLive.remove(id)
@@ -305,7 +310,7 @@ final class InternalPageTabStore {
         open(page, in: paneKey, of: store, after: id, window: window, key: key)
         guard let pane else { return }
         pane.apply(pane.snapshot())
-        if selected { reveal(key, in: pane) }
+        if selected || focus { reveal(key, in: pane) }
     }
 
     /// Lets the view of every store page tab `store` listed and lists no
