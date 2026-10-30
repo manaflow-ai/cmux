@@ -91,7 +91,8 @@ import Testing
     @Test func aStaleDepthOrMissingParentNeverIndents() {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func group(_ id: String, parent: String?, depth: Int) -> SidebarNode {
-            var g = SidebarGroup(id: GroupID(id), name: id, workspaces: [SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: id)])
+            // Its member named apart from the group, so the group keeps its header (`SidebarLayout.soleMember`).
+            var g = SidebarGroup(id: GroupID(id), name: id, workspaces: [SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: "w-\(id)")])
             g.parent = parent.map(GroupID.init)
             g.depth = depth
             return .group(g)
