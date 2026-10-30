@@ -88,9 +88,20 @@ extension TabContentCache {
                                    accepts: @escaping () -> Bool) async -> CGImage? {
         defer { pageCapturesInFlight.remove(key) }
         let budget = pageCaptureDeadline
-        guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
-            try await request.image()
-        }) else { return nil }
+        let image: CGImage
+        do {
+            image = try await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
+                try await request.image()
+            })
+        } catch BrowserTabError.snapshotUnavailable {
+            // The engine refused (a page hidden or closing before its turn, 223988ec101): the card keeps its last
+            // picture, or its placeholder. Counted, so the loss shows in `debug.hover_sweep`.
+            pageCaptureRefusals += 1
+            return nil
+        } catch {
+            pageCaptureFailures += 1
+            return nil
+        }
         let fitted = await TabPreviewFitting.fit(image, TabPreviewFitting.cachedPixelSize)
         let picture = await pageThumbnails.picture(of: fitted)
         guard accepts() else { return nil }

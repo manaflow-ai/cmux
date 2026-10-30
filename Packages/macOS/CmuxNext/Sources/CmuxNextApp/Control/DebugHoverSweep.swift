@@ -79,7 +79,9 @@ enum DebugHoverSweep {
             "max_retarget_ms": .number(times.max() ?? 0),
             "frames": stats,
             "page_thumbnails": .object(["count": .number(Double(services.cache.pageThumbnails.count)),
-                                        "bytes": .number(Double(services.cache.pageThumbnails.totalBytes))]),
+                                        "bytes": .number(Double(services.cache.pageThumbnails.totalBytes)),
+                                        "refused": .number(Double(services.cache.pageCaptureRefusals)),
+                                        "failed": .number(Double(services.cache.pageCaptureFailures))]),
             "card_thumbnails_shown": .number(Double(cards.count)),
         ])
     }
