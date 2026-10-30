@@ -1563,7 +1563,7 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                expected_without_retry = SIDE
+                expected_without_retry = LARGE if name == "fast-tier" else SIDE
                 # The bot's attempt 2, placed afresh, takes its retry label; an earlier reading never.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), expected_without_retry)
