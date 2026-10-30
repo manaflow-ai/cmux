@@ -9,7 +9,7 @@ import Testing
 struct AcpmuxStatusClientSocketPathTests {
     @Test func aSocketPathPastTheUnixLimitIsRefusedNotATrap() async {
         let path = "/" + String(repeating: "p", count: AcpmuxEnvironment.maxSocketPathBytes) + "/acpmux.sock"
-        await #expect(throws: AcpmuxStatusClient.Failure.self) {
+        await #expect(throws: AcpmuxStatusClient.Failure.socketPathTooLong(path)) {
             _ = try await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status", deadline: .seconds(2))
         }
     }
