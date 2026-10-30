@@ -31,7 +31,8 @@ so on an owned Mac it must have the mini to itself:
   $GITHUB_ENV, and the job's first step (scripts/ci/signing-runner-claim.sh)
   fails before any secret is read when that claim is missing on an owned Mac.
 - `runner` and `alternate` are nightly_sign_runner.py's Blacksmith picks: the
-  label whose queue moves, and the other size a re-run takes.
+  label whose queue moves, and the other size a re-run takes. `placement` is
+  `unverified` when no fresh pool snapshot backs them (nightly_sign_runner.place()).
 
 The workflow takes `owned` only on attempt 1; a re-run takes `alternate`, so a
 job an owned runner refused or left queued leaves the fleet. It never fails the
@@ -39,7 +40,7 @@ job and never prints an empty `runner`:
 
     ENABLED=<vars.CI_SIGN_OWNED> ROUTE_TOKEN=<org runners: read> OWNED_LABELS='<a> <b>' \\
         SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> signing_runner.py
-    -> owned=..., runner=..., alternate=... in $GITHUB_OUTPUT
+    -> owned=..., runner=..., alternate=..., placement=... in $GITHUB_OUTPUT
 
 `signing_runner.py owned` prints only `owned` (pick-nightly-sign-runner already
 prints the Blacksmith pair).
@@ -52,6 +53,7 @@ import datetime as dt
 import json
 import os
 import sys
+import time
 import urllib.error
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -245,24 +247,30 @@ def owned_pick(env: Mapping[str, str],
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_jobs: Callable[[str], Any] | None = None,
-         read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None) -> int:
+         read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
+         sleep: Callable[[float], None] = time.sleep) -> int:
     owned, owned_why = owned_pick(env, read_runners, read_jobs)
     if list(argv[:1]) == ["owned"]:
         write_output(env, {"owned": owned}, [f"owned: {owned or 'none'} ({owned_why})"])
         return 0
     now = now or dt.datetime.now(dt.timezone.utc)
     variable = (env.get("CANDIDATE") or "").strip()
-    snapshot = None
+    snapshot, problem = None, "no token to read the pool snapshot"
     token, repo = env.get("SNAPSHOT_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if token and repo:
-        try:
-            snapshot = (read_snapshot or (lambda t, r: pool.GitHub(t, r).snapshot(now=now)))(token, repo)
-        except Exception as error:  # noqa: BLE001 - the variable keeps its say
-            print(f"::warning title=signing runner::could not read the pool snapshot ({str(error)[:200]})")
-    label, why = blacksmith_picker.pick(variable, snapshot, now)
-    rerun_pick = (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1")
-    other = label if rerun_pick else blacksmith_picker.alternate(variable, label, snapshot, now)
-    write_output(env, {"owned": owned, "runner": label, "alternate": other},
+        reader = read_snapshot or (lambda t, r: pool.GitHub(t, r).snapshot(now=now))
+        snapshot, problem = blacksmith_picker.read_snapshot(lambda: reader(token, repo), "signing runner",
+                                                            sleep=sleep)
+    try:
+        attempt = max(1, int((env.get("GITHUB_RUN_ATTEMPT") or "1").strip() or "1"))
+    except ValueError:
+        attempt = 1
+    # Without a fresh snapshot the Blacksmith pick is unverified and says so (nightly_sign_runner.place()).
+    label, other, why, verified = blacksmith_picker.place(variable, snapshot, now, attempt, problem)
+    if not verified:
+        print(f"::warning title=signing runner::{why}")
+    write_output(env, {"owned": owned, "runner": label, "alternate": other,
+                       "placement": "verified" if verified else "unverified"},
                  [f"owned: {owned or 'none'} ({owned_why})", f"blacksmith: {why}; a re-run takes `{other}`"])
     return 0
 
