@@ -591,10 +591,24 @@ export class SubagentFold {
 
   private parentFor(sender: string, recordedParent: unknown, child: string, event: Event): string | null {
     if (this.rootThreads.has(sender)) return null;
-    if (this.agents.has(sender)) return sender;
+    if (this.agents.has(sender)) return this.canParent(child, sender) ? sender : null;
     if (!this.pending.has(sender)) this.pending.set(sender, new Map());
     this.pending.get(sender)!.set(child, event);
-    return typeof recordedParent === "string" && !this.rootThreads.has(recordedParent) ? recordedParent : null;
+    const recorded =
+      typeof recordedParent === "string" && !this.rootThreads.has(recordedParent) ? recordedParent : undefined;
+    return recorded !== undefined && this.canParent(child, recorded) ? recorded : null;
+  }
+
+  /// Whether putting `child` under `parent` would close a lineage cycle.
+  private canParent(child: string, parent: string): boolean {
+    if (child === parent) return false;
+    let at: string | undefined = parent;
+    for (let i = 0; i <= this.agents.size; i += 1) {
+      if (at === child) return false;
+      at = this.agents.get(at)?.parent ?? undefined;
+      if (at === undefined) return true;
+    }
+    return false;
   }
 
   private resolvePending(sender: string, parent: string | null): void {
@@ -622,7 +636,7 @@ export class SubagentFold {
         this.changed.add(this.open);
         continue;
       }
-      if (agent.parent !== null) continue;
+      if (agent.parent !== null || !this.canParent(child, parent)) continue;
       const group = this.groupOf.get(child);
       if (group) {
         group.ids = group.ids.filter((id) => id !== child);
@@ -833,7 +847,10 @@ export class SubagentFold {
     }
     let agent = this.agents.get(change.id);
     if (!agent) {
-      const parent = typeof change.parent === "string" && !this.isChat(change.parent) ? change.parent : null;
+      const parent =
+        typeof change.parent === "string" && !this.isChat(change.parent) && this.canParent(change.id, change.parent)
+          ? change.parent
+          : null;
       const name = text(change.name) ?? text(change.task) ?? change.id;
       agent = {
         id: change.id,

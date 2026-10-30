@@ -556,6 +556,9 @@ impl SubagentTree {
     fn resolve_pending(&mut self, sender: &str) {
         let Some(children) = self.pending.remove(sender) else { return };
         for child in children {
+            if self.is_ancestor(&child, Some(sender)) {
+                continue;
+            }
             if let Some(parent) = self.parents.get_mut(&child) {
                 *parent = Some(sender.to_owned());
             }
