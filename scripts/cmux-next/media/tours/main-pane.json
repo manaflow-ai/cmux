@@ -4,6 +4,7 @@
   "steps": [
     {"title": "Launch", "wait": 2},
     {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Main"], "shot": false},
+    {"title": "Focus Main workspace", "cmux": ["workspace", "name:Main", "focus"], "shot": false},
     {"title": "An agent chat docks left, the terminal sits on its right", "cmux": ["agent", "new-chat"], "wait": 5,
      "optional": "agent backend unavailable on this runner"},
     {"title": "Focus the terminal column", "cmux": ["action", "run", "focusRight"], "shot": false},
