@@ -62,6 +62,14 @@ class ReleaseNotesTests(unittest.TestCase):
             notes.pr_description("## Summary\n\nImplementation details.\n\n## Changelog\n\nnone", "Tabs stay put"),
             "Tabs stay put.",
         )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nTabs stay put after a restart,\nacross every workspace window."),
+            "Tabs stay put after a restart, across every workspace window.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Changelog\n\nFixed: Tabs stay put after a restart,\nacross every workspace window."),
+            "Tabs stay put after a restart, across every workspace window.",
+        )
 
     def test_description_safety_and_sentence_boundaries(self):
         import importlib.util

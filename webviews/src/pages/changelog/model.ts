@@ -79,6 +79,7 @@ export function distinctSummary(title: string, summary: string): string {
   const key = (text: string) =>
     text
       .trim()
+      .replace(/^["'“‘«]+|["'”’»]+$/gu, "")
       .replace(/[.!…\s]+$/u, "")
       .toLowerCase();
   return key(summary) === key(title) ? "" : summary;

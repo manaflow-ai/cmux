@@ -287,6 +287,8 @@ def pr_description(body, fallback=""):
     lines = [line.strip() for line in body.splitlines()]
     section = None
     candidates = []
+    summary_parts = []
+    changelog_parts = []
     for line in lines:
         heading = HEADING.match(line)
         if heading:
@@ -300,12 +302,19 @@ def pr_description(body, fallback=""):
                 return fallback
             match = CHANGELOG_LINE.match(line)
             if match:
-                description = _candidate_description(match["text"])
-                return description or fallback
+                if changelog_parts:
+                    candidates.append(" ".join(changelog_parts))
+                changelog_parts = [match["text"]]
+                continue
             if not line.startswith(("##", "###")):
-                candidates.append(line)
+                if changelog_parts:
+                    changelog_parts.append(line)
         elif section == "summary":
-            candidates.append(line)
+            summary_parts.append(line)
+    if changelog_parts:
+        candidates.append(" ".join(changelog_parts))
+    if summary_parts:
+        candidates.insert(0, " ".join(summary_parts))
     for candidate in candidates:
         text = _candidate_description(candidate)
         if text and _safe_description(text) and not text.lower().startswith(("none", "generated with", "agent session")):
