@@ -87,11 +87,17 @@ public final class RecoveryDraftStore {
     }
 
     /// The drafts on disk whose restore notice has not shown yet (read at
-    /// launch). Each is recorded as announced next to its draft, by id and
-    /// `savedAt`, so a later launch shows only a newer draft of that document.
+    /// launch): no record from `markAnnounced` for their current `savedAt`.
     /// The drafts stay on disk, still restorable.
     public func unannouncedDrafts() async -> [RecoveryDraft] {
-        await RecoveryDraftFiles.takeUnannounced(in: directory)
+        await RecoveryDraftFiles.unannounced(in: directory)
+    }
+
+    /// Records, next to the draft, that its restore notice showed (called
+    /// once the toast is up): later launches skip it until a newer draft of
+    /// its document is written.
+    public func markAnnounced(_ draft: RecoveryDraft) async {
+        await RecoveryDraftFiles.markAnnounced(draft, in: directory)
     }
 
     /// Whether the document's file differs from the draft's base, or (with
@@ -177,7 +183,7 @@ package nonisolated struct RecoveryDraftFiles {
         let temp = directory.appendingPathComponent(".\(UUID().uuidString).tmp")
         let fd = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { return false }
-        // concurrency-allow: called only from @concurrent write and takeUnannounced, never on the main actor
+        // concurrency-allow: called only from @concurrent write and markAnnounced, never on the main actor
         let written = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
         let synced = fsync(fd) == 0
         close(fd)
@@ -212,28 +218,27 @@ package nonisolated struct RecoveryDraftFiles {
         unlink(directory.appendingPathComponent(announcementName(id)).path)
     }
 
-    /// The drafts whose notice has not shown for their current `savedAt`;
-    /// records each as announced. A record whose draft is gone is deleted.
-    @concurrent package static func takeUnannounced(in directory: URL) async -> [RecoveryDraft] {
+    /// The drafts whose notice has not shown for their current `savedAt`.
+    /// A record whose draft is gone is deleted.
+    @concurrent package static func unannounced(in directory: URL) async -> [RecoveryDraft] {
         let drafts = await readAll(in: directory)
         let live = Set(drafts.map { announcementName($0.id) })
         let files = (try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         for file in files where file.pathExtension == announcementExtension && !live.contains(file.lastPathComponent) {
             unlink(file.path)
         }
-        var unannounced: [RecoveryDraft] = []
-        for draft in drafts {
+        return drafts.filter { draft in
             let record = directory.appendingPathComponent(announcementName(draft.id))
-            if let data = try? Data(blockingContentsOf: record),
-               let seen = try? JSONDecoder().decode(Announcement.self, from: data), seen == Announcement(draft) {
-                continue
-            }
-            unannounced.append(draft)
-            if let data = try? JSONEncoder().encode(Announcement(draft)) {
-                _ = writeAtomically(data, to: record, in: directory)
-            }
+            guard let data = try? Data(blockingContentsOf: record),
+                  let seen = try? JSONDecoder().decode(Announcement.self, from: data) else { return true }
+            return seen != Announcement(draft)
         }
-        return unannounced
+    }
+
+    /// Writes the record that `draft`'s notice showed (temp + fsync + rename, 0600).
+    @concurrent package static func markAnnounced(_ draft: RecoveryDraft, in directory: URL) async {
+        guard let data = try? JSONEncoder().encode(Announcement(draft)) else { return }
+        _ = writeAtomically(data, to: directory.appendingPathComponent(announcementName(draft.id)), in: directory)
     }
 
     @concurrent package static func readAll(in directory: URL) async -> [RecoveryDraft] {

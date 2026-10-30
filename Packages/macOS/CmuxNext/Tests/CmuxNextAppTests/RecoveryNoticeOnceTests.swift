@@ -67,6 +67,18 @@ import Testing
         #expect(await Self.launch(directory).isEmpty, "the newer draft toasted again at the next launch")
     }
 
+    /// A launch that read the drafts but showed no toast (a crash, a closed window) records
+    /// nothing: the record is written only once the toast is up (Codex review of #28305).
+    @Test func aDraftWhoseToastNeverShowedStillToasts() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await Self.writeDraft(savedAt: 1000, text: "first", in: directory)
+        #expect(await RecoveryDraftStore(directory: directory).unannouncedDrafts().map(\.id) == [Self.id])
+        #expect(await RecoveryDraftStore(directory: directory).unannouncedDrafts().map(\.id) == [Self.id])
+        #expect(await Self.launch(directory).count == 1)
+        #expect(await RecoveryDraftStore(directory: directory).unannouncedDrafts().isEmpty)
+    }
+
     @Test func noDraftShowsNothing() async {
         let directory = Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
