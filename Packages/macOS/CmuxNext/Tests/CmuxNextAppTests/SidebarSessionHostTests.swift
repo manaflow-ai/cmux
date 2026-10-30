@@ -123,6 +123,38 @@ import Testing
         #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 0)
     }
 
+    @Test func missingLocalIdentityNeverTreatsLocalChatsAsFleet() {
+        let chats = [(Self.parent, [AgentSessionRef(host: "install:unknown", hostName: "This Mac", session: "local")])]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], localHost: nil, pullRequests: [:])
+        #expect(pass.state.hosts.isEmpty)
+    }
+
+    @Test func lineageNestingRemainsInPinnedSectionWhenFleetHostsExist() {
+        let pinned = SidebarSection(kind: .pinned, nodes: [
+            .workspace(SidebarWorkspace(id: Self.parent, title: "Pinned coordinator")),
+            .workspace(SidebarWorkspace(id: Self.child, title: "Pinned worker")),
+        ])
+        let machine = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+                                     nodes: [.workspace(SidebarWorkspace(id: Self.other, title: "Remote root"))])
+        var options = SidebarLayoutOptions(); options.sessionTree = Self.state()
+        let layout = SidebarLayout.make(sections: [pinned, machine], metrics: .standard, options: options)
+        #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 1)
+        #expect(layout.row(for: .workspace(Self.child))?.section == .pinned)
+    }
+
+    @Test func hostGroupsStaySeparatedByMachineSection() {
+        let first = SidebarMachine(id: MachineID("one"), name: "One", kind: .ssh)
+        let second = SidebarMachine(id: MachineID("two"), name: "Two", kind: .ssh)
+        let one = SidebarSection(kind: .machine(first), nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "One root"))])
+        let two = SidebarSection(kind: .machine(second), nodes: [.workspace(SidebarWorkspace(id: Self.other, title: "Two root"))])
+        var state = Self.state(); state.hosts[Self.other] = "registry:other"
+        var options = SidebarLayoutOptions(); options.sessionTree = state
+        let layout = SidebarLayout.make(sections: [one, two], metrics: .standard, options: options)
+        #expect(layout.rows.filter { if case .sessionHost = $0.key { true } else { false } }.count == 2)
+        #expect(layout.row(for: .workspace(Self.parent))?.section == .machine(MachineID("one")))
+        #expect(layout.row(for: .workspace(Self.other))?.section == .machine(MachineID("two")))
+    }
+
     @Test func disabledTreeAndWorkspacesWithoutAgentRefsKeepTheirExistingRows() {
         let disabled = Self.layout(nil)
         #expect(disabled.rows.map(\.key) == [.workspace(Self.parent), .workspace(Self.other), .workspace(Self.child)])
@@ -170,6 +202,7 @@ import Testing
         #expect(layout.row(for: .sessionHost(Self.host)) != nil)
         #expect(layout.rows.filter { $0.key == .workspace(Self.child) }.count == 1)
         #expect(layout.row(for: .workspace(Self.child))?.siblingIndex == 2)
+        #expect(layout.row(for: .workspace(Self.child))?.dropIndex == 2)
     }
 
     @Test func dropBeforeReorderedChildAndAtListEndReservesRealSpace() throws {
