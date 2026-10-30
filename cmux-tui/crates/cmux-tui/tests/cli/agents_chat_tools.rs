@@ -613,10 +613,31 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     let workspace = workspace(&daemon);
     let caller = chat(&daemon, Some(&workspace));
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    // No app answers: nothing starts (#27934). A chat in the caller's own acpmux instead would be
+    // one no tab of the app can attach ("This chat isn't available").
     let no_app = daemon.dir.join("no-app.sock");
+    let mut without_app = cmux(&daemon, Some(&caller));
+    without_app.arg("--app-socket").arg(&no_app);
+    let sessions = || {
+        let listed = Acp::connect(&daemon).call("_acpmux/sessions", json!({}));
+        listed["result"]["sessions"].as_array().map_or(0, Vec::len)
+    };
+    let before = sessions();
+    let (code, refused) = chat_json(
+        without_app,
+        &["new", "--workspace", &workspace, "--cwd", work.to_str().unwrap(), "--", "hi"],
+    );
+    assert_eq!(code, Some(3), "{refused}");
+    assert_eq!(error_of(&refused)["code"], "chat.app_acpmux_unavailable", "{refused}");
+    assert_eq!(error_of(&refused)["retryable"], true, "{refused}");
+    assert_eq!(sessions(), before, "a chat started without the app: {refused}");
+
+    // An app whose acpmux is the caller's own, that shows no tab.
+    let app = daemon.dir.join("app.sock");
+    fake_app_with_acpmux_opening(&app, daemon.dir.join("acpmux/acpmux.sock"), false);
     let as_caller = || {
         let mut command = cmux(&daemon, Some(&caller));
-        command.arg("--app-socket").arg(&no_app);
+        command.arg("--app-socket").arg(&app);
         command
     };
 
@@ -748,6 +769,11 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
 /// acpmux), `action.run` answers a run with a tab, anything else is not in this app. Serves
 /// until the test process ends.
 fn fake_app_with_acpmux(socket: &std::path::Path, acpmux: PathBuf) {
+    fake_app_with_acpmux_opening(socket, acpmux, true);
+}
+
+/// `fake_app_with_acpmux` whose `action.run` refuses unless `opens`.
+fn fake_app_with_acpmux_opening(socket: &std::path::Path, acpmux: PathBuf, opens: bool) {
     let listener = UnixListener::bind(socket).unwrap();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -762,7 +788,7 @@ fn fake_app_with_acpmux(socket: &std::path::Path, acpmux: PathBuf) {
                     let response = match request["method"].as_str() {
                         Some("agent.acpmux") => json!({"id": request["id"], "ok": true,
                             "result": {"socket_path": acpmux.to_str().unwrap()}}),
-                        Some("action.run") => json!({"id": request["id"], "ok": true,
+                        Some("action.run") if opens => json!({"id": request["id"], "ok": true,
                             "result": {"action": request["params"]["action"], "ran": true,
                                        "result": {"tab": "tab_fake"}}}),
                         _ => json!({"id": request["id"], "ok": false, "error": {

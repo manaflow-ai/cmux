@@ -2,9 +2,10 @@ public import Foundation
 
 /// The pane host of a tab whose record names this Mac: a session the Chief host started in its
 /// home's acpmux (`mux.parent` = `optchat-chief:<home id>` in that one daemon's listing) attaches
-/// there; any other session, and a new chat, attaches to this Mac's acpmux. Subagent tabs made
-/// before the `chief:<home id>` host existed record this Mac's host; this keeps them working
-/// with no record rewrite and no search of other daemons.
+/// there, and so does any other session that daemon lists while this Mac's acpmux does not run it
+/// (#27934: a chat a Chief subagent started with `acpmux new`, untagged); any other session, and a
+/// new chat, attaches to this Mac's acpmux. Subagent tabs made before the `chief:<home id>` host
+/// existed record this Mac's host; this keeps them working with no record rewrite.
 public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     private let local: any AgentPaneHostProviding
     private let chief: any AgentPaneHostProviding
@@ -31,10 +32,19 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         self.init(local: local, chief: chief) { session in
             if let socket, FileManager.default.fileExists(atPath: socket),
                let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
-                return Self.owns(listing.value, session: session, parentTag: parentTag)
+                if Self.owns(listing.value, session: session, parentTag: parentTag) { return true }
+                // Listed, whatever its tags, and not run by this Mac's acpmux: the chat is there.
+                guard Self.lists(listing.value, session: session) else { return false }
+                return await local.runsSession(session) != true
             }
             return Self.keeps(session: session, home: kept)
         }
+    }
+
+    /// Whether `_acpmux/sessions` result `listing` has `session`, whatever its tags.
+    public static func lists(_ listing: [String: Any], session: String) -> Bool {
+        let rows = listing["sessions"] as? [[String: Any]] ?? []
+        return rows.contains { $0["sessionId"] as? String == session }
     }
 
     /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`).
@@ -88,6 +98,15 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
 
     public func prewarm() async throws {
         try await local.prewarm()
+    }
+
+    /// Whether either daemon runs `sessionId`: true when one does, false when both say no.
+    public func runsSession(_ sessionId: String) async -> Bool? {
+        let chiefRuns = await chief.runsSession(sessionId)
+        if chiefRuns == true { return true }
+        let localRuns = await local.runsSession(sessionId)
+        if localRuns == true { return true }
+        return chiefRuns == false && localRuns == false ? false : nil
     }
 
     /// The folder of `sessionId` from the host that owns it (the chief's or

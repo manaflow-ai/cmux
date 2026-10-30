@@ -38,6 +38,8 @@ struct AgentSessionTabTests {
         tabs.localHost = AgentSessionRef.host(installID: "session-tab-test")
         tabs.holdsTabs = { _ in true }
         tabs.reachable = { _ in true }
+        // This Mac's acpmux runs every session these tests name (no real acpmux here).
+        tabs.sessionProbe = SessionProbe(runs: true)
         tabs.create = { pane, _, record, _, _, _ in
             made.tabs.append((pane, record))
             return (AgentTabCreated(key: "tab-\(record.session ?? "")", surface: SurfaceID(rawValue: 9)), nil)

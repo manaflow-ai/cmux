@@ -32,6 +32,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
     /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
     func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
+    /// Whether this host's daemon runs session `sessionId` (it resolves the id, or keeps the
+    /// session on disk while it does not answer): nil when it cannot say (no daemon, no answer, or
+    /// no daemon at all). Never starts a daemon (#27934).
+    func runsSession(_ sessionId: String) async -> Bool?
 }
 
 extension AgentPaneHostProviding {
@@ -52,6 +56,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon answer nothing themselves.
     public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
+
+    /// Hosts without a daemon cannot say which sessions run.
+    public func runsSession(_ sessionId: String) async -> Bool? { nil }
 
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
@@ -274,6 +281,21 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
+    }
+
+    /// The daemon on this host's socket resolves `sessionId` exactly; when it does not answer, a
+    /// session it keeps on disk (`<ACPMUX_HOME>/sessions/<id>`) is still its own.
+    public func runsSession(_ sessionId: String) async -> Bool? {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { return nil }
+        if FileManager.default.fileExists(atPath: environment.socketPath) {
+            do {
+                return try await AcpmuxStatusClient.sessionSummary(socketPath: environment.socketPath, sessionId: sessionId) != nil
+            } catch {
+                // No answer: the disk says.
+            }
+        }
+        return AcpmuxChiefSessionRouter.keeps(session: sessionId, home: environment.home) ? true : nil
     }
 
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {

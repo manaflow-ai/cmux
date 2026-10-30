@@ -246,13 +246,38 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
 /// The socket of the acpmux the cmux app's own chats use (`agent.acpmux`), when the app
 /// answers and it is not the one `cmux acp` reaches from here; None otherwise.
 pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
+    required_app_acpmux(global).ok().flatten()
+}
+
+/// `app_acpmux` for a chat the app must show (`chat new`, #27934): Some when the app's acpmux is
+/// not the caller's own, None when it is. Fails when the app does not answer `agent.acpmux`
+/// (retryable) or has no acpmux, never falling back to the caller's own daemon: a Chief turn's
+/// is its home's, and a chat started there is one the app's tab cannot attach ("This chat isn't
+/// available").
+pub(in crate::cli) fn required_app_acpmux(global: &GlobalArgs) -> Result<Option<PathBuf>, Value> {
     let answer =
         mcp::agent_app(global, "agent.acpmux", json!({}), super::super::app::READ_TIMEOUT, None)
-            .ok()?;
-    let app = PathBuf::from(answer["socket_path"].as_str().filter(|path| !path.is_empty())?);
-    // One daemon can be named two ways (`/tmp` and `/private/tmp`, a relative path).
+            .map_err(|error| {
+                json!({"code": "chat.app_acpmux_unavailable",
+                       "message": format!("cannot read the cmux app's acpmux (agent.acpmux); \
+                                           no chat was started, try again: {}",
+                                          error["message"].as_str().unwrap_or("no answer")),
+                       "details": {"cause": error}, "retryable": true})
+            })?;
+    other_acpmux(&answer, &acp::own_socket())
+}
+
+/// The app's `agent.acpmux` answer `answer` as the socket to use: None when it is `own` (one
+/// daemon can be named two ways: `/tmp` and `/private/tmp`, a relative path).
+fn other_acpmux(answer: &Value, own: &Path) -> Result<Option<PathBuf>, Value> {
+    let Some(app) = answer["socket_path"].as_str().filter(|path| !path.is_empty()) else {
+        return Err(json!({"code": "chat.app_acpmux_unavailable",
+                          "message": "this cmux app runs no acpmux, so it cannot show an agent chat",
+                          "details": {"answer": answer}, "retryable": false}));
+    };
+    let app = PathBuf::from(app);
     let same = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    (same(&acp::own_socket()) != same(&app)).then_some(app)
+    Ok((same(own) != same(&app)).then_some(app))
 }
 
 /// A workspace key in one comparable form: lowercase, without dashes (the

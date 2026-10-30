@@ -17,6 +17,7 @@ struct AgentSessionInUnshownPaneTests {
     @Test func aScriptShowsASessionInAPaneNoWindowShows() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23026")
+            services.agentTabs.sessionProbe = SessionProbe(runs: true)
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let window = try #require(services.windows.active)
             let shown = window.state.workspaceID
@@ -48,6 +49,7 @@ struct AgentSessionInUnshownPaneTests {
     @Test func aScriptShowsASessionInAShownPaneWithoutChangingItsSelection() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23026")
+            services.agentTabs.sessionProbe = SessionProbe(runs: true)
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let window = try #require(services.windows.active)
             try await PasswordManagerRouteTests.until { window.focusedPane?.stripModel.selectedID != nil }

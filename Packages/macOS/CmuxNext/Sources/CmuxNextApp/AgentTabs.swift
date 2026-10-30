@@ -63,6 +63,8 @@ final class AgentTabStore {
     /// page opens only sessions of its own family (``AgentPaneHeaderHooks/isFamily``).
     var turns: AgentTurnStateStore = .shared
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
+    /// This Mac's acpmux as ``hostRunning(_:)`` asks it which sessions it runs; nil: `host`. Tests set it.
+    var sessionProbe: (any AgentPaneHostProviding)?
     /// This Mac's other Chief homes, for tabs made under one of them (#25262); nil in tests.
     var chiefHomes: ChiefHomeDirectory?
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).

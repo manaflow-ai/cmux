@@ -42,6 +42,28 @@ extension AgentTabStore {
         guard let chiefHomes else { return fallback }
         return ChiefHomeSessionHost(host: host, homes: chiefHomes, fallback: fallback)
     }
+
+    /// The host to record for an existing session a caller names with no host
+    /// (`agent.openSessionTab`, `agent.openSessionWorkspace`): nil (this Mac's acpmux) when that
+    /// daemon runs it, the app's Chief home's (`chief:<home id>`) when that one does (#27934: a
+    /// chat a Chief subagent started with `acpmux new`, which this Mac's acpmux lacks). When a
+    /// daemon cannot say, nil: the pane's router still finds the chat where it runs.
+    ///
+    /// - Throws: ``AgentTabRefusal`` when every daemon answered and none runs `session`, instead of
+    ///   a tab that says "This chat isn't available".
+    func hostRunning(_ session: String) async throws -> String? {
+        let local = await (sessionProbe ?? host).runsSession(session)
+        if local == true { return nil }
+        var chief: Bool?
+        if let chiefHost, let chiefPaneHost {
+            chief = await chiefPaneHost.runsSession(session)
+            if chief == true { return chiefHost }
+        } else {
+            chief = false
+        }
+        if local == false, chief == false { throw AgentTabRefusal(message: MiscHandlerStrings.noLocalSession(session)) }
+        return nil
+    }
 }
 
 /// This app's Chief home as an agent tab host: `chief:<home id>` and its acpmux

@@ -32,6 +32,10 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
         try await fallback.prewarm()
     }
 
+    public func runsSession(_ sessionId: String) async -> Bool? {
+        await resolved().runsSession(sessionId)
+    }
+
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
         try await resolved().sessionFolder(sessionId: sessionId)
     }

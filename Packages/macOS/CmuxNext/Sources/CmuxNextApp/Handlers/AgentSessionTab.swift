@@ -15,7 +15,8 @@ import Foundation
 /// person's, or `focus: true`) selects and shows the tab; a script's run adds it and leaves the
 /// person's view as it is. Arguments: `session` (required), `host` (`chief:<home id>`: the session
 /// runs in this app's Chief home's acpmux; an acpmux peer's name such as `huge-blue`: its chat as
-/// this Mac's acpmux mirrors it (`AgentPeerSession`); absent: this Mac's).
+/// this Mac's acpmux mirrors it (`AgentPeerSession`); absent: whichever acpmux of this Mac runs it,
+/// ``AgentTabStore/hostRunning(_:)``, refused when none does: #27934).
 enum AgentSessionTab {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionTab", run: { try open($0, context: context) })
@@ -44,19 +45,46 @@ enum AgentSessionTab {
         // A target that names nothing was refused by the lookup.
         guard let pane = context.daemonPane(invocation) else { return }
         let daemon = services.daemon(for: pane)
-        let pending: AgentTabPending
-        do {
-            pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
-        } catch let refusal as AgentTabRefusal {
-            throw ActionFailure(message: refusal.message)
-        }
         let logger = daemon.logger
         let workspace = services.machines.allWorkspaces.first { candidate, _ in
             candidate.screens.contains { $0.panes.contains { $0 === pane } }
         }?.0
+        // A named host opens at once. With none, the tab records the acpmux of this Mac that runs the
+        // session (#27934: a Chief subagent's `acpmux new` chat runs in the Chief home's), or nothing
+        // opens when none does: a pane of another machine refuses a session of this Mac anyway.
+        let named: AgentTabPending?
+        if host != nil || !daemon.isLocal {
+            do {
+                named = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
+            } catch let refusal as AgentTabRefusal {
+                throw ActionFailure(message: refusal.message)
+            }
+        } else {
+            named = nil
+        }
+        let registry = context.registry, capturing = context.registry.isCapturingWork
         // The run answers the new tab's ids (`cmux agents chat new`, #23026), as New Agent Chat's
         // script runs do, so the caller can find the chat it put there.
         context.registry.track(result: Task { @MainActor in
+            let pending: AgentTabPending
+            if let named {
+                pending = named
+            } else {
+                do {
+                    let running = try await services.agentTabs.hostRunning(session)
+                    if let running, let shown = services.agentTabs.tab(showing: session, host: running) {
+                        if shows { _ = services.revealTab(shown) }
+                        return .success(["session": .string(session), "tab": .string(daemon.store.tab(id: shown)?.resourceID?.rawValue ?? shown)])
+                    }
+                    pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: running)
+                } catch let refusal as AgentTabRefusal {
+                    // A palette run captures nothing: the refusal shows there.
+                    if !capturing { registry.refuse(refusal.message) }
+                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: refusal.message))
+                } catch {
+                    return .failure(ActionWorkFailure("agent.openSessionTab", error))
+                }
+            }
             do {
                 let created = try await pending.value()
                 if shows { _ = services.revealTab(created.key) }
