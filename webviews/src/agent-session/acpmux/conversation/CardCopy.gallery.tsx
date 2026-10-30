@@ -1,0 +1,115 @@
+// l10n-allow-file: gallery fixtures (a sample prompt and message), not shipped UI.
+// The copy button in an expanded card's top-right corner (CardCopy.tsx), on the two card kinds that
+// draw it: a started sub-session's prompt (SubsessionCallCard.tsx) and another agent's message
+// (IncomingMessageCard.tsx). Each look is shown at rest, with the card hovered, and copied. `faint`
+// (selected) is a 14px glyph at 45% that goes full on the card's hover and turns into a check;
+// `quiet` is a 12px glyph at 30%; `word` says "Copied" beside the check.
+import { useState } from "react";
+import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
+import { tool } from "../../../gallery/fixtures/acpmux";
+import { CardCopyLookContext, type CardCopyLook } from "./CardCopy";
+import { IncomingMessageLine } from "./IncomingMessageCard";
+import { SubsessionCallCard } from "./SubsessionCallCard";
+import { subsessionCall } from "./subsessionCalls";
+import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+
+type Props = { look: CardCopyLook; card: "prompt" | "message" };
+
+const PROMPT = [
+  "You are **net-retries**, a lane started by the coordinator.",
+  "",
+  'The ask, word for word: "the retry banner still flickers when the network comes back".',
+  "",
+  "1. Find where `RetryBanner` decides to show, and why it shows twice.",
+  "2. Fix it in `src/net/retry.ts`, with a test.",
+  "",
+  "Stop after the PR is open.",
+].join("\n");
+
+const MESSAGE =
+  "The grid fix is on example/grid-fix; tests pass.\n\nThe grid now reserves its height before the images load, so nothing below it moves.";
+
+const START = tool("mcp__cmux-subsessions__start_session", "other", "completed", {
+  inputSummary: JSON.stringify({ name: "net-retries", harness: "claude", model: "opus", prompt: PROMPT }),
+  output: "Started sub-session net-retries (sessionId sub-retries, depth 1).",
+});
+
+const DISCLOSURE = "gallery-card-copy";
+
+function Stage({ look, card }: Props) {
+  useState(() => resetTranscriptDisclosure(DISCLOSURE));
+  const startTool = START.tool!;
+  return (
+    <TranscriptDisclosureProvider sessionId={DISCLOSURE}>
+      <CardCopyLookContext.Provider value={look}>
+        <div className="acpmux-shell" style={{ padding: 16, maxWidth: 640 }}>
+          {card === "prompt" ? (
+            <SubsessionCallCard call={subsessionCall(startTool)} tool={startTool} />
+          ) : (
+            <IncomingMessageLine
+              id={`card-copy-${look}`}
+              message={{ name: "grid-lane", text: MESSAGE, raw: MESSAGE }}
+              onOpen={() => {}}
+            />
+          )}
+        </div>
+      </CardCopyLookContext.Provider>
+    </TranscriptDisclosureProvider>
+  );
+}
+
+const PANEL = ".cv-disclosure__panel";
+const BUTTON = ".cv-card-copy__button";
+
+/// Opens the card: the one line's toggle (a started sub-session's chevron, when its line opens a chat).
+const open: Play = async (ctx) => {
+  const toggle =
+    ctx.document.querySelector<HTMLButtonElement>(".cv-disclosure__toggle.is-chevron") ??
+    ctx.document.querySelector<HTMLButtonElement>(".cv-disclosure__toggle");
+  toggle?.click();
+  await ctx.waitFor(() => ctx.document.querySelector(BUTTON));
+};
+const hovered: Play = async (ctx) => {
+  await open(ctx);
+  await ctx.hover({ selector: PANEL });
+};
+const copied: Play = async (ctx) => {
+  await open(ctx);
+  await ctx.click({ selector: BUTTON });
+  await ctx.waitFor(() => ctx.document.querySelector(`${BUTTON}[data-copied]`));
+};
+
+const variant = (look: CardCopyLook, card: Props["card"], state: "rest" | "hover" | "copied", note: string) => ({
+  note,
+  props: { look, card },
+  play: state === "rest" ? open : state === "hover" ? hovered : copied,
+});
+
+export default componentEntry<Props>({
+  id: "agent-pane.card-copy",
+  title: "Card corner copy",
+  area: "Agent pane",
+  pane: true,
+  height: 360,
+  covers: [
+    "agent-session/acpmux/conversation/CardCopy.tsx",
+    "agent-session/acpmux/conversation/CopyButton.tsx",
+    "agent-session/acpmux/conversation/SubsessionCallCard.tsx",
+    "agent-session/acpmux/conversation/IncomingMessageCard.tsx",
+  ],
+  load: async () => Stage,
+  styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
+  variants: {
+    "prompt-rest": variant("faint", "prompt", "rest", "Selected look, at rest: the faint copy glyph in the prompt card's top-right corner; the first line wraps around it. Raw stays at the card's end."),
+    "prompt-hover": variant("faint", "prompt", "hover", "The pointer on the card: the glyph goes full; only the glyph's own box lights when the pointer is on it, never the card."),
+    "prompt-copied": variant("faint", "prompt", "copied", "Clicked: the raw prompt is on the clipboard and the glyph is a check for a moment, then back to Copy."),
+    "message-rest": variant("faint", "message", "rest", "Another agent's message, opened: the same corner copy, faint."),
+    "message-hover": variant("faint", "message", "hover", "The message card hovered: the glyph at full."),
+    "message-copied": variant("faint", "message", "copied", "Clicked: the message's words are copied, a check shows."),
+    "quiet-rest": variant("quiet", "prompt", "rest", "Version B, at rest: a 12px glyph at 30%. Quieter, but hard to find on the glass."),
+    "quiet-copied": variant("quiet", "prompt", "copied", "Version B, copied."),
+    "word-rest": variant("word", "prompt", "rest", "Version C, at rest: the default glyph."),
+    "word-copied": variant("word", "prompt", "copied", 'Version C, copied: "Copied" beside the check. Wider, and it pushes the first line.'),
+  },
+});
