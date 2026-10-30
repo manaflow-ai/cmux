@@ -907,7 +907,7 @@ mod media;
 mod proxy;
 use media::media;
 pub use proxy::shares::room::start_link_share_bridge;
-pub(crate) use proxy::shares::{close_chat_shares, close_unlisted_chat_shares};
+pub(crate) use proxy::shares::{close_chat_shares, close_unlisted_chat_shares, open_chat_shares};
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;

@@ -539,21 +539,17 @@ impl LinkShares {
     /// The closure stands even when it cannot be written: the chat is gone, so its shares are
     /// closed in memory (no guest reaches it, its rooms end) and the write is retried.
     fn close_chat(&self, directory: Option<&Path>, session: &str) {
-        self.close_where(directory, |s| s == session);
+        self.close_where(directory, |s| s.session == session);
     }
 
     /// Closes every open share whose chat `gone` names, as [`Self::close_chat`] does.
-    fn close_where(&self, directory: Option<&Path>, gone: impl Fn(&str) -> bool) {
-        self.end_where(
-            directory,
-            |s| gone(&s.session),
-            |share| {
-                share.state = ShareState::Closed;
-                if share.room.is_some() && !share.delete_queued() {
-                    share.pending_room_ops.push(json!({"op": "delete"}));
-                }
-            },
-        );
+    fn close_where(&self, directory: Option<&Path>, gone: impl Fn(&LinkShare) -> bool) {
+        self.end_where(directory, gone, |share| {
+            share.state = ShareState::Closed;
+            if share.room.is_some() && !share.delete_queued() {
+                share.pending_room_ops.push(json!({"op": "delete"}));
+            }
+        });
     }
 
     /// The room ended `share_id` (it closed the host socket with 4001, or refused its upgrade as
@@ -699,12 +695,32 @@ pub(crate) fn close_chat_shares(mux: &Mux, session: &str) {
     shares.settle(mux);
 }
 
-/// acpmux listed its chats whole: every link share of a chat not in `listed` closes (it was
-/// closed or purged while nothing watched, or its closure was never written before a restart).
-pub(crate) fn close_unlisted_chat_shares(mux: &Mux, listed: &HashSet<String>) {
+/// The ids of the open link shares now: taken before acpmux is asked for its chat list, so the
+/// list's sweep ([`close_unlisted_chat_shares`]) never reaches a share created after it.
+pub(crate) fn open_chat_shares(mux: &Mux) -> HashSet<String> {
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
-    shares.close_where(directory.as_deref(), |session| !listed.contains(session));
+    let mut slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
+    let open = slot.get_or_insert_with(|| load(directory.as_deref())).iter();
+    open.filter(|s| matches!(s.state, ShareState::Active | ShareState::Provisioning))
+        .map(|s| s.share_id.clone())
+        .collect()
+}
+
+/// acpmux listed its chats whole: every link share in `before` ([`open_chat_shares`], taken
+/// before the list was asked for) of a chat not in `listed` closes (it was closed or purged
+/// while nothing watched, or its closure was never written before a restart). A share created
+/// since, for a chat newer than the list, stays.
+pub(crate) fn close_unlisted_chat_shares(
+    mux: &Mux,
+    listed: &HashSet<String>,
+    before: &HashSet<String>,
+) {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    shares.close_where(directory.as_deref(), |s| {
+        before.contains(&s.share_id) && !listed.contains(&s.session)
+    });
     shares.settle(mux);
 }
 

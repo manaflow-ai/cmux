@@ -1190,9 +1190,14 @@ fn a_whole_chat_list_closes_the_shares_of_chats_it_left_out() {
     let (conn, _) = room.host();
     assert_eq!(room.frame(conn)["t"], "guests");
     let listed = std::iter::once(SESSION.to_owned()).collect();
-    crate::server::close_unlisted_chat_shares(&mux, &listed);
+    let before = crate::server::open_chat_shares(&mux);
+    assert_eq!(before.len(), 1);
+    crate::server::close_unlisted_chat_shares(&mux, &listed, &before);
     assert_eq!(state(&mut owner)["state"], "active", "a listed chat keeps its share");
-    crate::server::close_unlisted_chat_shares(&mux, &HashSet::new());
+    // A share created after the list was asked for may be of a chat the list is too old to name.
+    crate::server::close_unlisted_chat_shares(&mux, &HashSet::new(), &HashSet::new());
+    assert_eq!(state(&mut owner)["state"], "active", "a share newer than the list stays");
+    crate::server::close_unlisted_chat_shares(&mux, &HashSet::new(), &before);
     assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
     room.request("DELETE");
     assert_eq!(state(&mut owner)["state"], "closed");

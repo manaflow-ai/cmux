@@ -214,6 +214,9 @@ fn read_watch(
     }});
     let watch = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch",
         "params": {"enabled": true, "limit": PAGE_SESSIONS}});
+    // The shares the list may close: one created after the list was asked for may be of a chat
+    // the list is too old to name.
+    let before = mux.upgrade().map(|mux| crate::server::open_chat_shares(&mux)).unwrap_or_default();
     writer.write_all(format!("{initialize}\n{watch}\n").as_bytes())?;
     let mut reader = BufReader::new(stream);
     // The reply that carries the next page; none once the list is whole.
@@ -276,7 +279,7 @@ fn read_watch(
                     // (purged while the watch was away, or before this daemon started). A chat
                     // a push reached is still there.
                     listed.extend(pushed.iter().cloned());
-                    crate::server::close_unlisted_chat_shares(&mux, &listed);
+                    crate::server::close_unlisted_chat_shares(&mux, &listed, &before);
                     unlisted.clear();
                     whole = Some(Instant::now());
                     None
