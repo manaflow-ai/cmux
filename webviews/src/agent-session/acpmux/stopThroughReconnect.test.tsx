@@ -179,6 +179,7 @@ test("the snapshot names the running turn's prompt, its continuation's as the cu
   const until = async (check: () => boolean) => {
     while (!check()) await new Promise<void>((resolve) => waiters.push(resolve));
   };
+
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => {
@@ -194,7 +195,7 @@ test("the snapshot names the running turn's prompt, its continuation's as the cu
     daemon.touch(id, { status: "running" });
     daemon.emit(id, { mux: "turn_started", msg: { promptId: "p1", turnId: "t1" } });
     await until(() => view.shown.turnPrompt === "p1");
-    daemon.emit(id, { mux: "turn_result", msg: { status: "failed", turnId: "t1" } });
+    daemon.emit(id, { mux: "turn_result", msg: { status: "cancelled", stopReason: "cancelled", turnId: "t1" } });
     daemon.touch(id, { status: "ready" });
     await until(() => !view.shown.isWorking);
     expect(view.shown.turnPrompt).toBeUndefined();
