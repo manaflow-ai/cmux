@@ -280,6 +280,7 @@ test.serial(
 test.serial(
   "a recheck that never resolves still ends recovery at the deadline",
   async () => {
+    jest.useFakeTimers();
     const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
     Object.assign(dom.window, {
       webkit: {
@@ -320,22 +321,21 @@ test.serial(
         </div>
       );
     }
-    flushSync(() => root.render(<Recovery />));
-    const wake = mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]');
-    expect(wake).not.toBeNull();
-    await act(async () => wake!.click());
-    jest.useFakeTimers();
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-      jest.advanceTimersByTime(60_000);
-      jest.runOnlyPendingTimers();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
-    expect(state).toContain('"resuming":false');
-    expect(state).toContain('"error":');
+    try {
+      flushSync(() => root.render(<Recovery />));
+      const wake = mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]');
+      expect(wake).not.toBeNull();
+      await act(async () => wake!.click());
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(60_000);
+      });
+      const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
+      expect(state).toContain('"resuming":false');
+      expect(state).toContain('"error":');
+    } finally {
+      await act(async () => root.render(null));
+      jest.useRealTimers();
+    }
   },
   10_000,
 );
