@@ -62,11 +62,23 @@ import SwiftUI
         #expect(store.workspace(id: "ws-cmux")!.tabs.map(\.id) == ["t-claude", "t-zsh"])
     }
 
+    private func waitForPendingCloseMessage(_ source: WorkspaceTabsSource, _ message: String) async {
+        while source.pendingClose?.message != message {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking {
+                    _ = source.pendingClose?.message
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
     @Test func closingATabWithARunningProgramAsks() async throws {
         let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
         let close = Task { await source.close("t-zsh") }
-        for _ in 0..<200 where source.pendingClose == nil { await Task.yield() }
+        await waitForPendingCloseMessage(source, "Still running: sleep.")
         let pending = try #require(source.pendingClose)
         #expect(pending.title == "Close \u{201C}zsh\u{201D}?")
         #expect(pending.message == "Still running: sleep.")
