@@ -57,12 +57,14 @@ final class SessionRegistrar {
     }
 
     /// The home connection's part of the observation key: it changes on each reconnect.
-    /// Only the state case, pid and generation: never the identity's capability list (this runs
-    /// on the main actor at each observation check).
+    /// Only the state case, pid, generation and connection epoch: never the identity's capability
+    /// list (this runs on the main actor at each observation check). The epoch makes a reconnect to
+    /// the same daemon process a new key even when the disconnect and the reconnect land before one
+    /// check; it changes only together with `connectionState`, so it adds no wakeup.
     static func homeKey(_ state: DaemonConnectionState, epoch: Int) -> String {
         switch state {
         case .connecting: "connecting"
-        case .connected(let identity): "connected:\(identity.pid):\(identity.generation.rawValue)"
+        case .connected(let identity): "connected:\(identity.pid):\(identity.generation.rawValue):\(epoch)"
         case .disconnected: "disconnected"
         case .failed: "failed"
         }
