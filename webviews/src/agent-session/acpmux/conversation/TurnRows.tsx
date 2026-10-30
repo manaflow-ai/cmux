@@ -20,7 +20,7 @@ import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
-import { errorRecovery, type ErrorRecovery } from "./errorRecovery";
+import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
@@ -344,8 +344,11 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         ? () => retry(row.retryRowId!, prompt)
         : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
-  // ran; it shares the footer Retry's one-at-a-time state and refusal note.
-  const recovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed, reauthenticate }) : undefined;
+  // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
+  // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
+  const recovery = failed
+    ? (errorRecovery(row, route, { resume, retry, retryFailed }) ?? signInRetry(row, route, { retryFailed, reauthenticate }))
+    : undefined;
   const goOn =
     recovery &&
     (() => {
