@@ -45,7 +45,7 @@ fn strip(input: &str) -> (String, bool) {
             '\x1b' => match chars.peek().copied() {
                 Some('[') => {
                     chars.next();
-                    while let Some(next) = chars.next() {
+                    for next in chars.by_ref() {
                         if ('@'..='~').contains(&next) {
                             break;
                         }
@@ -63,7 +63,7 @@ fn strip(input: &str) -> (String, bool) {
                 Some(next) if ('!'..='/').contains(&next) => {
                     // An escape sequence with intermediate bytes, such as ESC ( B.
                     chars.next();
-                    while let Some(next) = chars.next() {
+                    for next in chars.by_ref() {
                         if ('0'..='~').contains(&next) {
                             break;
                         }
@@ -74,7 +74,7 @@ fn strip(input: &str) -> (String, bool) {
                 _ => {}
             },
             '\u{009b}' => {
-                while let Some(next) = chars.next() {
+                for next in chars.by_ref() {
                     if ('@'..='~').contains(&next) {
                         break;
                     }
