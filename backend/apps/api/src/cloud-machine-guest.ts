@@ -120,30 +120,39 @@ sys.stdout.write(json.dumps(o))
 `
 
 /**
- * Runs `bash -c argv[2]` with no stdin and keeps at most argv[1] bytes of each of its stdout and stderr:
- * it reads both to the end (the command runs to its own exit, not to a full pipe) and drops the rest,
- * so a command that writes without end costs the machine's CPU until its timeout, never memory, disk
- * or the answer's size. Answers the command's own exit code (128 + n for signal n).
+ * Runs `bash -c argv[2]` with no stdin and passes through at most argv[1] bytes of each of its stdout
+ * and stderr as they come (so output before a timeout is not lost), reading and dropping the rest; a
+ * command that writes without end costs the machine's CPU until its timeout, never memory, disk or
+ * the answer's size. It ends half a second after the command exits, even when a child the command
+ * left running (`setsid x &`, `sleep 600 &`) still holds the pipes. Answers the command's own exit
+ * code (128 + n for signal n).
  */
-export const OUTPUT_CAP_PROGRAM = `import os,selectors,subprocess,sys
+export const OUTPUT_CAP_PROGRAM = `import os,selectors,subprocess,sys,time
 n=int(sys.argv[1])
 p=subprocess.Popen(["bash","-c",sys.argv[2]],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-b={p.stdout:bytearray(),p.stderr:bytearray()}
+def wr(f,b):
+ while b:b=b[os.write(f,b):]
+o={p.stdout.fileno():[1,0],p.stderr.fileno():[2,0]}
 cut=False
 s=selectors.DefaultSelector()
-for f in b:s.register(f,selectors.EVENT_READ)
+for f in o:
+ os.set_blocking(f,False);s.register(f,selectors.EVENT_READ)
+end=None
 while s.get_map():
- for k,_ in s.select():
-  d=os.read(k.fd,65536)
+ if end is None and p.poll() is not None:end=time.monotonic()+0.5
+ if end is not None and time.monotonic()>=end:break
+ for k,_ in s.select(0.1):
+  try:d=os.read(k.fd,65536)
+  except BlockingIOError:continue
   if not d:
-   s.unregister(k.fileobj);continue
-  x=b[k.fileobj]
-  if len(x)+len(d)>n:cut=True
-  if len(x)<n:x+=d[:n-len(x)]
+   s.unregister(k.fd);continue
+  w=o[k.fd]
+  if w[1]+len(d)>n:cut=True
+  keep=d[:max(0,n-w[1])]
+  if keep:
+   wr(w[0],keep);w[1]+=len(keep)
 r=p.wait()
-sys.stdout.buffer.write(b[p.stdout])
-sys.stderr.buffer.write(b[p.stderr])
-if cut:sys.stderr.write("\\ncmux: output cut at %d bytes per stream\\n"%n)
+if cut:wr(2,b"\\ncmux: output cut at %d bytes per stream\\n"%n)
 sys.exit(r if r>=0 else 128-r)
 `
 
