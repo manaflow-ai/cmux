@@ -6915,6 +6915,8 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      // The running turn's prompt is the held events', never an older page's.
+      turnPrompt: this.turnPrompt,
       silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
       turnTokenSplit: this.turnTokenSplit,
@@ -6946,6 +6948,7 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
