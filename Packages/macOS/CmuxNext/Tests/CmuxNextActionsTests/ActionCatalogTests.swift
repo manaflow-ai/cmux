@@ -179,6 +179,21 @@ import Testing
         }
     }
 
+    @Test func minimapKeywordBelongsToEditorAndTranscriptSurfaces() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let stripScrollbar = try #require(byID["layout.toggleStripScrollbar"])
+        #expect(!stripScrollbar.keywords.contains("minimap"))
+        #expect(stripScrollbar.keywords.contains("column"))
+        #expect(stripScrollbar.keywords.contains("strip"))
+        #expect(stripScrollbar.keywords.contains("scrollbar"))
+        #expect(stripScrollbar.keywords.contains("visible range"))
+        #expect(stripScrollbar.keywords.contains("overview"))
+
+        let transcriptActions = ["agentPane.previousTurn", "agentPane.nextTurn"].compactMap { byID[$0] }
+        #expect(transcriptActions.count == 2)
+        #expect(transcriptActions.allSatisfy { $0.keywords.contains("minimap") })
+    }
+
     @Test func completeConversationCopyIsReachableFromThePalette() throws {
         let copy = try #require(ActionCatalog.all.first { $0.id == "agentChat.copyConversation" })
         #expect(copy.surfaces.contains(.palette))
