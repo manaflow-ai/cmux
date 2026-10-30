@@ -24,6 +24,7 @@ import {
   settleScroll,
   stopScroll,
 } from "./scrollMotion";
+import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
@@ -246,6 +247,11 @@ export function ThreadMinimap({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
+  /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
+  /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
+  /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
+  /// rail follows its own reader from the start.
+  const railBrowsing = useRef<{ sessionId?: string } | undefined>(undefined);
   /// A row a key moves focus to that is not drawn yet (tickWindow.ts): drawn on the next commit,
   /// which focuses it.
   const [reveal, setReveal] = useState<number | undefined>(undefined);
@@ -362,6 +368,21 @@ export function ThreadMinimap({
       node.removeEventListener(MOTION_SCROLL_EVENT, scrolled);
     };
   }, [scroller]);
+
+  // The wheel over a list that scrolls itself is the rail's (railWheel.ts). This capture listener on
+  // the list stops it before the transcript's bubbling wheel listeners (its glide, fold release, older
+  // pages, the step reader below); the transcript's capture listeners on its ancestor scroller run
+  // first and skip it themselves (railOwnsWheel). The browser still scrolls the list natively.
+  useEffect(() => {
+    const node = list.current;
+    if (!node || !overflow) return;
+    const wheel = (event: WheelEvent) => {
+      railBrowsing.current = { sessionId: live.current.sessionId };
+      event.stopPropagation();
+    };
+    node.addEventListener("wheel", wheel, { capture: true, passive: true });
+    return () => node.removeEventListener("wheel", wheel, { capture: true });
+  }, [overflow, shown]);
 
   // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
   // this commit: restored the reader's place over older turns, or left it. The band reads that
@@ -597,6 +618,7 @@ export function ThreadMinimap({
     // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
     // its top: the cached offset goes with it, so the new list is placed from 0 like any other.
     if (!node) {
+      railBrowsing.current = undefined;
       if (listOffset.current === 0) return;
       listOffset.current = 0;
       setListTop(0);
@@ -604,6 +626,7 @@ export function ThreadMinimap({
     }
     // A list that no longer overflows (another chat, fewer prompts) starts at its top again.
     if (!overflow) {
+      railBrowsing.current = undefined;
       if (listOffset.current === 0) return;
       node.scrollTop = 0;
       listOffset.current = 0;
@@ -611,7 +634,8 @@ export function ThreadMinimap({
       return;
     }
     // The commit that added older turns placed the list itself, around the band.
-    if (scrubbing || holding.current) return;
+    if (scrubbing || holding.current || (railBrowsing.current && railBrowsing.current.sessionId === sessionId)) return;
+    railBrowsing.current = undefined;
     const current = listOffset.current;
     const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current);
     if (Math.abs(next - current) < 0.5) return;
@@ -620,7 +644,7 @@ export function ThreadMinimap({
     listOffset.current = next;
     setListTop(next);
     followPointer(node);
-  }, [shown, onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
+  }, [shown, onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer, sessionId]);
 
   // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser
   // scrolls the list to it, whose scroll moves the drawn rows along).
@@ -690,6 +714,7 @@ export function ThreadMinimap({
           live.current.marks.toggle(turn);
           return;
         }
+        railBrowsing.current = undefined;
         setCardRow(index);
         jump(index, "click");
       },
@@ -872,6 +897,8 @@ export function ThreadMinimap({
           // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
           data-fade-top={fades.top || undefined}
           data-fade-bottom={(overflow && fades.bottom) || undefined}
+          // A list longer than its room scrolls itself, and the wheel over it is the rail's (railWheel.ts).
+          {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
           style={
             {
               "--acpmux-minimap-fade": `${railFade(height)}px`,
@@ -1131,6 +1158,7 @@ const Tick = memo(function Tick({
       active
       data-tick={index}
       className="acpmux-minimap__tick"
+      data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
       style={{ "--acpmux-minimap-row": index } as React.CSSProperties}
