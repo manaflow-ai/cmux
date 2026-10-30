@@ -5,16 +5,35 @@
 //! that sent the notification now gets `_acpmux/cancel_refused {sessionId, message, reason?,
 //! peer?}`, and a Stop this daemon forwards to a peer goes there as a request, so the peer's
 //! refusal comes back and is passed on under the name the client used.
+//!
+//! A refusal names the turn it was stopping (`turnId`: the chat's running turn here, or the turn
+//! the peer's row showed when the Stop went on), so the pane acts only on the answer to the Stop
+//! it is still waiting on, never on a late one for a turn that ended. And it is never dropped as a
+//! lossy notification is when the client reads slowly: it waits for room ([`Waiting`]).
 
 use super::*;
 
 /// Tells `conn` its `session/cancel` notification for `key` (the `sessionId` it sent) was refused.
-pub(super) fn tell(conn: &Conn, key: &Value, e: &RpcError) {
+pub(super) fn tell(hub: &Hub, conn: &Conn, key: &Value, e: &RpcError) {
     tracing::debug!(conn = %conn.id, "cancel refused: {e}");
-    conn.send(&Message::notification(method::MUX_CANCEL_REFUSED, notice(key.clone(), e, None)));
+    let turn = key.as_str().and_then(|k| turn_of(hub, k));
+    send(conn, notice(key.clone(), e, None, turn.as_deref()));
 }
 
-fn notice(session_id: Value, e: &RpcError, peer: Option<&str>) -> Value {
+/// The turn the chat `key` names runs now: this daemon's own, or the one a peer's row shows.
+fn turn_of(hub: &Hub, key: &str) -> Option<String> {
+    match hub.resolve(key) {
+        Ok(s) => s.turn().map(|t| t.turn_id),
+        Err(_) => hub.resolve_remote(key).and_then(|(_, _, row)| row_turn(&row)),
+    }
+}
+
+/// The running turn a peer's session row shows (`TurnSummary::turn_id`).
+pub(super) fn row_turn(row: &Value) -> Option<String> {
+    row.pointer("/turn/turnId").and_then(Value::as_str).map(str::to_owned)
+}
+
+fn notice(session_id: Value, e: &RpcError, peer: Option<&str>, turn: Option<&str>) -> Value {
     let mut v = json!({"sessionId": session_id, "message": e.message});
     if let Some(reason) = reason(e) {
         v["reason"] = Value::from(reason);
@@ -22,7 +41,77 @@ fn notice(session_id: Value, e: &RpcError, peer: Option<&str>) -> Value {
     if let Some(peer) = peer {
         v["peer"] = Value::from(peer);
     }
+    if let Some(turn) = turn {
+        v["turnId"] = Value::from(turn);
+    }
     v
+}
+
+/// How many chats' refusals wait for room at once on one connection.
+const WAITING_KEYS: usize = 16;
+
+/// The refusals that wait for room in a connection's outbound queue, by the chat each answers,
+/// sent in turn by one task. A notification is dropped when the client reads too slowly
+/// (`enqueue_outbound`); a refusal is not, or the pane would show Stopping for good. The newest
+/// refusal for a chat replaces the one waiting, and at most [`WAITING_KEYS`] chats wait, so a
+/// client that sends Stops and never reads holds at most that many lines here.
+#[derive(Default)]
+pub(in crate::server) struct Waiting {
+    inner: StdMutex<WaitingInner>,
+}
+
+#[derive(Default)]
+struct WaitingInner {
+    lines: std::collections::BTreeMap<String, String>,
+    draining: bool,
+}
+
+impl WaitingInner {
+    /// Keeps `line` for `key`; false when it is a new chat past [`WAITING_KEYS`].
+    fn keep(&mut self, key: String, line: String) -> bool {
+        if self.lines.len() >= WAITING_KEYS && !self.lines.contains_key(&key) {
+            return false;
+        }
+        self.lines.insert(key, line);
+        true
+    }
+}
+
+/// `params` as `_acpmux/cancel_refused` to `conn`, through [`Waiting`].
+fn send(conn: &Conn, params: Value) {
+    let key = params["sessionId"].as_str().unwrap_or_default().to_owned();
+    let msg = Message::notification(method::MUX_CANCEL_REFUSED, params);
+    let masked = (!conn.raw_text).then(|| peer_text::masked(&msg)).flatten();
+    let Ok(line) = masked.as_ref().unwrap_or(&msg).bounded_line() else {
+        // Larger than a frame: what `Conn::send` does with one.
+        return conn.send(&msg);
+    };
+    let mut inner = conn.cancel_refusals.inner.lock().unwrap_or_else(|e| e.into_inner());
+    if !inner.keep(key, line) {
+        tracing::warn!(conn = %conn.id, "left out a cancel refusal: {WAITING_KEYS} chats' wait already");
+        return;
+    }
+    if std::mem::replace(&mut inner.draining, true) {
+        return;
+    }
+    drop(inner);
+    let (out, waiting) = (conn.out.clone(), conn.cancel_refusals.clone());
+    tokio::spawn(async move {
+        loop {
+            let line = {
+                let mut inner = waiting.inner.lock().unwrap_or_else(|e| e.into_inner());
+                let Some((_, line)) = inner.lines.pop_first() else {
+                    inner.draining = false;
+                    return;
+                };
+                line
+            };
+            // Waits for room; ends with the connection (its reader gone).
+            if out.send(line).await.is_err() {
+                return;
+            }
+        }
+    });
 }
 
 fn reason(e: &RpcError) -> Option<&str> {
@@ -44,6 +133,7 @@ pub(super) async fn forward(
     conn: &Conn,
     peer: Arc<crate::peer::Peer>,
     key: &str,
+    turn: Option<String>,
     forwarded: Value,
 ) {
     let answer =
@@ -59,8 +149,25 @@ pub(super) async fn forward(
         .with_data(json!({"reason": "peer.cancel_unanswered"})),
     };
     tracing::debug!(conn = %conn.id, peer = %peer.name, "forwarded cancel refused: {e}");
-    conn.send(&Message::notification(
-        method::MUX_CANCEL_REFUSED,
-        notice(Value::from(key), &e, Some(&peer.name)),
-    ));
+    send(conn, notice(Value::from(key), &e, Some(&peer.name), turn.as_deref()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WAITING_KEYS, WaitingInner};
+
+    #[test]
+    fn the_newest_refusal_for_a_chat_waits_and_only_so_many_chats_wait() {
+        let mut w = WaitingInner::default();
+        assert!(w.keep("a".into(), "1".into()));
+        assert!(w.keep("a".into(), "2".into()));
+        assert_eq!(w.lines.len(), 1);
+        assert_eq!(w.lines["a"], "2", "the newest for a chat replaces the one waiting");
+        for n in 1..WAITING_KEYS {
+            assert!(w.keep(format!("k{n}"), "x".into()));
+        }
+        assert_eq!(w.lines.len(), WAITING_KEYS);
+        assert!(!w.keep("one-more".into(), "x".into()), "a chat past the cap waits not");
+        assert!(w.keep("a".into(), "3".into()), "a chat that waits is still replaced");
+    }
 }
