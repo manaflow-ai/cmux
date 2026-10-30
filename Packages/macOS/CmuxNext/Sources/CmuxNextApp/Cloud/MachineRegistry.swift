@@ -23,8 +23,8 @@ final class MachineRegistry {
         machineID != localID && !nonCloudIDPrefixes.contains { machineID.hasPrefix($0) }
     }
 
-    /// The id prefixes of machines that are not Cloud machines (`SSHHost.machineID`, `ServerReach.machineID`).
-    private static let nonCloudIDPrefixes = ["ssh-", "server-"]
+    /// The id prefixes of machines that are not Cloud machines, from the types that make their ids.
+    private static let nonCloudIDPrefixes = [SSHHost.machineIDPrefix, ServerReach.machineIDPrefix]
 
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
