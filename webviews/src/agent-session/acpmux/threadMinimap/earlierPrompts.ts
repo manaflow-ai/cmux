@@ -11,8 +11,16 @@
 import type { AcpmuxRow } from "../model";
 
 /// The records a page reads: a prompt (`user_message`), and the ones that make a prompt sent now go
-/// on with the turn it stopped instead of opening one (TurnStarts). At most 8 kinds (direct.ts attach).
-export const TURN_KINDS = ["user_message", "queue_order", "turn_result", "queue_removed", "prompt_refused"];
+/// on with the turn it stopped instead of opening one (TurnStarts), including `turn_started`, which
+/// opens a turn the agent carries on with no prompt of its own. At most 8 kinds (direct.ts attach).
+export const TURN_KINDS = [
+  "user_message",
+  "turn_started",
+  "queue_order",
+  "turn_result",
+  "queue_removed",
+  "prompt_refused",
+];
 /// One page: at most this many records, and at most this many bytes.
 export const PROMPT_PAGE_LIMIT = 400;
 export const PROMPT_PAGE_BYTES = 96 * 1024;
@@ -130,6 +138,11 @@ export class TurnStarts {
         this.open = true;
         return continues === undefined ? undefined : !continues;
       }
+      case "turn_started":
+        // A turn is running (direct.ts `turnOpen`), with a prompt or without one (one the agent
+        // carries on): a prompt sent now during it stops it. It opens no row of its own.
+        this.open = true;
+        return false;
       case "queue_order":
         if (msg.next === true && promptId) {
           if (this.open === true) this.interrupting = promptId;
@@ -250,6 +263,8 @@ export class EarlierPrompts {
     this.count = 0;
     this.told = 0;
     this.publishedVersion = this.version;
+    // The last answer holds the rows too: drop it, so a stopped index keeps no prompt text.
+    this.memo = undefined;
   }
 
   /// What a prompt shows changed (a sender became known, incomingMessage.ts): the rows are built

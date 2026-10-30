@@ -360,6 +360,51 @@ test("the rail's earlier prompts are the turns the transcript draws once it hold
   expect(got.map((tick) => tick.prompt)).toEqual(expected.map((tick) => tick.prompt));
 });
 
+test("a prompt sent now into a turn the agent carried on goes on with it on the rail too", async () => {
+  // A turn opened by `turn_started` alone (no prompt of its own), stopped by a prompt sent now: the
+  // transcript reads that prompt as going on with the turn, and so must the rail's earlier prompts.
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "Root", promptId: "p-root", turnId: "t-root" }],
+    ["mux", "turn_started", { promptId: "p-root", turnId: "t-root" }],
+    ["mux", "turn_result", { status: "completed", turnId: "t-root" }],
+    ["mux", "turn_started", { turnId: "t-carried" }],
+    ["in", "agent_message_chunk", say("Carrying on")],
+    ["mux", "queued", { text: "Send now", promptId: "now", turnId: "t-now" }],
+    ["mux", "queue_order", { promptId: "now", order: ["now"], next: true }],
+    ["mux", "turn_result", { status: "cancelled", turnId: "t-carried" }],
+    ["mux", "dequeued", { promptId: "now" }],
+    ["mux", "user_message", { text: "Send now", promptId: "now", turnId: "t-now" }],
+    ["mux", "turn_started", { promptId: "now", turnId: "t-now" }],
+    ["mux", "turn_result", { status: "completed", turnId: "t-now" }],
+  ];
+  for (let n = 1; n <= 12; n++)
+    steps.push(
+      ["mux", "user_message", { text: `Question ${n}`, promptId: `p-${n}`, turnId: `t-${n}` }],
+      ["mux", "turn_started", { promptId: `p-${n}`, turnId: `t-${n}` }],
+      ["mux", "turn_result", { status: "completed", turnId: `t-${n}` }],
+    );
+  const history = records(CHAT, steps);
+  const whole = await fakeClient([...history]);
+  const expected = ticksOf(whole);
+  expect(expected.map((tick) => tick.prompt)).not.toContain("Send now");
+  const tail = await railOf([...history], fromTurn(history, 9));
+  expect(tail.client.earlier.get().length).toBeGreaterThan(0);
+  expect(ticksOf(tail).map((tick) => tick.key)).toEqual(expected.map((tick) => tick.key));
+});
+
+test("stopping drops every reference to the indexed prompts", async () => {
+  const { read } = promptLog(10);
+  const idle = manualIdle();
+  const held = new EarlierPrompts(read, toRow, () => {}, idle);
+  held.start("s", 100);
+  idle.queue.shift()!();
+  await flush();
+  expect(held.shown(100)).toHaveLength(10);
+  held.stop();
+  expect((held as unknown as { memo?: unknown }).memo).toBeUndefined();
+  expect(held.shown(100)).toEqual([]);
+});
+
 test("a page that ends at a prompt sent now leaves it off the rail, as the transcript does", async () => {
   // Pages of 400 records: find a history where a sent-now prompt is the first opener of a page.
   const history = chatHistory(400);
