@@ -23,6 +23,7 @@
 //! result to the chat that gave it (`hub/tasks.rs`), and `{kind: "turn_cap", turnId, capMs}` on
 //! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`).
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use crate::rpc::RpcError;
@@ -145,6 +146,53 @@ pub fn offer_result(offer_id: &str, child_session_id: &str, title: &str) -> Valu
 /// itself. `from` is the sender's session id, so the receiver's transcript opens its chat.
 pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
     json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to})
+}
+
+/// On a session a Chief host made for one of its turns (optchat-chief `acpmux::turn_tags`): the
+/// Chief's participant id (`agent_mux`, `agent_…`), the key the app finds that Chief's name and
+/// picture by.
+pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
+/// What a Chief's session is called where it is shown: its `mux.label` (the Chief's own name).
+const LABEL_TAG: &str = "mux.label";
+/// On a message from a Chief's turn session: that Chief's participant id, so the receiving chat
+/// draws the Chief's name and picture, not the turn's session name (`optchat-<home>-<n>`,
+/// manaflow-ai/cmux#27914).
+pub const FROM_CHIEF: &str = "fromChief";
+
+/// `provenance` with its sender's Chief, when the sender is a Chief's turn session of this daemon
+/// (`meta_of` reads one by its id): `fromChief` its participant id and `fromName` the Chief's own
+/// name. Both kinds a Chief's turn sends with: an `agent_message` (`agents_chat_send` through the
+/// cmux daemon's pump, `from` `acp:<id>`) and a `session_message` (`acpmux send` from inside the
+/// turn, `from` its id). Any other provenance is left as it is.
+pub fn stamp_chief(
+    mut provenance: Value,
+    meta_of: impl Fn(&str) -> Option<crate::store::SessionMeta>,
+) -> Value {
+    let kind = provenance.get("kind").and_then(Value::as_str);
+    if !matches!(kind, Some("agent_message" | "session_message")) {
+        return provenance;
+    }
+    let Some(from) = provenance.get("from").and_then(Value::as_str) else {
+        return provenance;
+    };
+    let Some(meta) = meta_of(from.strip_prefix("acp:").unwrap_or(from)) else {
+        return provenance;
+    };
+    let live = |key: &str| {
+        let tag = meta.tags.get(key)?;
+        if tag.expires_at.is_some_and(|e| e <= crate::store::now_ms()) {
+            return None;
+        }
+        Some(tag.value.trim().to_owned()).filter(|v| !v.is_empty() && !v.chars().any(unshown))
+    };
+    let Some(chief) = live(CHIEF_PARTICIPANT_TAG).filter(|c| c.len() <= MAX_FIELD_BYTES) else {
+        return provenance;
+    };
+    provenance.set(FROM_CHIEF, json!(chief));
+    if let Some(label) = live(LABEL_TAG).filter(|l| l.chars().count() <= MAX_NAME_CHARS) {
+        provenance.set("fromName", json!(label));
+    }
+    provenance
 }
 
 /// The provenance of a task's result on the prompt that brings it to the chat that gave the task
@@ -306,6 +354,41 @@ mod sender_tests {
         let half = sent(json!({"fromSessionId": "s-2", "fromHarness": 7}));
         assert_eq!(peer_sender(&half).and_then(|s| s.session_id).as_deref(), Some("s-2"));
         assert_eq!(peer_sender(&json!({})), None);
+    }
+
+    #[test]
+    fn a_chief_turn_session_signs_with_the_chief_name_and_id() {
+        let tag = |v: &str| crate::store::Tag { value: v.into(), expires_at: None };
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": "acpmux.session.v1", "id": "s-1", "name": "optchat-b902d10e-2991",
+            "harness": "claude", "family": "claude", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2,
+        }))
+        .unwrap();
+        let found = |meta: &crate::store::SessionMeta| {
+            let meta = meta.clone();
+            move |id: &str| (id == "s-1").then(|| meta.clone())
+        };
+        let pumped = json!({"kind": "agent_message", "from": "acp:s-1", "to": "acp:s-2", "msgId": "m", "threadId": "t"});
+        let sent = session_message("s-1", "optchat-b902d10e-2991", "s-2");
+        // A session no Chief made: as it was.
+        meta.tags.insert(LABEL_TAG.into(), tag("lane"));
+        assert_eq!(stamp_chief(sent.clone(), found(&meta)), sent);
+        assert_eq!(stamp_chief(pumped.clone(), found(&meta)), pumped);
+        // A Chief's turn: the Chief's name and participant id, on both kinds.
+        meta.tags.insert(LABEL_TAG.into(), tag("Ops Chief"));
+        meta.tags.insert(CHIEF_PARTICIPANT_TAG.into(), tag("agent_ops"));
+        for given in [sent, pumped] {
+            let stamped = stamp_chief(given.clone(), found(&meta));
+            assert_eq!(stamped["fromName"], "Ops Chief");
+            assert_eq!(stamped[FROM_CHIEF], "agent_ops");
+            assert_eq!(stamped["from"], given["from"]);
+        }
+        // Another sender, a person's prompt, or a sender this daemon does not have: untouched.
+        let other = json!({"kind": "agent_message", "from": "acp:s-9", "to": "acp:s-2", "msgId": "m", "threadId": "t"});
+        assert_eq!(stamp_chief(other.clone(), found(&meta)), other);
+        let person = json!({"kind": "person_message", "from": "s-1", "fromName": "Ana"});
+        assert_eq!(stamp_chief(person.clone(), found(&meta)), person);
     }
 
     #[test]

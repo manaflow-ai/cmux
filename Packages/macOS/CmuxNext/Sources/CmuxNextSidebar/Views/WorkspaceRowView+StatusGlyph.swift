@@ -1,4 +1,6 @@
 import AppKit
+import CmuxAgentBrands
+import CmuxNextIcons
 import CmuxNextDesign
 
 extension WorkspaceRowView {
@@ -26,7 +28,10 @@ extension WorkspaceRowView {
     /// A custom harness's own icon at the agent mark's size: an image drawn as is, a symbol as a
     /// template tinted like the marks.
     func agentIconImage(_ icon: SidebarAgentIcon) -> NSImage? {
-        let side = agentMarkSize
+        Self.agentIconImage(icon, side: agentMarkSize)
+    }
+
+    static func agentIconImage(_ icon: SidebarAgentIcon, side: CGFloat) -> NSImage? {
         switch icon {
         case .image(let favicon):
             let image = NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side))
@@ -38,5 +43,33 @@ extension WorkspaceRowView {
             image?.isTemplate = true
             return image
         }
+    }
+}
+
+
+extension WorkspaceRowView {
+    /// These image decisions also determine the title column while the parent row is offscreen.
+    static func agentMarkImage(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant, placeholder: Bool) -> NSImage? {
+        guard variant != .off, !placeholder else { return nil }
+        let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
+        return workspace.agentIcon.flatMap { agentIconImage($0, side: side) }
+            ?? workspace.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+    }
+
+    static func machineMarkImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
+        if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
+        return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
+    }
+
+    static func titleColumn(workspace: SidebarWorkspace, row: SidebarRow) -> CGFloat {
+        let content = row.content ?? WorkspaceRowContent()
+        let placeholder = workspace.rowState == .placeholder && workspace.title.isEmpty
+        var x = SidebarStyle.workspaceTitleX(icon: content.icon, treeDepth: content.treeDepth)
+        let variant = SidebarTunables.agentMark.value
+        if variant == .besideTitle, agentMarkImage(workspace, variant: variant, placeholder: placeholder) != nil {
+            x = SidebarStyle.titleXAfterLeadingMark(x)
+        }
+        if !placeholder, content.machine != nil { x = SidebarStyle.titleXAfterLeadingMark(x) }
+        return x
     }
 }
