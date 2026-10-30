@@ -60,6 +60,7 @@
 use cmux_json::JsonSet as _;
 
 // A turn a daemon restart cut off is continued from the restored queue.
+pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
 mod restore;
@@ -177,6 +178,7 @@ pub(super) struct CutTurn<'a> {
     pub control: Control,
     pub trust_gate: bool,
     pub error: &'a str,
+    pub not_before: Option<u64>,
 }
 
 /// A waiting continuation's timer: its mark going wakes it (`Drop`), so Stop, close or a turn
@@ -453,7 +455,7 @@ impl Hub {
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
-        let (control, trust_gate) = (cut.control, cut.trust_gate);
+        let (control, trust_gate, not_before) = (cut.control, cut.trust_gate, cut.not_before);
         let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
@@ -473,17 +475,29 @@ impl Hub {
                 return;
             };
             let attempt = done + 1;
-            let delay = staggered(delay, &session.id);
+            let now = super::now_ms();
+            let limits = session.meta().usage_limits;
+            let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+            let next_at =
+                now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now));
+            let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,
                 of: delays.len() as u64,
                 reason,
-                next_at: super::now_ms().saturating_add(delay),
+                next_at,
                 prompt_id: root.clone(),
                 turn_id: turn_id.clone(),
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
+            msg.set("error", json!(error));
+            msg.set("control", json!(control.as_str()));
+            msg.set("trustGate", json!(trust_gate));
+            msg.set("notBefore", json!(not_before));
+            if let Some(from) = &from {
+                msg.set("from", json!(from));
+            }
             if hub.set_retry(&session, &turn_id, retry, msg) {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
@@ -498,6 +512,7 @@ impl Hub {
                 control,
                 trust_gate,
                 error: &error,
+                not_before: None,
             };
             hub.auto_resume(&session, cut, attempt).await;
         });

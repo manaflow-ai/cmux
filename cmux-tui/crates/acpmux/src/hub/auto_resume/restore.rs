@@ -67,6 +67,7 @@ impl Hub {
             return;
         }
         let (mut retry, mut from) = (None::<RetrySummary>, None::<String>);
+        let mut not_before = None::<u64>;
         let mut manual = None::<Value>;
         let mut manual_recorded = false;
         let mut has_retry_marker = false;
@@ -136,6 +137,7 @@ impl Hub {
                 {
                     has_retry_marker = true;
                     retry = serde_json::from_value(e.msg).ok();
+                    not_before = e.msg.get("notBefore").and_then(Value::as_u64);
                 }
                 // Old stop records had no id; the turn boundary reset scopes those. New
                 // records explicitly name the cut turn, including a Stop before failure.
@@ -350,6 +352,7 @@ impl Hub {
                 control,
                 trust_gate: trust_gate || control == Control::Web,
                 error: &error,
+                not_before,
             };
             hub.auto_resume(&session, cut, retry.attempt as usize).await;
         });
@@ -661,6 +664,7 @@ mod tests {
                     control: Control::Local,
                     trust_gate: false,
                     error: "stream disconnected",
+                    not_before: None,
                 }),
             );
             let (again, session) = restart(&hub, &session).await;
@@ -892,6 +896,7 @@ mod tests {
                 control: Control::Local,
                 trust_gate: false,
                 error: "stream disconnected",
+                not_before: None,
             },
             1,
         )
@@ -908,6 +913,7 @@ mod tests {
                 control: Control::Local,
                 trust_gate: false,
                 error: "stream disconnected",
+                not_before: None,
             },
             1,
             &[],
