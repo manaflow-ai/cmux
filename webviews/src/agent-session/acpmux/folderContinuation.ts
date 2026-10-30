@@ -22,7 +22,8 @@ export class FolderContinuation {
       if (!sessionId || generation !== this.generation || !actions.current()) return;
       // Copy only. The source draft, attachments, and pending reads remain owned by their chat.
       actions.copyText(sessionId);
-      if (await actions.select(sessionId)) actions.clearFolder();
+      if ((await actions.select(sessionId)) && generation === this.generation && actions.current())
+        actions.clearFolder();
     } finally {
       this.pending = false;
     }

@@ -90,6 +90,18 @@ test("navigation during selection cannot clear the newer folder", async () => {
   expect(f.events).toEqual(["start", "copy:new"]);
 });
 
+test("a stale successful selection cannot clear the newer folder", async () => {
+  const f = fixture();
+  const selection = deferred<boolean>();
+  const first = f.continuation.run({ ...f.actions, select: () => selection.promise });
+  f.pending.resolve("new");
+  await Promise.resolve();
+  f.continuation.invalidate();
+  selection.resolve(true);
+  await first;
+  expect(f.events).toEqual(["start", "copy:new"]);
+});
+
 test("recovery requests a folder-free chat without sending the held prompt", () => {
   expect(folderContinuationRequest).toEqual({ noProject: true, continueWithoutFolder: true });
 });
