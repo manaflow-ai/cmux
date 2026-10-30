@@ -50,7 +50,8 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     setFailure(undefined);
     setDrawn(false);
     setSaved(false);
-    const drawing = mode === "mermaid" ? renderMermaid(libraries, code, target) : renderVega(libraries, mode, code, target);
+    const drawing =
+      mode === "mermaid" ? renderMermaid(libraries, code, target) : renderVega(libraries, mode, code, target);
     drawing.then(
       () => {
         if (live) setDrawn(true);
