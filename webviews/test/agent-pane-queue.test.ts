@@ -261,8 +261,8 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     });
 
     // Leo, 2026-10-29: "Plus this fucking edit message thing. It doesn't even fucking work." The ⋯
-    // menu's Edit message opens the prompt in its row, and what is saved is what acpmux sends.
-    test("the ⋯ menu's Edit message edits a queued prompt in its row, and saving changes what is sent", async () => {
+    // menu's Edit message opens the prompt in its row, and saving it updates the prompt acpmux sends.
+    test("the ⋯ menu's Edit message edits a queued prompt in its row, and saving updates the prompt acpmux will send", async () => {
       const page = await openChat();
       const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
       await row.hover();
