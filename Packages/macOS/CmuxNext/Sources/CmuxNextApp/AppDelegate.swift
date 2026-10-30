@@ -48,9 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services()?.home.applicationWillTerminate()
         }, save: {
             guard let services = services() else { return }
-            async let files: Void = services.stateFilesDrained()
+            async let files = services.stateFilesDrained()
             await services.home.flushCacheForQuit()
-            await files
+            _ = await files
         }, armDeadline: armDeadline, end: end)
     }
     private var settings: SettingsController?

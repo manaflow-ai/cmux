@@ -67,8 +67,13 @@ public nonisolated final class AgentPaneStateFile: Sendable {
 /// its queue and so its order, and the quit waits for exactly the app's files.
 public nonisolated final class AgentPaneStateFiles: Sendable {
     private let files = Mutex<[String: AgentPaneStateFile]>([:])
+    private let drainBegan: @Sendable () -> Void
 
-    public init() {}
+    /// - Parameter drainBegan: Told each time a ``drained(within:)`` begins, before it waits (a test
+    ///   releases a save it holds there, so only a real drain can let the quit go on).
+    public init(drainBegan: @escaping @Sendable () -> Void = {}) {
+        self.drainBegan = drainBegan
+    }
 
     /// The one writer for `url`.
     public func at(_ url: URL) -> AgentPaneStateFile {
@@ -86,6 +91,7 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
     /// (`ForcedQuitExit`). False when some were still queued at the limit.
     @discardableResult
     public func drained(within limit: Duration) async -> Bool {
-        await QueueDrain().drained(files.withLock { $0.values.map(\.queue) }, within: limit)
+        drainBegan()
+        return await QueueDrain().drained(files.withLock { $0.values.map(\.queue) }, within: limit)
     }
 }
