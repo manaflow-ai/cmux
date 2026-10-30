@@ -17,6 +17,15 @@ use std::time::Duration;
 pub async fn connect_running() -> Result<Arc<Client>> {
     let path = socket_path();
     let lock = home().join("daemon.lock");
+    // This home's daemon serves another socket: no wait makes it serve this one. Bounded like
+    // the listing's own connects: a socket that accepts but never answers its hello.
+    #[cfg(unix)]
+    if !matches!(tokio::time::timeout(HANDOVER_RETRY, Client::connect(&path)).await, Ok(Ok(_)))
+        && lock_has_live_holder(&lock)
+        && let Some(other) = super::holder_elsewhere(&path).await
+    {
+        return Err(super::serves_elsewhere(&path, &other));
+    }
     connect_running_with(
         &path,
         || lock_has_live_holder(&lock),

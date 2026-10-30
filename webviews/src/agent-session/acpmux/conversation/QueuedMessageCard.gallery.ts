@@ -5,7 +5,7 @@
 // with one quiet "Read after this turn" over the first of them and its actions (Steer, Edit message,
 // queueing, Delete) in the line's ⋯ menu (QueuedMessageCard.tsx, queuedMessages.ts). The composer's queue, its fold and its count, hold the
 // person's own prompts only. A steer the agent has not read yet reads the same, "after this step".
-// The note's look: A, plain dim caption text, ships; B (a clock and "After this turn") and C (a
+// Held by the person's Stop, the note says so and what lets them in. The note's look: A, plain dim caption text, ships; B (a clock and "After this turn") and C (a
 // hairline "Queued" pill) are drawn here only, over the shipped note.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -38,6 +38,13 @@ const running = [
   assistant("Reading the helper…", 0.5, { streaming: true }),
 ];
 const elevenAndMine = chat(running, { isWorking: true, queue: [...queued, own] });
+/// The person stopped the turn: acpmux holds the agents' messages (`queue_paused` with
+/// `reason: "stop"`) until their next turn completes, and the stopped turn offers Continue.
+const stopped = [...running.slice(0, 4), assistant("Reading the helper…", 0.5), summary(0.4, { status: "cancelled" })];
+const heldByStop = chat(stopped, {
+  isWorking: false,
+  queue: queued.slice(0, 3).map((entry) => ({ ...entry, heldByStop: true as const })),
+});
 const MINIMAL = { "sidebar.minimal": true };
 
 const ALT_ID = "queued-note-alt";
@@ -104,6 +111,10 @@ export default agentPaneEntry({
       display: MINIMAL,
       snapshot: elevenAndMine,
       play: pillNote,
+    },
+    "held-by-stop": {
+      note: "The person stopped the turn: three agents' messages wait, held by the Stop, and the first says so and what lets them in (Continue on the stopped turn, or the person's next message), not Read after this turn.",
+      snapshot: heldByStop,
     },
     menu: {
       note: "Play: a waiting message's ⋯ menu: Steer, Edit message, Turn off queueing, Delete.",
