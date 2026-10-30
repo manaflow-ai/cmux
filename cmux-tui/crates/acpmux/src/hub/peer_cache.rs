@@ -29,6 +29,10 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 /// clients read), `stale`, and when the peer was last seen. Returns whether
 /// the row changed.
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
+    // A completed chat stays completed even when its machine goes away.
+    if summary["status"] == "closed" {
+        return false;
+    }
     let before = summary.clone();
     summary["status"] = Value::String("unreachable".into());
     if summary.get("state").is_some() {
