@@ -53,7 +53,7 @@ export const revokeInstallationToken = async (http: Http, token: string): Promis
 }
 
 /**
- * Installation tokens for the gateway's own ops (github.issue.comment) live one hour; reuse until five minutes before expiry.
+ * Installation tokens for repository discovery live one hour; reuse until five minutes before expiry.
  * Per isolate, never stored. Tokens handed to callers are narrowed and kept per principal in the ledger (github-tokens.ts).
  */
 const installationTokens = new Map<number, { token: string; expires_at: number }>()
@@ -81,9 +81,24 @@ export const forgetInstallationToken = (installation: number, token: string) => 
   if (installationTokens.get(installation)?.token === token) installationTokens.delete(installation)
 }
 
+/** Comment mutations use a separate cache: a repository-list token must never supply a write. */
+const commentTokens = new Map<string, { token: string; expires_at: number }>()
+const commentToken = async (env: Env, http: Http, installation: number, repo: string) => {
+  const key = `${installation}:${repo.toLowerCase()}:issues:write`
+  const cached = commentTokens.get(key)
+  if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
+  const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
+  if (!res.ok) throw failed("github", res, "installation token")
+  const body = await json(res)
+  const token = String(body.token ?? "")
+  commentTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
+  return token
+}
+
 export const github: ProviderImpl = {
   configured: (env) => Boolean(env.GITHUB_APP_SLUG && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
   defaultScopes: [],
+  scopesFor: (op) => op === "github.issue.comment" ? ["issues:write"] : undefined,
   // App permissions are set on the App, not per request; the install page carries our state back.
   authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
@@ -143,10 +158,12 @@ export const github: ProviderImpl = {
       resources: { repos }
     }
   },
-  call: async (env, http, credential, op, params) => {
+  call: async (env, http, credential, op, params, beforeEffect) => {
     if (credential.kind !== "github_installation") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "github.issue.comment") throw new ProviderError("provider.error", `github cannot run ${op}`)
-    const token = await installationToken(env, http, credential.installation_id)
+    const token = await commentToken(env, http, credential.installation_id, String(params.repo))
+    // Token acquisition can yield while membership, sharing, scopes or repository policy changes.
+    await beforeEffect?.()
     const res = await effectCall(
       http,
       "github",
@@ -158,6 +175,12 @@ export const github: ProviderImpl = {
     )
     if (!res.ok) throw failed("github", res, "comment", true)
     const b = await json(res)
+    const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
+    const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+    const pullUrl = `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+    if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || !returnedUrl || returnedUrl !== issueUrl && returnedUrl !== pullUrl) {
+      throw new ProviderError("mutation.indeterminate", "github returned no valid comment receipt; check the provider")
+    }
     return { value: { id: b.id, url: b.html_url } }
   }
 }

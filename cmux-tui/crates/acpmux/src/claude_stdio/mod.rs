@@ -735,6 +735,12 @@ impl Translator {
         }
     }
 
+    /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
+    /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
+    pub async fn runs_background_work(&self) -> bool {
+        self.interrupt_ends_work().await
+    }
+
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
         std::mem::take(&mut *self.stdin_replies.lock().await)
     }

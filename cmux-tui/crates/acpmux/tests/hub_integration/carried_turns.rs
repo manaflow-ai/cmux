@@ -477,10 +477,12 @@ async fn a_carried_turn_after_a_carried_turn_has_its_own_cap() {
     gates.open(2, "end");
     let turns = started(&hub, &id, 3).await;
     let third = turns[2]["turnId"].clone();
-    // An agent's message, queued under the cap: the timer sends the notice at the cap.
+    // An agent's message, queued under the cap: the timer sends the notice at the cap. A plain
+    // send would go into the inbox (`hub/inbox.rs`); a supersede-keyed one still queues.
     let mut q = connect(&hub).await;
     let mut queued = prompt(&id, "p-lane", "report from lane a", false);
     queued["_meta"]["acpmux"]["fromAgent"] = json!("lane-a");
+    queued["_meta"]["acpmux"]["supersede"] = json!("lane-a-report");
     let _held = q.send(method::SESSION_PROMPT, queued).await;
     let accepted = q.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-lane").await;
     assert_eq!(accepted["queued"], true, "{accepted}");
