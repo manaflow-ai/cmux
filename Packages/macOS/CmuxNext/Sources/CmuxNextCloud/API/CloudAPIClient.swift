@@ -17,10 +17,10 @@ public struct CloudAPIClient: Sendable {
     let session: URLSession
     let appVersion: String
     /// Where a machine's exec and file routes live: `/api/vm` here, `/v1/cloud/machines` on the
-    /// cmux API Worker (``workerMachines(baseURL:installToken:session:appVersion:)``).
+    /// cmux API Worker (``workerMachines(baseURL:accessToken:teamID:session:appVersion:)``).
     let machinePath: String
-    /// Sends the Stack refresh token and the team header (`/api/vm`). A Worker machines client
-    /// sends only its install token, whose team claim picks the team: no Stack session goes there.
+    /// Sends the Stack refresh token and `X-Cmux-Team-Id` (`/api/vm`). A Worker machines client
+    /// sends the Stack access token and the cmux team in `x-cmux-team`, never the refresh token.
     let sendsStackSession: Bool
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
@@ -40,7 +40,9 @@ public struct CloudAPIClient: Sendable {
 
     /// This client with its team fixed to `team`: every request of a create and its retries
     /// goes to the same team whatever the app switches to meanwhile.
+    /// A Worker machines client keeps its cmux team: `team` is the app's (Stack) team id.
     public func pinningTeam(_ team: String?) -> CloudAPIClient {
+        guard sendsStackSession else { return self }
         var copy = self
         copy.teamID = { team }
         return copy
@@ -61,23 +63,22 @@ public struct CloudAPIClient: Sendable {
     /// A Worker machine's (the Cloud app server link's) exec and file routes: the same requests
     /// and answers as `/api/vm/{id}/exec` and `/api/vm/{id}/fs/...`, under
     /// `/v1/cloud/machines/{id}/` on the cmux API Worker (`baseURL`:
-    /// ``CloudConfiguration/ownerAPIBaseURL(environment:)``), with this install's token as the
-    /// only credential (cmux-platform#89, backend cloud-machine-exec). Only those routes serve there.
-    /// The token's own team claim picks the team, the same team the app link lists its machines
-    /// in (the credential relay's token), so ``pinningTeam(_:)`` changes nothing here: a Stack team
-    /// id is not a cmux API team, and the flows that pin one (credential recovery, the Codex
-    /// broker, a create's bootstrap) act only on the caller's own machine.
-    public static func workerMachines(baseURL: URL, installToken: @escaping @Sendable () async throws -> String,
-                                      session: URLSession = CloudAPIClient.noStoreTransport,
+    /// ``CloudConfiguration/ownerAPIBaseURL(environment:)``), as the person's Stack session
+    /// (`accessToken`) in the cmux team `teamID` (`x-cmux-team`; the install token's team claim,
+    /// the team the app link lists its machines in), like ``CloudOwnerAPIClient``. Never this Mac's
+    /// install token: a Mac install has no execute grant, so the route refuses it with a 403
+    /// (cmux-platform#89, backend cloud-machine-guest.ts). Only those routes serve there.
+    public static func workerMachines(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
+                                      teamID: @escaping TeamID, session: URLSession = CloudAPIClient.noStoreTransport,
                                       appVersion: String = "cmux-next") -> CloudAPIClient {
-        CloudAPIClient(baseURL: baseURL, tokens: { (try await installToken(), "") }, session: session, appVersion: appVersion)
+        CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, session: session, appVersion: appVersion)
     }
 
-    private init(baseURL: URL, tokens: @escaping Tokens, session: URLSession, appVersion: String) {
+    private init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String) {
         self.baseURL = baseURL
         backendIsLocalOnly = false
         self.tokens = tokens
-        teamID = { nil }
+        self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
         machinePath = "/v1/cloud/machines"
@@ -503,6 +504,8 @@ public struct CloudAPIClient: Sendable {
         if sendsStackSession {
             request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
             if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id") }
+        } else if let team = await teamID() {
+            request.setValue(team, forHTTPHeaderField: "x-cmux-team")
         }
         if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
         if let body {

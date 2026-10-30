@@ -149,7 +149,8 @@ final class CloudService {
         )
         installIdentity = identity
         machineAPI = configuration.linkSource == .appServer
-            ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), installToken: { try await identity.installToken() })
+            ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
