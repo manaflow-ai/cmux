@@ -35,6 +35,8 @@ public enum CloudStrings {
     }
     public static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet. Wait for it to connect; if it is paused, run `cmux cloud resume-machine --target machine:<id>`.", table: "Cloud", bundle: .module) }
     public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass the command to run on the Cloud machine with --command \"<command>\".", table: "Cloud", bundle: .module) }
+    /// A creation's Retry when this Mac's install now bills another team than its first send (cmuxterm-hq#4709).
+    nonisolated public static var createRetryOtherTeam: String { String(localized: "cloud.failed.createRetryOtherTeam", defaultValue: "This machine was requested in another team. Switch back to that team to retry it, or dismiss it and create a new one.", table: "Cloud", bundle: .module) }
     public static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in. To switch accounts, run `cmux cloud sign-out`, then sign in again.", table: "Cloud", bundle: .module) }
     /// Team Picker's `team` names no team of this account.
     public static func noSuchTeam(_ team: String) -> String {

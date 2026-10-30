@@ -5336,9 +5336,13 @@ jobs:
           REUSED_FROM_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_run_id || '' }}
           REUSED_FROM_SHA: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_sha || '' }}
           COMPILED_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.compiled_run_id || '' }}
+          # Reporting only (the key keeps the requested mode): what `auto` resolved to, the reused source's on a hit.
+          SWIFT_MODE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.swift_mode || steps.compile-cmux-next-dev-release.outputs.swift_mode }}
+          SWIFT_MODE_REQUESTED: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           python3 -I scripts/ci/dev_release_product_reuse.py record --key "$KEY" --sha "$SHA" --archive "$ARCHIVE" \
             --reused-from-run "$REUSED_FROM_RUN" --reused-from-sha "$REUSED_FROM_SHA" --compiled-run "$COMPILED_RUN" \
+            --swift-mode "$SWIFT_MODE" --swift-mode-requested "$SWIFT_MODE_REQUESTED" \
             --out "$RUNNER_TEMP/cmux-next-dev-product-record/manifest.json" >> "$GITHUB_OUTPUT"
 
       - name: Upload the DEV Release app record
@@ -5820,9 +5824,13 @@ jobs:
           REUSED_FROM_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_run_id || '' }}
           REUSED_FROM_SHA: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_sha || '' }}
           COMPILED_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.compiled_run_id || '' }}
+          # Reporting only (the key keeps the requested mode): what `auto` resolved to, the reused source's on a hit.
+          SWIFT_MODE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.swift_mode || steps.compile.outputs.swift_mode }}
+          SWIFT_MODE_REQUESTED: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: |
           python3 -I scripts/ci/dev_release_product_reuse.py record --key "$KEY" --sha "$GITHUB_SHA" --archive "$ARCHIVE" \
             --reused-from-run "$REUSED_FROM_RUN" --reused-from-sha "$REUSED_FROM_SHA" --compiled-run "$COMPILED_RUN" \
+            --swift-mode "$SWIFT_MODE" --swift-mode-requested "$SWIFT_MODE_REQUESTED" \
             --out "$RUNNER_TEMP/cmux-next-dev-product-record/manifest.json" >> "$GITHUB_OUTPUT"
       - name: Upload the DEV Release app record
         if: steps.dev-product-record.outcome == 'success'
