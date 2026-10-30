@@ -591,6 +591,15 @@ const PRELUDE: &str = r#"
 /// call) and ends with `}` is left as written. Nothing of the script runs to decide.
 fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
     let trimmed = script.trim().trim_end_matches(';').trim_end();
+    // `(async () => {...})()` calls itself: only its value was missing, so return it.
+    if let Some(called) = trimmed.strip_suffix("()")
+        && called.starts_with('(')
+        && called.ends_with(')')
+        && !trimmed.contains("return")
+        && function_body(called) != std::borrow::Cow::Borrowed(called)
+    {
+        return std::borrow::Cow::Owned(format!("return await {trimmed};"));
+    }
     let inner = match trimmed.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
         Some(inner) => inner.trim(),
         None => trimmed,

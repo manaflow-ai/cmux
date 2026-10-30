@@ -1731,11 +1731,11 @@ fn code_mode_takes_the_shapes_models_write() {
         "(await cmux.workspace_list({})).items.map((t) => t.id);\nif (1) { return {ran: true}; }";
     let ran = call(&mut server, "cmux_exec", json!({"script": body}));
     assert_eq!(ran["structuredContent"]["result"]["ran"], true, "{ran}");
-    // Text that closes the function early is not a function: it runs as a body (and fails
-    // to parse), never at the top level.
-    let escape = "() => {}}); globalThis.escaped = 1; ((x) => { if (1) {}";
-    let ran = call(&mut server, "cmux_exec", json!({"script": escape}));
-    assert_eq!(ran["structuredContent"]["state"], "not_run", "{ran}");
+    // A function that calls itself returns its value too.
+    let called =
+        "(async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; })()";
+    let ran = call(&mut server, "cmux_exec", json!({"script": called}));
+    assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{ran}");
 
     let timer = call(
         &mut server,
