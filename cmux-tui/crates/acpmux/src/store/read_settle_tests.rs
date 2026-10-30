@@ -146,3 +146,21 @@ fn read_settle_a_flush_while_a_chat_streams_returns_with_every_record_queued_bef
     assert_eq!(seqs[..before as usize], (1..=before).collect::<Vec<_>>()[..]);
     let _ = std::fs::remove_dir_all(&store.root);
 }
+
+/// A strict read (`Store::scan_strict`) sees every append made before it, as every other read of
+/// the log does (`LocalStore::segments`): right after a new chat's first append, while the line is
+/// still queued and the writer thread has not made the chat's `events` folder yet, it returns that
+/// record. It does not fail because the folder is not there yet.
+#[test]
+fn a_strict_scan_right_after_a_chats_first_append_reads_that_record() {
+    let store = store("strict-first-append");
+    store.append(CHAT, &record(1)).unwrap();
+    let mut seqs = Vec::new();
+    let read = store.scan_strict(CHAT, 0, &mut |r| {
+        seqs.push(r.seq);
+        true
+    });
+    assert!(read.is_ok(), "a strict read of a queued first append failed: {read:?}");
+    assert_eq!(seqs, vec![1]);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
