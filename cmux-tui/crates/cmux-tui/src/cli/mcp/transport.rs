@@ -193,7 +193,9 @@ pub(super) fn resource(
             }
             Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() })
         }
-        Err(message) => Err(fail(sent, "transport.failed", message)),
+        Err(resolve::Failure::Refused) => Err(fail(sent, "session.busy", "session is busy".into())),
+        Err(resolve::Failure::Transport(message)) => Err(fail(sent, "transport.failed", message)),
+        Err(_) => Err(fail(sent, "transport.failed", "request failed".into())),
     }
 }
 
