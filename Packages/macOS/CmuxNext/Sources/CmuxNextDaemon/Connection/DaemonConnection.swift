@@ -99,15 +99,8 @@ public actor DaemonConnection {
     /// afterwards the connection reconnects by itself until `close()`.
     @discardableResult
     public func start() async throws -> DaemonIdentity {
-        guard case .idle = phase else {
-            if let identity { return identity }
-            throw DaemonError.notConnected
-        }
-        let task = Task { [weak self] in
-            guard let self else { throw DaemonError.connectionClosed(reason: "connection deallocated") }
-            return try await self.connectOnce()
-        }
-        connectTask = task
+        if let identity, !isClosedPhase { return identity }
+        let task = try beginInitialAttempt()
         do {
             let identity = try await task.value
             connectTask = nil
@@ -116,6 +109,18 @@ public actor DaemonConnection {
             connectTask = nil
             throw error
         }
+    }
+
+    /// Kept synchronous on the actor so one initial attempt owns its retained task.
+    /// Tests can close in this same actor turn before the scheduled attempt enters.
+    func beginInitialAttempt() throws -> Task<DaemonIdentity, any Error> {
+        guard case .idle = phase, connectTask == nil else { throw DaemonError.notConnected }
+        let task = Task { [weak self] in
+            guard let self else { throw DaemonError.connectionClosed(reason: "connection deallocated") }
+            return try await self.connectOnce()
+        }
+        connectTask = task
+        return task
     }
 
     /// Stops reconnecting, closes the socket, and finishes `events`.
