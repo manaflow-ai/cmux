@@ -3,6 +3,12 @@ public import Foundation
 /// Validity of a renderer's captured answer against one immutable native request. This value
 /// grants no person authority: private renderer redemption and a current-generation check must
 /// still succeed before reserving and spending the exact intent's one-use ticket.
+///
+/// Never looser than acpmux's own check (hub/questions.rs check_answers, check_annotations). Where
+/// it is stricter, it holds the reply to what the pane's question card itself sends
+/// (webviews question/model.ts answerProblems and reply): one choice on a single-select item and
+/// no Other on a choice-only one, for Codex too, and annotations only for Claude Code's
+/// AskUserQuestion. So it refuses no reply the pane builds, only one shaped some other way.
 public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
     public enum Failure: String, Error, Sendable, Equatable {
         case malformed, question, option, answers, annotations
