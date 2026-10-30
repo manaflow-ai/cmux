@@ -35,9 +35,15 @@ await requireBrowserLane("chat-gallery-tool-media-browser.test.ts", async () => 
       page.on("pageerror", (error) => errors.push(error.message));
       try {
         const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-        await page.goto(base + galleryFrame("agent-pane.chat-gallery", {
-          variant: "tool-outputs", colorScheme, width: 760, height: 720,
-        }));
+        await page.goto(
+          base +
+            galleryFrame("agent-pane.chat-gallery", {
+              variant: "tool-outputs",
+              colorScheme,
+              width: 760,
+              height: 720,
+            }),
+        );
         await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
         expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
         const gallery = page.locator(".acpmux-chat-gallery");
@@ -69,9 +75,15 @@ await requireBrowserLane("chat-gallery-tool-media-browser.test.ts", async () => 
       page.on("pageerror", (error) => errors.push(error.message));
       try {
         const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-        await page.goto(base + galleryFrame("agent-pane.chat-gallery", {
-          variant: "tool-outputs", colorScheme, width: 760, height: 720,
-        }));
+        await page.goto(
+          base +
+            galleryFrame("agent-pane.chat-gallery", {
+              variant: "tool-outputs",
+              colorScheme,
+              width: 760,
+              height: 720,
+            }),
+        );
         await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
         const gallery = page.locator(".acpmux-chat-gallery");
         expect(await gallery.locator("[data-gallery-kind]").count()).toBe(2);

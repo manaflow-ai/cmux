@@ -4,8 +4,7 @@ import { renderTool } from "../src/gallery/fixtures/renders";
 import { chatGallery, galleryItems, viewerImages } from "../src/agent-session/acpmux/summary/chatGallery";
 
 const png = "data:image/png;base64,aW1hZ2U=";
-const screenshot = (status = "completed") =>
-  tool("Screenshot", "read", status, { images: [png] });
+const screenshot = (status = "completed") => tool("Screenshot", "read", status, { images: [png] });
 
 test("a tool screenshot with a prose final is a gallery output", () => {
   const rows = [user("Take a screenshot", 3), activity([screenshot()], 2), assistant("Done.", 1), summary(1)];
@@ -21,12 +20,15 @@ test("tool and assistant copies of the same image have one gallery entry in tran
 
 test("unfinished calls are excluded until completion, including early envelope images", () => {
   for (const status of ["pending", "in_progress"]) {
-    const pending = activity([
-      tool("Screenshot", "read", status, {
-        images: [png],
-        output: JSON.stringify({ content: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }] }),
-      }),
-    ], 2);
+    const pending = activity(
+      [
+        tool("Screenshot", "read", status, {
+          images: [png],
+          output: JSON.stringify({ content: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }] }),
+        }),
+      ],
+      2,
+    );
     expect(chatGallery([pending])).toEqual([]);
     const completed = { ...pending, items: [screenshot()] };
     expect(chatGallery([completed])).toHaveLength(1);
@@ -39,7 +41,10 @@ test("discovers an MCP envelope, local image, PDF, video and audio without readi
     output: JSON.stringify({ content: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }] }),
     locations: paths.map((path) => ({ path })),
   });
-  expect(chatGallery([activity([call], 1)]).map((item) => item.kind === "tool" && item.source)).toEqual([png, ...paths]);
+  expect(chatGallery([activity([call], 1)]).map((item) => item.kind === "tool" && item.source)).toEqual([
+    png,
+    ...paths,
+  ]);
 });
 
 test("completed tool media survives a live turn and partial history; renders still wait for its summary", () => {
@@ -61,7 +66,12 @@ test("gallery discovery stays within the supplied session rows", () => {
 test("cached activity discovery does not reparse unchanged tool output", () => {
   let reads = 0;
   const call = screenshot();
-  Object.defineProperty(call.tool!, "output", { get: () => { reads += 1; return ""; } });
+  Object.defineProperty(call.tool!, "output", {
+    get: () => {
+      reads += 1;
+      return "";
+    },
+  });
   const row = activity([call], 1);
   chatGallery([row]);
   const first = reads;
@@ -83,9 +93,15 @@ test("the image viewer steps through reply and tool data images, skipping files 
   const other = "data:image/png;base64,b3RoZXI=";
   const rows = [
     user("Outputs", 3),
-    activity([tool("Shot", "read", "completed", { images: [png] }), tool("Files", "read", "completed", {
-      locations: [{ path: "/project/chart.png" }, { path: "/project/demo.mp4" }],
-    })], 2),
+    activity(
+      [
+        tool("Shot", "read", "completed", { images: [png] }),
+        tool("Files", "read", "completed", {
+          locations: [{ path: "/project/chart.png" }, { path: "/project/demo.mp4" }],
+        }),
+      ],
+      2,
+    ),
     assistant(`![Other](${other})`, 1),
     summary(1),
   ];

@@ -41,14 +41,22 @@ const media = () =>
   );
 
 const toolOutputs = () =>
-  chat([
-    user("Capture the chart and show the request flow", 3),
-    activity([tool("Capture chart", "read", "completed", {
-      images: [`data:image/svg+xml;base64,${btoa(sampleChart())}`],
-    })], 2),
-    assistant(`Captured the chart. Here is the request flow.\n\n${image("Request flow", sampleDiagram())}`, 1),
-    summary(1, { status: "completed", toolCount: 1 }),
-  ], { title: "Capture the chart and show the request flow" });
+  chat(
+    [
+      user("Capture the chart and show the request flow", 3),
+      activity(
+        [
+          tool("Capture chart", "read", "completed", {
+            images: [`data:image/svg+xml;base64,${btoa(sampleChart())}`],
+          }),
+        ],
+        2,
+      ),
+      assistant(`Captured the chart. Here is the request flow.\n\n${image("Request flow", sampleDiagram())}`, 1),
+      summary(1, { status: "completed", toolCount: 1 }),
+    ],
+    { title: "Capture the chart and show the request flow" },
+  );
 
 /** Shows the summary from the header's Summary button unless it shows already (a pane wide enough
  * for its inline column shows it on its own), and waits for Outputs' gallery row. */
