@@ -120,6 +120,10 @@ if grep '^::error' <<<"$out" | grep -q 'aPasses'; then fail "the error names a f
 # "Test run started." is the run, not a test.
 grep '^::error' <<<"$out" | grep -q ' 2 tests started and never finished: hangsForever()' || fail "the error counts the run itself as an unfinished test" "$out"
 grep -q 'hangsForever()' <<<"$summary" || fail "the step summary does not name hangsForever()" "$summary"
+# A cut-short run reports itself as incomplete, never as a pass or a plain red.
+grep -q '^::error title=cmux-next swift test incomplete::' <<<"$out" || fail "a cut-short run is not titled incomplete" "$out"
+if grep -q '^::error title=cmux-next swift test ended early' <<<"$out"; then fail "a cut-short run still says ended early, not incomplete" "$out"; fi
+grep -q '^### Incomplete: ' <<<"$summary" || fail "the step summary does not say the run is incomplete" "$summary"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
@@ -194,7 +198,7 @@ cat > "$TMP/short.out" <<'EOF'
 EOF
 run short 0
 [[ "$status" != 0 ]] || fail "a truncated run with a summary line exited 0" "$out"
-short_error=$(grep '^::error title=cmux-next swift test reported fewer' <<<"$out" || true)
+short_error=$(grep '^::error title=cmux-next swift test incomplete::reported fewer' <<<"$out" || true)
 [[ -n "$short_error" ]] || fail "no short-run ::error line" "$out"
 grep -q 'summaries count 1 tests in total but 3 started and 2 of those never finished' <<<"$short_error" \
   || fail "the error does not give the three counts" "$short_error"
@@ -678,5 +682,41 @@ EOF
 STUB_DRIP=6 STUB_DRIP_SECONDS=1 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1   run progress 0
 [[ "$out" != *"swift test stuck"* ]]   || fail "the watchdog killed a run that was still finishing tests" "$out"
 [[ "$out" != *"=== sample"* ]] || fail "the watchdog sampled a run making progress" "$out"
+
+# A test prints bytes that are not UTF-8 (a string cut mid-character: the first two bytes of "→").
+# CI runs in a UTF-8 locale, where macOS awk died on that line on every read ("towc: multibyte
+# conversion failure") and sed with it ("illegal byte sequence"): the report named nothing and the
+# stall watchdog never fired (cmux#25978 job 123476714112). Both still work on such a log.
+bad=$'\xe2\x86'
+utf8=$(locale -a 2>/dev/null | grep -iE '^(en_US|C)\.utf-?8$' | head -n 1 || true)
+utf8=${utf8:-en_US.UTF-8}
+printf '%s\n' \
+  '◇ Test run started.' \
+  '◇ Test printsHalfACharacter() started.' \
+  "cut here: $bad" \
+  '✔ Test printsHalfACharacter() passed after 0.001 seconds.' \
+  '◇ Test hangsAfterTheBadByte() started.' \
+  > "$TMP/badbyte.out"
+LC_ALL=$utf8 run badbyte 143
+[[ "$out" != *"towc"* && "$out" != *"illegal byte"* ]] || fail "a log reader died on a non-UTF-8 byte" "$out"
+grep '^::error title=cmux-next swift test incomplete' <<<"$out" | grep -q 'hangsAfterTheBadByte()' \
+  || fail "the report of a log with a non-UTF-8 byte does not name the unfinished test" "$out"
+if grep '^::error' <<<"$out" | grep -q 'printsHalfACharacter'; then fail "the report names the finished test" "$out"; fi
+[[ "$status" == 143 ]] || fail "the run with a non-UTF-8 byte exited $status, not 143" "$out"
+
+started=$SECONDS
+LC_ALL=$utf8 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run badbyte 0
+(( SECONDS - started < 30 )) || fail "the watchdog took $((SECONDS - started)) s on a log with a non-UTF-8 byte" "$out"
+[[ "$out" != *"towc"* && "$out" != *"illegal byte"* ]] || fail "the watchdog died on a non-UTF-8 byte" "$out"
+grep '^::error title=cmux-next swift test stuck' <<<"$out" | grep -q 'hangsAfterTheBadByte()' \
+  || fail "the watchdog does not name the stuck test after a non-UTF-8 byte" "$out"
+
+# The watcher's annotations start their own line even when the test output stops mid-line, or the
+# log viewer reads one as the end of a test line (cmux#24073 job 123468767603). The hang annotation
+# takes the same printf; the stall one is the one a test can reach in seconds.
+printf '%s\n%s' '◇ Test run started.' '◇ Test case passing 1 argument x → 1 to f(x:) start' > "$TMP/midline.out"
+STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run midline 0
+grep -q '^::error title=cmux-next swift test stuck::' <<<"$out" \
+  || fail "the watchdog annotation does not start its own line" "$out"
 
 echo "ok swift-test-summary"

@@ -21,6 +21,7 @@ use crate::harness_health::channel::quote as shell_quote;
 use crate::hub::approvers::Approver;
 use crate::hub::mac_approvers;
 use anyhow::{Context, Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -43,7 +44,7 @@ pub(crate) async fn run(
             if let Ok(client) = crate::daemon::connect(false).await
                 && let Ok(view) = client.request("_acpmux/mac_approvers", json!({})).await
             {
-                v["thisMac"] = view["thisMac"].clone();
+                v.set("thisMac", view["thisMac"].clone());
             }
             v
         }

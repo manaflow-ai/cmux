@@ -416,16 +416,18 @@ impl Handshake<'_> {
         let (server, generation) = server_info(&identify)?;
         require_server(&server, target)?;
 
-        let mut attach = json!({
-            "id": 3, "cmd": ATTACH, "mode": "bytes", "cols": size.cols, "rows": size.rows
-        });
-        match target {
-            AttachTarget::Surface(surface) => attach["surface"] = json!(surface),
-            AttachTarget::Terminal { id, generation } => {
-                attach["expected_terminal_id"] = json!(id.as_str());
-                attach["expected_generation"] = json!(generation);
-            }
-        }
+        // Built whole per target: no index writes, and no dependency beyond serde_json
+        // for this published crate.
+        let attach = match target {
+            AttachTarget::Surface(surface) => json!({
+                "id": 3, "cmd": ATTACH, "mode": "bytes", "cols": size.cols, "rows": size.rows,
+                "surface": surface,
+            }),
+            AttachTarget::Terminal { id, generation } => json!({
+                "id": 3, "cmd": ATTACH, "mode": "bytes", "cols": size.cols, "rows": size.rows,
+                "expected_terminal_id": id.as_str(), "expected_generation": generation,
+            }),
+        };
         self.connection.send(&attach)?;
         let data = self.reply(3, ATTACH)?;
         let lease = data

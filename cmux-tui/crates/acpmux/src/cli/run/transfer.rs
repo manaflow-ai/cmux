@@ -3,6 +3,7 @@
 //! move: it pages the bundle from one daemon to the other, and gives the chat back on a failure.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Moves `session` to the daemon at `to`.
 pub(super) async fn run(
@@ -115,10 +116,10 @@ async fn copy(
     }
     let mut finish = json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}});
     if let Some(cwd) = cwd {
-        finish["cwd"] = json!(cwd);
+        finish.set("cwd", json!(cwd));
     }
     if let Some(name) = name {
-        finish["name"] = json!(name);
+        finish.set("name", json!(name));
     }
     dst.request("_acpmux/transfer_finish", finish).await
 }
