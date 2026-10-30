@@ -36,7 +36,12 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   const SESSION = "queue-collapse-session";
   const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
   const PROMPTS = ["one", "two", "three", "four", "five", "six"];
-  let queue: { promptId: string; prompt: string; client?: string; provenance?: Record<string, unknown> }[] = [];
+  let queue: {
+    promptId: string;
+    prompt: string;
+    client?: string;
+    provenance?: { kind: string; subagentId: string; agentId: string; attempt: number; name?: string };
+  }[] = [];
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
@@ -46,8 +51,11 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     steering: true,
     queuePaused: false,
     queued: queue.length,
-    // As acpmux lists it: no provenance (the attach's `queued` records carry it).
-    queue: queue.map(({ provenance: _provenance, ...listed }) => listed),
+    // As acpmux lists it: no provenance, a resume named in `subagentRetry`.
+    queue: queue.map(({ provenance, ...listed }) => ({
+      ...listed,
+      subagentRetry: provenance ? { agentId: provenance.agentId, name: provenance.name ?? null, error: null } : null,
+    })),
     turn,
     updatedAt: Date.now(),
   });
@@ -62,6 +70,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     },
   ];
   let seq = opening.length;
+  let recordsOnPage = true;
   /// The `queued` record of each prompt acpmux sent with a provenance (its resume of a failed
   /// subagent), which the attach replays as acpmux does; the listing names no provenance.
   const queuedRecords = () =>
@@ -95,7 +104,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: [summary()] };
       case "_acpmux/attach":
-        return { session: summary(), lastSeq: seq, events: [...opening, ...queuedRecords()] };
+        // `recordsOnPage` false: the resume's `queued` record fell outside the attach's page.
+        return { session: summary(), lastSeq: seq, events: [...opening, ...(recordsOnPage ? queuedRecords() : [])] };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: seq };
       case "_acpmux/queue_edit": {
@@ -169,7 +179,16 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       promptId: `q-${i + 1}`,
       prompt,
       ...(prompt.startsWith("Your subagent ")
-        ? { client: "acpmux", provenance: { kind: "subagent_retry", subagentId: "s/1", agentId: "af0cbece62b15d0e1", attempt: 1 } }
+        ? {
+            client: "acpmux",
+            provenance: {
+              kind: "subagent_retry",
+              subagentId: "s/1",
+              agentId: "af0cbece62b15d0e1",
+              attempt: 1,
+              name: "Cap context cost",
+            },
+          }
         : {}),
     }));
     seq = opening.length + queuedRecords().length;
@@ -497,9 +516,27 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         "two",
       ]);
       const text = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text');
-      await expect(text.locator('.acpmux-queued-kind[data-kind="retry"]').textContent()).resolves.toBe("Resume subagent");
+      await expect(text.locator('.acpmux-queued-kind[data-kind="retry"]').textContent()).resolves.toBe(
+        "Resume subagent",
+      );
       expect(await text.textContent()).toBe("Resume subagentCap context cost");
       await page.close();
+    });
+
+    test("a reopened chat whose resume record is off the attach's page still draws the labelled row", async () => {
+      // review-28042-ux-4: the listing's subagentRetry names it with no `queued` record read.
+      recordsOnPage = false;
+      try {
+        const page = await openChat([
+          'Your subagent "Cap context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream error (529 overloaded). Resume it with SendMessage to "af0cbece62b15d0e1".',
+          "two",
+        ]);
+        const text = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text');
+        expect(await text.textContent()).toBe("Resume subagentCap context cost");
+        await page.close();
+      } finally {
+        recordsOnPage = true;
+      }
     });
 
     test("opening the fold grows the bottom stack by about one row at most (capture, 2026-10-15)", async () => {

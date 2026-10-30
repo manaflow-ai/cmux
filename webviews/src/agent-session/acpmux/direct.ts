@@ -497,7 +497,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
 }
 
 /// A queue row's entry. acpmux's ask to resume a failed subagent (`retry`) comes from its `queued`
-/// record (`subagentRetryNotice`), never a listing; every rebuild of the entry passes it on.
+/// record (`subagentRetryNotice`) or a listing (`listedRetry`); every rebuild of the entry passes it on.
 function queuedEntry(
   id: string,
   prompt: string,
@@ -614,6 +614,16 @@ const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
 /// one acpmux lists, else the one its newest `queued` or `queue_updated` record named (`authors`, by
 /// prompt id: null when that record named none), else the one the pane had: an attach's page can
 /// hold a teammate's edit without the `queued` record before it.
+/// A queue list's `subagentRetry` (acpmux `QueuedSubagentRetry`) as a row's resume.
+function listedRetry(raw: unknown): SubagentRetryNotice | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const { agentId, name, error } = raw as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
+  const [a, n, e] = [text(agentId), text(name), text(error)];
+  if (!a && !n) return undefined;
+  return { ...(n ? { name: n } : {}), ...(a ? { agentId: a } : {}), ...(e ? { error: e } : {}) };
+}
+
 export function mergeQueue(
   current: readonly QueuedPrompt[],
   listed: readonly any[],
@@ -655,12 +665,17 @@ export function mergeQueue(
       message,
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
-      // A resume comes only from its `queued` record's provenance (subagentRetryNotice): a listing
-      // names none. It holds while the text does, the listing's preview being that text or cut from
-      // it ("…"); an edit, seen or missed (a shorter prompt included), drops it.
-      message || author || edited?.has(id) || !whole || !(preview.endsWith("…") || oneLine(had.prompt) === preview)
+      // A resume comes from acpmux's word only: the listing's `subagentRetry` (from the prompt's
+      // `subagent_retry` provenance, which an edit drops), else, from an acpmux that lists none,
+      // the one its `queued` record gave while the text is the same (the preview that text or cut
+      // from it). An edit, seen or missed, drops it.
+      message || author || edited?.has(id)
         ? undefined
-        : had.retry,
+        : "subagentRetry" in (entry ?? {})
+          ? listedRetry(entry.subagentRetry)
+          : whole && (preview.endsWith("…") || oneLine(had.prompt) === preview)
+            ? had.retry
+            : undefined,
     );
   });
 }

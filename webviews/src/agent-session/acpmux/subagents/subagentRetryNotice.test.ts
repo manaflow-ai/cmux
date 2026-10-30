@@ -10,7 +10,9 @@ import { translate } from "../i18n";
 import { subagentRetryNotice } from "./retryState";
 
 /// The `queued` record's provenance acpmux puts on the resume (subagent_retry.rs).
-const marked = { _meta: { provenance: { kind: "subagent_retry", subagentId: "s/t2", agentId: "af0cbece62b15d0e1", attempt: 1 } } };
+const marked = {
+  _meta: { provenance: { kind: "subagent_retry", subagentId: "s/t2", agentId: "af0cbece62b15d0e1", attempt: 1 } },
+};
 
 const named =
   'Your subagent "Cap the deputy context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream ' +
@@ -43,7 +45,9 @@ test("without acpmux's provenance nothing is a resume, its exact words and its c
   // The person's own prompt, pasted or edited (acpmux drops the provenance on an edit and keeps the
   // client), and a queue listing, which names no provenance: fromAgent and author are null for both.
   expect(subagentRetryNotice(named)).toBeUndefined();
-  expect(subagentRetryNotice(named, { _meta: { provenance: { kind: "person_message", from: "u-2" } } })).toBeUndefined();
+  expect(
+    subagentRetryNotice(named, { _meta: { provenance: { kind: "person_message", from: "u-2" } } }),
+  ).toBeUndefined();
   for (const entry of [
     { promptId: "p-1", client: "acpmux", prompt: `${named.slice(0, 199)}…`, fromAgent: null, author: null },
     { promptId: "p-2", client: "cmux-next", prompt: named },
@@ -61,11 +65,63 @@ test("a listing keeps the resume its queued record gave while the text is the sa
   expect(listed(named.slice(0, 40))?.retry).toBeUndefined();
   expect(listed("just check the logs")?.retry).toBeUndefined();
   // An edit the pane saw (queue_updated), even past the preview's cut.
-  const [edited] = mergeQueue([had], [{ promptId: "p-5", client: "acpmux", prompt: `${named.slice(0, 199)}…` }], undefined, new Set(["p-5"]));
+  const [edited] = mergeQueue(
+    [had],
+    [{ promptId: "p-5", client: "acpmux", prompt: `${named.slice(0, 199)}…` }],
+    undefined,
+    new Set(["p-5"]),
+  );
   expect(edited?.retry).toBeUndefined();
   // Another agent's message, or a teammate's prompt, never keeps one.
   expect(listed(`${named.slice(0, 199)}…`, { fromAgent: "coordinator" })?.retry).toBeUndefined();
   expect(listed(`${named.slice(0, 199)}…`, { author: { id: "u-2", name: "Austin" } })?.retry).toBeUndefined();
+});
+
+test("a listing's subagentRetry names the resume with no record read (a chat reopened past the page)", () => {
+  // review-28042-ux-4: the resume's `queued` record can fall outside the attach's latest events.
+  const subagentRetry = { agentId: "af0cbece62b15d0e1", name: 'Fix "Resume" button', error: "529" };
+  const [entry] = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p-8",
+        client: "acpmux",
+        prompt: `${named.slice(0, 199)}…`,
+        fromAgent: null,
+        author: null,
+        subagentRetry,
+      },
+    ],
+  );
+  expect(entry?.retry).toEqual(subagentRetry);
+  // The same listing with subagentRetry null (acpmux saw it edited, or it is the person's) is none,
+  // even over a resume the pane had read.
+  const had = { id: "p-8", prompt: named, retry: subagentRetry };
+  const [edited] = mergeQueue(
+    [had],
+    [
+      {
+        promptId: "p-8",
+        client: "acpmux",
+        prompt: `${named.slice(0, 199)}…`,
+        fromAgent: null,
+        author: null,
+        subagentRetry: null,
+      },
+    ],
+  );
+  expect(edited?.retry).toBeUndefined();
+});
+
+test("the record's provenance names the subagent and the error over the words", () => {
+  const withNames = {
+    _meta: { provenance: { ...marked._meta.provenance, name: "Push relay", error: "API Error: 503" } },
+  };
+  expect(subagentRetryNotice("anything at all", withNames)).toEqual({
+    name: "Push relay",
+    agentId: "af0cbece62b15d0e1",
+    error: "API Error: 503",
+  });
 });
 
 test("the label is in the catalog", () => {

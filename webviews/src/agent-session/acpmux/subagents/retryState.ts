@@ -192,11 +192,16 @@ export function subagentRetryNotice(
   text: string,
   msg?: { _meta?: { provenance?: unknown } },
 ): SubagentRetryNotice | undefined {
-  const provenance = msg?._meta?.provenance as { kind?: unknown; agentId?: unknown } | undefined;
+  const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   if (provenance?.kind !== "subagent_retry") return undefined;
+  const given = (key: string) =>
+    typeof provenance[key] === "string" && (provenance[key] as string).trim()
+      ? (provenance[key] as string).trim()
+      : undefined;
+  // acpmux names the subagent and the error in the provenance; an older one only in the words.
   const words = RETRY_WORDS.exec(text.trimStart());
-  const agentId = (typeof provenance.agentId === "string" && provenance.agentId) || words?.[2];
-  const [name, error] = [words?.[1]?.trim(), words?.[3]?.trim()];
+  const agentId = given("agentId") ?? words?.[2];
+  const [name, error] = [given("name") ?? words?.[1]?.trim(), given("error") ?? words?.[3]?.trim()];
   if (!name && !agentId) return undefined;
   return { ...(name ? { name } : {}), ...(agentId ? { agentId } : {}), ...(error ? { error } : {}) };
 }
