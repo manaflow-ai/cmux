@@ -715,10 +715,17 @@ impl Brain {
         self.flush_inbox(id);
     }
 
-    pub(super) fn sub_workspace(&mut self, id: &str, key: String, name: String) {
+    pub(super) fn sub_workspace(
+        &mut self,
+        id: &str,
+        key: String,
+        name: String,
+        ws: Option<String>,
+    ) {
         let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = Some(key);
+            sub.ws_id = ws;
             sub.title = name;
             shown_session = sub.session_id.clone().filter(|_| sub.peer.is_none());
             matches!(sub.status, SubStatus::Done | SubStatus::Reported)
@@ -1545,7 +1552,7 @@ impl Brain {
                 // What the work left to show, for the "After work" rule; a
                 // stopped run's quiet report shows nothing.
                 let block = (show && !s.stopped)
-                    .then(|| crate::show::block(report))
+                    .then(|| crate::show::block_in(report, s.ws_id.as_deref()))
                     .flatten()
                     .map(|b| format!("\n{b}"))
                     .unwrap_or_default();

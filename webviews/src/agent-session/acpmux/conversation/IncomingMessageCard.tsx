@@ -40,6 +40,7 @@ import { Markdown } from "./Markdown";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { useAgentAvatar } from "../agentAvatar";
+import { useChiefFace } from "../chiefFace";
 import { DisclosureRow } from "../subagents/DisclosureRow";
 import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
@@ -60,20 +61,29 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
 export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
   const t = useT();
-  const sender = useSenderChat(message.name, message.sessionId);
-  const sessionId = sender.sessionId;
-  const avatar = useAgentAvatar(sessionId);
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
+  // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
+  const chief = useChiefFace(message.chief);
+  const name = (message.chief && chief?.name) || message.name;
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const sessionId = message.chief ? undefined : sender.sessionId;
+  const avatar = useAgentAvatar(sender.sessionId);
+  const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   const harness = knownMark(sender.harness, message.harness, message.name, message.name.split("/")[0]);
-  const icon = avatar ? (
-    <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
+  const picture = message.chief ? chief?.src : avatar;
+  const icon = picture ? (
+    <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
+  ) : message.chief && chief?.text ? (
+    <span className="cv-chief-text-avatar" aria-hidden="true">
+      {chief.text}
+    </span>
   ) : (
     <AgentMark agent={harness} size={14} fallback={<Bot size={16} />} />
   );
   // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host
-    ? t("subagents.openOnHost", { name: message.name, host: sender.host })
-    : t("subagents.open", { name: message.name });
+    ? t("subagents.openOnHost", { name, host: sender.host })
+    : t("subagents.open", { name });
   return (
     <span className="cv-received__sender">
       <span className="cv-received__mark" aria-hidden="true">
@@ -162,7 +172,11 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sender = useSenderChat(message.name, message.sessionId);
+  // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
+  // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
+  const chief = useChiefFace(message.chief);
+  const name = (message.chief && chief?.name) || message.name;
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
@@ -174,7 +188,7 @@ export function IncomingMessageLine({
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   const preview = useMemo(() => messagePreview(body), [body]);
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
   const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
@@ -284,7 +298,7 @@ export function IncomingMessageLine({
           <PromptEditor
             initial={replyDrafts.get(key) ?? ""}
             canSend
-            label={t("message.replyTo", { name: message.name })}
+            label={t("message.replyTo", { name })}
             // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
             // the DOM attribute the rule is about: the reader opened this reply editor with a
             // click and types into it next.
