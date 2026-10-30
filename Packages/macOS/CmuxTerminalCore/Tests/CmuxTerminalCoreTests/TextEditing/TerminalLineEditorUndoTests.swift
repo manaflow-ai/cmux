@@ -21,6 +21,13 @@ struct TerminalLineEditorUndoTests {
         ).shouldReplay(isAlternateScreenActive: { true }))
     }
 
+    /// Ghostty parses a `text:` action with Zig string-literal escapes, so the
+    /// action must carry the four characters `\x1f`, not the raw byte.
+    @Test func bindingActionSpellsTheUndoByteAsAnEscape() {
+        #expect(Array(TerminalLineEditorUndo.bindingAction.utf8)
+            == Array("text:".utf8) + [0x5C, 0x78, 0x31, 0x66])
+    }
+
     @Test func anUnreadableScreenKeepsTheOriginalKeystroke() {
         #expect(!TerminalLineEditorUndo(
             isUndoChord: true,

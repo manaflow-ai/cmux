@@ -61,12 +61,8 @@ extension TerminalSurface {
     /// end. Row text is JSON-escaped, so every quote inside it follows a
     /// backslash and cannot form the unescaped `"active_screen":"` key. An
     /// export in another layout falls back to a full decode.
-    static func renderGridExportIsAlternateScreen(_ data: Data) -> Bool {
-        renderGridExportActiveScreenIsAlternate(data) ?? false
-    }
-
-    /// Like ``renderGridExportIsAlternateScreen(_:)``, but `nil` when the
-    /// export names no active screen.
+    ///
+    /// - Returns: `nil` when the export names no active screen.
     static func renderGridExportActiveScreenIsAlternate(_ data: Data) -> Bool? {
         if data.range(of: alternateScreenMarker, options: .backwards) != nil {
             return true

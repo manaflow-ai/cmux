@@ -66,9 +66,10 @@ At a shell prompt, Cmd+Z undoes the last edit to the line you are typing. cmux
 sends `Ctrl+_`, the undo key of the default (emacs-style) keymaps in bash, zsh
 and fish, so the shell restores the text it deleted. Full-screen applications
 such as vim or less receive the original keystroke instead. Any other program
-reading the terminal receives `Ctrl+_` as if you had typed it. Ghostty's own `super+z=undo`
-default is removed because cmux does not support Ghostty's `undo` action; a
-`super+z` binding in your Ghostty config replaces this behavior.
+reading the terminal receives `Ctrl+_` as if you had typed it. Ghostty's own
+`super+z=undo` default is removed because cmux does not support Ghostty's
+`undo` action. A `super+z` binding in your Ghostty config replaces this
+behavior; `keybind = super+z=ignore` turns it off.
 
 ## Unsupported host actions
 
