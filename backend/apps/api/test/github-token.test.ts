@@ -188,6 +188,8 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState }
       const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
       const refused = new Set<string>()
+      // Unique tokens: the installation token cache is per isolate and may hold one an earlier test's fake minted.
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ token: `ghs_repo_${crypto.randomUUID()}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: { metadata: "read" } }, 201)
       gh.routes["https://api.github.com/installation/repositories"] = (request) => {
         const auth = request.headers.get("authorization") ?? ""
         return refused.has(auth) ? new Response(null, { status: 401 }) : ok({ total_count: 1, repositories: [{ full_name: "acme/web", private: true }] })
