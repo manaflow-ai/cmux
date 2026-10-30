@@ -573,3 +573,11 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 - [cd5b10ac221](https://github.com/manaflow-ai/cmux/commit/cd5b10ac2217376385a9c6ae34e5ff70ff966cfa) (PR [#24580](https://github.com/manaflow-ai/cmux/pull/24580)), Leo: "we know them beforehand, we can cache it, we can store those, like, saved operations." No visual change: `SidebarModel` builds its group lookup when sections arrive, so the first fold no longer scans every group before the row animation starts. Rows, layout and fold motion are unchanged. The commit carries no `Sidebar-Look:` trailer; reviewed and logged here. Test: `SidebarGroupToggleScalingTests.firstFoldDoesNotScanOtherGroups`.
 - 2026-10-24: The interactive inner-tab popover keeps its panel alive while the pointer crosses into the card; row focus still follows the shared tab-selection path.
+
+## Workspace hover preview includes its tabs (2026-10-30)
+
+Leo: "and also why dont we have the rex thing yet of being abel to access the individual tabs in a workspace on its hover preview the best of both worlds thing"
+The existing status, prompts, history and custom content stay visible. Four clickable inner tabs sit after the status;
+Show more exposes the remaining tabs in the same bounded scroll area. Each click uses the existing workspace/tab
+selection intent. The gallery compares this with three tabs under the title and six compact tabs below the details.
+This carries #24785's interaction and stale-press repair, without its proposed rich-details toggle.

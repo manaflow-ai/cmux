@@ -45,6 +45,59 @@ private final class HoverInteractionSource: HoverCardSource {
 
 @MainActor
 struct WorkspaceTabHoverCardTests {
+    @Test func clickingAnInactiveWorkspaceTabSendsBothIDsAndKeepsRichContent() throws {
+        _ = NSApplication.shared
+        let target = WorkspaceID("background")
+        var workspace = SidebarWorkspace(id: target, title: "Background workspace", directory: "~/project", branch: "feature")
+        workspace.workspaceDescription = "Keep the existing workspace description"
+        workspace.tabs = [SidebarTab(id: TabID("shell"), title: "Shell"), SidebarTab(id: TabID("review"), title: "Review")]
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])],
+                                 activeWorkspaceID: WorkspaceID("foreground"))
+        var selected: (WorkspaceID, TabID)?
+        model.onIntent = { if case let .selectTab(workspace, tab) = $0 { selected = (workspace, tab) } }
+        let list = SidebarListView(model: model)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { list.hoverCards.dismiss(.action); window.contentView = nil; window.close() }
+        window.contentView = list
+        list.reload(animated: false)
+        let card = try #require(list.hoverCard.hoverCardBody(for: WorkspaceHoverCardController.targetID(target))?.view as? WorkspaceHoverCardView)
+        #expect(card.lines.contains { $0.contains("Keep the existing workspace description") })
+        #expect(card.lines.contains { $0.contains("Review") })
+        window.contentView = card
+        card.frame = NSRect(x: 0, y: 0, width: 360, height: 600)
+        card.layoutSubtreeIfNeeded()
+        let scroll = try #require(card.tabList.subviews.first?.subviews.compactMap { $0 as? NSScrollView }.first)
+        let row = try #require(scroll.documentView?.subviews.last)
+        let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+        let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 1,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 1,
+                                                windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        row.mouseDown(with: down)
+        #expect(selected == nil)
+        row.mouseUp(with: up)
+        #expect(selected?.0 == target)
+        #expect(selected?.1 == TabID("review"))
+    }
+
+    @Test func overflowExpandsWithoutRemovingDetailsAndResetsForAnotherWorkspace() throws {
+        let card = WorkspaceHoverCardView()
+        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
+                       facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
+        let tabs = (1...7).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") }
+        card.tabList.configure(title: "project", tabs: tabs)
+        #expect(card.tabList.reportedLines.count == 5)
+        let more = try #require(card.tabList.subviews.first?.subviews.compactMap { $0 as? NSButton }.first)
+        more.performClick(nil)
+        #expect(card.tabList.reportedLines.count == 7)
+        #expect(card.lines.contains("Keep this detail"))
+        card.tabList.configure(title: "other-workspace", tabs: tabs)
+        #expect(card.tabList.reportedLines.count == 5)
+    }
+
     @Test func rowsReportTabDetailsAndReturnFocusesTheSelectedTab() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?
@@ -54,7 +107,7 @@ struct WorkspaceTabHoverCardTests {
             SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .working),
         ])
 
-        #expect(view.reportedLines == ["app", "app · ~ · Done", "Claude Code · ~/Projects/cmux · Working"])
+        #expect(view.reportedLines == ["app · ~ · Done", "Claude Code · ~/Projects/cmux · Working"])
         let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
                                                  windowNumber: 0, context: nil, characters: "\u{F701}",
                                                  charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
@@ -71,7 +124,7 @@ struct WorkspaceTabHoverCardTests {
         view.configure(title: "scratch", tabs: [
             SidebarTab(id: TabID("shell"), title: "shell", folder: "~", state: .idle),
         ])
-        #expect(view.reportedLines == ["scratch", "shell · ~ · Done"])
+        #expect(view.reportedLines == ["shell · ~ · Done"])
     }
 
     @Test func modifiedArrowKeysPassThroughTheCard() throws {
@@ -100,7 +153,7 @@ struct WorkspaceTabHoverCardTests {
         window.contentView = view
         view.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
         view.layoutSubtreeIfNeeded()
-        let row = try #require(view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
+        let row = try #require(view.subviews.first?.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
         let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
         let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 1,
                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 1,
@@ -126,7 +179,7 @@ struct WorkspaceTabHoverCardTests {
         window.contentView = view
         view.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
         view.layoutSubtreeIfNeeded()
-        let row = try #require(view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
+        let row = try #require(view.subviews.first?.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
         let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
         let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 1,
                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 1,

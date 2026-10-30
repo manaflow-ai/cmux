@@ -3,56 +3,60 @@ import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The compact Rex-style workspace card: the workspace title followed by one
-/// selectable row per inner tab. The panel is intentionally small and quiet;
-/// the existing detail card remains available through its setting toggle.
+/// Selectable inner tabs embedded in the workspace's existing rich preview.
+/// Overflow expands inside the same bounded scroll area; it never covers the history.
 @MainActor
 final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCardTextReporting {
-    static let cardWidth: CGFloat = 292
-    private static let padding = Metrics.space4
     private let rowHeight: CGFloat
-
-    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let rowLimit: Int
+    private let showsFolder: Bool
     private let scrollView = NSScrollView()
     private let document = WorkspaceTabHoverDocument()
+    private let more = ClickableButton(title: "", target: nil, action: nil)
     private var listHeight: NSLayoutConstraint?
     private var rowViews: [WorkspaceTabHoverCardRow] = []
     private var tabs: [SidebarTab] = []
+    private var workspace = ""
+    private var expanded = false
     private var selectedIndex = 0
     private var showsKeyboardSelection = false
     var onSelect: ((TabID) -> Void)?
+    var onResize: (() -> Void)?
 
     var reportedLines: [String] {
-        [titleLabel.stringValue] + rowViews.prefix(tabs.count).map { $0.reportedLine }
+        rowViews.prefix(visibleCount).map { $0.reportedLine } + (more.isHidden ? [] : [more.title])
     }
-
+    private var visibleCount: Int { expanded ? tabs.count : min(tabs.count, rowLimit) }
     override var isFlipped: Bool { true }
 
-    init(rowHeight: CGFloat = 42) {
+    init(rowHeight: CGFloat = 36, rowLimit: Int = 4, showsFolder: Bool = true) {
         self.rowHeight = rowHeight
+        self.rowLimit = max(1, rowLimit)
+        self.showsFolder = showsFolder
         super.init(frame: .zero)
-        wantsLayer = true
-        titleLabel.font = Typography.bodyEmphasized
-        titleLabel.maximumNumberOfLines = 1
-        titleLabel.lineBreakMode = .byTruncatingTail
+        isHidden = true
         scrollView.documentView = document
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.verticalScrollElasticity = .none
         SystemScrollers.followThin(scrollView)
-        for view in [titleLabel, scrollView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(view)
-        }
+        more.isBordered = false
+        more.font = Typography.caption
+        more.alignment = .left
+        more.target = self
+        more.action = #selector(expandTabs)
+        let stack = NSStackView(views: [scrollView, more])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = Metrics.space1
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: Self.cardWidth),
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: Self.padding),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padding),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padding),
-            scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space2),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.padding),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.padding),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.padding),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
         let height = scrollView.heightAnchor.constraint(equalToConstant: 0)
         height.isActive = true
@@ -63,13 +67,21 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func configure(title: String, tabs: [SidebarTab]) {
-        let changed = self.tabs.map(\.id) != tabs.map(\.id)
+        let changed = workspace != title || self.tabs.map(\.id) != tabs.map(\.id)
         let selected = self.tabs.indices.contains(selectedIndex) ? self.tabs[selectedIndex].id : nil
+        if changed { expanded = false; showsKeyboardSelection = false }
+        workspace = title
         self.tabs = tabs
-        titleLabel.stringValue = title
+        isHidden = tabs.isEmpty
         selectedIndex = selected.flatMap { id in tabs.firstIndex { $0.id == id } } ?? 0
-        while rowViews.count < tabs.count {
-            let row = WorkspaceTabHoverCardRow(height: rowHeight)
+        updateRows()
+        if changed { scrollView.contentView.scroll(to: .zero) }
+    }
+
+    private func updateRows() {
+        let count = visibleCount
+        while rowViews.count < count {
+            let row = WorkspaceTabHoverCardRow(height: rowHeight, showsFolder: showsFolder)
             row.onRelease = { [weak self, weak row] in
                 guard let self, let row, let index = self.rowViews.firstIndex(where: { $0 === row }),
                       index < self.tabs.count else { return }
@@ -81,36 +93,46 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
             rowViews.append(row)
         }
         for index in rowViews.indices {
-            let shown = index < tabs.count
-            rowViews[index].isHidden = !shown
-            if shown {
-                rowViews[index].configure(tabs[index])
-                rowViews[index].frame = CGRect(x: 0, y: CGFloat(index) * (rowHeight + Metrics.space1),
-                                              width: Self.cardWidth - 2 * Self.padding, height: rowHeight)
-            }
+            rowViews[index].isHidden = index >= count
+            if index < count { rowViews[index].configure(tabs[index]) }
         }
-        let height = max(0, CGFloat(tabs.count) * (rowHeight + Metrics.space1) - Metrics.space1)
-        document.frame = CGRect(x: 0, y: 0, width: Self.cardWidth - 2 * Self.padding, height: height)
-        listHeight?.constant = min(height, 320)
-        if changed { scrollView.contentView.scroll(to: .zero); showsKeyboardSelection = false }
+        let height = max(0, CGFloat(count) * (rowHeight + Metrics.space1) - Metrics.space1)
+        listHeight?.constant = min(height, CGFloat(rowLimit) * (rowHeight + Metrics.space1) - Metrics.space1)
+        more.title = Strings.showMore(max(0, tabs.count - count))
+        more.isHidden = expanded || tabs.count <= rowLimit
+        needsLayout = true
         updateSelection()
         applyColors()
     }
 
-    func applyColors() {
-        performWithTheme {
-            titleLabel.textColor = Palette.textPrimary
-            rowViews.forEach { $0.applyColors() }
+    override func layout() {
+        super.layout()
+        let width = scrollView.contentSize.width
+        document.frame = CGRect(x: 0, y: 0, width: width,
+                                height: max(0, CGFloat(visibleCount) * (rowHeight + Metrics.space1) - Metrics.space1))
+        for index in 0..<visibleCount {
+            rowViews[index].frame = CGRect(x: 0, y: CGFloat(index) * (rowHeight + Metrics.space1), width: width, height: rowHeight)
         }
-        updateSelection()
+    }
+
+    @objc private func expandTabs() {
+        expanded = true
+        updateRows()
+        layoutSubtreeIfNeeded()
+        onResize?()
+    }
+
+    func applyColors() {
+        performWithTheme { more.contentTintColor = Palette.textSecondary }
+        rowViews.forEach { $0.applyColors() }
     }
 
     func handleHoverCardKeyDown(_ event: NSEvent) -> Bool {
         guard !tabs.isEmpty, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
         switch event.keyCode {
-        case 125: moveSelection(by: 1) // down
-        case 126: moveSelection(by: -1) // up
-        case 36, 76: onSelect?(tabs[selectedIndex].id) // return / keypad enter
+        case 125: moveSelection(by: 1)
+        case 126: moveSelection(by: -1)
+        case 36, 76: onSelect?(tabs[selectedIndex].id)
         default: return false
         }
         return true
@@ -119,6 +141,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     private func moveSelection(by delta: Int) {
         showsKeyboardSelection = true
         selectedIndex = (selectedIndex + delta + tabs.count) % tabs.count
+        if selectedIndex >= visibleCount { expandTabs() }
         updateSelection()
         rowViews[selectedIndex].scrollToVisible(rowViews[selectedIndex].bounds)
     }
@@ -132,151 +155,4 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
 
 private final class WorkspaceTabHoverDocument: NSView {
     override var isFlipped: Bool { true }
-}
-
-@MainActor
-private final class WorkspaceTabHoverCardRow: NSView {
-    private let icon = NSImageView()
-    private let title = ChromeLabel(labelWithString: "")
-    private let cwd = ChromeLabel(labelWithString: "")
-    private let status = ChromeLabel(labelWithString: "")
-    private let activity = StatusIndicatorView()
-    private let textStack = NSStackView()
-    private var tracking: NSTrackingArea?
-    private var isHovered = false { didSet { paint() } }
-    var isKeyboardSelected = false { didSet { paint() } }
-    var onRelease: (() -> Void)?
-    private var pressed = false
-    private var pressedTabID: TabID?
-    private(set) var reportedLine = ""
-    private var currentTabID: TabID?
-
-    override var isFlipped: Bool { true }
-
-    init(height: CGFloat) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = Metrics.itemCornerRadius
-        layer?.cornerCurve = .continuous
-        icon.imageScaling = .scaleProportionallyDown
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        title.font = Typography.body
-        title.lineBreakMode = .byTruncatingTail
-        cwd.font = Typography.caption
-        cwd.lineBreakMode = .byTruncatingMiddle
-        status.font = Typography.caption
-        status.alignment = .right
-        status.setContentCompressionResistancePriority(.required, for: .horizontal)
-        for label in [title, cwd, status] { label.setContentCompressionResistancePriority(.required, for: .vertical) }
-        textStack.orientation = .vertical
-        textStack.alignment = .leading
-        textStack.spacing = 0
-        textStack.translatesAutoresizingMaskIntoConstraints = false
-        textStack.addArrangedSubview(title)
-        textStack.addArrangedSubview(cwd)
-        title.widthAnchor.constraint(equalTo: textStack.widthAnchor).isActive = true
-        cwd.widthAnchor.constraint(equalTo: textStack.widthAnchor).isActive = true
-        activity.tracksWindowOcclusion = true
-        activity.translatesAutoresizingMaskIntoConstraints = false
-        status.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(icon)
-        addSubview(textStack)
-        addSubview(activity)
-        addSubview(status)
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: height),
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space2),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
-            icon.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
-            textStack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Metrics.space2),
-            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            textStack.trailingAnchor.constraint(equalTo: activity.leadingAnchor, constant: -Metrics.space2),
-            activity.trailingAnchor.constraint(equalTo: status.leadingAnchor, constant: -Metrics.space1),
-            activity.centerYAnchor.constraint(equalTo: centerYAnchor),
-            activity.widthAnchor.constraint(equalToConstant: Metrics.smallIconSize),
-            activity.heightAnchor.constraint(equalToConstant: Metrics.smallIconSize),
-            status.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space2),
-            status.centerYAnchor.constraint(equalTo: centerYAnchor),
-            status.widthAnchor.constraint(greaterThanOrEqualToConstant: 56),
-        ])
-        addTrackingArea()
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func configure(_ tab: SidebarTab) {
-        currentTabID = tab.id
-        pressed = false
-        pressedTabID = nil
-        icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: Metrics.iconSize, height: Metrics.iconSize)) }
-            ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
-            ?? NSImage.icon(tab.kind.icon, size: Metrics.iconSize)
-        title.stringValue = tab.title
-        cwd.stringValue = tab.folder ?? ""
-        cwd.isHidden = tab.folder == nil || tab.folder?.isEmpty == true
-        status.stringValue = Self.statusText(tab.state)
-        // The compact card always uses the shared arc spinner for active work;
-        // a user's pulsing-dot preference must not turn this status into a dot.
-        // Working-look preferences may restyle `.working` into a breathing dot;
-        // use its progress as loading so this surface always shows an arc.
-        activity.configure(tab.state.isWorking ? .busy(progress: tab.state.progress) : (tab.state.isLoading ? tab.state : .idle), style: .arc)
-        setAccessibilityLabel("\(tab.title), \(status.stringValue)")
-        reportedLine = [tab.title, tab.folder, status.stringValue].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        paint()
-    }
-
-    func applyColors() {
-        performWithTheme {
-            title.textColor = Palette.textPrimary
-            cwd.textColor = Palette.textTertiary
-            status.textColor = Palette.textSecondary
-            icon.contentTintColor = Palette.textSecondary
-        }
-        paint()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        addTrackingArea()
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-    override func mouseDown(with event: NSEvent) {
-        pressed = true
-        pressedTabID = currentTabID
-        paint()
-    }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
-    override func accessibilityPerformPress() -> Bool { onRelease?(); return onRelease != nil }
-    override func mouseUp(with event: NSEvent) {
-        defer { pressed = false; paint() }
-        guard pressed, bounds.contains(convert(event.locationInWindow, from: nil)), pressedTabID == currentTabID else { return }
-        onRelease?()
-    }
-
-    private func addTrackingArea() {
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.inVisibleRect, .activeAlways, .mouseEnteredAndExited], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    private func paint() {
-        performWithTheme {
-            let fill = pressed || isKeyboardSelected ? Palette.pressedFill : (isHovered ? Palette.hoverFill : .clear)
-            if let layer { ChromeHover.paint(layer, fill, animated: false) }
-        }
-    }
-
-    private static func statusText(_ state: StatusIndicatorState) -> String {
-        if case .paused = state { return Strings.activityPaused }
-        if state.isWorking || state.isLoading { return Strings.priorityWorking }
-        return Strings.activity(state) ?? Strings.activityDone
-    }
 }

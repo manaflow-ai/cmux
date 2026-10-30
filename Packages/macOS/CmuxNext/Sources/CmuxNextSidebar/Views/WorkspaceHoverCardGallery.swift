@@ -17,18 +17,6 @@ public struct WorkspaceHoverCardGallery {
                 SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .working),
                 SidebarTab(id: TabID("review"), title: "Review changes", kind: .conversation, folder: "~/Projects/cmux", state: .waiting),
         ]
-        let tabCards: [(name: String, view: NSView)] = [
-            ("Inner tabs · dense", tabCard(title: "app", tabs: mixedTabs, rowHeight: 36)),
-            ("Inner tabs · selected", tabCard(title: "app", tabs: mixedTabs)),
-            ("Inner tabs · spacious", tabCard(title: "app", tabs: mixedTabs, rowHeight: 48)),
-            ("Inner tabs · error", tabCard(title: "cmux", tabs: [
-                SidebarTab(id: TabID("api"), title: "api-server-with-a-long-title", kind: .terminal, folder: "~/Projects/api-server", state: .error),
-                SidebarTab(id: TabID("docs"), title: "Documentation", kind: .browser, folder: "~/Projects/docs", state: .success),
-            ])),
-            ("Inner tabs · one tab", tabCard(title: "scratch", tabs: [
-                SidebarTab(id: TabID("shell"), title: "shell", kind: .terminal, folder: "~", state: .idle),
-            ])),
-        ]
         typealias Fact = WorkspaceHoverCardContent.Fact
         let agent = Fact(icon: .agentChat, text: "Codex · gpt-6.1-sol", kind: "agent")
         let folder = Fact(icon: .folder, text: "docs", kind: "folder")
@@ -76,13 +64,25 @@ public struct WorkspaceHoverCardGallery {
             }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
+        let content = WorkspaceHoverCardContent(
+            title: "Review the sidebar", icon: .agentChat, age: "3m",
+            facts: [agent, branch, reply], activity: .working, activitySince: now.addingTimeInterval(-192))
+        let overflow = mixedTabs + (1...4).map {
+            SidebarTab(id: TabID("docs-\($0)"), title: "Documentation \($0)", kind: .browser, state: .success)
+        }
+        let variants: [(String, WorkspaceHoverCardView.TabPlacement, Int, Bool)] = [
+            ("Tabs after status · 4 + more · chosen", .afterStatus, 4, true),
+            ("Tabs below title · 3 + more", .afterTitle, 3, true),
+            ("Tabs below details · 6 compact + more", .afterDetails, 6, false),
+        ]
+        let tabCards = variants.map { name, placement, limit, details in
+            let card = WorkspaceHoverCardView(tabPlacement: placement, tabLimit: limit, tabDetails: details)
+            card.configure(content, now: now)
+            card.tabList.configure(title: content.title, tabs: overflow)
+            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
         return tabCards + richCards
     }
 
-    private static func tabCard(title: String, tabs: [SidebarTab], rowHeight: CGFloat = 42) -> NSView {
-        let card = WorkspaceTabHoverCardView(rowHeight: rowHeight)
-        card.configure(title: title, tabs: tabs)
-        return HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() }
-    }
 }
 #endif
