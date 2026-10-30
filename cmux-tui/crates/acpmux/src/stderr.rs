@@ -166,22 +166,22 @@ fn strip_tracing_prefix(mut line: &str) -> &str {
 }
 
 fn strip_timestamp(line: &str) -> Option<&str> {
-    let end = line.find(char::is_whitespace).unwrap_or(line.len());
-    let token = &line[..end];
+    let (token, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
     let bytes = token.as_bytes();
+    let at = |index: usize| bytes.get(index).copied();
     let timestamp = bytes.len() >= 20
         && digits(bytes, 0..4)
-        && bytes[4] == b'-'
+        && at(4) == Some(b'-')
         && digits(bytes, 5..7)
-        && bytes[7] == b'-'
+        && at(7) == Some(b'-')
         && digits(bytes, 8..10)
-        && matches!(bytes[10], b'T' | b't')
-        && bytes[13] == b':'
-        && bytes[16] == b':'
+        && matches!(at(10), Some(b'T' | b't'))
+        && at(13) == Some(b':')
+        && at(16) == Some(b':')
         && digits(bytes, 11..13)
         && digits(bytes, 14..16)
         && digits(bytes, 17..19);
-    timestamp.then(|| &line[end..])
+    timestamp.then_some(rest)
 }
 
 fn digits(bytes: &[u8], mut range: std::ops::Range<usize>) -> bool {
@@ -189,9 +189,8 @@ fn digits(bytes: &[u8], mut range: std::ops::Range<usize>) -> bool {
 }
 
 fn strip_level(line: &str) -> Option<&str> {
-    let end = line.find(char::is_whitespace).unwrap_or(line.len());
-    let level = &line[..end];
-    matches!(level, "ERROR" | "WARN" | "WARNING" | "INFO" | "DEBUG" | "TRACE").then(|| &line[end..])
+    let (level, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+    matches!(level, "ERROR" | "WARN" | "WARNING" | "INFO" | "DEBUG" | "TRACE").then_some(rest)
 }
 
 #[cfg(test)]

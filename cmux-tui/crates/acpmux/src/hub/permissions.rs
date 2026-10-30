@@ -197,12 +197,17 @@ impl Hub {
                     // Each agent process's stderr is its own stream; a note with no agent is a line
                     // of its own.
                     let clean = match agent {
-                        Some(agent) => {
-                            session.stderr_stream.lock().unwrap().clean_line(agent, &raw)
-                        }
+                        Some(agent) => session
+                            .stderr_stream
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clean_line(agent, &raw),
                         None => crate::stderr::StderrStream::default().clean_line_of(&raw),
                     };
-                    remember_stderr(&mut session.stderr_tail.lock().unwrap(), &clean);
+                    remember_stderr(
+                        &mut session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner()),
+                        &clean,
+                    );
                     // An agent host's stderr was logged before its ack.
                     if host_seq.is_none() {
                         self.append(&session, "mux", "stderr", json!({"text": line}));

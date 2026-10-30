@@ -1009,7 +1009,7 @@ async fn acp_steps(
                 break;
             }
             if let Ok(mut t) = tail.lock() {
-                t.push(&buf[..n]);
+                t.push(buf.get(..n).unwrap_or_default());
             }
         }
     });
@@ -1246,8 +1246,9 @@ impl StderrTail {
     fn push(&mut self, chunk: &[u8]) {
         self.pending.extend_from_slice(chunk);
         while let Some(end) = self.pending.iter().position(|&b| b == b'\n') {
-            let line: Vec<u8> = self.pending.drain(..=end).collect();
-            self.take(&line[..end]);
+            let mut line: Vec<u8> = self.pending.drain(..=end).collect();
+            line.pop();
+            self.take(&line);
         }
         // A line longer than the cap goes on in pieces. A piece never ends inside a UTF-8
         // character or right after an ESC, so no sequence's start is split from its rest.
@@ -1259,9 +1260,10 @@ impl StderrTail {
             };
             // Never back up to the very start: the piece must take something, or the pending
             // bytes would grow without bound (an ESC at byte 0 is then cut after its sequence).
-            if let Some(esc) = self.pending[..cut].iter().rposition(|&b| b == 0x1b)
+            let head = self.pending.get(..cut).unwrap_or_default();
+            if let Some(esc) = head.iter().rposition(|&b| b == 0x1b)
                 && esc > 0
-                && cut - esc <= 64
+                && cut.saturating_sub(esc) <= 64
             {
                 cut = esc;
             }
@@ -1278,12 +1280,12 @@ impl StderrTail {
         if clean.is_empty() {
             return;
         }
-        self.bytes += clean.len() + 1;
+        self.bytes = self.bytes.saturating_add(clean.len().saturating_add(1));
         self.lines.push_back(clean);
         while self.bytes > Self::CAP
             && let Some(old) = self.lines.pop_front()
         {
-            self.bytes -= old.len() + 1;
+            self.bytes = self.bytes.saturating_sub(old.len().saturating_add(1));
         }
     }
 
@@ -1296,12 +1298,12 @@ impl StderrTail {
         let mut bytes = self.bytes;
         if !rest.is_empty() {
             text.push_back(&rest);
-            bytes += rest.len() + 1;
+            bytes = bytes.saturating_add(rest.len().saturating_add(1));
         }
         while bytes > Self::CAP
             && let Some(old) = text.pop_front()
         {
-            bytes -= old.len() + 1;
+            bytes = bytes.saturating_sub(old.len().saturating_add(1));
         }
         text.into_iter().collect::<Vec<_>>().join("\n")
     }
