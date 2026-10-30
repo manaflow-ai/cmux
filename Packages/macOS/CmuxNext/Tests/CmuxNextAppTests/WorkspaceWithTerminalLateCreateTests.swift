@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextWakeups
 import CmuxNextWorkspaceRepair
 import Foundation
 import Testing
@@ -71,7 +72,8 @@ struct WorkspaceWithTerminalLateCreateTests {
                                  terminalEnvironment: nil))
         try await connection.start()
         let repair = EmptyWorkspaceRepair(store: DaemonStore(), create: { _ in nil }, close: { _ in }, cause: { _ in .tabClosed },
-                                          canCreate: { true }, epoch: { 1 }, isLive: { true })
+                                          canCreate: { true }, epoch: { 1 }, isLive: { true },
+                                          on: MainWorkScheduler(budget: MainFrameBudget()))
         let key = WorkspaceKey.generate()
         // The first terminal as every workspace-with-a-terminal caller makes it (Open Folder, fork, teams, incognito).
         let made = try await WorkspaceCreation.create(key, name: "late", on: connection, repair: repair) { created in
