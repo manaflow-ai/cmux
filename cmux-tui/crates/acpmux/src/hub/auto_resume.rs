@@ -527,13 +527,14 @@ impl Hub {
                 // A crash can leave the failed result durable before its schedule. Stop
                 // must suppress that unscheduled recovery too, even before startup loads it.
                 let retryable_result = e.kind == "turn_result"
-                    && e.msg["status"] == "failed"
-                    && e.msg["errorText"].as_str().is_some_and(|error| {
+                    && e.msg.get("status").and_then(Value::as_str) == Some("failed")
+                    && e.msg.get("errorText").and_then(Value::as_str).is_some_and(|error| {
                         super::turn_errors::resume_cause(error, error).is_some()
                     });
                 if e.kind == "auto_resume_scheduled" || retryable_result {
-                    journal_retry = e.msg["turnId"].as_str().map(str::to_owned);
-                    journal_prompt = e.msg["promptId"].as_str().map(str::to_owned);
+                    journal_retry = e.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    journal_prompt =
+                        e.msg.get("promptId").and_then(Value::as_str).map(str::to_owned);
                 }
                 false
             },

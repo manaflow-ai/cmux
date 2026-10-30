@@ -55,9 +55,13 @@ impl Hub {
             return;
         }
         let Some(last) = last else { return };
-        let Some(turn_id) = last.msg["turnId"].as_str().map(str::to_owned) else { return };
-        let error = last.msg["errorText"].as_str().unwrap_or_default().to_owned();
-        if last.msg["status"] != "failed"
+        let Some(turn_id) = last.msg.get("turnId").and_then(Value::as_str).map(str::to_owned)
+        else {
+            return;
+        };
+        let error =
+            last.msg.get("errorText").and_then(Value::as_str).unwrap_or_default().to_owned();
+        if last.msg.get("status").and_then(Value::as_str) != Some("failed")
             || super::super::turn_errors::resume_cause(&error, &error).is_none()
         {
             return;
@@ -82,15 +86,15 @@ impl Hub {
             "turn_stop_requested",
         ];
         let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
-            let is_cut = e.msg["turnId"].as_str() == Some(turn_id.as_str());
+            let is_cut = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id.as_str());
             match e.kind.as_str() {
                 "turn_started" if is_cut => {
                     // A stop record has no turn id. It belongs to the turn that was
                     // active when it was written; an earlier stop must not suppress
                     // recovery for this failed turn.
                     has_retry_marker = false;
-                    control = Control::from_recorded(e.msg["control"].as_str());
-                    trust_gate = e.msg["trustGate"].as_bool().unwrap_or(true);
+                    control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                    trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true);
                     ended = false;
                     floor_cancelled = false;
                 }
@@ -100,18 +104,28 @@ impl Hub {
                         from = p.and_then(|p| p["from"].as_str()).map(str::to_owned);
                     }
                 }
-                "turn_control" if is_cut && e.msg["control"] == "web" => control = Control::Web,
+                "turn_control"
+                    if is_cut && e.msg.get("control").and_then(Value::as_str) == Some("web") =>
+                {
+                    control = Control::Web
+                }
                 "remote_control_ended" => ended = true,
                 "remote_control_restored" => ended = false,
                 "remote_floor_cancel" if is_cut => floor_cancelled = true,
                 // daemon_restart records are queued continuations, not waiting retries.
-                "auto_resume_scheduled" if is_cut && e.msg["reason"] != "daemon_restart" => {
+                "auto_resume_scheduled"
+                    if is_cut
+                        && e.msg.get("reason").and_then(Value::as_str)
+                            != Some("daemon_restart") =>
+                {
                     has_retry_marker = true;
                     retry = serde_json::from_value(e.msg).ok();
                 }
                 // Old stop records had no id; the turn boundary reset scopes those. New
                 // records explicitly name the cut turn, including a Stop before failure.
-                "auto_resume_stopped" if is_cut || e.msg["turnId"].is_null() => {
+                "auto_resume_stopped"
+                    if is_cut || e.msg.get("turnId").is_none_or(Value::is_null) =>
+                {
                     turn_stopped |= is_cut;
                     has_retry_marker = true;
                     retry = None
@@ -172,7 +186,7 @@ impl Hub {
                 session,
                 "mux",
                 "auto_resume_settled",
-                json!({"turnId": turn_id, "promptId": last.msg["promptId"], "why": "off"}),
+                json!({"turnId": turn_id, "promptId": last.msg.get("promptId"), "why": "off"}),
             );
             return;
         }
@@ -181,11 +195,12 @@ impl Hub {
         // failure forever.
         if retry.is_none()
             && !has_retry_marker
-            && last.msg["status"] == "failed"
+            && last.msg.get("status").and_then(Value::as_str) == Some("failed")
             && let Some(reason) = super::super::turn_errors::resume_cause(&error, &error)
                 .and_then(RetryReason::from_cause)
         {
-            let (root, done) = split_attempt(last.msg["promptId"].as_str().unwrap_or_default());
+            let (root, done) =
+                split_attempt(last.msg.get("promptId").and_then(Value::as_str).unwrap_or_default());
             if !root.is_empty()
                 && let Some(&delay) = delays.get(done)
             {
@@ -240,7 +255,7 @@ impl Hub {
         }
         let id = format!("{}{SUFFIX}{}", retry.prompt_id, retry.attempt);
         if let Some(outcome) = self.logged_prompt(session, &id) {
-            if outcome["stopReason"] == "cancelled" {
+            if outcome.get("stopReason").and_then(Value::as_str) == Some("cancelled") {
                 // The retry can be stopped while startup is still pending, before its
                 // turn_started. That Stop names the new turn, not the failed cut turn.
                 // The prompt ledger links it back to this schedule's stable attempt ID.
