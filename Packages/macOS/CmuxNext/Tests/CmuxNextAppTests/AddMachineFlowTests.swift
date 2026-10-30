@@ -359,6 +359,39 @@ import Testing
         #expect(host.recorded.isEmpty)
     }
 
+    @Test func cancelAfterAnInstallReportDoesNotStartTheFallbackInstall() async throws {
+        host.holdNextRun = true
+        model.begin(destination: "test-machine")
+        model.perform(.add)
+        try await waitFor { host.live != nil }
+        let live = try #require(host.live)
+        defer { live.finish() }
+        let installFail = Self.step("install", "fail", "use the app build", reason: "wrong-platform")
+        live.yield(Self.report("test-machine", "test-machine", ok: false, [Self.step("reach", "ok"), installFail]))
+        try await waitFor { model.checklist.row(.install)?.status == .done(.fail) }
+        #expect(model.phase == .running, "the report arrived, but the stream has not ended")
+        #expect(host.installs.isEmpty)
+
+        // Start finished() before Cancel drops the model's task. Its wait then observes the
+        // canceled task settling, rather than returning early because the task is already nil.
+        var waiter: Task<String?, Never>?
+        await withCheckedContinuation { started in
+            waiter = Task {
+                started.resume()
+                return await model.finished()
+            }
+        }
+        #expect(model.perform(.cancel))
+        _ = await waiter?.value
+
+        #expect(host.installs.isEmpty, "a retained report must not start installation after Cancel")
+        #expect(host.connected.isEmpty)
+        #expect(host.recorded.isEmpty)
+        #expect(model.machineID == nil)
+        #expect(model.phase == .pick)
+        #expect(model.checklist.row(.install)?.status == .done(.fail))
+    }
+
     @Test func aDestinationFromOutsideOnlyFillsTheCard() async {
         model.begin(destination: "hb", name: "lab")
         #expect(model.phase == .pick, "the CLI or MCP never starts an enroll without a click")
