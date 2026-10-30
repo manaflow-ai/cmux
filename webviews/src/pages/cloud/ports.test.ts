@@ -223,13 +223,32 @@ describe("Cloud port action boundaries", () => {
           );
         expect(await running).toBe(false);
         expect({ ports: f.get().ports, browser: f.get().browser }).toEqual(before);
-        expect(f.count(CloudOps.portList)).toBe(listCalls);
+        expect(f.count(CloudOps.portList)).toBe(listCalls + (action === "browser" ? 0 : 1));
         expect(f.count(ACTION_RUN)).toBe(tabCalls);
         expect(f.failures).toEqual([]);
         expect(f.unavailable).toEqual([]);
         expect(f.pending()).toEqual([]);
       });
     }
+  }
+
+  for (const action of ["forward", "close"] as const) {
+    test(`${action}: a parked mutation reconciles after switching A → B → A`, async () => {
+      const f = await fixture();
+      const request = f.hold(action === "forward" ? CloudOps.portForward : CloudOps.portClose);
+      const running = action === "forward" ? f.reader.forwardPort("a", 4000) : f.reader.closePort("a", 3000);
+      await f.reader.load("b");
+      await f.reader.load("a");
+      // This load predates the remote mutation, which is still waiting for its link.
+      expect(f.get().ports).toEqual([forward()]);
+      const after = action === "forward" ? [forward(), forward("a", 4000)] : [];
+      const reconciliation = f.hold(CloudOps.portList);
+      reconciliation.resolve({ forwards: after });
+      request.resolve(action === "forward" ? forward("a", 4000) : null);
+      expect(await running).toBe(false);
+      expect(f.get().ports).toEqual(after);
+      expect(f.pending()).toEqual([]);
+    });
   }
 
   for (const outcome of ["unsupported", "refused", "declined"] as const) {
