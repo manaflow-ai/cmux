@@ -360,6 +360,36 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.focusedMacID == "m2")
     }
 
+    @Test(arguments: [false, true])
+    func bannerRetryRestartsDiscoveryWithoutATarget(hasSession: Bool) async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let live = coordinator(store: store, dialer: PerMacDialer())
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        try #require(live.registeredTeamID == store.activeTeamID)
+        if hasSession {
+            let session = try #require(live.sessions["m1"])
+            session.link.send(.target(nil))
+            try #require(session.link.target == nil)
+            live.focusedMacID = "m1"
+        } else {
+            live.focusedMacID = "missing-session"
+            try #require(live.focused === live.idleSession)
+        }
+        live.banner = nil
+        store.teamDataState = .failed
+
+        live.retryConnection()
+
+        // Discovery must re-register and reload the team, not just touch a link.
+        #expect(live.registeredTeamID == nil)
+        #expect(store.teamDataState == .loading)
+        #expect(live.focusedMacID == nil)
+    }
+
     /// Review blocker: a chat tab id repeats across Macs; each Mac's chat is its own.
     @Test func chatsOfTwoMacsWithTheSameTabIDAreSeparate() {
         let sessions = AgentSessionDirectory()
