@@ -55,7 +55,7 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             return
         }
-        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane)
+        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
         page.inputToken = inputToken
@@ -99,6 +99,23 @@ extension NewTabPage {
         }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
+        fillPaletteActions(services)
+    }
+
+    /// Lists the Commands palette's actions (~30 ms on the main thread) for the New Tab pages that
+    /// show without them, on the frame after the one that shows the page, so Cmd-T never waits for
+    /// them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``).
+    static func fillPaletteActions(_ services: AppServices) {
+        closeFrame.scheduleFrame {
+            closeFrame.scheduleFrameFromMain { [weak services] in
+                guard let services else { return }
+                let tabs = services.agentTabs
+                let views = tabs.newTabPages.keys.compactMap { tabs.views[$0] }.filter { $0.model.newTab?.omnibar.actions.isEmpty == true }
+                guard !views.isEmpty else { return }
+                let actions = paletteActions(services)
+                for view in views { view.refreshNewTabActions(actions) }
+            }
+        }
     }
 
     /// The page chose a terminal or browser: open it, then close the page,
@@ -230,7 +247,7 @@ extension NewTabPage {
     }
 
     /// Tab `key`'s native page in `pane`: the web page's context (``page(_:selected:window:pane:paletteActions:)``), no web view.
-    /// The palette's actions (the slow part of that context) load on the frame after the page shows, or at
+    /// The palette's actions (the slow part of that context) load on the frame after the one that shows the page, or at
     /// the first keystroke if that comes first, so Cmd-T shows the page without waiting for them.
     private static func nativeView(_ key: String, in pane: PaneController) -> NSView {
         let services = pane.services
@@ -239,7 +256,7 @@ extension NewTabPage {
         }
         let model = NativeNewTabModel(page: page, actions: nativeActions(key, cwd: page.cwd, pane: pane),
                                       paletteActions: { [weak services] in services.map(Self.paletteActions) ?? [] })
-        closeFrame.scheduleFrame { [weak model] in model?.loadPaletteActions() }
+        closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         return NativeNewTabView.hosted(model)
     }
 

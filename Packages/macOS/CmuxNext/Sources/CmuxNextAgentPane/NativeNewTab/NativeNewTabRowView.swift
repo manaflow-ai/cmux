@@ -23,7 +23,7 @@ struct NativeNewTabRowView: View, Equatable {
             .padding(.horizontal, Metrics.space4)
             .frame(height: 30)
             .contentShape(Rectangle())
-            .background(selected ? Color.accentColor.opacity(0.18) : Color.clear)
+            .background(selected ? Color(nsColor: Palette.accent).opacity(0.18) : Color.clear)
         }
         .buttonStyle(.plain)
     }
