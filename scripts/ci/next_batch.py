@@ -1466,8 +1466,16 @@ class Controller:
         runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&event=push&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
         self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True)) if done else set()
-        self.base_failures |= self.base_tier_failures()
+        # The base tier's jobs fall back to its newest run only where the base's own push run gave them no
+        # verdict: with coalescing off, or a push that kept its scheme compile, the exact base decides.
+        judged = self.judged_jobs(done[0]["id"]) if done else set()
+        self.base_failures |= {red for red in self.base_tier_failures() if red.split(":", 1)[0] not in judged}
         return self.base_failures
+
+    def judged_jobs(self, run_id: int) -> set[str]:
+        """The jobs of a run that ended with a verdict (passed or failed outright)."""
+        jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
+        return {job["name"] for job in jobs if (job.get("conclusion") or "") in OUTRIGHT_RED | {"success"}}
 
     def base_tier_failures(self) -> set[str]:
         """Outright reds of the base's newest completed base tier run (cmuxterm-hq#5424).

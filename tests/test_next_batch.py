@@ -677,6 +677,12 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
         listed = controller.gh.runs.call_args_list[1].args[1]
+        # Review of this change: where the base's own push run has a verdict for the job (coalescing off, or
+        # a push that kept its scheme compile), an older base tier red is not inherited.
+        jobs[1].append({"id": 10, "name": "cmux-next daemon tests", "conclusion": "success"})
+        controller.base_failures = None
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], [dev, tier]]
+        self.assertEqual(controller.failing_on_base("b" * 40), set())
         self.assertIn("event=workflow_dispatch", listed)
         self.assertIn("status=completed", listed)
 

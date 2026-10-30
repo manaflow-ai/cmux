@@ -144,9 +144,15 @@ def suite_jobs(run: dict) -> frozenset[str] | None:
     return next((jobs for prefix, jobs in SUITES.items() if title.startswith(prefix)), None)
 
 
+# The jobs some suite above is the base verdict for. Only these are ever skipped: every other job (checks,
+# web bundles, the placement jobs) may run in any suite, so a suite run's verdict for it always counts.
+SUITE_JOBS = frozenset().union(*SUITES.values())
+
+
 def never_carries(run: dict, name: str) -> bool:
+    """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
     jobs = suite_jobs(run)
-    return jobs is not None and name not in jobs
+    return name in SUITE_JOBS and jobs is not None and name not in jobs
 
 
 def tested_sha(run: dict) -> str:
@@ -612,7 +618,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
                 base_run, base_job = candidate_run, found
                 break
-        if base_run is None and any(name in jobs for jobs in SUITES.values()):
+        if base_run is None and name in SUITE_JOBS:
             base_run, base_job = tip_suite_verdict(repo, base, workflow, name, github, base_jobs)
         if base_run is None:
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "

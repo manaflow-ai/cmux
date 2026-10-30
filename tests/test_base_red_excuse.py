@@ -514,6 +514,23 @@ class Excusing(unittest.TestCase):
         self.assertFalse([route for route in self.gh.routes if "/runs/30" in route and "/jobs?" in route])
         self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
 
+    def test_a_suite_runs_verdict_for_a_shared_job_still_counts(self):
+        # Review of this change: tip suite runs also run checks and web bundles. A newer green verdict in a
+        # tip daemon suite run must stand over an older red push run, or a regression would be excused.
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        suite = {"id": 21, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "display_title": "cmux-next tip daemon suite · " + BASE_SHA}
+        push = {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                "conclusion": "failure", "display_title": "cmux-next · " + BASE_SHA}
+        self.gh.jobs[5] = dict(failed_job(5, 21, BASE_SHA, name=name), conclusion="success")
+        self.gh.jobs[6] = failed_job(6, 20, BASE_SHA, name=name, step="Run the suites")
+        self.gh.logs[6] = log(name, "Run the suites", ISSUE)
+        self.gh.base_runs = [suite, push]
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 21"):
+            self.judge()
+
     def test_a_green_base_tier_run_still_blocks(self):
         self.base_tier_setup("cmux-next daemon tests", verdict="success")
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 40"):
