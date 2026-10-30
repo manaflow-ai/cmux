@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
@@ -628,6 +629,87 @@ class SettingsSourceStampTests(unittest.TestCase):
 
     def test_check_stamp_is_gone(self):
         self.assertEqual(self.repo.guard("check-stamp").returncode, 2)
+
+
+class StatusCommentTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import defaults_guard
+        import pr_status
+        self.guard, self.status = defaults_guard, pr_status
+        self.comments, self.writes = [], []
+        original = pr_status.upsert
+        self.writer = patch.object(pr_status, "upsert", side_effect=lambda *a, **kw:
+                                   original(*a, **kw, api=self.api, sleep=None))
+        self.reader = patch.object(pr_status, "list_comments", wraps=pr_status.list_comments)
+        self.writer.start()
+        self.addCleanup(self.writer.stop)
+        self.addCleanup(sys.path.pop, 0)
+        self.old = patch.object(defaults_guard, "gh", side_effect=AssertionError("standalone writer used"))
+        self.old.start()
+        self.addCleanup(self.old.stop)
+
+    def api(self, method, path, payload=None):
+        if method == "GET":
+            return self.comments
+        self.writes.append((method, path, payload))
+        if method == "PATCH":
+            next(c for c in self.comments if path.endswith('/' + str(c['id'])))['body'] = payload['body']
+        elif method == "POST":
+            self.comments.append(self.comment(100, payload['body']))
+        elif method == "DELETE":
+            self.comments[:] = [c for c in self.comments if not path.endswith('/' + str(c['id']))]
+
+    def comment(self, number, body, author="github-actions[bot]"):
+        return {"id": number, "body": body, "user": {"login": author}}
+
+    def post(self, changed=True):
+        # The legacy GraphQL snapshot may be truncated: the writer reads all comments.
+        body = self.guard.MARKER + "\n## Default changes\n" + ("Needs review" if changed else "No default changes")
+        with patch.object(self.status, "http_api", self.api):
+            self.guard.post_comment("o/r", 1, {}, body, [object()] if changed else [])
+
+    def test_changes_share_existing_status_and_unchanged_runs_write_nothing(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"}))]
+        self.post()
+        self.assertEqual([w[0] for w in self.writes], ["PATCH"])
+        sections = self.status.parse(self.comments[0]['body'])
+        self.assertEqual(sections['review'], 'SHIP')
+        self.assertIn('Needs review', sections['defaults'])
+        self.assertNotIn(self.guard.MARKER, sections['defaults'])
+        self.writes.clear()
+        self.post()
+        self.assertEqual(self.writes, [])
+
+    def test_no_changes_and_no_prior_defaults_are_silent(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"}))]
+        self.post(False)
+        self.assertEqual(self.writes, [])
+        self.assertNotIn('defaults', self.status.parse(self.comments[0]['body']))
+
+    def test_legacy_comment_migrates_in_place(self):
+        self.comments = [self.comment(2, self.guard.MARKER + "\nold")]
+        self.post()
+        self.assertEqual([w[0] for w in self.writes], ['PATCH'])
+        self.assertTrue(self.comments[0]['body'].startswith(self.status.MARKER))
+
+    def test_resolved_defaults_update_the_existing_section(self):
+        self.comments = [self.comment(1, self.status.render({"defaults": "Needs review", "review": "SHIP"}))]
+        self.post(False)
+        self.assertIn('No default changes', self.status.parse(self.comments[0]['body'])['defaults'])
+
+    def test_failed_status_write_keeps_legacy_comment(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"})),
+                         self.comment(2, self.guard.MARKER + "\nold")]
+        with patch.object(self.status, 'upsert', side_effect=RuntimeError('write failed')):
+            with self.assertRaises(RuntimeError):
+                self.post()
+        self.assertEqual(len(self.comments), 2)
+
+    def test_human_legacy_lookalike_is_not_changed(self):
+        self.comments = [self.comment(2, self.guard.MARKER + "\nquoted", "person")]
+        self.post(False)
+        self.assertEqual(self.writes, [])
 
 
 class WorkflowTests(unittest.TestCase):
