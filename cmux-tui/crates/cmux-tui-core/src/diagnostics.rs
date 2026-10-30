@@ -174,8 +174,11 @@ struct OctaveHistogram {
 
 impl OctaveHistogram {
     fn record(&mut self, value_us: u64) {
-        let octave = (64 - value_us.leading_zeros() as usize).min(SITE_OCTAVES - 1);
-        self.counts[octave] += 1;
+        // Bucket i > 0 holds 2^(i-1)..2^i - 1; the last one everything above.
+        let octave = u64::BITS.saturating_sub(value_us.leading_zeros()) as usize;
+        if let Some(count) = self.counts.get_mut(octave.min(SITE_OCTAVES.saturating_sub(1))) {
+            *count = count.saturating_add(1);
+        }
         self.total_us = self.total_us.saturating_add(value_us);
         self.max_us = self.max_us.max(value_us);
     }
@@ -183,16 +186,18 @@ impl OctaveHistogram {
     /// The upper bound of the bucket that holds the 99th percentile sample,
     /// at most twice the true value and never above the largest sample.
     fn p99_us(&self) -> u64 {
-        let count: u64 = self.counts.iter().sum();
+        let count = self.counts.iter().fold(0u64, |sum, bucket| sum.saturating_add(*bucket));
         if count == 0 {
             return 0;
         }
         let rank = count.saturating_mul(99).div_ceil(100).max(1);
-        let mut seen = 0;
+        let mut seen = 0u64;
         for (octave, bucket) in self.counts.iter().enumerate() {
-            seen += bucket;
+            seen = seen.saturating_add(*bucket);
             if seen >= rank {
-                let upper = if octave == 0 { 0 } else { (1u64 << octave) - 1 };
+                let upper = 1u64
+                    .checked_shl(u32::try_from(octave).unwrap_or(u32::MAX))
+                    .map_or(u64::MAX, |bound| bound.saturating_sub(1));
                 return upper.min(self.max_us);
             }
         }
@@ -282,7 +287,7 @@ impl LockStats {
         let waited_us = u64::try_from(waited.as_micros()).unwrap_or(u64::MAX);
         let mut sites = self.sites.lock().unwrap_or_else(|e| e.into_inner());
         let entry = sites.entry(site).or_default();
-        entry.acquisitions += 1;
+        entry.acquisitions = entry.acquisitions.saturating_add(1);
         entry.hold_total_us = entry.hold_total_us.saturating_add(held_us);
         entry.hold_max_us = entry.hold_max_us.max(held_us);
         entry.hold.record(held_us);
