@@ -290,6 +290,7 @@ impl Hub {
             unread: false,
             claude_unstored: false,
             hibernated_ms: 0,
+            moved_to: None,
             claude_profile: None,
             last_turn: None,
             harness_failures: Default::default(),
@@ -333,6 +334,9 @@ impl Hub {
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
             lineage: None,
             subagent_retry_open: false,
+            // The person's setting for the chat it came from, not for the fork.
+            turn_cap_ms: None,
+            turn_cap_noticed: None,
         };
         let new = self.make_session(meta);
         match made {

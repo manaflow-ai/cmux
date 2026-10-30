@@ -160,6 +160,22 @@ rm -f "$TMP/calls"
 run CMUX_CI_STEP_KEY=k CPP_RED=a >/dev/null && fail "a red shim test passed"
 [[ "$(calls)" == $'cpp a\ncpp b' ]] || fail "a red shim test stopped the others: $(calls)"
 rm -f "$TMP/calls"
+# The Chromium Host's C++ tests (perf/chrome-parity: the dispatcher and the remote shim ABI), where
+# the commit has them: run after the shim tests, each its own sub-step, every one even after a red.
+mkdir -p "$W/scripts/cmux-next/tests"
+for t in chromium-host-dispatch remote-shim-abi; do
+  printf '#!/bin/bash\necho "host %s" >> "%s"\n[[ "%s" != "${HOST_RED:-}" ]]\n' "$t" "$TMP/calls" "$t" >"$W/scripts/cmux-next/tests/$t.test.sh"
+  chmod +x "$W/scripts/cmux-next/tests/$t.test.sh"
+done
+out=$(run CMUX_CI_STEP_KEY=k) || fail "cef-shim-cpp with the host tests is red: $out"
+[[ "$(calls)" == $'cpp a\ncpp b\nhost chromium-host-dispatch\nhost remote-shim-abi' ]] || fail "cef-shim-cpp did not run the host tests: $(calls)"
+grep -q '^chromium-host-dispatch.test *pass' <<<"$out" || fail "no summary row for the host dispatcher test: $out"
+rm -f "$TMP/calls"
+out=$(run CMUX_CI_STEP_KEY=k HOST_RED=chromium-host-dispatch) && fail "a red host test passed"
+grep -q '^chromium-host-dispatch.test *FAIL (exit 1)' <<<"$out" || fail "the summary does not name the red host test: $out"
+[[ "$(calls)" == $'cpp a\ncpp b\nhost chromium-host-dispatch\nhost remote-shim-abi' ]] || fail "a red host test stopped the others: $(calls)"
+rm -rf "$W/scripts/cmux-next/tests"
+rm -f "$TMP/calls"
 
 # swift-portable PKG: swift-packages-linux.yml's build and test, only for a package its matrix lists.
 ARGS=(swift-portable Packages/Shared/Port)
