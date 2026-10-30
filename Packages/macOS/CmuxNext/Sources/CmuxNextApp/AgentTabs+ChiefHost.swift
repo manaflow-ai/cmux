@@ -33,6 +33,17 @@ enum AgentPaneHostKind: Equatable {
 }
 
 extension AgentTabStore {
+    /// The machine tab `key`'s chat runs on when that is another machine: the tab's pane attaches
+    /// there (``view(for:)``'s `.remote`), through the daemon whose tree lists it. Nil for a chat on
+    /// this Mac or its Chief home, whichever tree lists the tab: the composer strip's machine link
+    /// and its Reconnect name this machine.
+    func remoteMachineID(of key: String) -> String? {
+        let key = resolve(key)
+        guard let (record, _) = lookup(key), let daemon = daemonForTab(key), !daemon.isLocal,
+              AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, listedHere: false) == .remote else { return nil }
+        return daemon.machineID
+    }
+
     /// The pane host of a Chief subagent tab whose record names `host` (`chief:<home id>`): the
     /// app's Chief home's, or for another Chief home of this Mac (#25262) that home's acpmux when
     /// it keeps the chat, else this Mac's.

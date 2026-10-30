@@ -1,0 +1,119 @@
+{
+  "routed": {
+    "Guard status": {
+      "job": "guard-status",
+      "routes": {
+        "workflow-guard-cli-scripts": {
+          "exact": [],
+          "prefixes": [
+            "workflow-guard-cli-scripts / "
+          ],
+          "route": "linux_guard_cli"
+        },
+        "workflow-guard-history": {
+          "exact": [
+            "workflow-guard-history"
+          ],
+          "prefixes": [],
+          "route": "linux_guard_history"
+        },
+        "workflow-guard-source-lints": {
+          "exact": [],
+          "prefixes": [
+            "workflow-guard-source-lints / "
+          ],
+          "route": "linux_guard_source"
+        },
+        "workflow-guard-submodule-forward-only": {
+          "exact": [
+            "workflow-guard-submodule-forward-only"
+          ],
+          "prefixes": [],
+          "route": null
+        },
+        "workflow-guard-tests": {
+          "exact": [],
+          "prefixes": [
+            "workflow-guard-tests / "
+          ],
+          "route": "linux_guard_tests"
+        }
+      },
+      "workflow": "ci-guards.yml"
+    }
+  },
+  "run": {
+    "ci-status": {
+      "job": "ci-status",
+      "under": {
+        "browser": {
+          "exact": [],
+          "prefixes": [
+            "browser / "
+          ]
+        },
+        "changes": {
+          "exact": [
+            "changes"
+          ],
+          "prefixes": []
+        },
+        "fast-guards": {
+          "exact": [
+            "CI fast guards"
+          ],
+          "prefixes": []
+        },
+        "ghosttykit-release-check": {
+          "exact": [
+            "GhosttyKit release check"
+          ],
+          "prefixes": []
+        },
+        "guards": {
+          "exact": [],
+          "prefixes": [
+            "guards / "
+          ]
+        },
+        "linux-preflight": {
+          "exact": [
+            "linux-preflight"
+          ],
+          "prefixes": []
+        },
+        "macos": {
+          "exact": [],
+          "prefixes": [
+            "macos / "
+          ]
+        },
+        "macos-admission-gate": {
+          "exact": [
+            "macOS admission gate"
+          ],
+          "prefixes": []
+        },
+        "remote-daemon": {
+          "exact": [],
+          "prefixes": [
+            "remote-daemon / "
+          ]
+        },
+        "static-preflight": {
+          "exact": [
+            "Fast static checks"
+          ],
+          "prefixes": []
+        },
+        "web": {
+          "exact": [],
+          "prefixes": [
+            "web / "
+          ]
+        }
+      },
+      "workflow": "ci.yml"
+    }
+  }
+}

@@ -7,6 +7,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
 Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.LaunchFirstFrameRevealTests
+Packages/macOS/CmuxNext CmuxNextAppTests.MaskedScreenshotTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarBackgroundChangeCalmTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCalmMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCloseWhileScrolledTests
@@ -17,6 +18,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.SidebarNewRowInPlaceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarPriorityMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarRowsMoveOnRenderServerTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarTabGapCleanupTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarWorkspaceTabHierarchyTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySkySnapshotTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseWidthChangeTests
@@ -27,6 +29,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceRowHoverMotionTests
 Packages/macOS/CmuxNext CmuxNextBrowserTests.ExtensionsMenuBehaviorTests
 Packages/macOS/CmuxNext CmuxNextBrowserTests.ExtensionsMenuPerformanceTests
 Packages/macOS/CmuxNext CmuxNextBrowserTests.ToolbarButtonsStateTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.CaptureBackdropSnapshotTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.DialogFadeTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.MotionScreenTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PagePopupMotionTests
