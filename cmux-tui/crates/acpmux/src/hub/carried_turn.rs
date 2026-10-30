@@ -565,6 +565,39 @@ mod tests {
         assert!(hub.stopped_for_test(&s, &two.turn_id), "the Stop did not hold for the next turn");
     }
 
+    /// A carried turn whose steers were all lane reports runs on reports only: it reports
+    /// nothing upward (`lane_reports.rs`), as a prompt's turn on reports does. One with any
+    /// other steer, or with none named, does.
+    #[tokio::test]
+    async fn a_carried_turn_on_lane_reports_only_reports_nothing_upward() {
+        let (hub, s) = chat().await;
+        let sent = |reports| SteerSent {
+            client: "test".into(),
+            text: "steer".into(),
+            control: Control::Local,
+            continues: Continues { reports, ..Continues::default() },
+        };
+        {
+            let mut now = s.steer_now.lock().unwrap();
+            now.sent.insert("p-r1".into(), sent(true));
+            now.sent.insert("p-r2".into(), sent(true));
+            now.sent.insert("p-task".into(), sent(false));
+        }
+        let mut from = TurnInfo::prompted("test", "work", "t-0", "p-0", Control::Local);
+        let cases: [(&[&str], bool); 3] =
+            [(&["p-r1", "p-r2"], true), (&["p-r1", "p-task"], false), (&[], false)];
+        for (seq, (ids, want)) in cases.into_iter().enumerate() {
+            let prompt_ids = ids.iter().map(|p| p.to_string()).collect();
+            let carried = Carried { seq: seq as u64, prompt_ids };
+            let (next, continues) = hub.carried_turn(&s, Some(&from), &carried);
+            *s.turn.lock().unwrap() = Some(next.clone());
+            hub.begin_carried(&s, &from.turn_id, &next, &carried, &continues);
+            let turn = s.meta().turn_count;
+            assert_eq!(hub.lane_turn_reports_only(&s.id, turn), want, "{ids:?}");
+            from = next;
+        }
+    }
+
     #[test]
     fn a_steer_read_after_a_carry_names_it() {
         let read_after = Ok(json!({"stopReason": "steered", "_meta": {"claude": {"carried": 3}}}));

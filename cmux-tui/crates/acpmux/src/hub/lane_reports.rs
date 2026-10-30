@@ -420,6 +420,12 @@ impl Hub {
         }
     }
 
+    /// Whether turn `turn` of session `id` is counted as one on lane reports only.
+    #[cfg(test)]
+    pub(super) fn lane_turn_reports_only(&self, id: &str, turn: u64) -> bool {
+        self.lane_turns().report_only.contains(&(id.to_owned(), turn))
+    }
+
     /// A prompt that is not a lane report is about to be steered into `session`: counted before
     /// it reaches the agent, so any turn that ends while it is on its way reports.
     pub(super) fn lane_steer_in<'a>(
