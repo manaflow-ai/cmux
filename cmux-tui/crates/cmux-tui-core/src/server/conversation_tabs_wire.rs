@@ -154,10 +154,11 @@ const MACHINE_HOST_PREFIX: &str = "registry:";
 /// A session for a `registry:` tab from anywhere but that machine's own
 /// `agent-session-start` (cx-k21v): a session never leaves its machine, so
 /// another machine's chat (a Mac's acpmux session or an outside chat it
-/// resumes) is never bound into a tab of this one. Two exceptions, both chats
+/// resumes) is never bound into a tab of this one. The exceptions are all chats
 /// of this machine's own acpmux ([`landed_here`]): a chat this daemon itself
-/// landed through `agent-transfer-finish`, and a chat an attached tab's
-/// session started here as `agent-session-children` listed or followed it.
+/// landed through `agent-transfer-finish`, a chat an attached tab's session
+/// started here as `agent-session-children` listed or followed it, and a root
+/// chat a live tab of this daemon already holds while acpmux has not moved it.
 #[derive(Debug)]
 pub(crate) struct MachineMismatch;
 
@@ -191,7 +192,71 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
     // This store's host, as agent-session-start names it.
     let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    host == own && (landed_agent_session(mux, session) || started_here(mux, session))
+    host == own
+        && (landed_agent_session(mux, session)
+            || started_here(mux, session)
+            || live_root_session(mux, host, session))
+}
+
+/// A live surface of this daemon whose tab already holds `session` under this
+/// store's `host`: its record was itself admitted (agent-session-start bound
+/// it, or one of the other exceptions), so a second tab of it names a chat
+/// that is this machine's. The presentation registry keeps closed tabs'
+/// records for reopen, so only a record a live surface holds counts. A live
+/// tab outlives a move of its chat; acpmux's durable transfer decision
+/// ([`root_session_stays_here`]) withdraws the proof once a move begins.
+fn live_root_session(mux: &Mux, host: &str, session: &str) -> bool {
+    let live: Vec<String> = mux.with_state(|state| {
+        state
+            .surfaces
+            .values()
+            .filter_map(|surface| Some(surface.resource_identity()?.content_id.as_str().to_owned()))
+            .collect()
+    });
+    let presentation = mux.presentation_snapshot();
+    let held = live.iter().any(|content| {
+        matches!(
+            presentation.conversation_tabs.get(content),
+            Some(ConversationTabRecord::AgentSession { host: held_host, session: Some(held), .. })
+                if held_host == host && held == session
+        )
+    });
+    held && root_session_stays_here(mux, session)
+}
+
+/// How long the transfer lookup waits for this machine's acpmux.
+#[cfg(unix)]
+const TRANSFER_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// True only when this machine's acpmux answers for `session` by its exact id,
+/// runs it here (no peer), and its durable transfer history holds no begun or
+/// committed move (`transferBlocked: false`; acpmux `hub/transfer_authority.rs`).
+/// Asked fresh on every request, never cached here, so a restart of either
+/// daemon or an abort acpmux's watchdog made is read as acpmux has it.
+/// `waitLogs: false` keeps the request path from waiting on a log read: acpmux
+/// answers null until it has read the chat's log, and null refuses.
+#[cfg(unix)]
+fn root_session_stays_here(mux: &Mux, session: &str) -> bool {
+    use super::agent_session_attach::agent_session_link::AcpmuxLink;
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else { return false };
+    let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { return false };
+    let info = link.call(
+        "_acpmux/info",
+        json!({"sessionId": session, "waitLogs": false}),
+        TRANSFER_LOOKUP_TIMEOUT,
+    );
+    link.close();
+    info.is_ok_and(|info| {
+        info.get("sessionId").and_then(Value::as_str) == Some(session)
+            && info.get("transferBlocked").and_then(Value::as_bool) == Some(false)
+            && info.get("peer").is_none_or(Value::is_null)
+    })
+}
+
+/// Agent session attach is unix-only (server.rs).
+#[cfg(not(unix))]
+fn root_session_stays_here(_mux: &Mux, _session: &str) -> bool {
+    false
 }
 
 #[cfg(unix)]
