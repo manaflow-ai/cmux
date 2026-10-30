@@ -92,6 +92,53 @@ export function mcpAction(call: McpCall): McpAction {
   return VERBS[words(call.tool)[0] ?? ""] ?? "call";
 }
 
+/// Whether a parsed MCP call is explicitly observational, regardless of its generic ACP kind. The first verb supplies the parsed
+/// action; a later mutating word makes names such as `read_and_write` fail closed rather than
+/// becoming read-only because they happen to start with `read`.
+const MCP_MUTATING_WORDS = new Set([
+  "write",
+  "append",
+  "truncate",
+  "overwrite",
+  "mutate",
+  "modify",
+  "execute",
+  "run",
+  "send",
+  "post",
+  "reply",
+  "create",
+  "add",
+  "new",
+  "start",
+  "launch",
+  "spawn",
+  "update",
+  "edit",
+  "set",
+  "rename",
+  "patch",
+  "delete",
+  "remove",
+  "archive",
+  "close",
+  "replace",
+  "upload",
+  "copy",
+  "save",
+  "put",
+]);
+
+export function mcpIsObservational(call: McpCall): boolean {
+  const tokens = words(call.tool);
+  const action = mcpAction(call);
+  return (
+    (action === "read" || action === "list" || action === "search") &&
+    !tokens.slice(1).some((token) => MCP_MUTATING_WORDS.has(token) || VERBS[token] === "message") &&
+    !tokens.slice(1).some((token) => VERBS[token] !== undefined && !["read", "list", "search"].includes(VERBS[token]!))
+  );
+}
+
 /// Arguments that name what a call acts on, in the order they are tried.
 const NAME_KEYS = ["title", "name", "subject", "path", "file_path", "filePath", "url", "query", "q", "to", "recipient"];
 /// A message is named by whom it went to, never by its subject or body.

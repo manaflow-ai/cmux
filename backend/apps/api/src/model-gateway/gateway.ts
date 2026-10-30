@@ -108,6 +108,7 @@ export class ModelGatewayLive {
         if (priced) {
           const g = await this.gate.before(key, model, name, context.messages)
           if (!g.ok) {
+            if (g.refused) return this.finish(out, failed(model, g.refused))
             const text = `credits.exhausted: available ${g.available_usd} USD, this call needs up to ${g.needed_usd} USD`
             if (w.conversation) await this.noticeOnce(w.conversation)
             return this.finish(out, failed(model, text))
@@ -164,7 +165,7 @@ export class ModelGatewayLive {
     const key = safeId(`compact:${crypto.randomUUID()}`)
     if (priced) {
       const g = await this.gate.before(key, model, name, context.messages)
-      if (!g.ok) return failed(model, `credits.exhausted: available ${g.available_usd} USD, this call needs up to ${g.needed_usd} USD`)
+      if (!g.ok) return failed(model, g.refused ?? `credits.exhausted: available ${g.available_usd} USD, this call needs up to ${g.needed_usd} USD`)
     }
     // The service-key route needs the payer team, chief and call id on every call, the compactor's too (claude-auth.ts signedFetch).
     const routed = model.provider === CLAUDE_ROUTE_PROVIDER

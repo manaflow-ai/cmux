@@ -10,8 +10,9 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public var onClose: (() -> Void)?
     public init(model: OnboardingModel) {
         self.model = model
+        let size = model.step.screen.size
         let window = OnboardingWindow(
-            contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered, defer: false
         )
@@ -24,8 +25,8 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         // The close button stays visible (Lane 20: every window of its own
         // shows it); Escape and Skip also dismiss.
         // A fixed size: content never grows the window.
-        window.contentMinSize = OnboardingMetrics.windowSize
-        window.contentMaxSize = OnboardingMetrics.windowSize
+        window.contentMinSize = size
+        window.contentMaxSize = size
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
         super.init(window: window)
         window.delegate = self

@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextDesign
+import CmuxNextPages
 import os
 
 /// Cloud results as toasts and Cloud questions as cmux dialogs, on the
@@ -56,6 +57,8 @@ enum CloudPresenter {
     /// The money confirmation of a machine create: only the person answers
     /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
     static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
+    /// The confirmation of an environment build (a spend) or delete: only the person answers it.
+    static let environmentConfirmIdentifier = "cmux.dialog.cloud.environmentConfirm"
     /// Credential installation always requires a real click; debug.dialog cannot approve it.
     static let credentialRecoveryIdentifier = "cmux.dialog.cloud.credentialRecovery"
 
@@ -66,6 +69,16 @@ enum CloudPresenter {
                                   buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
                                   identifier: identifier)
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
+    }
+
+    /// Offers cmux Pro after a refusal Pro lifts, with the server's `message` (its
+    /// localized reason) as the body; `closed(true)` only for the person's click on
+    /// Upgrade. False when nothing was shown (no window); `closed` then never runs.
+    static func offerPro(_ message: String?, in window: NSWindow?, closed: @escaping (Bool) -> Void) -> Bool {
+        guard window != nil else { return false }
+        confirm(CloudStrings.proRequiredTitle, message ?? CloudStrings.proRequiredBody, button: CloudStrings.proRequiredUpgrade,
+                identifier: "cmux.dialog.cloud.proRequired", in: window, done: closed)
+        return true
     }
 
     static func copy(_ text: String) {
@@ -129,7 +142,11 @@ enum CloudPresenter {
                 let scope = CloudCodexBrokerScope(userID: userID, teamID: teamID)
                 try await services.cloud.codexBroker.run(
                     machineID: session.machineID, scope: scope, confirmed: true, forceRefresh: true,
-                    presentDeviceCode: { prompt in await presentCodexDeviceCode(prompt, in: window) })
+                    presentDeviceCode: { [weak services, tabID = tab.id] prompt in
+                        // The code dialog blocks only this chat's tab: the sign-in page opens in a cmux tab beside it.
+                        let view = services?.madeAgentTabs?.existingView(tabID).flatMap { $0.window == nil || $0.isHiddenOrHasHiddenAncestor ? nil : $0 }
+                        return await presentCodexDeviceCode(prompt, in: view.map(CmuxDialogScope.tab) ?? .window(window))
+                    })
             } else {
                 try await transfer.run(api: services.cloud.api,
                                        currentTeamID: { services.cloud.auth.teamID },
@@ -160,9 +177,9 @@ enum CloudPresenter {
 
     static let codexDeviceCodeIdentifier = "cmux.dialog.cloud.codexDeviceCode"
 
-    @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in window: NSWindow) async -> Bool {
-        await presentCodexDeviceCode(prompt, in: .window(window), center: .shared,
-                                     open: { NSWorkspace.shared.openInBackground($0) })
+    @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in scope: CmuxDialogScope) async -> Bool {
+        await presentCodexDeviceCode(prompt, in: scope, center: .shared,
+                                     open: { LinkRouter.shared.open($0) }) // a cmux tab: browser.openSignInPagesInCmux
     }
 
     @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in scope: CmuxDialogScope,

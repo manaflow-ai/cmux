@@ -5,10 +5,10 @@
 import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
-import { acpmuxSendCall, type AcpmuxSendCall } from "./acpmuxSends";
-import { agentMessage, type AgentMessage } from "./agentMessages";
+import { acpmuxSendCall, recordedMessageBodyChangesForTool, type AcpmuxSendCall } from "./acpmuxSends";
+import { agentMessage, messageDelivery, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
-import { mcpCall, mcpKey } from "./mcpCalls";
+import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 
@@ -26,11 +26,76 @@ export type ToolGroup =
   | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCall }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
+  /// Adjacent start_session calls become one disclosure row with one expandable child per session.
+  | {
+      type: "subsessionGroup";
+      items: AcpmuxActivity[];
+      calls: Extract<SubsessionCall, { tool: "start" }>[];
+    }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
   | { type: "mcp"; items: AcpmuxActivity[] }
+  /// Two or more messages to other agents in a row (a SendMessage, an `acpmux send`, a sub-session's
+  /// send_message, in any mix): one line that sums them up over a card with a row per message
+  /// (MessageGroupRow.tsx). `items` are the members' calls, in order.
+  | { type: "messages"; members: MessageEntry[]; items: AcpmuxActivity[] }
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// One message to another agent, as `toolGroups` draws it on its own: what a `messages` group lists.
+export type MessageEntry =
+  | Extract<ToolGroup, { type: "message" | "send" }>
+  | { type: "subsession"; item: AcpmuxActivity; call: Extract<SubsessionCall, { tool: "send" }> };
+
+/// Whether an entry is one message to another agent, which groups with the messages next to it.
+export function isMessageEntry(group: ToolGroup): group is MessageEntry {
+  return (
+    group.type === "message" || group.type === "send" || (group.type === "subsession" && group.call.tool === "send")
+  );
+}
+
+/// A message that did not go out, or whose call ended without saying it went: it draws on its own,
+/// with its own failed or not-delivered status, never summed up under "Messaged …". A sub-session
+/// call that failed is no sub-session call at all (subsessionCalls.ts), so it never gets here.
+function messageWentOut(entry: MessageEntry): boolean {
+  switch (entry.type) {
+    case "send":
+      return entry.send.state === "sending" || entry.send.state === "sent";
+    case "message":
+      return messageDelivery(entry.item.tool!, entry.message) !== "failed";
+    case "subsession":
+      return true;
+  }
+}
+
+/// Consecutive messages to other agents as one `messages` group, from two (Leo 2026-10-29, on
+/// Claude desktop's "Messaged agent 3 times": "this would be decent ui for cmux-next"). One pass
+/// over the run's entries, so it adds no work beyond the grouping itself. A message that failed ends
+/// the run and keeps its own row (`messageWentOut`).
+function withMessageGroups(groups: ToolGroup[]): ToolGroup[] {
+  const out: ToolGroup[] = [];
+  let members: MessageEntry[] = [];
+  const close = () => {
+    if (members.length >= 2) out.push({ type: "messages", members, items: members.map((member) => member.item) });
+    else out.push(...members);
+    members = [];
+  };
+  for (const group of groups) {
+    if (isMessageEntry(group) && messageWentOut(group)) members.push(group);
+    else {
+      close();
+      out.push(group);
+    }
+  }
+  close();
+  return out;
+}
+
+/// A `messages` group's disclosure key, shared by its row (TurnRows.tsx) and the live line
+/// (turns.ts `ownRow`).
+export function messageGroupKey(items: readonly AcpmuxActivity[], rowId: string, at: number): string {
+  return `group:messages:${items[0]?.tool?.id || `${rowId}:${at}`}`;
+}
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
@@ -63,11 +128,31 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// thought (thoughts.ts `mergeThoughts`).
 export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
+  // One turn's bounded, transcript-recorded message files. A later Bash `acpmux send - <file>`
+  // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
+  const messageFiles = new Map<string, string>();
+  const messageFileEndedAt = new Map<string, number | undefined>();
+  // Earlier calls may finish after a later writer. Keep one completion horizon for all possible
+  // aliases, and leave provenance unknown while any preceding mutation has no proven end.
+  let mutationEndedAt = -Infinity;
+  let mutationUnsettled = false;
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
+  let subsessionGroup:
+    | {
+        items: AcpmuxActivity[];
+        calls: Extract<SubsessionCall, { tool: "start" }>[];
+      }
+    | undefined;
   // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
   let held: AcpmuxActivity[] = [];
   const close = () => {
+    if (subsessionGroup) {
+      if (subsessionGroup.calls.length === 1)
+        groups.push({ type: "subsession", item: subsessionGroup.items[0]!, call: subsessionGroup.calls[0]! });
+      else groups.push({ type: "subsessionGroup", ...subsessionGroup });
+      subsessionGroup = undefined;
+    }
     if (mcp) groups.push({ type: "mcp", items: mcp.items });
     mcp = undefined;
     if (run) {
@@ -86,20 +171,122 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     const tool = item.tool;
     const dispatch = tool ? dispatchCall(item) : undefined;
-    const send = tool && !dispatch ? acpmuxSendCall(tool) : undefined;
+    let send = tool && !dispatch ? acpmuxSendCall(tool, messageFiles) : undefined;
+    if (send && messageFiles.size) {
+      const startsAt = tool?.startedAt;
+      const ordered =
+        startsAt !== undefined && [...messageFileEndedAt.values()].every((end) => end !== undefined && end <= startsAt);
+      if (!ordered) {
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        send = tool && !dispatch ? acpmuxSendCall(tool) : undefined;
+      }
+    }
     const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
     const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     const key = call && mcpKey(call);
+    const rememberMessageFiles = () => {
+      if (!tool) return;
+      // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
+      // cannot make write_file or read_and_write safe. Explicit mutation kinds still invalidate.
+      // Observational status or missing timestamps cannot replace a producer or block a later one.
+      const parsedMcp = !tool.command && mcpCall(tool);
+      const observationalKind = tool.kind === "read" || tool.kind === "search" || tool.kind === "fetch";
+      const observational = parsedMcp
+        ? mcpIsObservational(parsedMcp) && (!tool.kind || observationalKind)
+        : observationalKind;
+      if (!tool.command && !tool.diffs?.length && !tool.background && observational) return;
+      const endedAt = tool.background ? tool.background.endedAt : tool.endedAt;
+      const rememberMutation = () => {
+        const ended = tool.background
+          ? tool.background.state === "completed" ||
+            tool.background.state === "failed" ||
+            tool.background.state === "stopped"
+          : tool.status === "completed" || tool.status === "failed";
+        if (
+          !ended ||
+          endedAt === undefined ||
+          !Number.isFinite(endedAt) ||
+          (tool.startedAt !== undefined && (!Number.isFinite(tool.startedAt) || tool.startedAt > endedAt))
+        )
+          mutationUnsettled = true;
+        else mutationEndedAt = Math.max(mutationEndedAt, endedAt);
+      };
+      // A failed or still-running writer did not produce a durable body. Clear the bounded
+      // producer set so a later send cannot display stale content from an earlier call.
+      if (
+        !tool.command ||
+        tool.status !== "completed" ||
+        (tool.exitCode !== undefined && tool.exitCode !== 0) ||
+        (tool.background && tool.background.state !== "completed")
+      ) {
+        rememberMutation();
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        return;
+      }
+      // A background call's foreground row can finish before the actual shell. Use the
+      // background completion timestamp for provenance; without it, ordering against a later
+      // send is unknown and the body must remain unresolved.
+      if (endedAt === undefined || !Number.isFinite(endedAt)) {
+        rememberMutation();
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        return;
+      }
+      const changes = recordedMessageBodyChangesForTool(tool);
+      const startedAt = tool.startedAt;
+      const orderedWriter =
+        !mutationUnsettled &&
+        startedAt !== undefined &&
+        Number.isFinite(startedAt) &&
+        startedAt >= mutationEndedAt &&
+        startedAt <= endedAt;
+      if (changes.length) rememberMutation();
+      for (const change of changes) {
+        if ("reset" in change) {
+          messageFiles.clear();
+          messageFileEndedAt.clear();
+          continue;
+        }
+        if (change.text === undefined) {
+          messageFiles.delete(change.path);
+          messageFileEndedAt.delete(change.path);
+        } else {
+          // A newly accepted producer supersedes every previous path spelling. We cannot resolve
+          // aliases without filesystem access, so clear all candidates before recording it.
+          messageFiles.clear();
+          messageFileEndedAt.clear();
+          if (!orderedWriter) continue;
+          messageFiles.set(change.path, change.text);
+          messageFileEndedAt.set(change.path, endedAt);
+          while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
+        }
+      }
+    };
+    if (subsession?.tool === "start") {
+      if (subsessionGroup) {
+        subsessionGroup.items.push(item);
+        subsessionGroup.calls.push(subsession);
+      } else {
+        close();
+        subsessionGroup = { items: [item], calls: [subsession] };
+      }
+      rememberMessageFiles();
+      continue;
+    }
     if (key && mcp?.key === key) {
       mcp.items.push(item);
+      rememberMessageFiles();
       continue;
     }
     const kind = tool && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];
+      rememberMessageFiles();
       continue;
     }
     close();
@@ -110,9 +297,10 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };
     else groups.push({ type: "item", item });
+    rememberMessageFiles();
   }
   close();
-  return groups;
+  return withMessageGroups(groups);
 }
 
 /// A group's calls, without the thoughts between them.

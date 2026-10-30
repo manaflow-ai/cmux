@@ -97,7 +97,8 @@ const NONE: RetryPhase = { kind: "none" };
 const SETTLING: RetryPhase = { kind: "settling" };
 
 /// What a sub-session's own session row says of its retry (subsessions.ts ``SubsessionInfo``).
-export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; state?: string };
+/// `error`: why its turn failed, which its end line says (SubagentDoneLine.tsx).
+export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; state?: string; error?: string };
 
 /// A subagent's phase. `child`: a sub-session's own session row, whose retry acpmux keeps there.
 /// `capabilities`: what acpmux's `initialize` named, undefined from one that names none (its
@@ -134,9 +135,10 @@ export function sessionRetry(session: SessionRetryFields & { state: string }): R
   return { kind: "failed" };
 }
 
-/// The retry a row shows working on (its spinner and "Retrying (2/4) …"), if any.
-export const retrying = (agent: Parameters<typeof subagentRetry>[0]) => {
-  const phase = subagentRetry(agent);
+/// The retry a row shows working on (its spinner and "Retrying (2/4) …"), if any. `child`: a
+/// sub-session's own session row, where acpmux keeps its retry.
+export const retrying = (agent: Parameters<typeof subagentRetry>[0], child?: SessionRetryFields) => {
+  const phase = subagentRetry(agent, undefined, child);
   return phase.kind === "retrying" ? phase.retry : undefined;
 };
 
@@ -203,11 +205,14 @@ export type RetryDeps = {
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   send: (text: string) => Promise<unknown>;
   capabilities?: ReadonlySet<string>;
+  /// Whether the pane still shows the row's chat, connected: checked before acpmux is asked and
+  /// again before the ask is sent. A Retry it can't reach is refused `retry.failed`, never sent.
+  reaches?: () => boolean;
 };
 
 /// A refusal's words. `retry.nothing_failed` says why (`data.why`): running again, or gone for
 /// good (the chat closed, the subagent resumed, replaced, ended or forgotten), else nothing failed.
-function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
+export function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
   const value = (error ?? {}) as { code?: unknown; reason?: unknown; data?: { why?: unknown } };
   const codes = [value.code, value.reason].map((part) => (part === undefined ? "" : String(part)));
   const has = (code: string) => codes.includes(code);
@@ -238,6 +243,8 @@ export async function runRetry(
 ): Promise<RetryNote | undefined> {
   const action = retryActionOf(agent, deps.capabilities);
   if (!action) return undefined;
+  const away = () => deps.reaches !== undefined && !deps.reaches();
+  if (away()) return "retry.failed";
   if (action === "daemon") {
     const params = agent.child ? { sessionId: agent.child } : { sessionId: chat, subagentId: agent.id };
     try {
@@ -251,6 +258,8 @@ export async function runRetry(
       if (agent.child) return "retry.failed";
     }
   }
+  // Checked again after acpmux answered: the pane may have moved to another chat meanwhile.
+  if (away()) return "retry.failed";
   try {
     await deps.send(askPrompt(agent, t));
     return undefined;

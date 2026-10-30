@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The Inspector's toggle closes it (inspector/ChatInspector.tsx, inspector.css). Over the chat (the
 // overlay placement, the default) the panel used to run the pane's full height, over the chat
 // header too: the toggle at the header's end sat under the panel, so a click on it hit a
@@ -205,21 +206,28 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           const box = panel.getBoundingClientRect();
           return {
             empty: Math.round(box.bottom - last.bottom),
+            top: box.top,
+            height: box.height,
             bottom: box.bottom,
             pane: window.innerHeight,
             scrolls: body.scrollHeight > body.clientHeight + 1,
           };
         });
       const tall = await pane!.open({ width: 1600, height: 1400 });
+      // The card's own height and top in the tall pane: its sections at rest, unclipped.
+      let natural = { top: 0, height: 0 };
       try {
         await openInspector(tall, 0);
-        const { empty, bottom, pane: height } = await measure(tall);
+        const { empty, bottom, pane: height, top, height: card } = await measure(tall);
+        natural = { top, height: card };
         expect({ deadSpace: empty <= 16, short: bottom < height - 200 }).toEqual({ deadSpace: true, short: true });
       } finally {
         await tall.close();
       }
-      // The harness's sections are about 160px tall: a 160px pane leaves them about 110.
-      const short = await pane!.open({ width: 1600, height: 160 });
+      // A pane 40px too short for the card (with its 8px inset at the foot), so its sections must
+      // scroll. Derived from the harness's sections, not a fixed height: Environment became one
+      // project row (#26199) and the sections shrank from about 160px to about 100.
+      const short = await pane!.open({ width: 1600, height: Math.floor(natural.top + natural.height + 8 - 40) });
       try {
         await openInspector(short, 0);
         const { bottom, pane: height, scrolls } = await measure(short);

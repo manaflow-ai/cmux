@@ -27,6 +27,13 @@ pub struct ChiefSettings {
     /// gets a `<show>` block for the Chief to open them in the column right of
     /// its chat (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
+    /// The trace keeps whole texts (replies, tool arguments) for replaying
+    /// real turns (`trace.full`). Default false.
+    pub trace_full: bool,
+    /// The most words a reply's first send of a turn may have before it is
+    /// refused for Chief to cut (`replies.maxWords`, chief_kernel::replies);
+    /// 0 turns the gate off. Default 45.
+    pub reply_max_words: usize,
     /// Seconds a cloud VM waits with no live cloud subagent before the host
     /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
     /// B4). Default 60.
@@ -77,6 +84,8 @@ impl Default for ChiefSettings {
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
+            trace_full: false,
+            reply_max_words: chief_kernel::replies::REPLY_MAX_WORDS,
             cloud_auto_pause_idle_secs: 60,
             cloud_delete_after_paused_days: 7,
         }
@@ -91,6 +100,12 @@ pub const REPLY_THREADS: &str = "replies.thread";
 
 /// The key of `ChiefSettings::show_after_report`.
 pub const SHOW_AFTER_REPORT: &str = "show.afterReport";
+
+/// The key of `ChiefSettings::reply_max_words`.
+pub const REPLY_MAX_WORDS: &str = "replies.maxWords";
+
+/// The key of `ChiefSettings::trace_full`.
+pub const TRACE_FULL: &str = "trace.full";
 
 /// The key of `ChiefSettings::cloud_auto_pause_idle_secs`.
 pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
@@ -109,6 +124,11 @@ impl ChiefSettings {
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
             show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
+            trace_full: value["trace"]["full"].as_bool().unwrap_or(false),
+            reply_max_words: value["replies"]["maxWords"]
+                .as_u64()
+                .map(|n| n as usize)
+                .unwrap_or(chief_kernel::replies::REPLY_MAX_WORDS),
             cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
                 .as_u64()
                 .unwrap_or(60),
@@ -123,8 +143,12 @@ impl ChiefSettings {
         if let Some(ttl) = self.cache_ttl {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }
-        value["replies"] = json!({"thread": self.reply_threads.as_str()});
+        value["replies"] =
+            json!({"thread": self.reply_threads.as_str(), "maxWords": self.reply_max_words});
         value["show"] = json!({"afterReport": self.show_after_report});
+        if self.trace_full {
+            value["trace"] = json!({"full": true});
+        }
         value["cloud"] = json!({
             "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
             "deleteAfterPausedDays": self.cloud_delete_after_paused_days,

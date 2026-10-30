@@ -110,6 +110,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton call:didCloseMenu/2:with": {
+   "27.0.1": true
+  },
   "NSButton call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -137,6 +140,10 @@
   "NSButton call:performKeyEquivalent/1": {
    "27.0.1": true,
    "27.0": true
+  },
+  "NSButton call:resetCursorRects/0": {
+   "27.0": true,
+   "27.0.1": true
   },
   "NSButton call:resignFirstResponder/0": {
    "26.5.2": true,
@@ -188,6 +195,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSButton call:willOpenMenu/2:with": {
    "27.0.1": true
   },
   "NSButton get:acceptsFirstResponder/0": {
@@ -273,6 +283,9 @@
   "NSControl call:layout/0": {
    "27.0.1": true,
    "27.0": true
+  },
+  "NSControl call:viewDidChangeEffectiveAppearance/0": {
+   "27.0.1": true
   },
   "NSGlassEffectView call:layout/0": {
    "27.0.1": true
@@ -496,6 +509,18 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSSplitView call:mouseEntered/1": {
+   "27.0.1": true
+  },
+  "NSSplitView call:mouseExited/1": {
+   "27.0.1": true
+  },
+  "NSSplitView call:updateTrackingAreas/0": {
+   "27.0.1": true
+  },
+  "NSSplitView call:viewDidChangeEffectiveAppearance/0": {
+   "27.0.1": true
+  },
   "NSSplitView call:viewDidMoveToWindow/0": {
    "27.0.1": true,
    "27.0": true
@@ -546,16 +571,28 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTableRowView call:mouseDown/1": {
+   "27.0.1": true
+  },
   "NSTableRowView call:prepareForReuse/0": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
    "27.0.1": true
   },
+  "NSTableRowView call:updateTrackingAreas/0": {
+   "27.0.1": true
+  },
   "NSTableView call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSTableView call:otherMouseDown/1": {
+   "27.0.1": true
+  },
+  "NSTableView call:otherMouseUp/1": {
    "27.0.1": true
   },
   "NSTableView call:updateTrackingAreas/0": {
@@ -592,6 +629,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTextField call:textDidChange/1": {
+   "27.0.1": true
+  },
   "NSTextField call:textDidEndEditing/1": {
    "26.5.2": true,
    "26.7": true,
@@ -616,6 +656,18 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTextField get:placeholderAttributedString/0": {
+   "27.0.1": true
+  },
+  "NSTextField get:placeholderString/0": {
+   "27.0.1": true
+  },
+  "NSTextField set:placeholderAttributedString/1": {
+   "27.0.1": true
+  },
+  "NSTextField set:placeholderString/1": {
+   "27.0.1": true
+  },
   "NSTextFieldCell call:accessibilityAttributeNames/0": {
    "26.5.2": true,
    "26.7": true,
@@ -626,6 +678,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSTextFieldCell call:drawInterior/2:in": {
    "27.0.1": true
   },
   "NSTextView call:copy/1": {
@@ -736,6 +791,10 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSView call:addCursorRect/2:cursor": {
+   "27.0": true,
+   "27.0.1": true
+  },
   "NSView call:addSubview/3:positioned,relativeTo": {
    "26.5.2": true,
    "26.7": true,
@@ -758,6 +817,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSView call:flagsChanged/1": {
    "27.0.1": true
   },
   "NSView call:hitTest/1": {
@@ -1002,6 +1064,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSViewController call:viewDidLoad/0": {
    "27.0.1": true
   },
   "NSWindow call:addChildWindow/2:ordered": {

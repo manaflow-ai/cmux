@@ -4,6 +4,7 @@
 use super::*;
 
 use crate::config::check_preset_args;
+use cmux_json::JsonSet as _;
 
 fn pi_session_for(root: &Path, agent_id: &str) -> std::io::Result<Option<PathBuf>> {
     let Ok(entries) = std::fs::read_dir(root) else { return Ok(None) };
@@ -146,9 +147,10 @@ impl Hub {
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
+        *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(id) = session_id {
-            params["sessionId"] = json!(id);
+            params.set("sessionId", json!(id));
         }
         params
     }

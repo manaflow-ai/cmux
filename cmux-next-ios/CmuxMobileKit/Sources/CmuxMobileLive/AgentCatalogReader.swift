@@ -28,6 +28,8 @@ extension AgentCatalog {
         var choices: [AgentHarnessChoice] = []
         for (id, entry) in entries {
             if entry["kind"]?.stringValue == "terminal" { continue }
+            // acpmux `pickerHidden`: the cmux model router profile, Claude's automatic fallback.
+            if case .bool(true)? = entry["pickerHidden"] { continue }
             let family = entry["family"]?.stringValue ?? id
             // acpmux also refuses a profile whose command runs Codex or opencode under
             // another family name (`web_modes.rs` `refused_families`).
