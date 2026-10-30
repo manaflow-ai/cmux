@@ -107,6 +107,9 @@
   overflow: auto;
   padding: 0 16px 16px;
 }
+.tc-split > div:first-child .tc-table-wrap {
+  max-height: min(520px, 60vh);
+}
 .tc-table {
   width: 100%;
   border-collapse: collapse;
