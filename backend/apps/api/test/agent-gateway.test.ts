@@ -37,7 +37,7 @@ const setup = async (label: string, classes = ["read", "execute"]) => {
   const user = ensured.id as string
   const team = ensured.personal_team as string
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair
-  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey)
+  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey) as JsonWebKey
   const registered = await op(session, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: "synthetic MCP client", device_name: "synthetic", platform: "linux", op_classes: classes })
   expect(registered.json.ok).toBe(true)
   const install = registered.json.value.id as string
