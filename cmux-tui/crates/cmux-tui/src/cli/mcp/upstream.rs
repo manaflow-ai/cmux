@@ -6,7 +6,9 @@
 //! stdio MCP client on first use and lists its tools as
 //! `<prefix>_<tool>` (`cmux-cua` is `cua`), so `cmux_docs` finds them and a
 //! `cmux_exec` script calls them through `Server::call`, under the same
-//! allowlist as every other tool.
+//! allowlist as every other tool. A list from an earlier start
+//! (`upstream_listing.rs`) answers `tools/list` without starting the server,
+//! so a chat that never calls one of its tools never starts it.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
@@ -138,6 +140,8 @@ pub(super) struct Upstream {
     /// Why and when the last start failed: said once, retried after
     /// `START_BACKOFF`.
     failed: Option<(String, Instant)>,
+    /// Where lists from earlier starts are kept (`upstream_listing.rs`).
+    listings: Option<PathBuf>,
 }
 
 /// Why a request has no result.
@@ -174,16 +178,38 @@ impl Drop for Conn {
 impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None }
+        let listings = super::upstream_listing::default_dir();
+        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+    }
+
+    /// The same server with its stored lists kept in `dir` (none: never stored).
+    #[cfg(test)]
+    pub(super) fn with_listings(mut self, dir: Option<PathBuf>) -> Self {
+        self.listings = dir;
+        self
+    }
+
+    /// Whether the server's process runs.
+    #[cfg(test)]
+    pub(super) fn started(&self) -> bool {
+        self.conn.is_some()
     }
 
     pub(super) fn name(&self) -> &str {
         &self.spec.name
     }
 
-    /// The tools under their cmux names, starting the server if needed.
-    /// `taken` holds names already in use; a clash is left out.
+    /// The tools under their cmux names: the stored list from an earlier
+    /// start, else the server's own, starting it. `taken` holds names already
+    /// in use; a clash is left out.
     pub(super) fn descriptors(&mut self, taken: &BTreeSet<String>) -> Vec<Value> {
+        if self.tools.is_none()
+            && let Some(stored) =
+                self.listings.as_deref().and_then(|dir| super::upstream_listing::load(dir, &self.spec))
+        {
+            self.instructions = rules(&self.spec, stored.instructions.as_deref());
+            self.tools = Some(stored.tools);
+        }
         if self.tools.is_none() {
             if self.failed.as_ref().is_some_and(|(_, at)| at.elapsed() < START_BACKOFF) {
                 return Vec::new();
@@ -303,7 +329,8 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        self.instructions = rules(&self.spec, init["instructions"].as_str());
+        let given = init["instructions"].as_str().map(str::to_owned);
+        self.instructions = rules(&self.spec, given.as_deref());
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;
@@ -316,6 +343,10 @@ impl Upstream {
                 Some(next) if !next.is_empty() && tools.len() < 1000 => cursor = Some(next.into()),
                 _ => break,
             }
+        }
+        if let Some(dir) = &self.listings {
+            let listing = super::upstream_listing::Listing { tools: tools.clone(), instructions: given };
+            super::upstream_listing::store(dir, &self.spec, &listing);
         }
         self.tools = Some(tools);
         self.failed = None;

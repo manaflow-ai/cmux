@@ -46,7 +46,7 @@ fn upstream_server(name: &str) -> upstream::Upstream {
             .to_string()
             .into(),
     ));
-    upstream::Upstream::new(specs.into_iter().next().unwrap())
+    upstream::Upstream::new(specs.into_iter().next().unwrap()).with_listings(None)
 }
 
 #[test]
@@ -489,4 +489,23 @@ fn the_helper_v2_bridge_gets_no_cmux_rules() {
     let v2 = spec(vec![(acpmux::cua_v2::ENDPOINT_DIR_ENV.into(), "/tmp/cua".into())]);
     assert_eq!(upstream::rules(&v2, None), None);
     assert_eq!(upstream::rules(&v2, Some("Its own text.")).as_deref(), Some("Its own text."));
+}
+
+/// A chat's `cmux` server lists another server's tools from the list an
+/// earlier start stored, and starts that server only on its first call: an
+/// idle chat never runs a `cmux-cua` helper (2026-10-29: one per chat).
+#[test]
+fn a_stored_list_answers_without_starting_the_server_until_a_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
+    let listed = first.descriptors(&BTreeSet::new());
+    assert!(first.started(), "with nothing stored, listing starts the server");
+    assert_eq!(listed.len(), 3);
+    drop(first);
+    let mut second = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
+    assert_eq!(second.descriptors(&BTreeSet::new()), listed, "the stored list, rules included");
+    assert!(!second.started(), "a stored list starts nothing");
+    let result = second.call("look", json!({"at": 1}), None).unwrap();
+    assert!(second.started(), "the first call starts it");
+    assert_eq!(result["content"][0]["text"], "saw {\"at\": 1}");
 }
