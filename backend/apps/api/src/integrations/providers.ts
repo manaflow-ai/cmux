@@ -56,17 +56,51 @@ export const revokeInstallationToken = async (http: Http, token: string): Promis
  * Installation tokens for the gateway's own ops (github.issue.comment) live one hour; reuse until five minutes before expiry.
  * Per isolate, never stored. Tokens handed to callers are narrowed and kept per principal in the ledger (github-tokens.ts).
  */
-const installationTokens = new Map<string, { token: string; expires_at: number }>()
-const installationToken = async (env: Env, http: Http, installation: number, repo: string) => {
-  const key = `${installation}:${repo.toLowerCase()}:issues:write`
-  const cached = installationTokens.get(key)
+const installationTokens = new Map<number, { token: string; expires_at: number }>()
+export const installationToken = async (env: Env, http: Http, installation: number) => {
+  const cached = installationTokens.get(installation)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
-  const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
+  const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
+  if (!res.ok) throw new InstallationTokenRefused(res)
+  const body = await json(res)
+  const token = String(body.token ?? "")
+  installationTokens.set(installation, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
+  return token
+}
+
+/** Token used by the approved comment operation, narrowed to the exact repository and permission. */
+const commentInstallationTokens = new Map<string, { token: string; expires_at: number }>()
+const commentInstallationToken = async (env: Env, http: Http, installation: number, repo: string) => {
+  const key = `${installation}:${repo.toLowerCase()}:issues:write`
+  const cached = commentInstallationTokens.get(key)
+  if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
+  const res = await requestInstallationToken(env, http, installation, {
+    repositories: [repo.split("/")[1]!],
+    permissions: { issues: "write" },
+  })
   if (!res.ok) throw failed("github", res, "installation token")
+  const body = await json(res)
+  const token = String(body.token ?? "")
+  commentInstallationTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
+  return token
+}
   const body = await json(res)
   const token = String(body.token ?? "")
   installationTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
   return token
+}
+
+/** GitHub refused an installation token: its response rides along, so a caller can read the refusal (github-tokens.ts). */
+export class InstallationTokenRefused extends ProviderError {
+  constructor(readonly response: Response) {
+    const error = failed("github", response, "installation token")
+    super(error.code, error.message, error.retryable, response.status)
+  }
+}
+
+/** Drops a cached installation token GitHub refused (a 401), so the next ask mints a fresh one. */
+export const forgetInstallationToken = (installation: number, token: string) => {
+  if (installationTokens.get(installation)?.token === token) installationTokens.delete(installation)
 }
 
 export const github: ProviderImpl = {
@@ -135,7 +169,7 @@ export const github: ProviderImpl = {
   call: async (env, http, credential, op, params, beforeEffect) => {
     if (credential.kind !== "github_installation") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "github.issue.comment") throw new ProviderError("provider.error", `github cannot run ${op}`)
-    const token = await installationToken(env, http, credential.installation_id, String(params.repo))
+    const token = await commentInstallationToken(env, http, credential.installation_id, String(params.repo))
     // Token acquisition can yield while membership, sharing, scopes or repository policy changes.
     await beforeEffect?.()
     const res = await effectCall(

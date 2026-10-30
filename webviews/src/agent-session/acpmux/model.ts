@@ -1,3 +1,4 @@
+import type { MachineResources } from "./machineResources";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
@@ -15,7 +16,14 @@ import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMes
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { isRunGroup, SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "./subagents/subagentRows";
+import {
+  isRunGroup,
+  SUBAGENT_DONE,
+  SUBAGENT_EMPTY,
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  WORKFLOW_CARD,
+} from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
@@ -210,6 +218,9 @@ export type AcpmuxRow = {
   kind: string;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
+  /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
+  /// transcript rows that belong to one turn use this identity when it is available.
+  turnId?: string;
   text?: string;
   streaming?: boolean;
   pending?: boolean;
@@ -638,6 +649,8 @@ export type AcpmuxSnapshot = {
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
   peerStates?: Record<string, string>;
+  /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
+  peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
@@ -1178,6 +1191,8 @@ function fallbackRowHeight(
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return finish(44);
+  // Empty child copy is measured on mount; start with two body lines.
+  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
