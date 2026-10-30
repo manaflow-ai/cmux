@@ -3042,15 +3042,23 @@ class GitHub:
             if error.code in (403, 429) and rate_limited(error):
                 raise RateLimited(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
                                    "the sweep stops rather than spend the workflow token)") from error
-            if error.code in (401, 403) and self.fallback_token and not app_only:
-                print(f"queue-janitor: App token refused ({error.code}) on {path.split('?')[0]}; "
-                      "using the workflow token for the rest of the sweep", file=sys.stderr)
-                self.headers["Authorization"] = f"Bearer {self.fallback_token}"
-                # The snapshot download (download()) uses the same token.
-                self._token = self.fallback_token
-                self.fallback_token = ""
-                self.app_token = False
-                return self.request(method, path, body)
+            if error.code in (401, 403) and not app_only:
+                # The job listings run on several threads (read_run_jobs()): one switches the token, and a
+                # request another sent with the refused token before the switch is made again with the new
+                # one, instead of failing for want of a fallback the first thread already used.
+                with self._count_lock:
+                    switched = headers.get("Authorization") != self.headers.get("Authorization")
+                    if not switched and self.fallback_token:
+                        print(f"queue-janitor: App token refused ({error.code}) on {path.split('?')[0]}; "
+                              "using the workflow token for the rest of the sweep", file=sys.stderr)
+                        self.headers["Authorization"] = f"Bearer {self.fallback_token}"
+                        # The snapshot download (download()) uses the same token.
+                        self._token = self.fallback_token
+                        self.fallback_token = ""
+                        self.app_token = False
+                        switched = True
+                if switched:
+                    return self.request(method, path, body)
             if error.code in RETRY_STATUSES:
                 raise _Transient(str(error.code)) from error
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error

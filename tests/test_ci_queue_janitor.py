@@ -2029,6 +2029,41 @@ class RateLimitTests(unittest.TestCase):
         with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), self.assertRaises(RuntimeError):
             github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
 
+    def test_requests_in_flight_when_the_app_token_is_refused_all_move_to_the_workflow_token(self):
+        # The job listings run on several threads: every request sent with the App token before one of them
+        # switched to the workflow token is made again with it, not failed for want of a fallback.
+        import threading
+        github = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="workflow")
+        both_sent = threading.Barrier(4, timeout=5)
+        sent = []
+
+        class Response(io.BytesIO):
+            headers = email.message.Message()
+
+        def urlopen(request, timeout=30):
+            token = request.get_header("Authorization")
+            sent.append(token)
+            if token == "Bearer app":
+                both_sent.wait()  # all four are in flight with the App token before any is refused
+                raise urllib.error.HTTPError(request.full_url, 401, "bad credentials", email.message.Message(), None)
+            return Response(b'{"jobs": []}')
+
+        runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in range(1, 5)]
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), mock.patch("builtins.print"), \
+                mock.patch.object(janitor.time, "sleep", lambda _: None):
+            jobs, unread, _ = janitor.read_run_jobs(github, runs, frozenset(), NOW, workers=4)
+        self.assertEqual(unread, set())
+        self.assertEqual(set(jobs), {run["id"] for run in runs})
+        self.assertEqual(sorted(sent), ["Bearer app"] * 4 + ["Bearer workflow"] * 4)
+        # A refusal of the workflow token itself is still an error, not a loop.
+        refused = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="workflow")
+
+        def always(request, timeout=30):
+            raise urllib.error.HTTPError(request.full_url, 401, "bad credentials", email.message.Message(), None)
+        with mock.patch.object(janitor.urllib.request, "urlopen", always), mock.patch("builtins.print"), \
+                self.assertRaises(RuntimeError):
+            refused.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs")
+
     def test_an_app_out_of_budget_stops_the_sweep_instead_of_spending_the_workflow_token(self):
         import email.message
         import urllib.error
