@@ -219,19 +219,38 @@ final class SSHService {
         // A retry gets a fresh error from the new attempt. Do not let the
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
-        switch session.linkStatus {
+        switch Self.reconnectStep(link: session.linkStatus, daemon: session.daemon.startup, daemonFailed: session.daemonFailure != nil) {
+        case .connect: session.connect()
+        case .reconnectDaemon: session.reconnectDaemon()
+        case .wake: session.wake(.user)
+        case .newAttempt:
+            session.beginConnectionAttempt()
+            session.wake(.user)
+        case .nothing: break
+        }
+    }
+
+    /// What Reconnect does for a link in status `link` whose daemon startup is `daemon`.
+    enum ReconnectStep: Equatable { case connect, reconnectDaemon, wake, newAttempt, nothing }
+
+    static func reconnectStep(link: SSHConnectionMachine.Status, daemon: DaemonStartupState, daemonFailed: Bool) -> ReconnectStep {
+        switch link {
         case .offline, .unreachable, .failed:
             // These failures leave the gate open for automatic backoff, so a user
             // Retry must start a fresh attempt rather than only waking the loop.
-            session.connect()
+            return .connect
         case .connected:
             // A healthy transport has no reconnect to perform. If only the daemon
             // handshake failed, retry that daemon attempt explicitly; otherwise a
             // plain Reconnect must not arm a timeout on a live connection.
-            if session.daemonFailure != nil { session.reconnectDaemon() }
+            return daemonFailed ? .reconnectDaemon : .nothing
+        case .reconnecting where daemon == .connected:
+            // A transient interruption under an established daemon connection: the link may
+            // recover with its socket and connection intact, and no didConnect would then cancel
+            // a new startup deadline. Only wake the link.
+            return .wake
         default:
-            session.beginConnectionAttempt()
-            session.wake(.user)
+            return .newAttempt
         }
     }
 
