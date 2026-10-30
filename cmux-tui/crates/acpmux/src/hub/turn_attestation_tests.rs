@@ -60,7 +60,7 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
         "os_version":"test","arch":"aarch64","cmux_version":"test"}),
         None,
         &Enrollment,
-        1_000,
+        cmux_server::host::now_ms(),
         |_| Ok(()),
     )
     .unwrap();
