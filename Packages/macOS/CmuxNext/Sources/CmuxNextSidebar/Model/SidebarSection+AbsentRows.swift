@@ -6,6 +6,16 @@
 nonisolated extension SidebarSection {
     public static func adding(absent rows: [SidebarWorkspace], header: (MachineID) -> SidebarMachine,
                        to sections: [SidebarSection]) -> [SidebarSection] {
-        sections // red stub
+        guard !rows.isEmpty else { return sections }
+        var sections = sections
+        let listed = Set(sections.flatMap(\.workspaces).map(\.id))
+        for row in rows where !listed.contains(row.id) {
+            if let index = sections.firstIndex(where: { $0.machine?.id == row.machineID }) {
+                sections[index].nodes.append(.workspace(row))
+            } else {
+                sections.append(SidebarSection(kind: .machine(header(row.machineID)), nodes: [.workspace(row)]))
+            }
+        }
+        return sections
     }
 }

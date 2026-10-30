@@ -460,7 +460,12 @@ extension WindowManager {
     /// Why window member `id` shows as a Cloud workspace that is not connected (P-AUSTIN B7), or nil:
     /// a machine lists it, it is gone, or it is not on a Cloud machine.
     func cloudAbsence(of id: String) -> CloudWorkspaceAbsence? {
-        nil // red stub
+        let machines = services.machines
+        guard machines.workspace(id: id) == nil, let machine = seenMachine[id], MachineRegistry.isCloudMachineID(machine),
+              !isDead(id) else { return nil }
+        let list = cloudList(services.cloud), session = machines.session(machine)
+        return CloudWorkspaceAbsence(cloudOn: !machines.isFeatureDisabled(.cloud), signedIn: list.isSignedIn, restoring: list.isRestoring,
+                                     machineListed: session != nil, machineLive: session?.machine.status.isLive ?? false)
     }
 
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
