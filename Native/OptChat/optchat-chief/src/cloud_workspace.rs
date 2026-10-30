@@ -384,42 +384,38 @@ impl CloudWorkspaces {
         // accepted remote create.
         let attempt = {
             let mut state = self.state.lock().expect("state");
-            match list["creating"].as_array() {
-                // The app lists its creates still on their way: one of the
-                // name decides.
-                Some(creates) => {
-                    if let Some(create) = creates.iter().find(|c| named(c, "name")) {
-                        if create["status"] == "failed" {
-                            // That create is over: a later one is a new action.
-                            let attempt = match state.creating.remove(&name) {
-                                Some(r) => r.attempt,
-                                None => *state.attempts.entry(base_key.clone()).or_default(),
-                            };
-                            state.advance(&base_key, attempt);
-                            let reason = create["reason"].as_str().unwrap_or("no reason given");
-                            return Err(format!(
-                                "cloud_workspace: the create of Cloud machine {name} failed ({reason}); it is in the sidebar, where the person can Retry or dismiss it. Tell them; do not make another."
-                            ));
-                        }
-                        if let Some(r) = state.creating.get_mut(&name) {
-                            r.answered = true;
-                        }
-                        return Ok(format!(
-                            "outcome: noop. Cloud machine {name} is still being made; its workspace opens in the sidebar when it is up. Never ask for a second one."
+            // The app lists its creates still on their way: one of the name
+            // decides. An app that does not: the names this host asked for.
+            if let Some(creates) = list["creating"].as_array() {
+                if let Some(create) = creates.iter().find(|c| named(c, "name")) {
+                    if create["status"] == "failed" {
+                        // That create is over: a later one is a new action.
+                        let attempt = match state.creating.remove(&name) {
+                            Some(r) => r.attempt,
+                            None => *state.attempts.entry(base_key.clone()).or_default(),
+                        };
+                        state.advance(&base_key, attempt);
+                        let reason = create["reason"].as_str().unwrap_or("no reason given");
+                        return Err(format!(
+                            "cloud_workspace: the create of Cloud machine {name} failed ({reason}); it is in the sidebar, where the person can Retry or dismiss it. Tell them; do not make another."
                         ));
                     }
-                    // Named nowhere: a create the app answered is over (it
-                    // failed and was dismissed). Only a create still running
-                    // or with no answer keeps its name, as the list can lag it.
-                    if let Some(r) = state.creating.get(&name).copied()
-                        && r.answered
-                    {
-                        state.release(&name, r.attempt);
-                        state.advance(&base_key, r.attempt);
+                    if let Some(r) = state.creating.get_mut(&name) {
+                        r.answered = true;
                     }
+                    return Ok(format!(
+                        "outcome: noop. Cloud machine {name} is still being made; its workspace opens in the sidebar when it is up. Never ask for a second one."
+                    ));
                 }
-                // An app that does not: the names this host asked for.
-                None => {}
+                // Named nowhere: a create the app answered is over (it
+                // failed and was dismissed). Only a create still running
+                // or with no answer keeps its name, as the list can lag it.
+                if let Some(r) = state.creating.get(&name).copied()
+                    && r.answered
+                {
+                    state.release(&name, r.attempt);
+                    state.advance(&base_key, r.attempt);
+                }
             }
             // Expire only after the list had its say: an answered create the
             // list no longer names moves its key on above, whatever its age.
