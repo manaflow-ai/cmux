@@ -22,8 +22,7 @@ struct DaemonRequestExecutor: Sendable {
     /// none is. The daemon does not know a stand-in: a command naming one is refused ("unknown pane"), and the person's
     /// create vanished (P0 2026-10-30, the second quick Cmd-D).
     static func standInReference<R: Encodable>(in request: R) -> String? {
-        guard let data = try? JSONEncoder().encode(request), let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
-        return standInReference(in: object, key: nil)
+        nil // RED PROOF (never merge): rule (b) taken out: the boundary check finds nothing
     }
 
     private static func standInReference(in value: Any, key: String?) -> String? {
