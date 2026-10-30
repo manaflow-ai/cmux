@@ -10,17 +10,12 @@ import CmuxNextSidebar
 /// session, else the owning daemon's order. Either survives a relaunch and
 /// shows in every window.
 ///
-/// The rule: `top` is the first slot of the window's current workspace's
-/// group when that one is in a group (Cmd-N in a group keeps the new one in
-/// it, at the group's top, Lawrence 2026-10-28); else the first slot of the workspace's machine section, which
-/// lists no pinned workspace (they show in the Pinned section above), above
-/// every group, and right below the home workspace's row when the list shows
-/// it. `afterCurrent` is right after the workspace the window showed
-/// when the new one was asked for, inside its group when it has one; `top`
-/// when that workspace is not in the section (pinned, Home, another machine,
-/// none). `bottom` is the last slot of the current workspace's group; outside a
-/// group it leaves the daemon's place, the end of the loose rows. So a new
-/// workspace opened from inside a group stays in it under every value (cx-caoh).
+/// The default `afterCurrent` rule is right after the workspace the window
+/// showed when the new one was asked for, inside its group when it has one;
+/// `top` is used when that workspace is not in the section (pinned, Home,
+/// another machine, none). `top` and `bottom` remain explicit compatibility
+/// choices. A new workspace opened from inside a group stays in it under every
+/// value (cx-caoh).
 struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     var placement: NewWorkspacePlacement
     /// The workspace the window showed when the new one was asked for.
@@ -53,8 +48,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 
     /// The move the app sends once the daemon reports new workspace `id`, or nil when the daemon's
     /// create already put it at ``slot(for:section:in:home:)``: the daemon places every new workspace
-    /// by `workspaces.newPlacement` in the commit that creates it (first below Home under `top`,
-    /// last under `bottom`), so a second write would be a second state change and a second render
+    /// by `workspaces.newPlacement` in the commit that creates it, so a second write would be a second state change and a second render
     /// for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon does
     /// not know is moved to: inside the current workspace's group, after the window's current one.
     func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {

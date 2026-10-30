@@ -53,6 +53,7 @@ final class SidebarIconView: NSView {
     func configure(icon: WorkspaceIcon?) {
         // A row's status tick configures the row again with the same icon: keep the image. A new
         // NSImage redraws (pack icons run their drawing handler) and relays out at the next display.
+        let oldIcon = self.icon
         let pointSize = SidebarStyle.titleFont.pointSize
         if let configured, configured.icon == icon, configured.pointSize == pointSize { return }
         configured = (icon, pointSize)
@@ -79,6 +80,48 @@ final class SidebarIconView: NSView {
         }
         needsDisplay = true
         needsLayout = true
+        if oldIcon == nil, icon != nil { animateEntrance() }
+    }
+
+    /// A workspace created by Cmd-N enters with its icon growing and fading in
+    /// alongside the row's shared `.move` spring. This is intentionally on the
+    /// icon well, so the row's frame and its text remain one layout pass.
+    private func animateEntrance() {
+        guard let layer else { return }
+        layer.removeAnimation(forKey: "workspace-icon-scale")
+        layer.removeAnimation(forKey: "workspace-icon-opacity")
+        guard Motion.sidebar.animates(.newWorkspace), Motion.sidebar.animatesMovement,
+              Motion.canAnimate(in: self) else {
+            Motion.withoutAnimation {
+                layer.transform = CATransform3DIdentity
+                layer.opacity = 1
+            }
+            return
+        }
+        Motion.withoutAnimation {
+            layer.transform = CATransform3DMakeScale(0.72, 0.72, 1)
+            layer.opacity = 0
+        }
+        _ = Motion.sidebar.set(layer, "transform.scale", to: 1.0, spring: .move, from: 0.72)
+        _ = Motion.sidebar.set(layer, "opacity", to: 1.0, spring: .move, from: 0.0)
+        if let scale = layer.animation(forKey: "transform.scale") {
+            layer.removeAnimation(forKey: "transform.scale")
+            layer.add(scale, forKey: "workspace-icon-scale")
+        }
+        if let opacity = layer.animation(forKey: "opacity") {
+            layer.removeAnimation(forKey: "opacity")
+            layer.add(opacity, forKey: "workspace-icon-opacity")
+        }
+    }
+
+    /// Clears a previous row's entrance state before this icon well is reused.
+    func resetMotion() {
+        layer?.removeAnimation(forKey: "workspace-icon-scale")
+        layer?.removeAnimation(forKey: "workspace-icon-opacity")
+        Motion.withoutAnimation {
+            layer?.transform = CATransform3DIdentity
+            layer?.opacity = 1
+        }
     }
 
     override func updateLayer() {

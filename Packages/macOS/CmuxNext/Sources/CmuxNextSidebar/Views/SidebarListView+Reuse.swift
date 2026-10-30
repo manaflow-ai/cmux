@@ -66,8 +66,10 @@ extension SidebarListViewComponents {
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.emptyGroup(id), view as EmptyGroupRowView):
-            // The same New Workspace in Group as the header's + (one action path).
-            view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
+            // The optional per-group "New workspace" offer stays off by
+            // default. The row remains a drop target, and the header/editor
+            // still provide the explicit group creation path.
+            view.onAdd = nil
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

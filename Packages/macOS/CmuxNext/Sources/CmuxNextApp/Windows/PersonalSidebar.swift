@@ -105,7 +105,8 @@ enum PersonalSidebar {
     }
 
     /// Whether `daemon`'s workspaces without a personal row yet are creates that list first: this Mac's
-    /// daemon writes a row in every create (`workspaces.newPlacement` `top`); another machine's does not.
+    /// daemon writes a row in every create; another machine's does not. The
+    /// default `afterCurrent` path keeps its pending row at the selected slot.
     private static func newRowsFirst(_ daemon: DaemonService, _ machines: MachineRegistry) -> Bool {
         daemon === machines.local && SidebarDocWiring.docSections.placesNewRowsFirst()
     }
@@ -127,7 +128,7 @@ enum PersonalSidebar {
 
     /// `workspaces` of `daemon` in personal order; unchanged without personal state. On the sidebar
     /// document the rows it does not place yet follow in this order (RapidWorkspaceCreateTests). On this
-    /// Mac's daemon under `top`, the ones without a personal row yet (creates whose row is on the way)
+    /// Mac's daemon under legacy `top`, the ones without a personal row yet
     /// come first below Home, in the given order, where their row will put them.
     static func personalOrder(_ workspaces: [WorkspaceModel], of daemon: DaemonService, machines: MachineRegistry) -> [WorkspaceModel] {
         let personal = machines.local.store.personal

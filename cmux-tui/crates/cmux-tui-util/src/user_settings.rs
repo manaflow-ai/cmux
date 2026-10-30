@@ -57,12 +57,13 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// and default as the app's `NewWorkspacePlacement`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NewWorkspacePlacement {
-    /// First, below the home workspace's row, above every group.
-    #[default]
-    Top,
     /// Right after the session's active workspace, in its group (`Top`
     /// when there is none, or it is the home workspace).
+    #[default]
     AfterCurrent,
+    /// First, below the home workspace's row, above every group. Kept for
+    /// compatibility with older config files that explicitly selected `top`.
+    Top,
     /// After every row.
     Bottom,
 }
@@ -96,6 +97,7 @@ impl NewWorkspacePlacement {
         match document.pointer("/workspaces/newPlacement").and_then(Value::as_str) {
             Some("afterCurrent") => Self::AfterCurrent,
             Some("bottom") => Self::Bottom,
+            Some("top") => Self::Top,
             _ => Self::default(),
         }
     }
@@ -293,8 +295,8 @@ mod tests {
 
     #[test]
     fn new_placement_reads_cmux_json_with_the_app_default() {
-        assert_eq!(Placement::from_config_text(""), Placement::Top);
-        assert_eq!(Placement::from_config_text("{}"), Placement::Top);
+        assert_eq!(Placement::from_config_text(""), Placement::AfterCurrent);
+        assert_eq!(Placement::from_config_text("{}"), Placement::AfterCurrent);
         assert_eq!(
             Placement::from_config_text(
                 "{\n  // order\n  \"workspaces\": {\"newPlacement\": \"bottom\",},\n}"
@@ -306,21 +308,25 @@ mod tests {
             Placement::AfterCurrent
         );
         assert_eq!(
-            Placement::from_config_text(r#"{"workspaces": {"newPlacement": "sideways"}}"#),
+            Placement::from_config_text(r#"{"workspaces": {"newPlacement": "top"}}"#),
             Placement::Top
         );
-        assert_eq!(Placement::from_config_text("{not json"), Placement::Top);
+        assert_eq!(
+            Placement::from_config_text(r#"{"workspaces": {"newPlacement": "sideways"}}"#),
+            Placement::AfterCurrent
+        );
+        assert_eq!(Placement::from_config_text("{not json"), Placement::AfterCurrent);
     }
 
     #[test]
     fn a_scoped_placement_wins_and_nests() {
-        assert_eq!(Placement::current(), Placement::Top);
+        assert_eq!(Placement::current(), Placement::AfterCurrent);
         let outer = Placement::Bottom.set_for_test();
         Placement::AfterCurrent
             .scoped(|| assert_eq!(Placement::current(), Placement::AfterCurrent));
         assert_eq!(Placement::current(), Placement::Bottom);
         drop(outer);
-        assert_eq!(Placement::current(), Placement::Top);
+        assert_eq!(Placement::current(), Placement::AfterCurrent);
     }
 
     #[test]
@@ -333,10 +339,10 @@ mod tests {
             .unwrap();
         assert_eq!(Placement::from_config_file(&path), Placement::AfterCurrent);
         std::fs::remove_file(&path).unwrap();
-        assert_eq!(Placement::from_config_file(&path), Placement::Top);
+        assert_eq!(Placement::from_config_file(&path), Placement::AfterCurrent);
         assert_eq!(
             Placement::from_config_file(&std::env::temp_dir()),
-            Placement::Top,
+            Placement::AfterCurrent,
             "a directory is not read"
         );
     }

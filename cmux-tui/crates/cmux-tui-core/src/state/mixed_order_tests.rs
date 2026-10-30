@@ -111,7 +111,7 @@ fn a_new_workspace_gets_a_personal_row_at_create() {
             .and_then(|row| row["index"].as_u64())
             .unwrap()
     };
-    assert_eq!(index(&b) + 1, index(&a), "a new row goes first (workspaces.newPlacement top)");
+    assert_eq!(index(&a) + 1, index(&b), "a new row follows the current row (workspaces.newPlacement afterCurrent)");
     // The row survives a restart (it is in the store, not synthesized).
     drop(mux);
     let mux = session.open();
@@ -147,14 +147,13 @@ fn a_group_slot_before_home_is_refused() {
     mux.shutdown();
 }
 
-/// `workspaces.newPlacement` defaults to `top` for every client: a workspace
-/// made by a plain `workspace.create` (what the TUI, the CLI, iOS and agents
-/// send; no app places it afterwards) gets the first row below Home in the
-/// commit that creates it, before a group placed right below Home, and keeps
-/// it across a restart.
+/// `workspaces.newPlacement` defaults to `afterCurrent` for every client: a
+/// workspace made by a plain `workspace.create` (what the TUI, the CLI, iOS
+/// and agents send; no app places it afterwards) follows the active row in the
+/// commit that creates it and keeps that order across a restart.
 #[test]
-fn a_new_workspace_from_any_client_lands_at_the_top_by_default() {
-    let session = Session::new("new-top");
+fn a_new_workspace_from_any_client_lands_next_to_current_by_default() {
+    let session = Session::new("new-after-current");
     let mux = session.open();
     let home = send(&mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
         ["workspace_id"]
@@ -180,7 +179,7 @@ fn a_new_workspace_from_any_client_lands_at_the_top_by_default() {
     );
     let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
     let expected = [home.as_str(), c.as_str(), b.as_str(), a.as_str()];
-    assert_eq!(listed(&mux, Some("personal"), &ids), expected, "new workspaces not on top");
+    assert_eq!(listed(&mux, Some("personal"), &ids), expected, "new workspaces not next to current");
     let placements = read(&mux, "workspace.placement.list", json!({}));
     let index = |id: &str| {
         placements
@@ -254,7 +253,7 @@ fn a_new_workspace_follows_the_after_current_and_bottom_settings() {
 fn a_place_across_a_group_publishes_the_group_change() {
     let session = Session::new("mixed-events");
     let mux = session.open();
-    // New rows go last, so the order is a, b, c (the default puts them on top).
+    // New rows go last, so the order is a, b, c under the explicit bottom setting.
     let _bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
     let a = empty_workspace(&mux, "a");
     let b = empty_workspace(&mux, "b");
