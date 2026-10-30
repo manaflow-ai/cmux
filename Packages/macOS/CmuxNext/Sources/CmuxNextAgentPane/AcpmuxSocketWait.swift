@@ -23,9 +23,12 @@ nonisolated final class AcpmuxSocketWait: Sendable {
     @concurrent static func ready(_ descriptor: Int32, forWrite: Bool) async throws {
         let wait = AcpmuxSocketWait()
         let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-socket-wait", qos: .userInitiated)
-        let source: any DispatchSourceProtocol = forWrite
-            ? DispatchSource.makeWriteSource(fileDescriptor: descriptor, queue: queue)
-            : DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+        let source: any DispatchSourceProtocol
+        if forWrite {
+            source = DispatchSource.makeWriteSource(fileDescriptor: descriptor, queue: queue)
+        } else {
+            source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+        }
         source.setEventHandler { wait.finish(.success(())) }
         source.resume()
         let result: Result<Void, any Error>
