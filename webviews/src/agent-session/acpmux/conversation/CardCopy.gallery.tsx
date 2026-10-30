@@ -48,19 +48,19 @@ function Stage({ look, card }: Props) {
   return (
     <TranscriptDisclosureProvider sessionId={DISCLOSURE}>
       <CardCopyWriterContext.Provider value={writeCopy}>
-      <CardCopyLookContext.Provider value={look}>
-        <div className="acpmux-shell" style={{ padding: 16, maxWidth: 640 }}>
-          {card === "prompt" ? (
-            <SubsessionCallCard call={subsessionCall(START)} tool={START} />
-          ) : (
-            <IncomingMessageLine
-              id={`card-copy-${look}`}
-              message={{ name: "grid-lane", text: MESSAGE, raw: MESSAGE }}
-              onOpen={() => {}}
-            />
-          )}
-        </div>
-      </CardCopyLookContext.Provider>
+        <CardCopyLookContext.Provider value={look}>
+          <div className="acpmux-shell" style={{ padding: 16, maxWidth: 640 }}>
+            {card === "prompt" ? (
+              <SubsessionCallCard call={subsessionCall(START)} tool={START} />
+            ) : (
+              <IncomingMessageLine
+                id={`card-copy-${look}`}
+                message={{ name: "grid-lane", text: MESSAGE, raw: MESSAGE }}
+                onOpen={() => {}}
+              />
+            )}
+          </div>
+        </CardCopyLookContext.Provider>
       </CardCopyWriterContext.Provider>
     </TranscriptDisclosureProvider>
   );
