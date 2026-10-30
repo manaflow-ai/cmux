@@ -72,3 +72,57 @@ test("when the first load fails the other tile asks the host itself", async () =
   await act(async () => releases[1]!());
   expect(dom.host().querySelectorAll("img").length).toBe(1);
 });
+
+test("three tiles of one image all show it after a failed load and a retry", async () => {
+  const src = "https://example.com/shared-three.png";
+  const { ReplyImage, releases, calls } = await setup((call) => (call === 0 ? undefined : { src: data }));
+  await dom.render(
+    <>
+      <ReplyImage src={src} alt="a" fallback={null} />
+      <ReplyImage src={src} alt="b" fallback={null} />
+      <ReplyImage src={src} alt="c" fallback={null} />
+    </>,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(calls()).toBe(1);
+  await act(async () => releases[0]!());
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(calls()).toBe(2);
+  await act(async () => releases[1]!());
+  expect(dom.host().querySelectorAll("img").length).toBe(3);
+  expect(calls()).toBe(2);
+});
+
+test("two files with identical bytes keep their own entries in the image viewer", async () => {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { ReplyImage } = await import("../src/agent-session/acpmux/chips/ReplyImage");
+  const { viewerImages } = await import("../src/agent-session/acpmux/summary/chatGallery");
+  const { activity, tool } = await import("../src/gallery/fixtures/acpmux");
+  const a = "/project/a.png";
+  const b = "/project/b.png";
+  seedLinkStore({
+    paths: { [a]: { place: "root", folder: false }, [b]: { place: "root", folder: false } },
+    policy: { remoteImages: "always" },
+  });
+  setChipHost(async () => ({ src: data }));
+  await dom.render(
+    <>
+      <ReplyImage src={a} alt="" fallback={null} />
+      <ReplyImage src={b} alt="" fallback={null} />
+    </>,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(dom.host().querySelectorAll("img").length).toBe(2);
+  const rows = [activity([tool("Files", "read", "completed", { locations: [{ path: a }, { path: b }] })], 1)];
+  const opened = viewerImages(rows, data, "", b);
+  expect(opened.images.map((image) => image.path)).toEqual([a, b]);
+  expect(opened.index).toBe(1);
+  expect(viewerImages(rows, data, "", a).index).toBe(0);
+});

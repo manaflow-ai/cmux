@@ -66,9 +66,9 @@ const clicked = new Map<string, string>();
 /// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
 const waiting = new Map<string, Set<() => void>>();
 const loadEnded = (src: string) => {
-  const woken = waiting.get(src);
-  waiting.delete(src);
-  woken?.forEach((wake) => wake());
+  // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
+  // another instance already retrying, and must hear that retry end too.
+  for (const wake of [...(waiting.get(src) ?? [])]) wake();
 };
 
 /// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
@@ -114,7 +114,10 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
     if (known) return wake();
     const set = waiting.get(src) ?? new Set<() => void>();
     waiting.set(src, set.add(wake));
-    return () => void set.delete(wake);
+    return () => {
+      set.delete(wake);
+      if (!set.size && waiting.get(src) === set) waiting.delete(src);
+    };
   }, [waits, src]);
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);

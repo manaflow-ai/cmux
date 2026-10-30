@@ -94,14 +94,19 @@ export function viewerImages(
   alt: string,
   path?: string,
 ): { images: ChatImage[]; index: number } {
+  const gallery = chatGallery(rows);
+  // The file the viewer was opened from, when the gallery holds it: it decides which entry opens, so two
+  // files that loaded identical bytes stay two entries, each with its own path.
+  const byPath = path !== undefined && gallery.some((item) => item.kind === "tool" && item.source === path);
   const images: (ChatImage & { open: boolean })[] = [];
-  for (const item of chatGallery(rows)) {
-    if (item.kind === "image") images.push({ src: item.src, alt: item.alt, open: item.src === src });
+  for (const item of gallery) {
+    if (item.kind === "image") images.push({ src: item.src, alt: item.alt, open: !byPath && item.src === src });
     else if (item.kind === "tool") {
-      if (item.source.startsWith("data:")) images.push({ src: item.source, alt: "", open: item.source === src });
+      if (item.source.startsWith("data:"))
+        images.push({ src: item.source, alt: "", open: !byPath && item.source === src });
       else if (!mediaKind(item.source)) {
         const loaded = loadedImageSrc(item.source);
-        const open = item.source === path || (loaded !== undefined && loaded === src);
+        const open = byPath ? item.source === path : loaded !== undefined && loaded === src;
         if (loaded || open) images.push({ src: loaded ?? src, alt: "", path: item.source, open });
       }
     }
