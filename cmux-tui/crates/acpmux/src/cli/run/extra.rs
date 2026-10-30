@@ -10,6 +10,27 @@ fn peer_add_params(name: &str, url: &str, token: Option<&str>) -> Value {
     params
 }
 
+/// Whether `session resume` moves the chat `info` (`MUX_INFO`) before resuming it: this machine is
+/// one a person works at (`placement::interactive`) and the chat is stopped here (no agent runs:
+/// `closed`, `idle` or `disconnected`, no turn), so resuming it would start its agent here. It
+/// goes where `session move --host auto` puts it (`session_move::move_off_interactive`). A chat
+/// on a peer, one with a live agent, one moving or moved away resumes where it is.
+pub(super) fn resume_moves_off(info: &Value, interactive: bool) -> bool {
+    interactive
+        && info.get("peer").is_none_or(Value::is_null)
+        && info.get("turn").is_none_or(Value::is_null)
+        && info.get("movedTo").is_none_or(Value::is_null)
+        && info["moving"] != true
+        && matches!(info["status"].as_str(), Some("closed" | "idle" | "disconnected"))
+}
+
+/// What `session resume` prints when it moved the chat first.
+fn moved_line(host: &str) -> String {
+    format!(
+        "moved to {host} (as `session move --host auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
+    )
+}
+
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
         Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
@@ -111,8 +132,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
-            let id = crate::cli::resolve::control_id(&client, &session).await?;
-            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let mut id = crate::cli::resolve::control_id(&client, &session).await?;
+            let mut info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let mut moved_to = None;
+            if resume_moves_off(&info, crate::cli::place::here_is_interactive()) {
+                match super::session_move::move_off_interactive(&client, &id).await {
+                    Ok(moved) => {
+                        eprintln!("{}", moved_line(&moved.host));
+                        id = moved.routed;
+                        info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                        moved_to = Some(moved.host);
+                    }
+                    Err(e) => eprintln!("resuming on this machine: it did not move ({e:#})"),
+                }
+            }
             // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
             let held = info["queue"]
                 .as_array()
@@ -134,7 +167,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 None => false,
             };
             if json_out {
-                print_json(&json!({"sessionId": id, "resumed": resumed}));
+                print_json(&json!({"sessionId": id, "resumed": resumed, "movedTo": moved_to}));
             } else if resumed {
                 println!("resumed");
             } else {
@@ -1037,7 +1070,29 @@ fn config_text_without_tokens(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::peer_add_params;
+    use super::{peer_add_params, resume_moves_off};
+    use serde_json::json;
+
+    #[test]
+    fn resume_moves_a_stopped_chat_off_a_machine_a_person_works_at_and_nothing_else() {
+        for status in ["closed", "idle", "disconnected"] {
+            let info = json!({"status": status, "peer": null, "turn": null, "movedTo": null});
+            assert!(resume_moves_off(&info, true), "{status}");
+            assert!(!resume_moves_off(&info, false), "{status}: a fleet host resumes in place");
+        }
+        // A live agent, a turn, a peer's chat, one moving or moved away: resumed where it is.
+        for info in [
+            json!({"status": "ready"}),
+            json!({"status": "running"}),
+            json!({"status": "waiting"}),
+            json!({"status": "idle", "turn": {"turnId": "t"}}),
+            json!({"status": "closed", "peer": "gcp-1"}),
+            json!({"status": "closed", "moving": true}),
+            json!({"status": "closed", "movedTo": {"host": "gcp-1", "sessionId": "m"}}),
+        ] {
+            assert!(!resume_moves_off(&info, true), "{info}");
+        }
+    }
 
     #[test]
     fn host_add_saves_without_waiting_for_the_first_probe() {

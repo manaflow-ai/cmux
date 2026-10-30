@@ -818,7 +818,9 @@ pub enum SessionCmd {
     /// Rename a session.
     Rename { session: String, new_name: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
-    /// queue; only answering a permission or a question needs the cmux app.
+    /// queue; only answering a permission or a question needs the cmux app. On a machine a
+    /// person works at, a stopped chat first moves to a fleet host, as `session move --host
+    /// auto` does; when none takes it, it resumes here and says why.
     Resume {
         session: String,
         #[command(flatten)]
