@@ -10,9 +10,9 @@ import Testing
 /// with `agent_session.host_unverified`.
 @MainActor
 struct CloudAppLinkOwnerAnswerTests {
-    private static let key = CloudLinkKey(machine: "vm_aaaaaaaaaaaaaaaaaaaa")
+    private nonisolated static let key = CloudLinkKey(machine: "vm_aaaaaaaaaaaaaaaaaaaa")
 
-    private static func answer(_ vmKind: String?) -> Data {
+    private nonisolated static func answer(_ vmKind: String?) -> Data {
         var object: [String: Any] = ["machine": key.machine, "state": "up", "generation": 3, "socket": "/tmp/cmux-link.sock"]
         if let vmKind { object["vm_kind"] = vmKind }
         return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()

@@ -25,12 +25,17 @@
 //!   `expiresAt` (at most [`MAX_LIFETIME`] ahead), and only as a one-time allow
 //!   (`allow_once`) of a tool's ask or an agent's question ([`may_allow`]): never
 //!   a lasting allow, a plan, a mode switch or a folder-trust card, so it never
-//!   changes a mode, a policy or a rule. A deny needs no signature, from anyone.
+//!   changes a mode, a policy or a rule (a policy raise is its own signature, below). A deny needs no signature, from anyone.
 //! - `acpmux host approvals rm ID` removes a Mac and then has the daemon reload
 //!   (`_acpmux/mac_approvers {reload: true}`), which takes the set's lock: it
 //!   returns only after an answer being committed, and from then on none of
 //!   that Mac's signatures counts. Every check also re-reads the file when it
 //!   changed, so a hand edit counts too.
+//! - A policy raise of one chat (`person/policy_grant.rs`): the same key may sign
+//!   `_meta.acpmux.approverPolicy = {approver, signature}` over [`policy_message`], its own
+//!   domain, then the daemon run, the Mac's id, the session, the policy and a challenge nonce
+//!   this daemon issued. It counts once, for that one chat's `_acpmux/set_policy`, never a
+//!   default, a rule or a mode; a decision signature never counts as one, nor one as a decision.
 //! - The app on this machine gives its own public key with
 //!   `_acpmux/mac_approver_set {id, publicKey, name}` (the person only, memory
 //!   only), so `acpmux host enroll` here knows which key to enroll on a peer.
@@ -43,6 +48,8 @@ use std::path::{Path, PathBuf};
 pub const FILE: &str = "mac-approvers.json";
 /// The domain of an enrolled Mac's decision signature.
 const DOMAIN: &str = "acpmux-mac-approver-decision-v1";
+/// The domain of an enrolled Mac's signature over a policy raise (`person/policy_grant.rs`).
+const POLICY_DOMAIN: &str = "acpmux-mac-approver-policy-v1";
 /// The file is a few kilobytes at most; one past this is refused (read as no Macs).
 const MAX_BYTES: u64 = 256 * 1024;
 
@@ -162,6 +169,56 @@ impl MacApprovers {
         refresh(&mut inner);
         proofs.iter().all(|p| verify(&inner, instance, session, p, now)) && commit()
     }
+}
+
+impl MacApprovers {
+    /// Whether `signed` (`{approver, signature}`) is an enrolled Mac's signature over the raise
+    /// of `session` to `policy` for the challenge `nonce` of daemon run `instance`
+    /// ([`policy_message`]); then `commit` (the challenge spent), under the set's lock as
+    /// [`Self::verifies_then`], so a reload that drops the Mac lands before or after it.
+    pub fn policy_verifies_then(
+        &self,
+        instance: &str,
+        session: &str,
+        policy: &str,
+        nonce: &str,
+        signed: &Value,
+        commit: impl FnOnce() -> bool,
+    ) -> bool {
+        let field = |f: &str| signed.get(f).and_then(Value::as_str);
+        let (Some(id), Some(signature)) = (field("approver"), field("signature")) else {
+            return false;
+        };
+        let Some(signature) = super::approvers::unhex(signature).filter(|s| s.len() == 64) else {
+            return false;
+        };
+        let mut inner = self.lock();
+        refresh(&mut inner);
+        let Some(key) = inner.macs.iter().find(|m| m.id == id).map(|m| &m.public_key) else {
+            return false;
+        };
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, key)
+            .verify(&policy_message(instance, id, session, policy, nonce), &signature)
+            .is_ok()
+            && commit()
+    }
+}
+
+/// The bytes an enrolled Mac signs for a policy raise: [`POLICY_DOMAIN`], then the daemon run,
+/// the Mac's id, the session, the policy and the challenge nonce, each after one NUL.
+pub fn policy_message(
+    instance: &str,
+    mac: &str,
+    session: &str,
+    policy: &str,
+    nonce: &str,
+) -> Vec<u8> {
+    let mut out = POLICY_DOMAIN.as_bytes().to_vec();
+    for part in [instance, mac, session, policy, nonce] {
+        out.push(0);
+        out.extend_from_slice(part.as_bytes());
+    }
+    out
 }
 
 /// One answer an enrolled Mac signed: the prompt, its request, the option, the prompt's nonce,

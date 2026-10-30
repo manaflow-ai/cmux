@@ -46,7 +46,7 @@ fn rows(expected: &[(&str, Value)]) -> Vec<(String, Value)> {
 
 #[tokio::test]
 async fn a_class_is_stored_on_the_queued_prompt_and_shown_in_its_row() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-block", "lane-a", Some("block"))).await;
     queue(&mut c, from_agent(&id, "p-plain", "lane-b", None)).await;
@@ -89,7 +89,7 @@ async fn a_class_is_stored_on_the_queued_prompt_and_shown_in_its_row() {
 
 #[tokio::test]
 async fn a_class_that_is_not_one_of_the_four_is_refused() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     for bad in [json!("urgent"), json!("Block"), json!(3)] {
@@ -119,6 +119,8 @@ fn durable_hub(dir: &std::path::Path) -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Local;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, dir).unwrap())
 }
 
