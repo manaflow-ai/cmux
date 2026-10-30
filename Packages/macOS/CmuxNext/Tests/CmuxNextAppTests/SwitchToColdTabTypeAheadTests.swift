@@ -112,8 +112,14 @@ struct SwitchToColdTabTypeAheadTests {
             lines.append("newTabHolding \(router.newTabInputCoordinator.isHolding(in: window)) modes \(router.modes.active)")
             lines.append("firstResponder \(String(describing: window.firstResponder)) focus \(controller.focus.state.resolved) tab \(String(describing: pane.currentTabKey)) ids \(pane.orderedIDs.map(\.rawValue))")
             lines.append("lastInterception \(String(describing: router.lastInterception))")
-            for entry in InputJournal.shared.entries() where entry.seq > seq { lines.append("J \(entry.seq) \(entry.kind)") }
             Issue.record("DIAG \(lines.joined(separator: " | "))")
+            for entry in InputJournal.shared.entries() where entry.seq > seq {
+                switch entry.kind {
+                case .attach(let a): Issue.record("DIAGJ \(entry.seq) attach \(a.surface) \(a.event) \(a.phase) bytes \(a.bytes) dropped \(a.droppedBytes)")
+                case .focus: continue
+                default: Issue.record("DIAGJ \(entry.seq) \(String(describing: entry.kind).prefix(240))")
+                }
+            }
         }
         let shown = try #require(Self.inputBytes(after: seq).keys.first, "the shown terminal got no input")
 
