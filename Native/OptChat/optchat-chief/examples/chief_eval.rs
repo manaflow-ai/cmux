@@ -263,6 +263,9 @@ struct Opts {
     /// The reply ledger as the brain had it before 2026-10-26 (`--ledger
     /// pre`): a tapback answers nothing and stop is never refused.
     ledger_pre: bool,
+    /// The reply length gate's limit (`--max-words`, 0: off), as the host's
+    /// send tool applies it (chief_kernel::replies).
+    max_words: usize,
 }
 
 #[derive(Default, Clone, serde::Serialize)]
@@ -358,6 +361,9 @@ struct CaseRun<'a> {
     /// The running turn's tail, and whether stop or sleep ended it.
     tail: Mutex<String>,
     ended: Mutex<bool>,
+    /// This turn's send was refused for length once (the gate's second send
+    /// posts).
+    length_refused: Mutex<bool>,
     /// The running turn's person message waits for an answer (the reply
     /// ledger, brain/reply_ledger.rs): its line id and preview.
     open: Mutex<Option<(u64, String)>>,
@@ -505,7 +511,16 @@ impl CaseRun<'_> {
                 (out.join("\n"), false)
             }
             "send" | "reply" => {
-                posted.push(input["text"].as_str().unwrap_or("").to_owned());
+                let text = input["text"].as_str().unwrap_or("");
+                let mut refused = self.length_refused.lock().unwrap();
+                if let Some(refusal) =
+                    chief_kernel::replies::length_check(text, self.opts.max_words, *refused)
+                {
+                    *refused = true;
+                    return (refusal, true);
+                }
+                drop(refused);
+                posted.push(text.to_owned());
                 *self.open.lock().unwrap() = None;
                 match n("reply_to").or(n("id")) {
                     Some(id) => (
@@ -588,6 +603,7 @@ impl CaseRun<'_> {
         let calls_before = read_calls(&self.dir).len();
         *self.tail.lock().unwrap() = turn.tail.clone().unwrap_or_default();
         *self.ended.lock().unwrap() = false;
+        *self.length_refused.lock().unwrap() = false;
         let wake = Instant::now();
         // As the brain does: log the new messages, then take the turn input.
         let first_new = self
@@ -1062,6 +1078,7 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
         frozen: Mutex::new(None),
         tail: Mutex::new(String::new()),
         ended: Mutex::new(false),
+        length_refused: Mutex::new(false),
         open: Mutex::new(None),
         transcript: Mutex::new(
             case.history
@@ -1170,6 +1187,9 @@ fn main() {
         key: config.api_key.clone(),
         evals_dir: here.clone(),
         ledger_pre: flag("--ledger").as_deref() == Some("pre"),
+        max_words: flag("--max-words")
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0),
     };
     let mut cases: Vec<Case> = Vec::new();
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&cases_dir)
