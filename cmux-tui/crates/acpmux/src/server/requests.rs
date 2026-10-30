@@ -10,6 +10,7 @@ mod events;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 mod presets;
+mod session_open;
 #[path = "watches.rs"]
 mod watches;
 
@@ -748,7 +749,7 @@ async fn dispatch_request(
                 "agentCapabilities": {
                     "loadSession": true,
                     "promptCapabilities": {"image": true, "audio": false, "embeddedContext": true},
-                    "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
+                    "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
@@ -1149,40 +1150,8 @@ async fn dispatch_request(
                 "_meta": {"acpmux": summary},
             }))
         }
-        method::SESSION_LOAD | method::SESSION_RESUME => {
-            let s = resolved_session(hub, resolved.as_ref(), &params)?;
-            attach(hub, conn, &s.id);
-            // Replay history as ACP updates, then answer.
-            // One record at a time, the first 100,000 as before: the log is never held whole.
-            let mut left = 100_000usize;
-            hub.scan_events(&s.id, 0, &mut |rec| {
-                left -= 1;
-                if rec.dir == "mux" && rec.kind == "user_message" {
-                    let text = rec.msg.get("text").and_then(Value::as_str).unwrap_or("");
-                    conn.send(&Message::notification(
-                        method::SESSION_UPDATE,
-                        json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
-                    ));
-                } else if rec.dir == "in"
-                    && !rec.kind.ends_with(".replay")
-                    && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-                {
-                    let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                    p.set("sessionId", Value::String(s.id.clone()));
-                    crate::hub::merge_mux_meta(
-                        &mut p,
-                        json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind, "replay": true}),
-                    );
-                    conn.send(&Message::notification(method::SESSION_UPDATE, p));
-                }
-                left > 0
-            })
-            .map_err(|e| RpcError::internal(e.to_string()))?;
-            let meta = s.meta();
-            Ok(
-                json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}),
-            )
-        }
+        method::SESSION_LOAD => session_open::load(hub, conn, resolved.as_ref(), &params),
+        method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
