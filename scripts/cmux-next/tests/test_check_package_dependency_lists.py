@@ -5,6 +5,7 @@ pull requests were CONFLICTING again within twenty minutes of a rebase on that l
 
 import importlib.util
 import json
+import re
 import os
 import subprocess
 import sys
@@ -326,6 +327,10 @@ class FixImportsTests(unittest.TestCase):
         text = lint.DEFAULT_MANIFEST.read_text(encoding="utf-8")
         targets = lint.manifest_targets(text)
         self.assertGreater(len(targets), 100)
+        # Review of 6e507c72: one-line declarations count too (the reader saw only `.target(` alone on its line).
+        self.assertIn("CmuxNextMallocZone", targets)
+        self.assertIn("CmuxNextRemoteLayer", targets)
+        self.assertEqual(len(targets), len(re.findall(r"(?m)^\s*\.(?:target|testTarget|executableTarget)\(", text)))
         for name, (_, declared, _) in targets.items():
             self.assertFalse({d for d in declared if "/" in d or "." in d}, name)
 
@@ -384,6 +389,47 @@ class FixImportsTests(unittest.TestCase):
             self.assertIn("sorted the dependency lists in", fixed.stderr)
             self.assertEqual((root / "Package.swift").read_text(encoding="utf-8"),
                              manifest('"CmuxNextFeed",', '"CmuxNextTabs",'))
+
+    ONE_LINE = (
+        "let package = Package(\n"
+        "    targets: [\n"
+        '        .target(name: "CmuxNextCompat"),\n'
+        "        // QuartzCore's CALayerHost.\n"
+        '        .target(name: "CmuxNextRemoteLayer", linkerSettings: [.linkedFramework("QuartzCore")]),\n'
+        '        .testTarget(name: "CmuxNextRemoteLayerTests", dependencies: [.target(name: "CmuxNextRemoteLayer")]),\n'
+        "    ]\n"
+        ")\n")
+
+    def test_a_one_line_target_s_undeclared_import_is_found_and_declared(self):
+        # Review of 6e507c72: a target declared on one line was never read, so its sources were never scanned and a
+        # push could add an undeclared import to it. A nested `.target(name:)` dependency is not a target.
+        targets = lint.manifest_targets(self.ONE_LINE)
+        self.assertEqual(sorted(targets), ["CmuxNextCompat", "CmuxNextRemoteLayer", "CmuxNextRemoteLayerTests"])
+        self.assertEqual(targets["CmuxNextRemoteLayerTests"][0], "testTarget")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Package.swift").write_text(self.ONE_LINE, encoding="utf-8")
+            for folder, text in (("Sources/CmuxNextCompat/A.swift", "import Foundation\n"),
+                                 ("Sources/CmuxNextRemoteLayer/Host.swift", "import CmuxNextCompat\n"),
+                                 ("Tests/CmuxNextRemoteLayerTests/T.swift", "import CmuxNextCompat\n")):
+                (root / folder).parent.mkdir(parents=True, exist_ok=True)
+                (root / folder).write_text(text, encoding="utf-8")
+
+            red = self.run_script(root, "--json")
+
+            self.assertEqual(red.returncode, 1, red.stderr)
+            self.assertEqual(json.loads(red.stdout)["missing"],
+                             [{"target": "CmuxNextRemoteLayer", "module": "CmuxNextCompat"},
+                              {"target": "CmuxNextRemoteLayerTests", "module": "CmuxNextCompat"}])
+
+            fixed = self.run_script(root, "--fix-imports", "--json")
+
+            self.assertEqual(json.loads(fixed.stdout)["missing"], [], fixed.stderr)
+            text = (root / "Package.swift").read_text(encoding="utf-8")
+            declared = lint.manifest_targets(text)
+            self.assertEqual(declared["CmuxNextRemoteLayer"][1], {"CmuxNextCompat"})
+            self.assertEqual(declared["CmuxNextRemoteLayerTests"][1], {"CmuxNextRemoteLayer", "CmuxNextCompat"})
+            self.assertIn('linkerSettings: [.linkedFramework("QuartzCore")]', text)
 
 if __name__ == "__main__":
     unittest.main()
