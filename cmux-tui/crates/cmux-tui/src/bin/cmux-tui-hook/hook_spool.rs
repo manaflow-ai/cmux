@@ -16,8 +16,9 @@
 //!   deleted sees, once it holds the lock, that the path names another file
 //!   or none, and opens the path again (`names_this_file`).
 //! - A queue nobody sends (its sender died, its daemon stopped or crashed, or
-//!   its agent ran no hook since) is sent by the next hook child of any agent
-//!   of the same session ([`orphans`]); other sessions' queues are theirs.
+//!   its agent ran no hook since) is sent by the session's next owner when it
+//!   attaches (`resume`), and by the next hook child of any agent of the
+//!   session ([`session_queues`]); other sessions' queues are theirs.
 //! - The one definitive end is `cmux session NAME reset-state`
 //!   (`cmux_tui_core::diagnostics::drop_session_hook_queues`).
 //!

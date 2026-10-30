@@ -72,8 +72,15 @@ fn server_stats_include_reports_the_hook_queue() {
     let none = stats(&mux, client, json!({"cmd":"server-stats","include":["hook_queue"]}));
     assert_eq!(none["hook_queue"], json!({"queued_events":0,"reset_dropped_events":0}), "{none}");
     let spool = crate::diagnostics::hook_spool_dir(&socket).unwrap();
-    std::fs::write(spool.join("session_sock.terminal_a.jsonl"), "{}\n{}\n").unwrap();
-    std::fs::write(spool.join("other_sock.terminal_b.jsonl"), "{}\n").unwrap();
+    let queue = |socket: &str, terminal: &str| {
+        spool.join(format!(
+            "{}.{}.jsonl",
+            crate::diagnostics::queue_prefix(&root.join(socket)),
+            crate::diagnostics::spool_name_part(terminal)
+        ))
+    };
+    std::fs::write(queue("session.sock", "terminal_a"), "{}\n{}\n").unwrap();
+    std::fs::write(queue("other.sock", "terminal_b"), "{}\n").unwrap();
     std::fs::write(spool.join(crate::diagnostics::HOOK_SPOOL_DROPPED_EVENTS), "7\n").unwrap();
 
     let plain = stats(&mux, client, json!({"cmd":"server-stats"}));

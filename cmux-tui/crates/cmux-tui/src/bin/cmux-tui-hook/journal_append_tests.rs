@@ -694,3 +694,25 @@ fn a_hook_that_queues_while_the_queue_is_deleted_still_gets_sent() {
     assert!(admitted.contains(&late_id), "the late hook's event got no sender: {admitted:?}");
     assert_eq!(queue_files(&socket), Vec::<String>::new());
 }
+
+/// The session's next owner sends what a stop or crash left queued as soon
+/// as it serves the socket (R2), not at some agent's next hook; a session
+/// whose hooks never queued gets no queue directory.
+#[test]
+fn the_next_owner_sends_the_queues_a_stop_left() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("s.sock");
+    let (left_id, left) = hook_request_in("terminal_left");
+    leave_queue(&socket, "s.sock", "terminal_left", &[left]);
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+
+    send_session_queues(&socket);
+    let (_, admitted) = daemon.stop();
+
+    assert_eq!(admitted, vec![left_id], "the next owner did not get the queued event");
+    assert_eq!(queue_files(&socket), Vec::<String>::new());
+    let fresh = tempfile::tempdir().unwrap();
+    send_session_queues(&fresh.path().join("new.sock"));
+    assert!(!spool_dir(&fresh.path().join("new.sock")).exists(), "a queue directory was made");
+}

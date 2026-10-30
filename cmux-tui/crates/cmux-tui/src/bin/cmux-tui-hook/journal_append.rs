@@ -19,9 +19,12 @@
 //! - No timer decides delivery (rule R-L5): the sender stops when its queue
 //!   is empty, or when no daemon listens (the socket is missing or refuses
 //!   the connection: the owner stopped, restarts or crashed). Then the lines
-//!   stay queued, and the next hook child of any agent of the session sends
-//!   them to the next owner (again, with their idempotency keys; a daemon
-//!   answers a repeat from its receipt). Only `reset-state` ends a session's
+//!   stay queued: the next owner sends them when it attaches (`resume`), and
+//!   so does the next hook child of any agent of the session (again, with
+//!   their idempotency keys; a daemon answers a repeat from its receipt).
+//!   On macOS a live daemon whose listen backlog is full also refuses a
+//!   connect: the lines then wait for the next hook of the session (seconds
+//!   under that load); none is lost. Only `reset-state` ends a session's
 //!   queues ([`super::hook_spool`] has the lifecycle).
 //! - The provider waits only until its line is on disk (the parent's
 //!   `HANDOFF_WAIT` bounds that wait). Where the socket's directory is not

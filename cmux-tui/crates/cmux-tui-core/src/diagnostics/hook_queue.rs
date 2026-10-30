@@ -50,7 +50,7 @@ pub struct HookQueueSnapshot {
 impl HookQueueSnapshot {
     /// The counts beside `socket` (0 where there is no queue).
     pub fn beside(socket: &Path) -> Self {
-        let Some(directory) = socket.parent().map(|parent| parent.join(HOOK_SPOOL_DIR)) else {
+        let Ok(Some(directory)) = existing_hook_spool_dir(socket) else {
             return Self::default();
         };
         let prefix = format!("{}.", queue_prefix(socket));
@@ -97,6 +97,23 @@ pub fn hook_spool_dir(socket: &Path) -> io::Result<PathBuf> {
     }
     ensure_private(&directory, 0o077)?;
     Ok(directory)
+}
+
+/// The hook queue directory beside `socket` when one exists and it is
+/// private (as [`hook_spool_dir`] requires); `None` when there is none. It
+/// makes nothing: reset-state and server-stats read and delete only in a
+/// directory that this user owns.
+fn existing_hook_spool_dir(socket: &Path) -> io::Result<Option<PathBuf>> {
+    let Some(parent) = socket.parent().filter(|parent| !parent.as_os_str().is_empty()) else {
+        return Ok(None);
+    };
+    let directory = parent.join(HOOK_SPOOL_DIR);
+    if std::fs::symlink_metadata(&directory).is_err() {
+        return Ok(None);
+    }
+    ensure_private(parent, 0o022)?;
+    ensure_private(&directory, 0o077)?;
+    Ok(Some(directory))
 }
 
 /// `path` is a directory (not a symlink) this user owns, with none of the
@@ -170,14 +187,10 @@ pub fn spool_name_part(text: &str) -> String {
 /// sender still at work (it stops at once without a daemon). The count of
 /// dropped events.
 pub fn drop_session_hook_queues(socket: &Path) -> io::Result<u64> {
-    let Some(directory) = socket.parent().map(|parent| parent.join(HOOK_SPOOL_DIR)) else {
+    let Some(directory) = existing_hook_spool_dir(socket)? else {
         return Ok(0);
     };
-    let entries = match std::fs::read_dir(&directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
-        Err(error) => return Err(error),
-    };
+    let entries = std::fs::read_dir(&directory)?;
     let prefix = format!("{}.", queue_prefix(socket));
     let mut dropped = 0_u64;
     let mut first_error = None;
@@ -337,6 +350,29 @@ mod tests {
         let snapshot = HookQueueSnapshot::beside(&socket);
         assert_eq!((snapshot.queued_events, snapshot.reset_dropped_events), (0, 3));
         assert_eq!(HookQueueSnapshot::beside(&root.join("other.sock")).queued_events, 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// reset-state and server-stats never read or delete in a queue
+    /// directory that another user could have made or written.
+    #[test]
+    fn reset_and_stats_leave_a_shared_directory_alone() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = private_dir();
+        let socket = root.join("work.sock");
+        let spool = root.join(HOOK_SPOOL_DIR);
+        std::fs::create_dir(&spool).unwrap();
+        let planted = spool.join(format!(
+            "{}.{}.jsonl",
+            queue_prefix(&socket),
+            spool_name_part("terminal_a")
+        ));
+        std::fs::write(&planted, "{}\n").unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        assert!(drop_session_hook_queues(&socket).is_err());
+        assert!(planted.exists(), "reset deleted a file in a shared directory");
+        assert_eq!(HookQueueSnapshot::beside(&socket).queued_events, 0);
         std::fs::remove_dir_all(root).unwrap();
     }
 
