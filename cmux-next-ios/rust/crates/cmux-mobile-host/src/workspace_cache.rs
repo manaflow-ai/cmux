@@ -844,6 +844,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn idle_probes_retry_transient_layout_errors_without_restarting_other_views() {
+        for (failure, retry) in [
+            (json!({"error":{"code":"unavailable"}}), true),
+            (json!({"result":{"sections":"malformed"}}), true),
+            (json!({"error":{"code":"operation.unsupported"}}), false),
+            (json!({"error":"unknown variant `sidebar_layout.get`, expected a known operation"}), false),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let socket = directory.path().join("daemon.sock");
+            let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+            let published = Arc::new(Published::new());
+            let observed = Arc::clone(&published);
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let (mut trees, mut personals, mut layouts, mut probes) = (0, 0, 0, 0);
+                while let Some(line) = lines.next_line().await.unwrap() {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let mut response = json!({"id":request["id"],"ok":true});
+                    match request["id"].as_str().unwrap() {
+                        "cache-tree" => {
+                            trees += 1;
+                            assert_eq!(trees, 1, "layout failure must not restart the tree");
+                            response["data"] = tree()["data"].clone();
+                        }
+                        "cache-personal" => {
+                            personals += 1;
+                            assert_eq!(personals, 1);
+                            response["data"] = json!({"groups":[],"workspaces":[]});
+                        }
+                        "cache-layout" => {
+                            layouts += 1;
+                            assert!(layouts <= probes + 1, "no layout retry before the idle probe");
+                            if layouts < 3 {
+                                response = failure.clone();
+                                response["id"] = request["id"].clone();
+                            } else {
+                                response["result"] = json!({"sections":[]});
+                            }
+                        }
+                        "cache-probe" => {
+                            probes += 1;
+                            let views = observed.views.lock().unwrap();
+                            assert!(views[TREE].is_some());
+                            assert!(views[PERSONAL].is_some());
+                            assert!(views[LAYOUT].is_none());
+                        }
+                        "cache-hello" | "cache-subscribe" => {}
+                        _ => panic!("unexpected request: {request}"),
+                    }
+                    write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+                    if (retry && layouts == 3) || (!retry && probes == 2) {
+                        assert_eq!(layouts, if retry { 3 } else { 1 });
+                        return;
+                    }
+                }
+                panic!("cache disconnected before optional layout recovery");
+            });
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                session_with_probe(&socket, &published, 0, Duration::from_millis(10), QUERY_WAIT),
+            )
+            .await;
+            if result.is_err() {
+                server.abort();
+            }
+            assert!(result.expect("idle layout recovery must be bounded").is_err());
+            server.await.unwrap();
+            let views = published.views.lock().unwrap();
+            assert!(views[TREE].is_some());
+            assert!(views[PERSONAL].is_some());
+            assert_eq!(views[LAYOUT].is_some(), retry);
+        }
+    }
+
+    #[tokio::test]
     async fn transient_snapshot_failure_ends_session_and_next_session_recovers() {
         let directory = tempfile::tempdir().unwrap();
         let socket = directory.path().join("daemon.sock");
