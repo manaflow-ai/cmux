@@ -502,6 +502,7 @@ final class CloudService {
         recordReads += 1
         // Lists need ordering only; they must never acquire an outstanding status entry.
         if let machineID { recordReadsOutstanding[recordReads] = machineID }
+        changes.readIssued(recordReads)
         return recordReads
     }
 
@@ -523,7 +524,7 @@ final class CloudService {
                 guard read > recordReadApplied[machine.id, default: 0] else { continue }
                 // The machine's record now comes from this list: older reads land behind it.
                 recordReadApplied[machine.id] = read
-                addSession(changes.applyingPending(to: machine))
+                addSession(changes.applyingPending(to: machine, read: read))
             }
         }
         let ids = Set(visible.map(\.id))
@@ -590,7 +591,7 @@ final class CloudService {
         }
         // Read ordering admits the record; mutation tracking supplies presentation until the
         // matching operation settles, so an in-flight status read cannot reopen action gates.
-        session.applyRecord(changes.applyingPending(to: machine))
+        session.applyRecord(changes.applyingPending(to: machine, read: read))
     }
 
     @discardableResult

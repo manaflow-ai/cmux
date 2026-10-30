@@ -326,6 +326,24 @@ struct CloudMachineChangeStateTests {
         session.disconnect()
     }
 
+    @Test func aLaterRunningRevisionRetiresAPauseSupersededElsewhere() async throws {
+        let session = Self.session(status: .running)
+        defer { session.disconnect() }
+        let changes = CloudMachineChanges()
+        defer { changes.stop() }
+        // Read 1 was issued before this app's pause was accepted. It is a stale running
+        // response and must keep the optimistic pause visible.
+        changes.readIssued(1)
+        try await changes.run(.pausing, machineID: session.machineID, of: { session }) {}
+        let stale = changes.applyingPending(to: CloudMachine(id: session.machineID, status: .running), read: 1)
+        #expect(stale.pendingChange == .pausing)
+        // Read 2 is the authoritative later revision: another client paused then resumed
+        // the machine before this app ever observed the paused record.
+        let superseding = changes.applyingPending(to: CloudMachine(id: session.machineID, status: .running), read: 2)
+        #expect(superseding.pendingChange == nil)
+        #expect(changes.pendingStatus(for: CloudMachine(id: session.machineID, status: .running)) == nil)
+    }
+
     @Test func aResumeRefreshFailureKeepsTheRawPausedRecord() async {
         let session = Self.session(status: .paused)
         session.resumer = { [session] _ in

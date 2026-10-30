@@ -22,6 +22,9 @@ public final class CloudMachineChanges {
     private var delay = CloudMachineChanges.settleDelay
     private var listRevision: UInt64 = 0
     private var lifecycle: UInt64 = 0
+    /// Highest ordered machine read ticket handed to CloudService. Mutation settlement uses
+    /// this revision to distinguish a pre-mutation stale record from a later authoritative one.
+    private var latestIssuedRead = 0
     /// Mutations accepted by the API but not yet confirmed by a terminal list record.
     /// Keeping this separate from the decoded record prevents a stale refresh from dropping
     /// the optimistic transition while the provider request is still in flight.
@@ -29,7 +32,8 @@ public final class CloudMachineChanges {
         let id: UUID
         let status: CloudMachine.Status
         var baselineFailure: CloudMachine.ChangeFailure?
-        var requestReturned: Bool
+        /// The ordered read ticket issued when the accepted request returned.
+        var requestReturnedRead: Int?
     }
     private var mutations: [String: [Mutation]] = [:]
     /// Between ``stop()`` and ``start()``: a list read already on its way when the service
@@ -82,12 +86,12 @@ public final class CloudMachineChanges {
                     _ call: () async throws -> Void) async throws {
         let id = UUID()
         mutations[machineID, default: []].append(Mutation(id: id, status: change,
-            baselineFailure: holder()?.machine.lastChangeFailure, requestReturned: false))
+            baselineFailure: holder()?.machine.lastChangeFailure, requestReturnedRead: nil))
         showPending(machineID, on: holder())
         do {
             try await call()
             if let index = mutations[machineID]?.firstIndex(where: { $0.id == id }) {
-                mutations[machineID]?[index].requestReturned = true
+                mutations[machineID]?[index].requestReturnedRead = latestIssuedRead
             }
         } catch {
             if let index = mutations[machineID]?.firstIndex(where: { $0.id == id }) {
@@ -105,11 +109,18 @@ public final class CloudMachineChanges {
         holder?.machine.pendingMutationID = mutations[machineID]?.last?.id
     }
 
+    /// Records a read ticket before its request is sent. A mutation remembers this boundary,
+    /// so a response from before the mutation cannot clear its optimistic overlay.
+    public func readIssued(_ read: Int) {
+        latestIssuedRead = max(latestIssuedRead, read)
+    }
+
     /// The newest pending operation drives presentation; older operations remain tracked until
     /// their own terminal record arrives. A failed newer request exposes the older operation.
-    public func applyingPending(to record: CloudMachine) -> CloudMachine {
+    public func applyingPending(to record: CloudMachine, read: Int? = nil) -> CloudMachine {
+        if let read { readIssued(read) }
         var shown = record
-        shown.failedMutationID = settleMutations(record)
+        shown.failedMutationID = settleMutations(record, read: read)
         shown.pendingChange = mutations[record.id]?.last?.status
         shown.pendingMutationID = mutations[record.id]?.last?.id
         return shown
@@ -119,7 +130,7 @@ public final class CloudMachineChanges {
         applyingPending(to: record).pendingChange
     }
 
-    private func settleMutations(_ record: CloudMachine) -> UUID? {
+    private func settleMutations(_ record: CloudMachine, read: Int?) -> UUID? {
         guard var outstanding = mutations[record.id] else { return nil }
         if record.status == .destroyed {
             mutations[record.id] = nil
@@ -129,16 +140,18 @@ public final class CloudMachineChanges {
         // A provider error has no operation id: attribute a new terminal error only to the
         // newest acknowledged operation. Never let one failure retire every older mutation,
         // including when both reconciliation and the poller inspect this same record.
-        if let last = outstanding.last, last.requestReturned, !record.status.isChanging,
+        if let last = outstanding.last, last.requestReturnedRead != nil, !record.status.isChanging,
            let failure = record.lastChangeFailure, failure != last.baselineFailure {
             failedMutationID = outstanding.removeLast().id
             for index in outstanding.indices { outstanding[index].baselineFailure = failure }
         }
         outstanding.removeAll { mutation in
-            guard mutation.requestReturned else { return false }
+            guard let returnedRead = mutation.requestReturnedRead else { return false }
             switch mutation.status {
-            case .pausing: return record.status == .paused
-            case .starting: return record.status == .running
+            case .pausing:
+                return record.status == .paused || (record.status == .running && (read ?? 0) > returnedRead)
+            case .starting:
+                return record.status == .running || (record.status == .paused && (read ?? 0) > returnedRead)
             default: return false
             }
         }
