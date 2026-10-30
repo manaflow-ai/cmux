@@ -45,6 +45,8 @@ import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResour
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_EPOCH_KEY,
+  VM_IDLE_LAST_DECISION_KEY,
+  type VmIdleLastDecision,
   VM_IDLE_OBSERVATION_KEY,
   VM_IDLE_PAUSE_CLAIM_KEY,
   VM_IDLE_PAUSE_MINUTES_KEY,
@@ -426,6 +428,13 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     /** The idle fence the cron read (VM_IDLE_EPOCH_KEY); a moved fence makes this a stale write (false). */
     readonly epoch: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Diagnostics alone: preserve updatedAt and the idle epoch, and reject an older check or replaced machine. */
+  readonly recordIdleDecision?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly decision: VmIdleLastDecision;
+    readonly checkId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /**
    * The idle cron's last check before it pauses a machine at the provider:
    * moves the fence if the row is still that running machine at `epoch`, and
@@ -1426,7 +1435,7 @@ function providerMetadataPatchForPersistence(
       key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY &&
       key !== VM_IDLE_PAUSE_MINUTES_KEY &&
       key !== VM_IDLE_OBSERVATION_KEY &&
-      key !== VM_IDLE_PROBED_AT_KEY &&
+      ![VM_IDLE_PROBED_AT_KEY, VM_IDLE_LAST_DECISION_KEY].includes(key) &&
       key !== VM_IDLE_EPOCH_KEY &&
       key !== VM_IDLE_PAUSE_CLAIM_KEY &&
       key !== VM_PAUSE_INTENT_EPOCH_KEY &&
@@ -2111,7 +2120,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .update(cloudVms)
         .set({
           // A changed setting moves the idle fence: a pause already under way records nothing.
-          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes })}::jsonb)`),
+          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes })}::text::jsonb)`),
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));
@@ -2123,8 +2132,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .update(cloudVms)
         .set({
           providerMetadata: bumpIdleEpoch(input.observation
-            ? sql`((coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_PAUSE_CLAIM_KEY}::text) || ${JSON.stringify({ [VM_IDLE_OBSERVATION_KEY]: input.observation, [VM_IDLE_PROBED_AT_KEY]: input.probedAt })}::jsonb)`
-            : sql`((coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text - ${VM_IDLE_PAUSE_CLAIM_KEY}::text) || ${probed}::jsonb)`),
+            ? sql`((coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_PAUSE_CLAIM_KEY}::text) || ${JSON.stringify({ [VM_IDLE_OBSERVATION_KEY]: input.observation, [VM_IDLE_PROBED_AT_KEY]: input.probedAt })}::text::jsonb)`
+            : sql`((coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text - ${VM_IDLE_PAUSE_CLAIM_KEY}::text) || ${probed}::text::jsonb)`),
         })
         .where(and(
           eq(cloudVms.id, input.id),
@@ -2134,6 +2143,25 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ))
         .returning({ id: cloudVms.id });
       return rows.length > 0;
+    }),
+  recordIdleDecision: (input) =>
+    dbEffect("recordIdleDecision", async () => {
+      const previousAt = sql`case when jsonb_typeof(${cloudVms.providerMetadata} -> ${VM_IDLE_LAST_DECISION_KEY}::text -> 'at') = 'number'
+        then (${cloudVms.providerMetadata} -> ${VM_IDLE_LAST_DECISION_KEY}::text ->> 'at')::numeric else 0 end`;
+      await cloudDb().update(cloudVms).set({
+        // Do not move updatedAt or the idle epoch: observing the cron must never prevent its pause.
+        // Bind serialized JSON as text before parsing it; a JSONB parameter can be quoted again by the driver.
+        providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+          || ${JSON.stringify({ [VM_IDLE_LAST_DECISION_KEY]: { ...input.decision, checkId: input.checkId } })}::text::jsonb
+          || jsonb_build_object(${VM_IDLE_PROBED_AT_KEY}::text, greatest(${metadataMillis(VM_IDLE_PROBED_AT_KEY)}, ${input.decision.at}::bigint))`,
+      }).where(and(
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        lte(previousAt, input.decision.at),
+        // First stored check wins a timestamp tie. Only its own totals can amend it.
+        or(lt(previousAt, input.decision.at),
+          sql`(${cloudVms.providerMetadata} -> ${VM_IDLE_LAST_DECISION_KEY}::text ->> 'checkId') = ${input.checkId}`),
+      ));
     }),
   claimIdlePause: (input) =>
     dbEffect("claimIdlePause", async () => {
@@ -2220,7 +2248,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .set({
           // Activity has its own timestamp; it is not a lifecycle mutation. It
           // moves the idle fence, so an idle pause already under way records nothing.
-          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: input.at })}::jsonb)`),
+          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: input.at })}::text::jsonb)`),
         })
         .where(and(
           eq(cloudVms.id, input.id),
@@ -3309,7 +3337,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const [vm] = await tx
             .update(cloudVms)
             .set({
-              providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${reservationMetadataJsonb(reservation)}`,
+              // Reservation and activity share one write, invalidating any older idle claim.
+              providerMetadata: bumpIdleEpoch(sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+                || ${reservationMetadataJsonb(reservation)}
+                || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: Date.now() })}::text::jsonb`),
               updatedAt: new Date(),
             })
             .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")))
@@ -3421,7 +3452,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           await tx
             .update(cloudVms)
             .set({
-              providerMetadata: isNoopResize
+              providerMetadata: bumpIdleEpoch(sql`(${isNoopResize
                 ? sql`(
                   coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
                   || ${reservationMetadataJsonb(reserved)}
@@ -3436,7 +3467,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                     true
                   )
                 ) #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
-                  #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
+                  #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`})
+                || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: createdAtMs })}::text::jsonb`),
               updatedAt: new Date(),
             })
             .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")));

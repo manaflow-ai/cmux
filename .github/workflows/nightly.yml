@@ -944,7 +944,7 @@ jobs:
       fail-fast: false
       matrix:
         pool:
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-15' }}
           - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
     runs-on: ${{ matrix.pool }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}

@@ -598,9 +598,10 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
         "ci-owned-pool-rescue.yml": ("rescue",),
         # The publish job runs in the artifacts environment, which is limited
         # to R2 credentials by the production-secret guard. Its explicitly
-        # scoped GITHUB_TOKEN preserves that trust boundary; capture has no
-        # artifact secrets and can use cmux-bot's separate budget.
-        "dogfood-artifact-publish.yml": ("capture",),
+        # scoped GITHUB_TOKEN preserves that trust boundary. The capture runs on
+        # the reused GUI mini, so the cmux-bot token is minted only in the two
+        # short jobs around it, on a literal ephemeral label.
+        "dogfood-artifact-publish.yml": ("capture-inputs", "capture-report"),
     }
     PERMISSIONS = {
         "permission-actions": "write",
@@ -641,6 +642,23 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
                             self.assertEqual(value, "${{ steps.glaeda-token.outputs.token || github.token }}")
                         else:
                             self.assertIn("steps.cmux-bot-token.outputs.token", value)
+
+    def test_the_gui_capture_job_holds_no_secret_and_no_app_token(self) -> None:
+        # MACOS_RUNNER_DISPLAY (set by the overflow switch too) puts the capture on a reused mini:
+        # it may read this run's artifacts and upload one, nothing more.
+        document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())
+        capture = document["jobs"]["capture"]
+        self.assertIn("vars.MACOS_RUNNER_DISPLAY", capture["runs-on"])
+        text = json.dumps(capture)
+        for held in ("secrets.", "create-github-app-token", "cmux-bot-token", "GH_TOKEN", "github.token"):
+            self.assertNotIn(held, text)
+        self.assertEqual(capture["permissions"], {"actions": "read", "contents": "read"})
+        self.assertEqual(capture["needs"], ["publish", "capture-inputs"])
+        self.assertEqual(document["jobs"]["capture-report"]["needs"], ["publish", "capture"])
+        uses = [step.get("uses", "").split("@")[0] for step in capture["steps"]]
+        self.assertEqual(uses.count("actions/download-artifact"), 2)
+        for name in ("capture-inputs", "capture-report"):
+            self.assertNotIn("${{ vars.", document["jobs"][name]["runs-on"].split("||", 1)[1], name)
 
     def test_artifact_publisher_keeps_the_r2_environment_secret_boundary(self) -> None:
         document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())

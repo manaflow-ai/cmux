@@ -261,7 +261,7 @@ class WiringTests(unittest.TestCase):
         declared = set(resolver.load_map(REAL_MAP)["capabilities"])
         used = set()
         for chunk in text.split(marker)[1:]:
-            used.add(chunk.split()[0].strip("}").strip())
+            used.add(chunk.split()[0].strip("})").strip())
         self.assertTrue(used)
         self.assertEqual(used - declared, set())
 

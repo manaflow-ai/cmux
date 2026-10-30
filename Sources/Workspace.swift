@@ -4624,44 +4624,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates
-        // Fork Conversation availability when a background refresh lands.
+        // The Fork Conversation menu reads availability from its provider when
+        // it opens, so a refresh must not publish this workspace: a full reload
+        // posts without userInfo at most every 5 s while agent hooks write the
+        // hook store, and each publish re-rendered every pane (issue 22703).
+        // SharedLiveAgentIndex is MainActor, so it posts on the main thread and
+        // the change is handled before post returns.
         sharedLiveAgentIndexObserver = NotificationCenter.default.addObserver(
             forName: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,
-            queue: nil
+            queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                guard let self, !self.isRetiredFromOwningTabManager else { return }
-                if let index = SharedLiveAgentIndex.shared.index {
-                    let completedPanelIds: [UUID]
-                    if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
-                        guard let changedPanelIds = panelIdsByWorkspaceId[self.id] else {
-                            return
-                        }
-                        completedPanelIds = changedPanelIds.filter { panelId in
-                            self.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
-                        }
-                    } else if let changedWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                              changedWorkspaceId != self.id {
-                        return
-                    } else if let changedPanelId = notification.userInfo?["panelId"] as? UUID {
-                        completedPanelIds = self.restoredAgentResumeStatesByPanelId[changedPanelId] == .completedAgentExit
-                            ? [changedPanelId]
-                            : []
-                    } else {
-                        completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
-                            state == .completedAgentExit ? panelId : nil
-                        }
-                    }
-                    for panelId in completedPanelIds {
-                        guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
-                            continue
-                        }
-                        self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-                    }
-                }
-                self.objectWillChange.send()
+            let userInfo = notification.userInfo
+            MainActor.assumeIsolated {
+                self?.handleSharedLiveAgentIndexChange(userInfo: userInfo)
             }
         }
         featureFlagsObserver = NotificationCenter.default.addObserver(
@@ -4690,7 +4666,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+    private(set) var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
