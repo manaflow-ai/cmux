@@ -1399,12 +1399,12 @@ function measuredRowHeight(
   // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its 26px head in
   // 2px margins and the message gap; opened, each sender's 22px head, then each of its messages as
   // its own row draws it, 24px in, less the gap the row frame gives a row, which the group has once.
-  if (row.kind === PENDING_MESSAGES && row.pending) {
+  if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
     const head = finish(2 + 26 + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
     const senders = new Set<string>();
     let height = head;
-    for (const member of row.pending.rows) {
+    for (const member of row.pendingMessages.rows) {
       const from = member.incoming?.kind === "message" ? (member.incoming.message.sessionId ?? member.incoming.message.name) : member.id;
       if (!senders.has(from)) {
         senders.add(from);

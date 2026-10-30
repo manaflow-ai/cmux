@@ -223,15 +223,17 @@ export function IncomingMessageLine({
       }
       // It opens at once, its height alone moving, as the message's card always did; closing fades.
       fadeIn={false}
+      // One slot at the line's end, over the preview's tail, shown on hover or focus: it never moves
+      // the chevron, which ends every message's line at the same place (conversation.css).
       actions={
-        <>
+        <span className="cv-received__hover">
           {replies && !editing && (
             <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
               {t("message.reply")}
             </button>
           )}
           {actions}
-        </>
+        </span>
       }
     >
       {/* The chips read whose files these are (chips/messageScope.ts). */}

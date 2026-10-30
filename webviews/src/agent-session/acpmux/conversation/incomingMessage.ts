@@ -249,7 +249,7 @@ export function cliHost(client: unknown): string | undefined {
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
-  msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
+  msg: { _meta?: { provenance?: unknown }; client?: unknown; fromHarness?: unknown } | undefined,
   context?: IncomingContext,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;

@@ -2411,22 +2411,64 @@ pre.cv-math-source {
 .cv-disclosure.cv-received {
   margin: 2px 0;
 }
+/* One row, the same whether a message is delivered or waits, closed or open (Leo, 2026-10-29: "this
+   ui is all quite inconsistent"): one plate under the whole line on hover, its name, preview,
+   chevron and actions in it; the preview takes the line's room, so every line's chevron ends at the
+   same place; the actions show only on hover or focus, over the preview's tail, never moving it. */
 .cv-received > .cv-disclosure__line {
+  position: relative;
   height: 26px;
   min-height: 0;
+  padding-inline: var(--ds-space-1);
+  border-radius: 6px;
   white-space: nowrap;
   user-select: none;
+}
+.cv-received > .cv-disclosure__line:hover,
+.cv-received > .cv-disclosure__line:focus-within,
+.cv-received > .cv-disclosure__line:has([aria-haspopup="menu"][aria-expanded="true"]) {
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
   height: 26px;
   box-sizing: border-box;
   padding-block: 0;
+  padding-inline: 0;
+}
+.cv-received .cv-disclosure__toggle:is(:hover, :focus-visible) {
+  background: none;
 }
 .cv-received .cv-disclosure__label {
   display: flex;
+  flex: 1 1 auto;
   align-items: baseline;
   gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
+}
+.cv-received__hover {
+  position: absolute;
+  inset-block: 0;
+  /* Before the chevron (12px) and the line's inset. */
+  inset-inline-end: calc(var(--ds-space-1) + 12px + var(--ds-space-1));
+  display: inline-flex;
+  align-items: center;
+  padding-inline-start: var(--ds-space-2);
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--cv-text) 6%, var(--acpmux-base, var(--cv-bg))) var(--ds-space-2)
+  );
+  opacity: 0;
+  pointer-events: none;
+}
+.cv-received > .cv-disclosure__line:hover .cv-received__hover,
+.cv-received__hover:focus-within,
+.cv-received__hover:has([aria-haspopup="menu"][aria-expanded="true"]) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cv-received__hover > .cv-received-actions {
+  margin-inline-start: 0;
 }
 /* The sender at the line's start (IncomingMessageCard.tsx SenderName): its harness mark, then its
    name, which opens its chat. The name's hover highlight is its own, never the row's. */

@@ -235,15 +235,20 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from")!.click());
   expect(calls).toEqual(["open s-1"]);
 
+  // Copy is the line's icon, in the same group as the ⋯, as on a delivered message's line.
+  const group = host.querySelector(".cv-received__hover .cv-received-actions")!;
+  expect(group.querySelector(`[aria-label="${t("turn.copy")}"]`)).not.toBeNull();
+  expect(group.querySelector('[data-menu="waiting-message"]')).not.toBeNull();
+  expect(host.querySelectorAll(".cv-received-actions")).toHaveLength(1);
   await openMenu();
-  expect(items()).toEqual([t("steer.sendNow"), t("turn.copy"), t("message.dismiss")]);
+  expect(items()).toEqual([t("steer.sendNow"), t("message.dismiss")]);
   for (const key of PERSON_QUEUE_ITEMS) expect(items()).not.toContain(t(key));
   await act(async () => item(t("steer.sendNow")).click());
   await settle();
   expect(calls.at(-1)).toBe("steer a1");
   // Send now goes once.
   await openMenu();
-  expect(items()).toEqual([t("turn.copy"), t("message.dismiss")]);
+  expect(items()).toEqual([t("message.dismiss")]);
   await act(async () => item(t("message.dismiss")).click());
   await settle();
   expect(calls.at(-1)).toBe("remove a1");
@@ -266,14 +271,14 @@ test("several queued messages carry no Read after this turn, the first one inclu
 test("a message sent now offers no second Send now, and never the person's queue actions", async () => {
   await card({ ...agent(2), next: true }, []);
   await openMenu();
-  expect(items()).toEqual([t("turn.copy"), t("message.dismiss")]);
+  expect(items()).toEqual([t("message.dismiss")]);
   await card({ ...agent(3), images: [{ id: "img", mimeType: "image/png" }] }, []);
   await openMenu();
-  expect(items()).toEqual([t("steer.sendNow"), t("turn.copy"), t("message.dismiss")]);
+  expect(items()).toEqual([t("steer.sendNow"), t("message.dismiss")]);
   for (const key of PERSON_QUEUE_ITEMS) expect(items()).not.toContain(t(key));
 });
 
-test("a steer the agent has not read: no Read after this step, Send now and Copy in its ⋯ menu", async () => {
+test("a steer the agent has not read: no Read after this step, Send now in its ⋯ menu", async () => {
   const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
   const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
   const sent: string[] = [];
@@ -283,14 +288,14 @@ test("a steer the agent has not read: no Read after this step, Send now and Copy
       id="steer-reveal"
       message={message}
       onOpen={() => {}}
-      actions={<SteerWaitingActions promptId="p-steer" text={message.text} send={(id) => void sent.push(id)} />}
+      actions={<SteerWaitingActions promptId="p-steer" send={(id) => void sent.push(id)} />}
     />,
   );
   expect(host.querySelector(".cv-received__queued")).toBeNull();
   expect(host.textContent).not.toContain("Read after this step");
   expect(host.querySelector(".cv-spinner, [data-spinner]")).toBeNull();
   await openMenu();
-  expect(items()).toEqual([t("steer.sendNow"), t("turn.copy")]);
+  expect(items()).toEqual([t("steer.sendNow")]);
   await act(async () => item(t("steer.sendNow")).click());
   await settle();
   expect(sent).toEqual(["p-steer"]);

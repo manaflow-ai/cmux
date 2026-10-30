@@ -415,6 +415,64 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
+  // Leo, 2026-10-29: "this ui is all quite inconsistent". A delivered message and one that waits
+  // are one row: their chevrons end on one x, one plate under the line, actions only on hover.
+  test("a delivered message and a waiting one draw the same line: one chevron column, actions on hover", async () => {
+    const page = await openChat(
+      [
+        ...turn(1),
+        fromAgent("Landed #24001; nightly is building.", "lint-lane", "child-1", "m-1"),
+        prompt("Add retries to the fetch helper"),
+        reply("Reading the helper now."),
+        record("queued", { text: "Docs are rebuilt for the 2.3 release notes.", promptId: "q-2", fromAgent: "docs-lane", position: 0 }),
+      ],
+      "Reading the helper now.",
+      true,
+      [{ promptId: "q-2", prompt: "Docs are rebuilt for the 2.3 release notes." }],
+    );
+    try {
+      await page.locator(".cv-pending__toggle").click();
+      const rows = page.locator(".cv-received");
+      await rows.nth(1).waitFor({ timeout: 10_000 });
+      const lines = await rows.evaluateAll((all) =>
+        all.map((row) => {
+          const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
+          const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
+          const hover = line.querySelector<HTMLElement>(".cv-received__hover");
+          return {
+            right: Math.round(chevron.right),
+            open: Boolean(line.querySelector(".cv-disclosure__open")),
+            groups: line.querySelectorAll(".cv-received-actions").length,
+            hidden: hover ? getComputedStyle(hover).opacity : "missing",
+          };
+        }),
+      );
+      expect(lines).toHaveLength(2);
+      expect(lines[0]!.right).toBe(lines[1]!.right);
+      for (const line of lines) {
+        expect(line.open).toBe(false);
+        expect(line.groups).toBe(1);
+        expect(line.hidden).toBe("0");
+      }
+      expect(await page.getByText(/Read after this|Open chat|^From:/).count()).toBe(0);
+      // Hovered, the actions show in the line's own plate, and the chevron stays put.
+      await rows.nth(1).locator(":scope > .cv-disclosure__line").hover();
+      const hovered = await rows.nth(1).evaluate((row) => {
+        const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
+        return {
+          plate: getComputedStyle(line).backgroundColor,
+          shown: getComputedStyle(line.querySelector<HTMLElement>(".cv-received__hover")!).opacity,
+          right: Math.round(line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect().right),
+        };
+      });
+      expect(hovered.plate).not.toBe("rgba(0, 0, 0, 0)");
+      expect(hovered.shown).toBe("1");
+      expect(hovered.right).toBe(lines[1]!.right);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("messages queued behind the running turn draw after it, in one group, no Read after this turn", async () => {
     const page = await openChat(
       [

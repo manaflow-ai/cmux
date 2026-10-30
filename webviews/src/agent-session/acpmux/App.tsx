@@ -952,12 +952,11 @@ const MessageRow = memo(
             onOpen={openSenderChat}
             onReply={replyToMessage}
             actions={
-              <>
-                <ReceivedActions row={row} text={row.incoming.message.text} />
-                {row.steer === "waiting" && (
-                  <SteerWaitingActions promptId={row.steerPromptId} text={row.incoming.message.text} send={sendSteerNow} />
-                )}
-              </>
+              <ReceivedActions
+                row={row}
+                text={row.incoming.message.text}
+                more={row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />}
+              />
             }
             githubRepository={githubRepository}
           />
@@ -3482,7 +3481,7 @@ export function VirtualTranscript({
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
+      ? `${paintedId}:${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
