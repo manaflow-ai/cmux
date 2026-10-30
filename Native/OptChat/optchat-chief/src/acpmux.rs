@@ -57,15 +57,33 @@ pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// On a turn session: the Chief's participant id (`agent_mux`, `agent_…`).
+/// acpmux stamps it as `fromChief` on a message the turn sends another chat
+/// (its `prompt_provenance::session_message_from`), and the app draws that
+/// Chief's name and picture there, not the turn's session name
+/// (manaflow-ai/cmux#27914).
+pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
+
 /// A turn session's tags: [`chief_tags`] plus the names acpmux puts on its
 /// approval cards (Leo 2026-10-21, #89(4): "Chief wants to message a12 ·
-/// Nightly train"): the asker is the Chief, and its children are the
-/// sessions whose `mux.parent` is `parent`.
-pub fn turn_tags(home_id: &str, parent: &str) -> BTreeMap<String, String> {
+/// Nightly train"): the asker is the Chief by its own name (`title`, else
+/// "Chief"), and its children are the sessions whose `mux.parent` is
+/// `parent`; and the Chief's `participant` id.
+pub fn turn_tags(
+    home_id: &str,
+    parent: &str,
+    participant: &str,
+    title: Option<&str>,
+) -> BTreeMap<String, String> {
     use cmux_chief::rules::{CHIEF_DISPLAY_NAME, CHILDREN_TAG, LABEL_TAG};
     let mut tags = chief_tags(home_id, "turn");
-    tags.insert(LABEL_TAG.to_owned(), CHIEF_DISPLAY_NAME.to_owned());
+    let label = title
+        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| CHIEF_DISPLAY_NAME.to_owned());
+    tags.insert(LABEL_TAG.to_owned(), label);
     tags.insert(CHILDREN_TAG.to_owned(), parent.to_owned());
+    tags.insert(CHIEF_PARTICIPANT_TAG.to_owned(), participant.to_owned());
     tags
 }
 
