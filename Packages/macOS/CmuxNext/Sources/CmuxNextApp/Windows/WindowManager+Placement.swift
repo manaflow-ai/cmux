@@ -26,17 +26,27 @@ struct PendingPlacement {
 extension WindowManager {
     func applyPendingPlacements(live: Set<String>) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
-        for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
+        let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
+        // A placement waiting on its current row keeps its entry and its place in the order.
+        defer { pendingPlacementOrder.removeAll { pendingPlacements[$0] == nil } }
+        var refreshed: Set<String> = []
+        for id in ready {
+            guard let pending = pendingPlacements[id] else { continue }
+            pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
-            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+            // One store-backed rows pass per window; each following placement
+            // reads the model with the preceding optimistic moves applied.
+            let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             // Waits for a current row a cold layout omits; one pinned since the press shows in the band, not the list.
             if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true,
                let current = pending.byDefault?.current, services.machines.workspace(id: current) != nil,
-               !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, machines: services.machines) { continue }
-            pendingPlacements[id] = nil
+               !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, machines: services.machines) {
+                pendingPlacements[id] = pending
+                continue
+            }
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.
             let slot = pending.slot ?? (daemon.isLocal ? pending.byDefault?.move(for: id, section: section, in: sections, home: home)
@@ -46,6 +56,14 @@ extension WindowManager {
             }
             ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }
         }
+    }
+
+    /// Slot indices and the reorder plan must use the same current rows. The
+    /// daemon can publish several creates before the rows observation runs;
+    /// resolving against the last drawn list would put bottom before those rows.
+    static func placementSections(in bridge: SidebarBridge, refresh: Bool = true) -> [SidebarRowSection] {
+        if refresh { bridge.sameTurn.syncNow(rows: true) }
+        return SidebarRowSection.withoutPlaceholders(bridge.model.sections)
     }
 
     /// Places a workspace this app just made (by a command whose reply
