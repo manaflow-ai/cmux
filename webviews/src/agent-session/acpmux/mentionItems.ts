@@ -254,7 +254,7 @@ export function mentionItems({
   // A bare @ leads with recent picks; once there is a query, the host's own results come first.
   const allFiles = text ? [...files, ...recentFiles] : [...recentFiles, ...files];
   const searchedFolders = folderItems(allFiles, text);
-  const shownFolders = new Set(searchedFolders.map((item) => item.path));
+  const shownFolders = new Set(searchedFolders.flatMap((item) => (item.kind === "session" ? [] : [item.path])));
   const recentFolders = recent
     .filter((entry) => entry.kind === "folder" && !shownFolders.has(entry.path) && matching(entry))
     .map((entry): MentionItem => {
