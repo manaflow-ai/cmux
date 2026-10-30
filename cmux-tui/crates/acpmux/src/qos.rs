@@ -428,15 +428,17 @@ mod tests {
         if !enabled() {
             return;
         }
+        // `qos_class_t` has no `PartialEq` in libc, so the classes compare as their numbers.
+        let class = |qos: libc::qos_class_t| qos as u32;
         let (qos, io) = (imp::thread_qos(), imp::thread_io());
-        let inside = on_screen(|| (imp::thread_qos(), imp::thread_io()));
-        assert_eq!(inside, (libc::qos_class_t::QOS_CLASS_USER_INITIATED, 1));
-        let after = (imp::thread_qos(), imp::thread_io());
+        let inside = on_screen(|| (class(imp::thread_qos()), imp::thread_io()));
+        assert_eq!(inside, (class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), 1));
+        let after = (class(imp::thread_qos()), imp::thread_io());
         let expected_qos = match qos {
             libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
             qos => qos,
         };
-        assert_eq!(after, (expected_qos, io.max(0)));
+        assert_eq!(after, (class(expected_qos), io.max(0)));
     }
 
     /// The clamp takes effect: a child spawned under it, and the shell it
