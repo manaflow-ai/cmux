@@ -5946,7 +5946,7 @@ jobs:
           name: nightly-next-visual-gate-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: ${{ runner.temp }}/visual-gate
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
       # visual-gate-nightly-verdict reads this step's conclusion: it runs only when the gate holds the build.
       - name: Hold publication

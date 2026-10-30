@@ -232,6 +232,7 @@
     "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
     "nightly.yml#verify-signed-nightly": "apple-signing-release",
+    "nightly.yml#visual-gate-nightly": "apple-gui",
     "relay-publish-npm.yml#smoke": "macos-runtime-tests",
     "relay-tls.yml#diagnostic-presentation": {
       "class": "apple-swift-tests",

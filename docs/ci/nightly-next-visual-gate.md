@@ -124,7 +124,7 @@ publication by the difference.
       fails. Exit 1 is `fail`. Exit 3 (a state couldn't be judged) and exit 2
       (bad input or a crash) are `unavailable`.
    5. Uploads the stills and the report as `nightly-next-visual-gate-<sha>`
-      (14 days).
+      (3 days).
 
    The findings go in the job summary. When the verdict holds the build
    (enforce mode, `fail`), its `Hold publication` step runs.
