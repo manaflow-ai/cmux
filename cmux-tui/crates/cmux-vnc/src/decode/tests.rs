@@ -63,6 +63,33 @@ fn raw_and_copy_rect() {
 }
 
 #[test]
+fn vnc_empty_pixel_rectangles_are_protocol_errors() {
+    for encoding in [
+        encoding::RAW,
+        encoding::COPY_RECT,
+        encoding::RRE,
+        encoding::HEXTILE,
+        encoding::ZLIB,
+        encoding::ZRLE,
+        encoding::TIGHT,
+    ] {
+        for (width, height) in [(0, 1), (1, 0), (0, 0)] {
+            let mut fb = Framebuffer::new(2, 2).unwrap();
+            assert!(matches!(
+                decode(
+                    encoding,
+                    Rect::new(0, 0, width, height),
+                    &[],
+                    &mut fb,
+                    &mut Decoders::default()
+                ),
+                Err(VncError::Protocol(_))
+            ));
+        }
+    }
+}
+
+#[test]
 fn rre_fills_background_then_subrects() {
     let mut fb = Framebuffer::new(4, 4).unwrap();
     let mut wire = vec![0, 0, 0, 1];

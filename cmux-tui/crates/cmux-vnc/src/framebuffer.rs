@@ -170,6 +170,18 @@ mod tests {
     }
 
     #[test]
+    fn vnc_zero_sized_framebuffers_are_refused() {
+        for (width, height) in [(0, 1), (1, 0), (0, 0)] {
+            assert!(matches!(Framebuffer::new(width, height), Err(VncError::Protocol(_))));
+            let mut fb = Framebuffer::new(2, 2).unwrap();
+            let pixels = fb.pixels().to_vec();
+            assert!(matches!(fb.resize(width, height), Err(VncError::Protocol(_))));
+            assert_eq!((fb.width(), fb.height()), (2, 2));
+            assert_eq!(fb.pixels(), pixels);
+        }
+    }
+
+    #[test]
     fn union_covers_both() {
         let a = Rect::new(0, 0, 2, 2);
         let b = Rect::new(5, 6, 1, 1);

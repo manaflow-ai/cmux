@@ -304,6 +304,42 @@ fn vnc_ctrl_bracket_runs_viewer_commands() {
 }
 
 #[test]
+fn vnc_kitty_releases_held_keys_while_awaiting_a_viewer_command() {
+    for (command_key, command) in [('f', Command::Refresh), ('x', Command::Cancel)] {
+        let mut keyboard = Keyboard::new(true);
+        let control = KeyCode::Modifier(ModifierKeyCode::LeftControl);
+        assert_eq!(
+            keyboard.handle(&press(control, KeyModifiers::CONTROL), None),
+            KeyAction::Send(vec![(0xFFE3, true)])
+        );
+        assert_eq!(
+            keyboard.handle(&press(KeyCode::Char('a'), KeyModifiers::CONTROL), None),
+            KeyAction::Send(vec![(0x61, true)])
+        );
+        assert_eq!(
+            keyboard.handle(&press(KeyCode::Char(']'), KeyModifiers::CONTROL), None),
+            KeyAction::AwaitCommand
+        );
+        assert_eq!(
+            keyboard.handle(
+                &key(KeyCode::Char('a'), KeyModifiers::CONTROL, KeyEventKind::Release),
+                None
+            ),
+            KeyAction::Send(vec![(0x61, false)])
+        );
+        assert_eq!(
+            keyboard.handle(&key(control, KeyModifiers::NONE, KeyEventKind::Release), None),
+            KeyAction::Send(vec![(0xFFE3, false)])
+        );
+        assert_eq!(
+            keyboard.handle(&press(KeyCode::Char(command_key), KeyModifiers::NONE), None),
+            KeyAction::Command(command)
+        );
+        assert!(keyboard.release_all().is_empty());
+    }
+}
+
+#[test]
 fn vnc_kitty_release_matches_the_key_pressed_even_after_shift_changes() {
     let mut keyboard = Keyboard::new(true);
     let shift = KeyCode::Modifier(ModifierKeyCode::LeftShift);
