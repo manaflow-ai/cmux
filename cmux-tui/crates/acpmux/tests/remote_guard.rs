@@ -539,7 +539,9 @@ async fn assert_no_turn_end(c: &mut Client) {
 
 #[tokio::test]
 async fn remote_request_and_notification_cancels_cannot_stop_local_sessions() {
-    for (n, origin) in [("web", Origin::Web), ("peer", Origin::Peer)] {
+    // A peer link that proved the peer token is the owner's own daemon and may
+    // (`tests/cancel_owner.rs`, with every peer that is not).
+    for (n, origin) in [("web", Origin::Web)] {
         // Request form: a local-origin turn remains active after the remote
         // caller is refused, then the Unix socket can still stop it.
         let hub = hub();
