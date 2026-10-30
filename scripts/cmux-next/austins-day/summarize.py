@@ -857,11 +857,13 @@ def main():
                     lines.append(f"   {lock} lock, top holders by total hold (since the daemon started; read after the load): " + "; ".join(
                         f"{s['site'].rsplit('/', 1)[-1]} {round((s.get('hold_total_us') or 0) / 1e6, 1)} s"
                         f" p99 {round((s.get('hold_p99_us') or 0) / 1000, 1)} ms" for s in top[:3]))
-        for site, v in (m.get("lock_sites") or {}).items():
+        for site, v in ((m.get("lock_sites") or {}).items() if m.get("lock_top_sites") else ()):
             def show(value, bound, unit):
                 if value is not None:
                     return f"{round(value / unit, 1)}"
-                return f"absent from the top 20, so at most {round(bound / unit, 1)}" if bound is not None else "?"
+                # A bound is rounded up, never down (review of 748dc589635: 40,000 us printed as 0.0 s).
+                return (f"absent from the top 20, so at most {math.ceil(bound / unit * 10) / 10}"
+                        if bound is not None else "?")
             lines.append(f"   {site}: total hold {show(v.get('hold_total_us'), v.get('hold_total_us_at_most'), 1e6)} s, "
                          f"hold p99 {show(v.get('hold_p99_us'), v.get('hold_p99_us_at_most'), 1000)} ms"
                          + (f" (lines {', '.join(s.rsplit(':', 1)[-1] for s in v['sites'])})" if v.get("sites") else ""))

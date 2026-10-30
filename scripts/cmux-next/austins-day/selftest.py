@@ -527,6 +527,23 @@ class NamedSites(unittest.TestCase):
         self.assertIsNone(unknown[key]["hold_total_us"])
         # Absent from a full list: an upper bound, the smallest listed total (1 µs here), kept apart.
         self.assertEqual(unknown[key]["hold_total_us_at_most"], 1)
+
+    def test_the_bound_on_the_text_line_is_rounded_up(self):
+        """Review of 748dc589635: a 40,000 us bound printed as "at most 0.0 s"."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            listed = {"site": "crates/cmux-tui-core/src/mux/other.rs:5", "acquisitions": 1, "hold_total_us": 40_000,
+                      "hold_max_us": 1, "hold_p99_us": 1}
+            run_["series"]["locks"] = [{"t": 400.0, "code": None, "locks": {
+                "registry": {"sites": 30, "by_hold_total": [listed], "by_hold_p99": [listed]}, "state": {}}}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            summarize(os.path.join(tmp, "s.json"), [d])
+            with open(os.path.join(tmp, "s.txt")) as f:
+                text = f.read()
+        self.assertIn("registry:terminal_registry_revision: total hold absent from the top 20, so at most 0.1 s", text)
         self.assertIsNone(before[key]["hold_total_us_at_most"])
 
 
