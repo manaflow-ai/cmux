@@ -75,10 +75,20 @@ async function startServer(): Promise<{ base: string; server: ChildProcess }> {
   }
   const server = spawn(vp, command, { cwd: webviews, env, stdio: ["ignore", "pipe", "pipe"] });
   await new Promise<void>((resolve, reject) => {
-    const onData = (chunk: Buffer) => (String(chunk).includes(`127.0.0.1:${port}`) ? resolve() : undefined);
+    // The server's banner may color the port (FORCE_COLOR, a TTY): "127.0.0.1:" ESC[1m port ESC[22m.
+    // Match on the text with its SGR escapes dropped, or the harness waits forever for its server.
+    const onData = (chunk: Buffer) =>
+      String(chunk)
+        .replace(/\x1b\[[0-9;]*m/g, "")
+        .includes(`127.0.0.1:${port}`)
+        ? resolve()
+        : undefined;
     server.stdout!.on("data", onData);
     server.stderr!.on("data", onData);
     server.on("exit", (code) => reject(new Error(`server exited ${code}`)));
+    // A server that never prints its address fails the run instead of hanging it (its timer stops
+    // with the promise either way: an unref'd timer never keeps the process up).
+    setTimeout(() => reject(new Error(`latency: the ${dev ? "dev" : "preview"} server printed no 127.0.0.1:${port} in 60 s`)), 60_000).unref();
   });
   return { base: `http://127.0.0.1:${port}`, server };
 }
