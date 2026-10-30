@@ -83,7 +83,7 @@ final class PhoneAdmission {
     static func spec(_ phone: MobileHostPairRequest, user: String) -> CmuxDialogSpec {
         CmuxDialogSpec(title: IPhoneHostStrings.phoneAccessTitle(phone.name),
                        lines: [IPhoneHostStrings.signedInAs(user), IPhoneHostStrings.irohAdmissionBody, IPhoneHostStrings.pairKey(phone.identityKey)],
-                       buttons: [CmuxDialogButton(id: "deny", title: IPhoneHostStrings.pairDeny, role: .cancel),
+                       buttons: [.cancel(), CmuxDialogButton(id: "deny", title: IPhoneHostStrings.pairDeny),
                                  CmuxDialogButton(id: "allow", title: IPhoneHostStrings.pairAllow)],
                        identifier: dialogIdentifier)
     }
@@ -92,25 +92,31 @@ final class PhoneAdmission {
         await askOnThisMac(phone, user: user, timeout: .seconds(120))
     }
 
-    static func askOnThisMac(_ phone: MobileHostPairRequest, user: String, timeout: Duration) async -> PromptResult {
+    static func askOnThisMac(_ phone: MobileHostPairRequest, user: String, timeout: Duration,
+                             center: CmuxDialogCenter = .shared,
+                             keyWindow: @MainActor () -> NSWindow? = { NSApp?.keyWindow }) async -> PromptResult {
         return await withCheckedContinuation { continuation in
             let timer = DemandTimer(owner: "PhoneAdmission.question")
-            let scope: CmuxDialogScope = if let window = NSApp?.keyWindow, window.isVisible, !window.isMiniaturized {
+            let scope: CmuxDialogScope = if let window = keyWindow(), window.isVisible, !window.isMiniaturized {
                 .window(window)
             } else {
                 .app
             }
-            let id = CmuxDialogCenter.shared.present(spec(phone, user: user), in: scope) { answer in
+            let id = center.present(spec(phone, user: user), in: scope) { answer in
                 timer.cancel()
                 if answer.isDismissal {
                     continuation.resume(returning: .unavailable)
                 } else if answer.button == "allow" {
                     continuation.resume(returning: .allow)
-                } else {
+                } else if answer.button == "deny" {
+                    // Only the explicit Don't Allow button starts the denial cooldown.
                     continuation.resume(returning: .deny)
+                } else {
+                    // Escape and Command-period press Cancel without recording a denial.
+                    continuation.resume(returning: .unavailable)
                 }
             }
-            timer.schedule(after: timeout) { @MainActor in CmuxDialogCenter.shared.dismiss(id) }
+            timer.schedule(after: timeout) { @MainActor in center.dismiss(id) }
         }
     }
 }
