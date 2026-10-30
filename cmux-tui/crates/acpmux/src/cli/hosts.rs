@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[path = "host_auto_update.rs"]
 mod host_auto_update;
 #[path = "host_hold.rs"]
-mod host_hold;
+pub(crate) mod host_hold;
 #[path = "host_lock.rs"]
 mod host_lock;
 #[path = "host_migrate.rs"]
