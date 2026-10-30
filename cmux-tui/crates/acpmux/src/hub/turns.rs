@@ -1298,6 +1298,8 @@ impl Hub {
                 self.write_turn_result(session, msg, git);
             }
         }
+        // Its harness wrote the turn's spend: read it (`usage_view.rs`).
+        self.refresh_usage_stats_of(session);
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
