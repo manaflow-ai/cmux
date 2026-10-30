@@ -499,29 +499,52 @@ async fn a_review_box_runs_its_first_prompt_from_another_agent_as_its_task() {
 }
 
 /// A chat whose inbox took a message before it became a review box (a `review.` tag set later):
-/// no notice of it steers into the review turn that starts next; it waits for the turn's end.
+/// no notice of it steers into the review turn that starts next. The message comes while the
+/// person's prompt waits behind a turn, so its notice is held for the next turn's start (as
+/// `a_queued_prompt_never_waits_behind_agent_messages` shows); the tag comes before that turn.
 #[tokio::test]
 async fn an_inbox_message_from_before_the_review_tag_never_steers_into_the_review() {
     let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let id = new_session(&mut c, "review-3").await;
-    let fyi = from_agent(&id, "f-1", "lane-b", "CI is slow today", json!({"class": "fyi"}));
-    c.send(method::SESSION_PROMPT, fyi).await;
-    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "f-1").await;
+    let gate = fifo("before");
+    let first = c
+        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
+        .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    let review_gate = fifo("review");
+    let text = format!("gate: {}", review_gate.display());
+    let review = c.send(method::SESSION_PROMPT, prompt(&id, &text, Some("p-review"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-review" && p["queued"] == true)
+        .await;
+    let msg = from_agent(&id, "m-1", "lane-b", "blocked on #5", json!({"class": "blocker"}));
+    let sent = c.send(method::SESSION_PROMPT, msg).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
     assert_eq!(accepted["inbox"], true, "{accepted}");
     c.request(method::MUX_TAG, json!({"sessionId": id, "set": {"review.target": "cmux:a..b"}}))
         .await
         .unwrap();
-    let gate = fifo("tagged");
-    let review = c
-        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
-        .await;
-    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    let all = prompts(&hub, &id);
-    assert!(notices(&hub, &id).is_empty(), "no notice into the review: {all:?}");
-    assert!(!all.iter().any(|m| m["steer"] == true), "{all:?}");
+
+    // The review turn starts and ends: on base the held notice steered in at its start.
     open(&gate).await;
-    answers(&mut c, &[review]).await;
-    let _ = std::fs::remove_file(gate);
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    open(&review_gate).await;
+    let answered = answers(&mut c, &[first, review]).await;
+    assert_eq!(answered[&review]["stopReason"], "end_turn", "{}", answered[&review]);
+    let review_turn = answered[&review]["_meta"]["acpmux"]["turnId"].clone();
+    let all = prompts(&hub, &id);
+    assert!(
+        !all.iter().any(|m| m["steer"] == true && m["turnId"] == review_turn),
+        "nothing steered into the review: {all:?}"
+    );
+    assert!(
+        notices(&hub, &id).iter().all(|n| n["turnId"] != review_turn),
+        "no notice in the review's turn: {all:?}"
+    );
+    // After the review it wakes the chat as a turn of its own, which answers its sender.
+    let woke = answers(&mut c, &[sent]).await;
+    assert_ne!(woke[&sent]["_meta"]["acpmux"]["turnId"], review_turn, "{}", woke[&sent]);
+    for path in [gate, review_gate] {
+        let _ = std::fs::remove_file(path);
+    }
 }
