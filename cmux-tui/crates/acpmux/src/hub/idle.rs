@@ -398,6 +398,86 @@ impl Hub {
             let _ = hub.child_for_since(&session, stops).await;
         });
     }
+
+    /// What keeps this daemon in use with no client (`daemon/unused_exit.rs`), or None: its
+    /// startup, store and chat-log load or adoption still running, a peer link, a listener another machine reaches it by
+    /// (the mesh relay, WireGuard, the tailnet, a WebSocket listener off loopback), an
+    /// undelivered message or a watch, a running agent or agent host (adopted or not), a turn or
+    /// anything one waits on, a background task, or a move to another machine under way.
+    pub(crate) async fn in_use(&self) -> Option<&'static str> {
+        // Still loading: queued prompts and cut turns the last daemon left resume from the chat
+        // logs, and adoption reattaches running agents.
+        if !self.store_loaded()
+            || !*self.startup_ready.borrow()
+            || !*self.adoption_ready.borrow()
+            || !*self.logs_ready.borrow()
+        {
+            return Some("its startup");
+        }
+        // A link this daemon keeps to a peer may carry work for that peer's agents (the GitHub
+        // broker, a relay): it never passes through `serve_connection_from` here.
+        if !self.connected_peers().is_empty() {
+            return Some("a peer link");
+        }
+        if self.mesh.get().is_some() {
+            return Some("the mesh relay");
+        }
+        if self.wireguard.is_some() {
+            return Some("WireGuard");
+        }
+        #[cfg(all(unix, feature = "tailnet"))]
+        if self.tailnet_controller.get().is_some_and(|c| c.node().is_some()) {
+            return Some("the tailnet listener");
+        }
+        let listen = self.config.read().await.websocket.as_ref().map(|w| w.listen.clone());
+        if listen.is_some_and(|l| !on_loopback(&l)) {
+            return Some("a WebSocket listener off loopback");
+        }
+        if self.outbox.unsettled() > 0 {
+            return Some("an undelivered message");
+        }
+        if !self.watches.is_empty() {
+            return Some("a watch");
+        }
+        for session in self.sessions() {
+            // A move to another machine not yet committed or aborted: its watch still settles
+            // it, and the chat stays frozen here until it does (`transfer_watch.rs`).
+            if session.moving().is_some() && session.meta().moved_to.is_none() {
+                return Some("a move under way");
+            }
+            // A child being published or ended holds the lock: counted as running.
+            if session.child.try_lock().map(|c| c.is_some()).unwrap_or(true) {
+                return Some("a running agent");
+            }
+            if session.turn().is_some()
+                || session.harness_turn.load(Ordering::SeqCst)
+                || session.queued() > 0
+                || !session.pending_permissions().is_empty()
+                || session.asks_in_flight.load(Ordering::SeqCst) > 0
+                || session.agent_requests.load(Ordering::SeqCst) > 0
+                || self.continuation_pending(&session)
+            {
+                return Some("a turn");
+            }
+            if self.bg_running(&session) {
+                return Some("a background task");
+            }
+        }
+        // An agent host still running, adopted or not, would lose its daemon; records that
+        // cannot be read may hide one.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
+        if live.is_none_or(|live| !live.is_empty()) {
+            return Some("an agent host");
+        }
+        None
+    }
+}
+
+/// Whether a listen address (`127.0.0.1:47811`, `[::1]:0`, `localhost:8080`) is loopback only;
+/// one that does not parse is not.
+fn on_loopback(listen: &str) -> bool {
+    listen.parse::<std::net::SocketAddr>().is_ok_and(|a| a.ip().is_loopback())
+        || listen.strip_prefix("localhost:").is_some_and(|port| port.parse::<u16>().is_ok())
 }
 
 #[cfg(test)]

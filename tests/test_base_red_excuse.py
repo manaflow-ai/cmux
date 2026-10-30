@@ -92,7 +92,7 @@ class InProgressJobLogGitHub(FakeGitHub):
         if args[:2] == ["run", "view"]:
             raise excuse.Refused("logs will be available when it is complete")
         for job_id, text in self.logs.items():
-            if args == ["api", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
+            if args == ["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
                 # Raw endpoint output has timestamps but no job/step prefix.
                 return "\n".join(line.split("\t", 2)[-1] for line in text.splitlines())
         raise AssertionError(args)
@@ -106,8 +106,15 @@ class JobLogEndpoint(unittest.TestCase):
         self.assertEqual(github.json(f"repos/{REPO}/actions/runs/10")["status"], "in_progress")
         self.assertEqual(
             github.log_requests,
-            [["api", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
+            [["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
         )
+
+    def test_job_logs_are_read_even_with_terminal_colours(self):
+        # gh 2.98 refuses `gh api` output holding escape sequences unless asked, and
+        # almost every job log has ANSI colours: without the flag nothing can be judged.
+        github = InProgressJobLogGitHub()
+        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertTrue(all("--allow-escape-sequences" in r for r in github.log_requests))
 
     def test_new_failure_in_finished_job_still_blocks(self):
         github = InProgressJobLogGitHub()

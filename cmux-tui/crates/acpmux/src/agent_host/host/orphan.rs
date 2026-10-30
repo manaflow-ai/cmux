@@ -170,7 +170,7 @@ impl State {
     async fn pending(&self) -> Pending {
         let translator = !self.held.is_empty()
             || match &self.translator {
-                Some(tr) => tr.holding() || tr.runs_background_work().await,
+                Some(tr) => tr.holding().is_some() || tr.runs_background_work().await,
                 None => false,
             };
         Pending {

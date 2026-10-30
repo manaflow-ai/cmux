@@ -624,8 +624,6 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
-    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
-    pub(super) auto_resumes: auto_resume::Pending,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -804,7 +802,6 @@ impl Hub {
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
-            auto_resumes: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -1089,6 +1086,8 @@ impl Hub {
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            auto_resume_restored: AtomicBool::new(false),
+            auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
@@ -1293,7 +1292,10 @@ impl Hub {
             if s.id.starts_with(key) || meta.name.starts_with(key) {
                 counts[0] += 1;
             } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
-                counts[if meta.status == SessionStatus::Closed { 2 } else { 1 }] += 1;
+                let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
+                if let Some(count) = counts.get_mut(slot) {
+                    *count += 1;
+                }
             }
         }
         counts

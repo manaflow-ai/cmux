@@ -75,6 +75,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   ];
   const single = task(9, "Add width and height to cart thumbnail images", "CartLineItem renders images unsized.");
 
+  /// A 1x1 PNG: the bytes `_acpmux/attachment` answers for a sent image.
+  const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
   let seq = 0;
   let history: Record_[] = [];
   let sessions: Summary[] = [];
@@ -145,6 +148,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       }
       case "_acpmux/events":
         return { result: { events: [], hasMore: false, lastSeq: seq } };
+      // A sent image's bytes, the way the daemon answers it: `{ mimeType, data }` (direct.ts
+      // promptImageData). An empty answer reads as "acpmux has none" and the image draws nothing.
+      case "_acpmux/attachment":
+        return params.id === "img-1" ? { result: { mimeType: "image/png", data: PNG } } : { result: null };
       case "session/new":
         return { result: { sessionId: `child-${++children}` } };
       case "session/prompt":
@@ -1043,8 +1050,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       // Closed, the line alone; its images are in the panel the line opens.
       expect(await card.locator(".cv-message__images").count()).toBe(0);
       await card.getByRole("button", { name: /Message from Grid fix/ }).click();
-      await card.locator(".cv-message__images").waitFor({ timeout: 5_000 });
+      // The drawn image, not its row: the row draws a placeholder while the image is read, and an
+      // image acpmux has no bytes for leaves it empty (and hidden).
+      await card.locator(".cv-message__images img.cv-user__image").waitFor({ timeout: 5_000 });
       expect(await card.locator(".cv-message__images").count()).toBe(1);
+      expect(await card.locator(".cv-message__images img.cv-user__image").getAttribute("src")).toBe(
+        `data:image/png;base64,${PNG}`,
+      );
       // No read receipt or "Steered" line: a message to the agent is the agent's to read.
       expect(await page.locator(".cv-incoming .cv-user__read, .cv-incoming .cv-user__steer").count()).toBe(0);
       await page.close();
