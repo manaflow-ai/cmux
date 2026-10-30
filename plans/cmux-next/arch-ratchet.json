@@ -833,6 +833,198 @@
       "applied_sha": "c24aa209aad98ccedfbbba5bba660ac5c660c0be"
     }
   ],
+  "escape_reviews": [
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Crash/RunMarkerFile.swift",
+      "text": "allowBlocking(.terminate) {",
+      "state": "unreviewed",
+      "author": "p02-threads-035, 458fbf71334c (merge 8829c1e9729)",
+      "owner": "PL-threads (p02-threads; no OWNERS.md row, Performance Lead)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Platform/StandardErrorLogSink+Linux.swift",
+      "text": "// blocking-allow: the blocking detector reports through Logger, so a checked write would report itself (os.Logger's role on Darwin)",
+      "state": "unreviewed",
+      "author": "p15-oracle-120, 14ccf445746",
+      "owner": "PL-oracle",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/Process+OwnThread.swift",
+      "text": "// blocking-allow: the spawn runs on this thread of its own, made for it; nothing else waits on it.",
+      "state": "unreviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/RunningCodeSigningTeam.swift",
+      "text": "// blocking-allow: `call` runs it as the caller's checked blocking call (blockingCall(.systemCall)).",
+      "state": "unreviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/RunningCodeSigningTeam.swift",
+      "text": "// blocking-allow: `call` runs it as the caller's checked blocking call (blockingCall(.systemCall)).",
+      "state": "unreviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompatCore/RunningCodeSigningTeam.swift",
+      "text": "// blocking-allow: `call` runs it as the caller's checked blocking call (blockingCall(.systemCall)).",
+      "state": "unreviewed",
+      "author": "cp/fix-server-helper-sources, 08542007d2d",
+      "owner": "Performance Lead (PL-guardrails)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/QuitDeadline.swift",
+      "text": "allowBlocking(.terminate) { never.blockingWait() }",
+      "state": "unreviewed",
+      "author": "p02-threads-035, 458fbf71334c (merge 8829c1e9729)",
+      "owner": "PL-threads (p02-threads; no OWNERS.md row, Performance Lead)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashKeys.swift",
+      "text": "// blocking-allow: a fatal-signal handler can call no seam (blockingCall records and may allocate).",
+      "state": "unreviewed",
+      "author": "p10-stability-207 (fixer), c35047d7ad1b",
+      "owner": "PL-stability",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalOutputLane.swift",
+      "text": "allowBlocking(.surfaceTeardown) { queue.blockingSync {} }",
+      "state": "unreviewed",
+      "author": "p02-threads-035 (fixer), cac0aac3227c",
+      "owner": "PL-ghostty",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTrace/LaunchClock.swift",
+      "text": "// blocking-allow: PROC_PIDTBSDINFO of this process copies its in-memory proc fields; no disk, lock or process wait.",
+      "state": "unreviewed",
+      "author": "p09-observability-034, e64a5a358f02",
+      "owner": "PL-trace",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/SchemaFile.swift",
+      "text": "// blocking-allow: host build tool, not the app; no app thread to block.",
+      "state": "unreviewed",
+      "author": "p05-ipc-027, 6a78f3222f52",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/WireGenArguments.swift",
+      "text": "// blocking-allow: host build tool, not the app; no app thread to block.",
+      "state": "unreviewed",
+      "author": "p05-ipc-027, 6a78f3222f52",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/WireGenArguments.swift",
+      "text": "// blocking-allow: host build tool, not the app; the rename that makes the write atomic.",
+      "state": "unreviewed",
+      "author": "cp/fix-wiregen-atomic-write-hang, e12deef8156",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/WireGenArguments.swift",
+      "text": "// blocking-allow: host build tool, not the app; removes the temporary file of a failed write.",
+      "state": "unreviewed",
+      "author": "cp/fix-wiregen-atomic-write-hang, e12deef8156",
+      "owner": "PL-ipc (p05-ipc; no OWNERS.md row, Performance Lead)",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/Journal.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "unreviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/Journal.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "unreviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/Journal.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "unreviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/ReplayRun.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "unreviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    },
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/OracleReplay/ReplayRun.swift",
+      "text": "// blocking-allow: host oracle tool, not the app; no app thread to block.",
+      "state": "unreviewed",
+      "author": "p15-oracle-104, 38b3314c2ec",
+      "owner": "PL-oracle",
+      "receipt": "",
+      "expiry": "2026-11-06",
+      "note": "reward-hacking audit 2026-10-30: added by the task that needed it; no independent review receipt in landing/quality-receipts.txt or the commit message"
+    }
+  ],
   "observer_wrappers": [
     "AppEvents",
     "HomeProjection",
