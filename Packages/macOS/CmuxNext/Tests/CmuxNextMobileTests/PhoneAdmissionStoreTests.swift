@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextMobile
@@ -15,13 +16,14 @@ struct PhoneAdmissionStoreTests {
     @Test func persistenceAndUserOwnership() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = MobileHostPairedStore()
+        let seal = MobileHostMemoryPairingSeal()
+        let store = MobileHostPairedStore(seal: seal)
         store.select(userID: "one")
         await store.attach(directory: directory)
         let generation = store.generation
         try await store.change(for: "one", generation: generation) { $0.approve(Self.phone, at: Date()) }
         #expect(store.trusts(Self.phone))
-        let restored = MobileHostPairedStore()
+        let restored = MobileHostPairedStore(seal: seal)
         restored.select(userID: "one")
         await restored.attach(directory: directory)
         #expect(restored.trusts(Self.phone))
@@ -48,7 +50,7 @@ struct PhoneAdmissionStoreTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("blocked".utf8).write(to: root)
-        let store = MobileHostPairedStore()
+        let store = MobileHostPairedStore(seal: MobileHostMemoryPairingSeal())
         store.select(userID: "one")
         await store.attach(directory: root)
         await #expect(throws: (any Error).self) {
@@ -62,17 +64,69 @@ struct PhoneAdmissionStoreTests {
         #expect(!store.trusts(Self.phone))
     }
 
+    /// Invoke removal inside the sealed read, after bytes were read but before publication.
+    /// No sleeps, blocked threads, or scheduling assumptions are needed.
+    private final class ReadHookSeal: MobileHostPairingSealStore {
+        let backing = MobileHostMemoryPairingSeal()
+        let hook = Mutex<(@Sendable () -> Void)?>(nil)
+        func digest() -> Data? {
+            let callback = hook.withLock { hook in
+                let callback = hook
+                hook = nil
+                return callback
+            }
+            callback?()
+            return backing.digest()
+        }
+        func setDigest(_ digest: Data) -> Bool { backing.setDigest(digest) }
+        func clearDigest() -> Bool { backing.clearDigest() }
+    }
+
     @Test func removalDuringReloadStaysRemoved() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = MobileHostPairedStore()
+        let seal = ReadHookSeal()
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        var seeded = MobileHostPairedDevices(userID: "one")
+        seeded.approve(Self.phone, at: Date())
+        try file.save(seeded)
+        #expect(file.load(userID: "one").decision(for: Self.phone) == .trusted)
+        let store = MobileHostPairedStore(seal: seal)
         store.select(userID: "one")
-        let loading = Task { await store.attach(directory: directory) }
-        // This marker is synchronous; whichever side of the load wins, the result cannot restore the phone.
+        seal.hook.withLock { $0 = {
+            #expect(store.current == nil)
+            store.forget(id: Self.phone.phoneDeviceID, transport: .iroh)
+        } }
+        await store.attach(directory: directory)
+        await store.reload() // also drains the queued removal
+        #expect(!store.trusts(Self.phone))
+        file.forgetThisRun()
+        let restored = MobileHostPairedStore(seal: seal)
+        restored.select(userID: "one")
+        await restored.attach(directory: directory)
+        #expect(!restored.trusts(Self.phone))
+    }
+
+    @Test func restoredOlderSealedFileDoesNotRestoreRemovedPhone() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        let store = MobileHostPairedStore(seal: seal)
+        store.select(userID: "one")
+        await store.attach(directory: directory)
+        try await store.change(for: "one") { $0.approve(Self.phone, at: Date()) }
+        #expect(store.trusts(Self.phone))
+        let older = try Data(contentsOf: file.file)
         store.forget(id: Self.phone.phoneDeviceID, transport: .iroh)
-        await loading.value
         await store.reload()
         #expect(!store.trusts(Self.phone))
+        try older.write(to: file.file, options: .atomic)
+        file.forgetThisRun() // a relaunch retains only the Keychain seal, not in-process digests
+        let restored = MobileHostPairedStore(seal: seal)
+        restored.select(userID: "one")
+        await restored.attach(directory: directory)
+        #expect(!restored.trusts(Self.phone))
     }
 
     @Test func aValidUnsealedJsonFileIsNotTrustedAfterRelaunch() async throws {
@@ -83,7 +137,7 @@ struct PhoneAdmissionStoreTests {
         list.approve(Self.phone, at: Date())
         let data = try JSONEncoder().encode(list)
         try data.write(to: directory.appendingPathComponent("paired-devices.json"))
-        let restored = MobileHostPairedStore()
+        let restored = MobileHostPairedStore(seal: MobileHostMemoryPairingSeal())
         restored.select(userID: "one")
         await restored.attach(directory: directory)
         #expect(!restored.trusts(Self.phone))

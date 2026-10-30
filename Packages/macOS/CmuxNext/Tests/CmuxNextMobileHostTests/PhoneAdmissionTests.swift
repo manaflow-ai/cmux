@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextMobile
 @testable import CmuxNextMobileHost
 import Foundation
@@ -8,7 +9,7 @@ import Testing
                                              identityKey: String(repeating: "a", count: 64), approvalKey: "", transport: .iroh)
 
     static func store(at directory: URL) async -> MobileHostPairedStore {
-        let store = MobileHostPairedStore()
+        let store = MobileHostPairedStore(seal: MobileHostMemoryPairingSeal())
         store.select(userID: "one")
         await store.attach(directory: directory)
         return store
@@ -129,7 +130,7 @@ import Testing
     @Test func localRowsRemainRemovableWhenIPhoneHostIsOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let host = IPhoneHostService()
+        let host = IPhoneHostService(pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
         host.pairedStore.select(userID: "one")
         await host.pairedStore.attach(directory: directory)
         try await host.pairedStore.change(for: "one") { $0.approve(Self.phone, at: Date()) }
@@ -137,5 +138,6 @@ import Testing
         #expect(host.pageJSON["phones"]?.arrayValue?.first?["removable"]?.boolValue == true)
         await host.removePhone(id: "iroh:" + Self.phone.phoneDeviceID)
         #expect(!host.pairedStore.trusts(Self.phone))
+        await host.pairedStore.reload()
     }
 }

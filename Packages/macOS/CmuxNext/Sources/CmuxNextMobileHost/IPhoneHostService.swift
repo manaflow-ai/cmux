@@ -116,7 +116,7 @@ public final class IPhoneHostService {
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
-    public let pairedStore = MobileHostPairedStore()
+    public let pairedStore: MobileHostPairedStore
     @ObservationIgnored var phoneAdmission: PhoneAdmission?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
@@ -157,7 +157,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init() {
+    public init(pairedStore: MobileHostPairedStore = MobileHostPairedStore()) {
+        self.pairedStore = pairedStore
         pairedStore.observe { [weak self] _ in
             // task-owner: one main-actor update per serialized list change
             Task { @MainActor [weak self] in
