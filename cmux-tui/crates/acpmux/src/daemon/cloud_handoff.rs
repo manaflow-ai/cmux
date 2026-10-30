@@ -335,8 +335,8 @@ struct Track {
     now: Now,
     /// The last turn the store refused (or had no hand-off for): its end is not sent.
     refused: Option<u64>,
-    /// The last turn whose end was reported here (sent, or waiting in `later`): a late retry
-    /// decision for it never replaces that end.
+    /// The newest turn whose end was reported here (sent, or waiting in `later`): a late retry
+    /// decision for it or an older turn never replaces that end (hand-off turns only grow).
     ended: Option<u64>,
 }
 
@@ -529,7 +529,7 @@ impl<I: Io> Reporter<I> {
         // A newer end of the session replaces one still waiting (the store keeps one turn).
         self.later.remove(session);
         if let Some(track) = self.tracks.get_mut(session) {
-            track.ended = Some(turn);
+            track.ended = track.ended.max(Some(turn));
         }
         if self.report(session, turn, status, note.clone()).await == Outcome::Unsent {
             self.send_later(
@@ -552,10 +552,11 @@ impl<I: Io> Reporter<I> {
         self.later.insert(session.to_owned(), later);
     }
 
-    /// Whether `turn`'s end was reported here, or waits to be sent again.
+    /// Whether the end of `turn`, or of a newer turn, was reported here or waits to be sent
+    /// again: a decision for `turn` comes late then.
     fn ended_here(&self, session: &str, turn: u64) -> bool {
-        self.tracks.get(session).is_some_and(|t| t.ended == Some(turn))
-            || self.later.get(session).is_some_and(|l| l.turn == turn)
+        self.tracks.get(session).is_some_and(|t| t.ended >= Some(turn))
+            || self.later.get(session).is_some_and(|l| l.turn >= turn)
     }
 
     /// A failed turn acpmux was to continue gets no continuation: reported failed now.
@@ -675,8 +676,10 @@ impl<I: Io> Reporter<I> {
         };
         let Some(track) = self.tracks.get_mut(session) else { return };
         // A new attempt of an ended turn: its end is to come again.
-        if turn.is_some() && track.ended == turn {
-            track.ended = None;
+        if let Some(turn) = turn
+            && track.ended >= Some(turn)
+        {
+            track.ended = turn.checked_sub(1);
         }
         track.now = match answer {
             Some((turn, Outcome::Accepted)) => Now::Reporting { turn, last: Some("running") },
