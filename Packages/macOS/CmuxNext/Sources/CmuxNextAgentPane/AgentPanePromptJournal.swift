@@ -95,6 +95,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
     /// Runs after a record's failed write, before it is taken back (tests: a disconnect in between).
     let afterFailedWrite = Mutex<(@Sendable () -> Void)?>(nil)
+    /// Runs between a change and its write (tests: another change written in between).
+    let beforeWrite = Mutex<(@Sendable () -> Void)?>(nil)
 
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
@@ -282,6 +284,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return (state.generation, state.entries)
         }
         guard let (generation, entries) = snapshot else { return true }
+        beforeWrite.withLock { $0 }?()
         return write(entries, generation: generation)
     }
 

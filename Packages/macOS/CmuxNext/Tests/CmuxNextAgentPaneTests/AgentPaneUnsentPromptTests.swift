@@ -320,6 +320,39 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.prompts(daemon, peer: 1).isEmpty, "the next connection sent a prompt that was refused")
     }
 
+    /// A record whose own write is overtaken: another pane's record writes a newer snapshot that
+    /// holds it, then a later write fails. The first record is on disk, so it is kept and sent;
+    /// the later failure is not its own.
+    @Test func aRecordOvertakenByANewerWriteIsNotRefusedForALaterFailure() throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let journal = AgentPanePromptJournal(url: url)
+        let entry = { (id: String) in
+            AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: id, params: "{}", at: journal.now())
+        }
+        let other = UUID()
+        let fired = Mutex(false)
+        journal.beforeWrite.withLock {
+            $0 = {
+                guard fired.withLock({ let first = !$0; $0 = true; return first }) else { return }
+                // B's record writes a snapshot that holds A's; then B's acknowledgement fails to write.
+                #expect((try? journal.record(entry("p-b"), owner: other)) == true)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+                journal.forget(daemon: Self.daemon, promptId: "p-b")
+            }
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let kept = try journal.record(entry("p-a"), owner: UUID())
+        journal.beforeWrite.withLock { $0 = nil }
+        #expect(kept, "a record a newer snapshot holds on disk was refused for another write's failure")
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId).contains("p-a"))
+    }
+
     /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot
     /// be written: the Retry does not go, and the first send's record stays, so a crash after the
     /// disk recovers still sends that prompt again.
