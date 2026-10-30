@@ -180,6 +180,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
+        expect(initial.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= row.status.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= initial.tray.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
@@ -210,7 +212,13 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
 
         const beforeTick = await measure();
         const beforeTexts = beforeTick.rows.map((row) => row.time.text);
-        await page.waitForTimeout(1_100);
+        await page.waitForFunction(
+          (previous) =>
+            [...document.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")].some(
+              (time, index) => time.textContent?.trim() !== previous[index],
+            ),
+          beforeTexts,
+        );
         const afterTick = await measure();
         expect(afterTick.rows.map((row) => row.time.text)).not.toEqual(beforeTexts);
         expect(afterTick.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
@@ -250,10 +258,48 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
           expect(narrow.head.time.right).toBe(narrowFirst!.time.right);
           expect(narrow.head.status.left).toBe(narrowFirst!.status.left);
           expect(narrow.head.status.right).toBe(narrowFirst!.status.right);
           expect(narrow.head.stop.left).toBe(narrowFirst!.stop.left);
+          await page.waitForFunction(
+            (previous) =>
+              [...document.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")].some(
+                (time, index) => time.textContent?.trim() !== previous[index],
+              ),
+            narrow.rows.map((row) => row.time.text),
+          );
+          const ticked = await measure();
+          expect(ticked.rows.map((row) => row.time.text)).not.toEqual(narrow.rows.map((row) => row.time.text));
+          expect(
+            ticked.rows.every((row) => row.time.lineCount <= 1 && row.time.scrollWidth <= row.time.clientWidth + 1),
+          ).toBe(true);
+          expect(
+            ticked.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
+          ).toBe(true);
+          expect(
+            ticked.rows.every(
+              (row) => row.summary.bottom <= row.time.top + 0.5 && row.status.left >= row.time.right - 0.5,
+            ),
+          ).toBe(true);
+          expect(
+            ticked.rows.map((row) => [
+              row.time.right,
+              row.status.left,
+              row.chevron?.right,
+              row.stop.left,
+              row.time.height,
+            ]),
+          ).toEqual(
+            narrow.rows.map((row) => [
+              row.time.right,
+              row.status.left,
+              row.chevron?.right,
+              row.stop.left,
+              row.time.height,
+            ]),
+          );
         }
         await page.setViewportSize({ width: 300, height: 560 });
 

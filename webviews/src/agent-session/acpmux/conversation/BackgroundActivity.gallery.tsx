@@ -374,7 +374,7 @@ const DURATION_ITEMS: TrayItem[] = [
 
 function DurationTray() {
   return (
-    <div className="acpmux-shell" style={{ padding: "8px", flexDirection: "column" }}>
+    <div className="acpmux-shell" data-bg-gallery style={{ padding: "8px", flexDirection: "column" }}>
       <SubagentTray
         items={DURATION_ITEMS}
         working

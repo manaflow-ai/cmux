@@ -594,10 +594,10 @@ button.cv-subagent > :last-child {
     position: relative;
     display: grid;
     grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
-    grid-template-rows: 28px 28px;
+    grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     column-gap: 4px;
     row-gap: 0;
-    height: 56px;
+    height: calc(2 * var(--ui-row-height, 28px));
     padding: 0 8px;
   }
   .acpmux-running-tray__head > .acpmux-lineage__icon,
@@ -629,7 +629,7 @@ button.cv-subagent > :last-child {
     grid-row: 2;
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
-    top: 28px;
+    top: var(--ui-row-height, 28px);
     bottom: 0;
   }
 }
