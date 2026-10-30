@@ -211,12 +211,22 @@ extension SidebarDocProjection {
     }
 
     /// The band groups whose header this window leaves out when it lists none of their workspaces: the ones another
-    /// window lists (`bandGroupsListedElsewhere`) and the ones of another space than `drag.room` (spaces.md).
+    /// window lists (`bandGroupsListedElsewhere`) and the ones of another space than `drag.room` (spaces.md), with the
+    /// groups nested under those.
     @MainActor public func bandGroupsNotListedHere(drag: SidebarDocDrag) -> Set<String> {
         var hidden = bandGroupsListedElsewhere(drag: drag)
         guard drag.room != nil else { return hidden }
-        for group in bandGroups where !group.lists(inRoom: drag.room) { hidden.insert(group.id) }
-        return hidden
+        var otherSpace = Set(bandGroups.filter { !$0.lists(inRoom: drag.room) }.map(\.id))
+        // A group under another space's group leaves with it: a window never draws a child whose parent it leaves
+        // out. Repeat until no group changes, so a deeper descendant follows whatever order `bandGroups` has.
+        var changed = !otherSpace.isEmpty
+        while changed {
+            changed = false
+            for group in bandGroups where !otherSpace.contains(group.id) {
+                if let parent = group.parent, otherSpace.contains(parent) { changed = otherSpace.insert(group.id).inserted || changed }
+            }
+        }
+        return hidden.union(otherSpace)
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.
