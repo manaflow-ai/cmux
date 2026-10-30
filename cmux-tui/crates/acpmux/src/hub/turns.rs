@@ -359,8 +359,9 @@ impl Hub {
             && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
-        if let Some(inbox) = self.inbox_route(
+        let route = self.inbox_route(
             session,
+            &prompt_id,
             &blocks,
             control,
             opts.send_now,
@@ -368,21 +369,26 @@ impl Hub {
             opts.provenance.as_ref(),
             opts.agent.as_deref(),
             opts.inbox,
-        ) {
-            let (agent, class) = inbox;
-            return Box::pin(self.inbox_accept(
-                session,
-                &blocks,
-                client,
-                &prompt_id,
-                &agent,
-                class,
-                opts.thread.as_deref(),
-                opts.provenance.as_ref(),
-                &mut accept,
-            ))
-            .await;
-        }
+        );
+        // Held until this prompt ends: its turn, or its refusal (`inbox.rs`).
+        let _first_work = match route {
+            super::inbox::Route::First(first) => Some(first),
+            super::inbox::Route::Plain => None,
+            super::inbox::Route::Inbox(agent, class) => {
+                return Box::pin(self.inbox_accept(
+                    session,
+                    &blocks,
+                    client,
+                    &prompt_id,
+                    &agent,
+                    class,
+                    opts.thread.as_deref(),
+                    opts.provenance.as_ref(),
+                    &mut accept,
+                ))
+                .await;
+            }
+        };
         // An inbox notice steers in only while the turn is under its cap and no prompt waits
         // (`inbox.rs`), checked again here at dispatch.
         let notice_held = steer
@@ -587,6 +593,15 @@ impl Hub {
             drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
+            // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
+            // turn starts, so a prompt refused before it names none.
+            if m.turn_count == 0
+                && m.delegator.is_none()
+                && let Some(from) = super::inbox::sender_session(provenance.as_ref())
+                && from != m.id
+            {
+                m.delegator = Some(from);
+            }
             m.turn_count += 1;
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).

@@ -16,7 +16,8 @@
 //! A chat's first work is no inbox item either ([`first_work`]): the first message another agent
 //! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
 //! --prompt-file`, `acpmux new` with a prompt), runs as that prompt, and its sender is the chat's
-//! delegator. Messages after it, and any to a chat that ran a turn, go to the inbox. A lane's
+//! delegator once its turn starts. The prompt holds the first work while it runs
+//! ([`FirstWork`]), so of two that come at once only one is it; a refused one lets go. Messages after it, and any to a chat that ran a turn, go to the inbox. A lane's
 //! brief came to it as a notice of its brief (2026-10-30), so the lane read a thread where it
 //! should have read its task.
 //!
@@ -149,6 +150,36 @@ pub struct Inbox {
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
+    /// The prompt that holds the chat's first work ([`FirstWork`]) while it runs: another agent's
+    /// message meanwhile is no first work.
+    pub(super) first: Option<String>,
+}
+
+/// How [`Hub::inbox_route`] routes a prompt.
+pub(super) enum Route {
+    /// Into the inbox: its sender and class.
+    Inbox(String, PromptClass),
+    /// The chat's first work, run as its prompt; the hold ends when this drops.
+    First(FirstWork),
+    /// As any prompt.
+    Plain,
+}
+
+/// A prompt's hold on its chat's first work ([`Inbox::first`]), let go when the prompt ends: a
+/// refused one leaves the next message free to be the first work.
+pub(super) struct FirstWork {
+    session: Weak<Session>,
+    prompt_id: String,
+}
+
+impl Drop for FirstWork {
+    fn drop(&mut self) {
+        let Some(session) = self.session.upgrade() else { return };
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        if inbox.first.as_deref() == Some(self.prompt_id.as_str()) {
+            inbox.first = None;
+        }
+    }
 }
 
 /// A notice whose task has not finished (`Inbox::carrying`).
@@ -220,13 +251,22 @@ pub(super) fn review_box(session: &Session) -> bool {
     crate::review_box::of_meta(&session.meta.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-/// Whether a message now would be the chat's first work: it never ran a turn, none runs, and
-/// nothing waits in its queue or its inbox.
-fn first_work(session: &Session) -> bool {
-    session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 0
+/// Takes the chat's first work for `prompt_id` when a message now would be it: the chat never ran
+/// a turn, none runs, nothing waits in its queue or its inbox, and no other prompt holds it. Taken
+/// under the inbox's lock, so of two messages that come at once only one is the first work.
+fn first_work(session: &Arc<Session>, prompt_id: &str) -> Option<FirstWork> {
+    let idle = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 0
         && session.turn().is_none()
-        && session.queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
-        && session.inbox.lock().unwrap_or_else(|e| e.into_inner()).items.is_empty()
+        && session.queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+    if !idle {
+        return None;
+    }
+    let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+    if !inbox.items.is_empty() || inbox.first.is_some() {
+        return None;
+    }
+    inbox.first = Some(prompt_id.to_owned());
+    Some(FirstWork { session: Arc::downgrade(session), prompt_id: prompt_id.to_owned() })
 }
 
 /// The refusal of a steer-only message from another agent to a review box's running turn.
@@ -325,7 +365,7 @@ fn label(key: &str) -> String {
 
 /// The session a message came from, when its provenance names one (not a sender that only
 /// named itself).
-fn sender_session(provenance: Option<&Value>) -> Option<String> {
+pub(super) fn sender_session(provenance: Option<&Value>) -> Option<String> {
     let from = provenance?.get("from")?.as_str()?;
     if from == crate::prompt_provenance::NAMED_SENDER || from.is_empty() {
         return None;
@@ -454,7 +494,8 @@ impl Hub {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn inbox_route(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
+        prompt_id: &str,
         blocks: &[Value],
         control: Control,
         send_now: bool,
@@ -462,7 +503,7 @@ impl Hub {
         provenance: Option<&Value>,
         agent: Option<&str>,
         plain: bool,
-    ) -> Option<(String, PromptClass)> {
+    ) -> Route {
         // A chat closing or closed takes a message as it did before the inbox: none waits in
         // the inbox of a chat that will not wake. A review box has no inbox (module docs).
         if !plain
@@ -470,19 +511,21 @@ impl Hub {
             || super::queue::closing(session)
             || review_box(session)
         {
-            return None;
+            return Route::Plain;
         }
-        let agent = super::digest::agent_sender(provenance, agent)?;
+        let Some(agent) = super::digest::agent_sender(provenance, agent) else {
+            return Route::Plain;
+        };
         if !takes(true, send_now, control, blocks, provenance) {
-            return None;
+            return Route::Plain;
         }
-        // A chat's first work runs as its prompt, not as a notice of it (module docs).
-        if first_work(session) {
-            self.note_delegator(session, provenance);
-            return None;
+        // A chat's first work runs as its prompt, not as a notice of it (module docs). Its sender
+        // is the delegator once its turn starts (`turns.rs`), not before: a refused one is not.
+        if let Some(first) = first_work(session, prompt_id) {
+            return Route::First(first);
         }
         let class = crate::prompt_class::of_message(class, true).unwrap_or(PromptClass::Result);
-        Some((agent, class))
+        Route::Inbox(agent, class)
     }
 
     /// `session/prompt` of another agent's message the inbox takes (`turns.rs`): logged, put in
@@ -619,7 +662,7 @@ impl Hub {
 
     /// The first message to a chat that never ran a turn names its delegator: its later actions
     /// wake the chat too.
-    fn note_delegator(&self, session: &Session, provenance: Option<&Value>) {
+    fn note_delegator(&self, session: &Arc<Session>, provenance: Option<&Value>) {
         let Some(from) = sender_session(provenance) else { return };
         let set = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
