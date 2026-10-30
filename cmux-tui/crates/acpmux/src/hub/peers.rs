@@ -995,26 +995,25 @@ impl Hub {
             (Some(row(r)), false)
         } else {
             // One pass over the rows, as before short names: whole names and prefixes, and the
-            // short-name candidates beside them (kept only while no whole name or prefix matched).
-            let (mut matches, mut shorts) = (Vec::new(), Vec::new());
+            // short-name candidates beside them as references (kept only while no whole name or
+            // prefix matched). Only the one row picked is cloned, never a candidate dropped later.
+            let (mut strict, mut shorts) = (Vec::new(), Vec::new());
             for (id, r) in map.iter() {
                 if names_remote(id, r, key) {
-                    matches.push(row(r));
-                } else if matches.is_empty() && remote_segment(r, key) {
-                    shorts.push((row(r), remote_closed(r)));
+                    strict.push(&**r);
+                } else if strict.is_empty() && remote_segment(r, key) {
+                    shorts.push(&**r);
                 }
             }
-            let short = matches.is_empty();
-            if short {
+            let short = strict.is_empty();
+            let mut matches: Vec<&RemoteSession> = if short {
                 // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
-                let live = shorts.iter().any(|(_, closed)| !closed);
-                matches = shorts
-                    .into_iter()
-                    .filter(|(_, closed)| !live || !closed)
-                    .map(|(row, _)| row)
-                    .collect();
-            }
-            (if matches.len() == 1 { matches.pop() } else { None }, short)
+                let live = shorts.iter().any(|r| !remote_closed(r));
+                shorts.into_iter().filter(|r| !live || !remote_closed(r)).collect()
+            } else {
+                strict
+            };
+            (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
         };
         drop(map);
         let (peer_name, id, summary) = hit?;
