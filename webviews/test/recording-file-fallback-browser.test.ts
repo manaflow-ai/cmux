@@ -39,11 +39,9 @@ await requireBrowserLane("recording-file-fallback-browser.test.ts", async () => 
           await recording.waitFor({ timeout: 10_000 });
         } finally {
           // Captures are fixture-only and are retained even on the red/base run.
-          const directory = process.env.RECORDING_CAPTURE_DIR;
-          if (directory) {
-            await mkdir(directory, { recursive: true });
-            await page.screenshot({ path: path.join(directory, `recording-${scheme}.png`) });
-          }
+          const directory = process.env.RECORDING_CAPTURE_DIR ?? "artifacts/attachment-recording";
+          await mkdir(directory, { recursive: true });
+          await page.screenshot({ path: path.join(directory, `recording-${scheme}.png`) });
         }
         expect(await recording.count()).toBe(1);
         expect(await recording.locator(".acpmux-attachment-link-name").textContent()).toContain(".wav");
