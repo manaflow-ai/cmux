@@ -20,6 +20,8 @@ protocol ChatIntents: AnyObject {
     func react(_ ref: PartRef, _ kind: Reaction.Kind)
     /// Tapbacks are offered (false offline: H17).
     var canReact: Bool { get }
+    /// False for read-only run messages that have no conversation-message identity.
+    func canInteract(with message: ID) -> Bool
     /// The owner can take a reply (MessagesLab's `.reply`: swipe-to-reply,
     /// Reply in the menu, "N Replies" opens the thread view); the reply is a
     /// send with the open thread's root.
@@ -86,6 +88,7 @@ protocol ChatIntents: AnyObject {
 extension ChatIntents {
     /// Hosts without Chief cards take no card clicks.
     func chiefCardAction(_ action: HomeChiefCardAction, at ref: PartRef) {}
+    func canInteract(with message: ID) -> Bool { true }
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}

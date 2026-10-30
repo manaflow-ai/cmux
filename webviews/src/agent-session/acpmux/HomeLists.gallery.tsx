@@ -173,11 +173,36 @@ const baseline: Props = {
   onAnswer: () => Promise.resolve("answered" as const),
 };
 
+// Equal-length ages with narrow and wide digits expose proportional-number drift.
+const numericAges = (minutes: number): Props => ({
+  ...baseline,
+  sessions: baseline.sessions.map((entry) => ({
+    ...entry,
+    activityAt: minutesAgo(minutes),
+    updatedAt: minutesAgo(minutes),
+  })),
+  asks: asks.map((ask) => ({ ...ask, at: minutesAgo(minutes) })),
+});
+
 const empty: Props = {
   sessions: [current, ...hidden],
   currentId: current.sessionId,
   onSelect: () => undefined,
   onAnswer: () => Promise.resolve("answered" as const),
+};
+
+// The differing path endings are outside a narrow row's visible command prefix.
+const longCommands: Props = {
+  ...baseline,
+  sessions: inputSessions.slice(0, 2),
+  asks: asks.slice(0, 2).map((ask, index) => ({
+    ...ask,
+    permission: {
+      ...ask.permission,
+      title: "Run the payment tests",
+      command: `bun test packages/payments/integration/checkout/subscriptions/regression/${index === 0 ? "annual-renewal.test.ts" : "monthly-renewal.test.ts"}`,
+    },
+  })),
 };
 
 const cappedInput = Array.from({ length: 5 }, (_, index) =>
@@ -324,9 +349,21 @@ export default componentEntry<Props>({
   },
   load: () => import("./HomeLists").then(({ HomeLists: Component }) => withReceipt(Component)),
   variants: {
+    "long-commands": {
+      note: "Long commands share a prefix but have different file names; each full command remains inspectable on hover.",
+      props: longCommands,
+    },
     baseline: {
       note: "Needs you lists every other chat's ask with its chat, folder and age, Allow once and Deny in place (the first takes ⌥⌘1 and ⌥⌘3); a question and another computer's chat open their chat. Ready for review stays separate, and the current, archived, side and not-ready chats stay out.",
       props: baseline,
+    },
+    "ages-11": {
+      note: "Inbox and review ages with narrow digits: 11 minutes. Compare ages-58 at the same width and theme.",
+      props: numericAges(11),
+    },
+    "ages-58": {
+      note: "The same inbox and review ages with wide digits: 58 minutes. The numeric text keeps the width of ages-11.",
+      props: numericAges(58),
     },
     compact: {
       note: "The compact look: one line per ask, its answers at its end.",
