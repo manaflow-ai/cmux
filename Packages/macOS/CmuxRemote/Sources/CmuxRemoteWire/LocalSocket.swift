@@ -45,8 +45,9 @@ public final class LineChannel: Sendable {
                 state.withLock { $0.closed = true }
                 return nil
             }
+            let chunk = Data(bytes[0..<count])
             let ok = state.withLock { state -> Bool in
-                guard let lines = state.buffer.append(Data(bytes[0..<count])) else { return false }
+                guard let lines = state.buffer.append(chunk) else { return false }
                 state.queued.append(contentsOf: lines)
                 return true
             }
