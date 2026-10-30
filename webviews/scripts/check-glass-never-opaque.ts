@@ -629,7 +629,7 @@ export function findOpaqueOverlays(srcDir: string = SRC): string[] {
   const found: string[] = [];
   const used = new Set<string>();
   for (const block of glassContextRules(srcDir)) {
-    if (/\.gallery\.css$/.test(block.file) || /^(?:gallery|prototypes)\//.test(block.file)) continue;
+    if (block.file.endsWith(".gallery.css") || /^(?:gallery|prototypes)\//.test(block.file)) continue;
     const overlay = targetsOverlay(block.selector);
     const tooltip = TOOLTIP.test(block.selector);
     const glass =
