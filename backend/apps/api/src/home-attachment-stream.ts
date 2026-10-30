@@ -124,19 +124,21 @@ export const streamPartInto = async (upload: R2MultipartUpload, part: number, re
     },
     flush() {
       if (count !== length) refused = true
+      // Every byte passed the claim checks above: while R2 writes the part and has not answered, the claim keeps
+      // renewing, so a slow R2 answer never lets another request take a part this one may still write. Only now:
+      // while bytes stream, the per-chunk check renews and stops a request whose claim was taken.
+      else if (renew)
+        heartbeat = setInterval(() => {
+          if (Date.now() - renewedAt < renew.everyMs) return
+          renewedAt = Date.now()
+          void renew.run().catch(() => false)
+        }, HEARTBEAT_TICK_MS)
     }
   })
+  // Stops when uploadPart settles (finally below).
+  let heartbeat: ReturnType<typeof setInterval> | undefined
   const fixed = new FixedLengthStream(length)
   const piped = request.body.pipeThrough(meter).pipeTo(fixed.writable).catch(() => undefined)
-  // Between chunks, and after the last one while R2 writes the part, the claim keeps renewing: a slow R2
-  // answer never lets another request take the part this one may still write. Stops when uploadPart settles.
-  const heartbeat = renew
-    ? setInterval(() => {
-        if (Date.now() - renewedAt < renew.everyMs) return
-        renewedAt = Date.now()
-        void renew.run().catch(() => false)
-      }, HEARTBEAT_TICK_MS)
-    : undefined
   try {
     const uploaded = await upload.uploadPart(part, fixed.readable)
     await piped
