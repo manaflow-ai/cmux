@@ -6444,17 +6444,33 @@ function AcpmuxPane() {
   // Native/preview bridges have full snapshots rather than producer metadata. Only that
   // compatibility path reconciles a full list; direct streaming publishes each changed id.
   const bridgeProgress = useMemo(() => new AgentProgressStore(), [shownSessionId]);
-  const bridgeStructure = useMemo(() => {
-    if (producerProgress) return undefined;
-    return freshAgents.map((agent) => [agent.id, agent.name, agent.parent, agent.kind,
-      agent.state, agent.action, agent.actionShell, agent.endedAt, agent.agentId,
-      agent.harness, agent.task, agent.startedAt, agent.background, agent.command].join("\u0000")).join("\u0001");
-  }, [producerProgress, freshAgents]);
+  const bridgeVersions = useRef(new Map<string, number | undefined>());
+  const bridgeStructure = useRef<{ agents: readonly Subagent[]; key: string }>({ agents: [], key: "" });
+  let bridgeChanged = bridgeStructure.current.agents.length !== freshAgents.length;
+  if (!bridgeChanged) {
+    for (let index = 0; index < freshAgents.length; index += 1) {
+      const before = bridgeStructure.current.agents[index]!;
+      const after = freshAgents[index]!;
+      if (["id", "name", "parent", "kind", "state", "action", "actionShell", "endedAt", "agentId",
+        "harness", "task", "startedAt", "background", "command"].some((key) => before[key as keyof Subagent] !== after[key as keyof Subagent])) {
+        bridgeChanged = true;
+        break;
+      }
+    }
+  }
+  if (bridgeChanged) {
+    bridgeStructure.current = {
+      agents: freshAgents,
+      key: freshAgents.map((agent) => [agent.id, agent.name, agent.parent, agent.kind, agent.state,
+        agent.action, agent.actionShell, agent.endedAt, agent.agentId, agent.harness, agent.task,
+        agent.startedAt, agent.background, agent.command].join("\u0000")).join("\u0001"),
+    };
+  }
   useLayoutEffect(() => {
-    if (!producerProgress) bridgeProgress.update(freshAgents);
+    if (!producerProgress) bridgeProgress.updateChanged(freshAgents, bridgeVersions.current);
   }, [producerProgress, bridgeProgress, freshAgents]);
   const progressStore = producerProgress ?? bridgeProgress;
-  const structureVersion = producerProgress?.structureVersion ?? bridgeStructure;
+  const structureVersion = producerProgress?.structureVersion ?? bridgeStructure.current.key;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- usage updates have keyed subscriptions
   const chatAgents = useMemo(() => freshAgents, [structureVersion, progressStore, shownSessionId]);
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
