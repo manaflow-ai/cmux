@@ -257,10 +257,9 @@ pub enum Command {
         #[arg(long, default_value = "leo")]
         audience: String,
     },
-    /// List sessions on every host. With no filter, the text view shows the live sessions
-    /// (newest first, at most 40) and says how many it left out; `--json` with no filter is
-    /// every session's full record.
-    #[command(alias = "list", alias = "list-sessions")]
+    /// List sessions on every host: by default only live, named lanes, one short line each;
+    /// `--json` with no filter is every session's full record.
+    #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]

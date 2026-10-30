@@ -1,15 +1,17 @@
-//! `acpmux ls`'s row filters (`--live`, `--name REGEX`, `--host HOST`) and its compact text view.
-//! A busy host lists thousands of sessions, most of them closed, which no agent can read whole:
-//! with no filter the text view shows the live ones, newest first and at most [`COMPACT_ROWS`],
-//! and says how many it left out and which flag shows them. `--json` with no flag is the full
-//! list, unchanged: scripts (lane-place, pr-owner and the reconcilers) read every row.
+//! `acpmux ls`'s flags, row filters (`--live`, `--host HOST`) and handler. A busy host lists
+//! thousands of sessions, most of them closed, which no agent can read whole: with no filter the
+//! text view is the compact one (`cli/ls_table.rs`), which counts what it hides and names the
+//! flag that shows it. `--json` with no flag is the full list, unchanged: scripts (lane-place,
+//! pr-owner and the reconcilers) read every row. A listing never starts a daemon
+//! (`daemon/running.rs`).
 
 use anyhow::Result;
 use serde_json::{Value, json};
 
-use crate::cli::errors::{self as errors, AppError};
-use crate::cli::output::{age, print_json, short};
-use crate::daemon::connect;
+use crate::cli::errors;
+use crate::cli::ls_table::{self, View};
+use crate::cli::output::print_json;
+use crate::daemon::connect_running;
 use crate::rpc::method;
 
 /// `acpmux ls`'s flags (`cli/command.rs` `Command::Ls`).
@@ -39,30 +41,34 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
-    /// Only sessions whose name (`HOST/NAME` for a peer's) matches this regular expression.
-    #[arg(long, value_name = "REGEX")]
-    name: Option<String>,
     /// Only sessions on this host: a peer's name, or this machine's (`local` too).
     #[arg(long, value_name = "HOST")]
     host: Option<String>,
-    /// Text view: every session, closed ones too, instead of the compact live view.
-    #[arg(long)]
+    /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
+    #[arg(long, short)]
     all: bool,
+    /// Text view: every column (AGENT, STATUS, STUCK and LAST, the last prompt).
+    #[arg(long, short)]
+    wide: bool,
 }
 
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
-    let LsArgs { status, pending, tag, limit, fields, since, with_tools, live, name, host, all } =
+    let LsArgs { status, pending, tag, limit, fields, since, with_tools, live, host, all, wide } =
         args;
     let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
     let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
     let fields = fields.as_deref().map(parse_fields).transpose()?;
-    let rows =
-        RowFilter::new(live, name.as_deref(), host.as_deref(), crate::pairing::machine_name())?;
-    // Any filter at all: the text view prints every row it keeps. None (and no
-    // `--all`): the compact live view (`ls.rs`).
-    let compact =
-        !all && !rows.narrows() && status.is_none() && !pending && tag.is_none() && !selected;
-    let client = connect(true).await?;
+    let rows = RowFilter::new(live, host.as_deref(), crate::pairing::machine_name())?;
+    // Any filter at all: the text view hides none of the rows it keeps (`ls_table.rs`).
+    let filtered = rows.narrows() || status.is_some() || pending || tag.is_some() || selected;
+    // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
+    // a host with no sessions).
+    let client = connect_running().await?;
+    // The text view says which peers are down; read alongside the list.
+    let peers = (!json_out && fields.is_none()).then(|| {
+        let client = client.clone();
+        tokio::spawn(async move { client.request(method::MUX_STATUS, json!({})).await })
+    });
     // The daemon already sorts pages newest first. Ask it to trim the response when
     // possible; a `--since` filter must run before the limit, so that combination reads
     // the complete list and applies both filters locally.
@@ -148,16 +154,6 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         Some(Value::Array(rows)) => std::mem::take(rows),
         _ => Vec::new(),
     };
-    if sessions.is_empty() {
-        if compact {
-            println!("no sessions (create one: acpmux new -m codex -n my-task)");
-        } else {
-            println!("no sessions match (acpmux ls --all lists every session)");
-        }
-        return Ok(());
-    }
-    let (sessions, hidden) = text_rows(sessions, compact, COMPACT_ROWS);
-    let note = hidden_note(&hidden, sessions.len());
     if let Some(fields) = fields.as_deref() {
         println!("{}", fields.join("\t"));
         for session in sessions {
@@ -172,30 +168,20 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         }
         return Ok(());
     }
-    if sessions.is_empty() {
-        println!("{}", note.unwrap_or_default());
+    if sessions.is_empty() && filtered {
+        println!("no sessions match (acpmux ls --all lists every session)");
         return Ok(());
     }
-    println!("{:<24} {:<8} {:<13} {:>5} {:<6} LAST", "NAME", "AGENT", "STATUS", "TURNS", "AGE");
-    for s in sessions {
-        let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        let mut status = s["state"].as_str().map(str::to_owned).unwrap_or_else(|| g("status"));
-        if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
-            status = "waiting!".into();
-        }
-        println!(
-            "{:<24} {:<8} {:<13} {:>5} {:<6} {}",
-            short(&g("name"), 24),
-            short(&g("harness"), 8),
-            status,
-            s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
-            age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
-            short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
-        );
-    }
-    if let Some(note) = note {
-        println!("{note}");
-    }
+    let peers = match peers {
+        Some(read) => match read.await {
+            Ok(Ok(status)) => status.get("peers").and_then(Value::as_array).cloned(),
+            _ => None,
+        },
+        None => None,
+    };
+    let view = View { all, wide };
+    let now = crate::store::now_ms();
+    print!("{}", ls_table::render(&sessions, peers.as_deref(), view, filtered, now));
     Ok(())
 }
 
@@ -282,44 +268,27 @@ fn text_field(value: Option<&Value>) -> String {
     }
 }
 
-/// The most rows the unfiltered text view prints.
-pub(super) const COMPACT_ROWS: usize = 40;
-
-/// The rows `--live`, `--name` and `--host` keep.
+/// The rows `--live` and `--host` keep.
 pub(super) struct RowFilter {
     live: bool,
-    name: Option<regex::Regex>,
     host: Option<String>,
     /// This machine's name, which `--host` takes for a local row (as `local` too).
     own: String,
 }
 
 impl RowFilter {
-    pub(super) fn new(
-        live: bool,
-        name: Option<&str>,
-        host: Option<&str>,
-        own: String,
-    ) -> Result<Self> {
-        let name = name
-            .map(|pattern| {
-                regex::Regex::new(pattern).map_err(|e| {
-                    AppError::usage(format!("--name {pattern:?} is not a regular expression: {e}"))
-                })
-            })
-            .transpose()?;
+    pub(super) fn new(live: bool, host: Option<&str>, own: String) -> Result<Self> {
         let host = host.map(str::trim).filter(|h| !h.is_empty()).map(str::to_ascii_lowercase);
-        Ok(Self { live, name, host, own })
+        Ok(Self { live, host, own })
     }
 
-    /// Whether any of the three is set.
+    /// Whether either is set.
     pub(super) fn narrows(&self) -> bool {
-        self.live || self.name.is_some() || self.host.is_some()
+        self.live || self.host.is_some()
     }
 
     pub(super) fn keeps(&self, row: &Value) -> bool {
         (!self.live || is_live(row))
-            && self.name.as_ref().is_none_or(|re| re.is_match(row["name"].as_str().unwrap_or("")))
             && self.host.as_deref().is_none_or(|want| {
                 let host = row["peer"].as_str().filter(|p| !p.is_empty());
                 match host {
@@ -335,47 +304,6 @@ pub(super) fn is_live(row: &Value) -> bool {
     row["status"].as_str() != Some("closed")
 }
 
-/// What the compact view left out.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(super) struct Hidden {
-    pub closed: usize,
-    /// Live rows past [`COMPACT_ROWS`].
-    pub live: usize,
-}
-
-/// The text view's rows: live before closed, each newest first as the daemon sent them. With
-/// `compact` (no filter and no `--all`), closed rows go and at most `cap` live rows stay.
-pub(super) fn text_rows(rows: Vec<Value>, compact: bool, cap: usize) -> (Vec<Value>, Hidden) {
-    let (mut live, closed): (Vec<Value>, Vec<Value>) = rows.into_iter().partition(is_live);
-    if !compact {
-        live.extend(closed);
-        return (live, Hidden::default());
-    }
-    let over = live.len().saturating_sub(cap);
-    live.truncate(cap);
-    (live, Hidden { closed: closed.len(), live: over })
-}
-
-/// The line under the compact view that says what it left out and how to see it.
-pub(super) fn hidden_note(hidden: &Hidden, shown: usize) -> Option<String> {
-    let mut parts = Vec::new();
-    if hidden.live > 0 {
-        parts.push(format!("{} more live", hidden.live));
-    }
-    if hidden.closed > 0 {
-        parts.push(format!("{} closed", hidden.closed));
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    let what = if shown == 0 { "no live sessions; " } else { "" };
-    Some(format!(
-        "{what}{} not shown: --all lists every session; --live, --name REGEX, --host HOST, \
---status S or --limit N narrow it",
-        parts.join(" and ")
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,10 +317,6 @@ mod tests {
             json!({"name": "done", "status": "closed"}),
             json!({"name": "idle-one", "status": "idle"}),
         ]
-    }
-
-    fn names(rows: &[Value]) -> Vec<&str> {
-        rows.iter().map(|r| r["name"].as_str().unwrap()).collect()
     }
 
     fn kept(filter: &RowFilter) -> Vec<String> {
@@ -416,50 +340,17 @@ mod tests {
     }
 
     #[test]
-    fn live_name_and_host_filter_the_rows() {
+    fn live_and_host_filter_the_rows() {
         let own = || "big-red".to_owned();
-        let live = RowFilter::new(true, None, None, own()).unwrap();
+        let live = RowFilter::new(true, None, own()).unwrap();
         assert_eq!(kept(&live), ["claude-sr2/mac-ci-3", "hb/review-1", "idle-one"]);
-        let name = RowFilter::new(false, Some("^hb/|mac-ci"), None, own()).unwrap();
-        assert_eq!(kept(&name), ["hb/old", "claude-sr2/mac-ci-3", "hb/review-1"]);
-        let peer = RowFilter::new(true, None, Some("HB"), own()).unwrap();
+        let peer = RowFilter::new(true, Some("HB"), own()).unwrap();
         assert_eq!(kept(&peer), ["hb/review-1"]);
-        let here = RowFilter::new(false, None, Some("big-red"), own()).unwrap();
+        let here = RowFilter::new(false, Some("big-red"), own()).unwrap();
         assert_eq!(kept(&here), ["claude-sr2/mac-ci-3", "done", "idle-one"]);
-        let local = RowFilter::new(false, None, Some("local"), own()).unwrap();
+        let local = RowFilter::new(false, Some("local"), own()).unwrap();
         assert_eq!(kept(&local), kept(&here));
-        assert!(!RowFilter::new(false, None, None, own()).unwrap().narrows());
-        assert!(live.narrows() && name.narrows() && peer.narrows());
-    }
-
-    #[test]
-    fn a_bad_name_pattern_is_a_usage_error() {
-        let Err(e) = RowFilter::new(false, Some("("), None, String::new()) else {
-            panic!("accepted")
-        };
-        let app = e.downcast_ref::<AppError>().unwrap();
-        assert_eq!(app.code, crate::cli::errors::Code::Usage);
-        assert!(app.message.contains("--name \"(\""), "{}", app.message);
-    }
-
-    /// The compact view: live rows first and capped, closed ones counted, with the flag that
-    /// shows them; `--all` (not compact) keeps every row, live first.
-    #[test]
-    fn the_compact_view_shows_live_rows_and_says_what_it_hid() {
-        let (shown, hidden) = text_rows(rows(), true, 2);
-        assert_eq!(names(&shown), ["claude-sr2/mac-ci-3", "hb/review-1"]);
-        assert_eq!(hidden, Hidden { closed: 2, live: 1 });
-        let note = hidden_note(&hidden, shown.len()).unwrap();
-        assert!(note.starts_with("1 more live and 2 closed not shown: --all"), "{note}");
-        let (all, none) = text_rows(rows(), false, 2);
-        assert_eq!(
-            names(&all),
-            ["claude-sr2/mac-ci-3", "hb/review-1", "idle-one", "hb/old", "done"]
-        );
-        assert_eq!(hidden_note(&none, all.len()), None);
-        let closed_only = vec![json!({"name": "a", "status": "closed"})];
-        let (shown, hidden) = text_rows(closed_only, true, 2);
-        let note = hidden_note(&hidden, shown.len()).unwrap();
-        assert!(note.starts_with("no live sessions; 1 closed not shown"), "{note}");
+        assert!(!RowFilter::new(false, None, own()).unwrap().narrows());
+        assert!(live.narrows() && peer.narrows());
     }
 }

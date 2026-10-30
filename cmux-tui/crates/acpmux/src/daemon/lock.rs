@@ -96,6 +96,20 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     alive.then_some(pid as u32)
 }
 
+/// The pid of the live daemon that holds the lock at `path`, read from the pid it wrote there,
+/// without taking the lock or creating the file: a listing asks this to tell a daemon in a
+/// restart's handover (wait for it) from none at all (start none, `running.rs`).
+#[cfg(unix)]
+pub(super) fn live_holder(path: &Path) -> Option<u32> {
+    holder_pid(&std::fs::File::open(path).ok()?)
+}
+
+/// Windows: the lock covers the file, so its holder cannot be read; a listing waits for none.
+#[cfg(windows)]
+pub(super) fn live_holder(_path: &Path) -> Option<u32> {
+    None
+}
+
 /// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.
 /// Best effort: the lock itself is the flock, never the file's contents.
 #[cfg(unix)]
