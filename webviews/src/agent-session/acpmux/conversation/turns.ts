@@ -666,9 +666,11 @@ function shapeTurn(
   const tail = turn.slice(end + 1);
   // Its version moves past any acpmux gives the row (VERSION_SPAN), so the memoized footer redraws.
   const tailSummary = tail[lastSummary];
-  const tailBelongsToTurn =
-    tailSummary?.turnId === undefined || user.turnId === undefined || tailSummary.turnId === user.turnId;
-  if (offers && lastSummary >= 0 && tailBelongsToTurn && isStopped(tailSummary)) {
+  // A tail summary is a turn the agent started on its own, so it names another turn than the prompt's.
+  // One naming the prompt's own turn (or this turn's summary's) is that turn's result replayed: no Continue.
+  const tailIsItsOwnTurn =
+    tailSummary?.turnId === undefined || (tailSummary.turnId !== user.turnId && tailSummary.turnId !== summary.turnId);
+  if (offers && lastSummary >= 0 && tailIsItsOwnTurn && isStopped(tailSummary)) {
     const stopped = tailSummary;
     tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
   }
