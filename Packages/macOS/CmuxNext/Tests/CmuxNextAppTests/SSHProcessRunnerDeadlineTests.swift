@@ -20,7 +20,7 @@ struct SSHProcessRunnerDeadlineTests {
 
     @Test func closedStdinDoesNotSendSigpipeWhileWriting() async throws {
         let result = try await SSHProcessRunner.run(
-            ["/bin/sh", "-c", "exec 0<&-; sleep 1"],
+            ["/bin/sh", "-c", "sleep 0.2; exec 0<&-; sleep 1"],
             input: .writer { descriptor in
                 let bytes = [UInt8](repeating: 0x61, count: 1 << 20)
                 bytes.withUnsafeBytes { buffer in
