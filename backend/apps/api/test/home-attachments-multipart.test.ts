@@ -382,3 +382,114 @@ describe("Home attachments: an R2 multipart upload is never left without a recor
     await expect(upload.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
   })
 })
+
+/** The env with a bucket whose uploads' `abort` fails with no R2 code (a dropped connection: transient). */
+const abortFailing = (): TestEnv => {
+  const bucket = testEnv.HOME_ATTACHMENTS
+  const failing = (u: R2MultipartUpload) => new Proxy(u, { get: (x, q) => (q === "abort" ? async () => { throw new Error("connection reset") } : (Reflect.get(x, q) as Function).bind(x)) })
+  return {
+    ...testEnv,
+    HOME_ATTACHMENTS: new Proxy(bucket, {
+      get(t, p) {
+        if (p === "createMultipartUpload") return async (key: string, options?: R2MultipartOptions) => failing(await t.createMultipartUpload(key, options))
+        if (p === "resumeMultipartUpload") return (key: string, uploadId: string) => failing(t.resumeMultipartUpload(key, uploadId))
+        return (Reflect.get(t, p) as Function).bind(t)
+      }
+    })
+  }
+}
+
+/** Runs the owner's attachment wake at `now` with the real bucket; answers its next wake time. */
+const wakeOwner = async (conversation: string, now: number) => {
+  const gc = await import("../src/home-attachment-gc.ts")
+  const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conversation))
+  return runInDurableObject(stub, async (inst: any) => {
+    await gc.runAttachmentWake(inst.gc, undefined, now).catch(() => {})
+    return gc.attachmentWakeAt(inst.gc.sql)
+  })
+}
+
+/** A multipart intent for a 40 MB file through `env`; answers the uploads it created. */
+const multipartIntent = async (who: Who, conversation: string, env: TestEnv, seed: number) => {
+  const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
+  const created: Array<R2MultipartUpload> = []
+  const bucket = env.HOME_ATTACHMENTS
+  const capturing = new Proxy(bucket, {
+    get(t, p) {
+      if (p !== "createMultipartUpload") return (Reflect.get(t, p) as Function).bind(t)
+      return async (key: string, options?: R2MultipartOptions) => {
+        const upload = await t.createMultipartUpload(key, options)
+        created.push(testEnv.HOME_ATTACHMENTS.resumeMultipartUpload(upload.key, upload.uploadId))
+        return upload
+      }
+    }
+  })
+  const body = JSON.stringify({ conversation, sha256: sha(new Uint8Array([seed])), byte_count: 40_000_000, mime_type: "application/octet-stream", name: "a.bin", multipart: true })
+  const request = new Request("https://api.test/v1/home/attachments/intent", { method: "POST", headers: { authorization: `Bearer ${who.token}`, "content-type": "application/json" }, body })
+  const answer = await handleAttachmentIntent(request, { ...env, HOME_ATTACHMENTS: capturing }).then((r) => r.status, (e: unknown) => e)
+  return { answer, created }
+}
+
+describe("Home attachments: an upload the intent could not hand to a slot is still ended when its abort fails", { timeout: 120_000 }, () => {
+  it("the slot ended before it could record the upload, and the abort failed: the owner queued it and a later wake aborts it", async () => {
+    const alice = await signIn("att-intent-ended-abort")
+    const { id } = await group(alice)
+    const base = abortFailing()
+    const env = {
+      ...base,
+      CONVERSATION_DO: ownerWith({
+        setMultipartUpload: async (stub, e: string, slot: string, uploadId: string) => {
+          await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET state = 'uploading' WHERE id = ?", slot))
+          return stub.setMultipartUpload(e, slot, uploadId)
+        }
+      }).CONVERSATION_DO
+    }
+    const { answer, created } = await multipartIntent(alice, id, env, 3)
+    expect(answer).toBe(403)
+    expect(created).toHaveLength(1)
+    await created[0]!.uploadPart(1, new Uint8Array(1))
+    expect(await wakeOwner(id, Date.now())).not.toBeNull()
+    await wakeOwner(id, Date.now() + 2 * 3_600_000)
+    await expect(created[0]!.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
+
+  it("the owner call failed and the abort failed too: the upload is queued with the owner and a later wake aborts it", async () => {
+    const alice = await signIn("att-intent-lost-abort")
+    const { id } = await group(alice)
+    const env = { ...abortFailing(), CONVERSATION_DO: ownerWith({ setMultipartUpload: async () => { throw new Error("owner call lost") } }).CONVERSATION_DO }
+    const { answer, created } = await multipartIntent(alice, id, env, 4)
+    expect(answer).toBeInstanceOf(Error)
+    expect(created).toHaveLength(1)
+    await created[0]!.uploadPart(1, new Uint8Array(1))
+    expect(await wakeOwner(id, Date.now())).not.toBeNull()
+    await wakeOwner(id, Date.now() + 2 * 3_600_000)
+    await expect(created[0]!.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
+})
+
+describe("Home attachments: a self-hosted bucket's closed upload does not stop a completion retry", { timeout: 120_000 }, () => {
+  it("the retry after a lost owner commit, where resuming the closed upload throws NoSuchUpload at once (FsBucket), finds the object and commits it", async () => {
+    const alice = await signIn("att-complete-fs-closed")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32_000_017).map((_, i) => (i * 5) % 239)
+    const m = await multipart(alice, id, body)
+    expect((await m.putPart(1)).status).toBe(200)
+    // R2 joined the parts and the object could not be read back: 503, the slot stays.
+    const unknown = await m.complete(completingWith(async (upload, parts) => {
+      await upload.complete(parts)
+      throw new Error("Network connection lost.")
+    }, async () => Promise.reject(new Error("Network connection lost."))))
+    expect([unknown.status, unknown.json.error.code]).toEqual([503, "attachment.complete_unavailable"])
+    // As FsBucket does once the upload's record is gone: resuming throws synchronously.
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const selfHosted = new Proxy(bucket, {
+      get(t, p) {
+        if (p === "resumeMultipartUpload") return () => { throw Object.assign(new Error("NoSuchUpload"), { code: "NoSuchUpload" }) }
+        return (Reflect.get(t, p) as Function).bind(t)
+      }
+    })
+    const retried = await m.complete({ ...testEnv, HOME_ATTACHMENTS: selfHosted })
+    expect([retried.status, retried.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
