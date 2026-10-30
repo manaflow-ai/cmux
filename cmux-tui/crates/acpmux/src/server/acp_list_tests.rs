@@ -44,8 +44,9 @@ async fn fleet_hub(peers: usize, rows: usize) -> Arc<crate::hub::Hub> {
     hub
 }
 
-/// Each `session/list` reply line, following `nextCursor` to the end, on one connection.
-async fn acp_pages(hub: &Arc<crate::hub::Hub>) -> Vec<(Value, usize)> {
+/// Each `session/list` reply line, following `nextCursor` to the end, on one connection, with
+/// how long it took.
+async fn acp_pages(hub: &Arc<crate::hub::Hub>) -> Vec<(Value, usize, Duration)> {
     let (input, incoming) = mpsc::channel(8);
     let (output, mut outgoing) = mpsc::channel(8);
     let task = tokio::spawn(super::serve_connection(hub.clone(), incoming, output));
@@ -56,6 +57,7 @@ async fn acp_pages(hub: &Arc<crate::hub::Hub>) -> Vec<(Value, usize)> {
     let mut pages = Vec::new();
     let mut params = json!({});
     for id in 2..100 {
+        let started = std::time::Instant::now();
         input
             .send(Message::request(id, method::SESSION_LIST, params.clone()).to_line())
             .await
@@ -73,7 +75,7 @@ async fn acp_pages(hub: &Arc<crate::hub::Hub>) -> Vec<(Value, usize)> {
         .expect("the page comes");
         assert!(reply.get("error").is_none(), "page {}: {}", pages.len(), reply["error"]);
         let next = reply["result"]["nextCursor"].clone();
-        pages.push((reply["result"].clone(), bytes));
+        pages.push((reply["result"].clone(), bytes, started.elapsed()));
         if !next.is_string() {
             task.abort();
             return pages;
@@ -88,10 +90,10 @@ async fn a_fleet_sized_acp_list_goes_in_pages_under_the_message_limit() {
     // 25 peers with 210 chats each: 5250 rows, about as many as that daemon listed.
     let hub = fleet_hub(25, 210).await;
     let pages = acp_pages(&hub).await;
-    let total: usize = pages.iter().map(|(_, bytes)| bytes).sum();
+    let total: usize = pages.iter().map(|(_, bytes, _)| bytes).sum();
     assert!(total > MAX_MESSAGE_BYTES, "the list is not past the limit: {total} bytes");
     let mut seen = HashSet::new();
-    for (page, bytes) in &pages {
+    for (page, bytes, _) in &pages {
         assert!(*bytes <= MAX_MESSAGE_BYTES, "a page of {bytes} bytes");
         for row in page["sessions"].as_array().unwrap() {
             assert!(row["_meta"]["acpmux"]["tools"].is_array(), "a row lost its tools: {row}");
@@ -100,7 +102,8 @@ async fn a_fleet_sized_acp_list_goes_in_pages_under_the_message_limit() {
         }
     }
     assert_eq!(seen.len(), 25 * 210);
-    println!("PERF acp_list rows={} bytes={total} pages={}", seen.len(), pages.len());
+    let ms: Vec<u128> = pages.iter().map(|(_, _, took)| took.as_millis()).collect();
+    println!("PERF acp_list rows={} bytes={total} pages={} ms={ms:?}", seen.len(), pages.len());
 }
 
 #[tokio::test]

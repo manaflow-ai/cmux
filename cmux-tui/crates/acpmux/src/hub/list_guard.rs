@@ -97,11 +97,30 @@ pub(crate) struct Snapshot {
     full: StdMutex<Option<Arc<FullRows>>>,
 }
 
-/// The snapshot's rows with tools ([`Snapshot::full_whole`]), and where each is in them.
-struct FullRows {
-    text: Arc<String>,
+/// Every summary with its tools, serialized as [`Snapshot::whole`] is, with where each row is
+/// and its paging keys: a page of it parses only its own rows.
+pub(crate) struct FullRows {
+    whole: Arc<String>,
     spans: Vec<Range<usize>>,
     keys: Vec<Value>,
+}
+
+impl FullRows {
+    /// Each row's `sessionId` and `peer`, in the order of [`Self::row`].
+    pub(crate) fn keys(&self) -> &[Value] {
+        &self.keys
+    }
+
+    /// The bytes of every row together.
+    pub(crate) fn bytes(&self) -> usize {
+        self.whole.len()
+    }
+
+    /// Row `at`, parsed.
+    pub(crate) fn row(&self, at: usize) -> Value {
+        let text = self.spans.get(at).and_then(|span| self.whole.get(span.clone()));
+        text.and_then(|text| serde_json::from_str(text).ok()).unwrap_or_default()
+    }
 }
 
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
@@ -123,16 +142,17 @@ impl Snapshot {
 
     /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
-        self.full_rows(hub).text.clone()
+        self.full_rows(hub).whole.clone()
     }
 
-    fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
+    /// [`Self::full_whole`] with where each row is, for ACP's pages.
+    pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             let mut rows = Rows::default();
             hub.visit_session_summaries(true, |row| rows.push(&row));
-            let (text, spans, keys) = rows.finish();
-            Arc::new(FullRows { text: Arc::new(text), spans, keys })
+            let (whole, spans, keys) = rows.finish();
+            Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
         .clone()
     }
@@ -151,7 +171,7 @@ impl Snapshot {
     ) -> Result<String, RpcError> {
         let full = tools.then(|| self.full_rows(hub));
         let (text, spans, keys) = match &full {
-            Some(full) => (full.text.as_str(), &full.spans, &full.keys),
+            Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
             None => (self.whole.as_str(), &self.spans, &self.keys),
         };
         let mut filters = params.clone();
@@ -173,17 +193,17 @@ impl Snapshot {
             }
         };
         let (page, next) =
-            super::session_pages::byte_page(rows, cursor, budget, |key| row(key).len())?;
+            super::session_pages::byte_page(rows, cursor, budget, |n| row(&rows[n]), |r| r.len())?;
         let mut out = String::from("{");
         if let Some(next) = next {
             out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));
         }
         out.push_str("\"sessions\":[");
-        for (n, key) in rows.get(page).unwrap_or_default().iter().enumerate() {
+        for (n, text) in page.iter().enumerate() {
             if n > 0 {
                 out.push(',');
             }
-            out.push_str(&row(key));
+            out.push_str(text);
         }
         out.push_str("]}");
         Ok(out)
@@ -297,11 +317,15 @@ impl Rows {
     }
 
     fn finish(mut self) -> Built {
-        // Stable ties keep the original local-before-remote order, including duplicate IDs.
+        // The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
+        // the order their cursors (`session_pages.rs`) read them in.
         self.keys.sort_by(|a, b| {
-            b.updated_at.cmp(&a.updated_at).then_with(|| {
-                a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
-            })
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| {
+                    a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
+                })
+                .then_with(|| a.peer.cmp(&b.peer))
         });
         let prefix = br#"{"sessions":["#;
         let mut whole = Vec::with_capacity(
@@ -532,13 +556,17 @@ mod tests {
         let list =
             Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
         let first: Value = serde_json::from_str(&list.bounded_text(&json!({}), 1000)).unwrap();
-        let stub = &first["sessions"][0];
-        assert_eq!((stub["sessionId"].as_str(), stub["peer"].as_str()), (Some("big"), Some("box")));
+        // Pages go in an order updates do not change (`byte_page`), not newest first.
+        let listed = first["sessions"].as_array().unwrap();
+        let by_id = |id: &str| listed.iter().find(|r| r["sessionId"] == id).unwrap();
+        let stub = by_id("big");
+        assert_eq!(stub["peer"], "box");
         assert_eq!(stub["omitted"]["reason"], "too_large");
         assert!(stub["omitted"]["bytes"].as_u64().unwrap() > 5000, "{stub}");
         assert!(stub.get("preview").is_none(), "{stub}");
         // The stub is small, so the next row goes on its page.
-        assert_eq!(first["sessions"][1], rows[1], "{first}");
+        assert_eq!(listed.len(), 2, "{first}");
+        assert_eq!(by_id("small"), &rows[1], "{first}");
         assert!(first.get("nextCursor").is_none(), "{first}");
     }
 
@@ -548,6 +576,7 @@ mod tests {
             json!({"sessionId": "z", "updatedAt": 1, "status": "closed", "tools": [{"id": "tool", "description": "雪\n\""}]}),
             json!({"sessionId": "same", "updatedAt": 9, "origin": "local"}),
             json!({"sessionId": "same", "updatedAt": 9, "peer": "remote", "origin": "remote"}),
+            json!({"sessionId": "same", "updatedAt": 9, "peer": "other", "origin": "other"}),
             json!({"sessionId": "a", "updatedAt": 9, "unknown": {"array": [null, false, 42]}}),
             json!({"sessionId": null, "updatedAt": "invalid", "status": "closed"}),
             json!({"updatedAt": -1, "opaque": "preserved"}),
@@ -568,7 +597,8 @@ mod tests {
             );
         }
         assert_eq!(rows[1]["origin"], "local");
-        assert_eq!(rows[2]["origin"], "remote");
+        assert_eq!(rows[2]["origin"], "other");
+        assert_eq!(rows[3]["origin"], "remote");
     }
 
     #[test]
