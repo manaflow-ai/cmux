@@ -3,7 +3,8 @@ import Testing
 
 /// A remote machine's patch is untrusted text: a hunk header it cannot parse is "too large",
 /// never an abort (`@@ @@` used to slice `3..<2`).
-nonisolated struct RemoteDiffHunkHeaderTests {
+@MainActor
+struct RemoteDiffHunkHeaderTests {
     @Test func aHeaderWithNoRangesIsRejected() {
         #expect(DiffPageProvider.hunkCounts("@@ @@") == nil)
         #expect(DiffPageProvider.hunkCounts("@@ @@ trailing") == nil)
