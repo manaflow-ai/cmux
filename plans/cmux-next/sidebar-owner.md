@@ -605,3 +605,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Session-tree host groups use the drawn workspace projection (2026-10-30)
 
 Leo: "i feel like there's still a big mess of uncategorized stuff in the sidebar", "i mean we dont want to be too opinionated by defgault", "im saying for my particular sidebar there's a lot of wack stuff there". The existing opt-in session tree groups its loose agent workspaces by their existing tab host, with a foldable host header and a count that includes folded descendants. A live parent in this window wins across machines; a loose child also follows a visible parent inside a user group. Explicit child group placement is retained. The real layout and shortcut order share this projection; the unbound remote-lane feed no longer filters children. No default or row title/subtitle changes. `SidebarSessionHostTests` exercises feed-to-layout lineage, parent absence, cross-machine lineage, folds, explicit groups and the disabled state.
+
+- Follow-up geometry: host regrouping keeps the drop gap attached to its logical insertion slot, retains section and chat-history boundary spacing, and shifts Earlier by the final visible family extent; Pinned remains above the first host header.
+
+- Dragging preserves the host projection and drop identity: synthetic headers remain during an open gap, and workspace rows retain their document section and sibling index. Fleet children of Pinned/custom rows stay in their own machine group, preserving the section boundary.

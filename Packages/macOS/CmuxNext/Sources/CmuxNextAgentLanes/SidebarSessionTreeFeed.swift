@@ -145,8 +145,11 @@ public final class SidebarSessionTreeFeed {
             return nil
         }
         var state = SidebarSessionTreeState()
+        let localHosts: Set<String> = localHost.map { Set(keys($0)) } ?? []
         for (id, refs) in chats {
-            guard let ref = refs.first(where: { $0.session != nil }) else { continue }
+            // Local agent tabs remain in the ordinary local list. Host grouping is
+            // reserved for fleet sessions, excluding this install and its aliases.
+            guard let ref = refs.first(where: { $0.session != nil && !localHosts.contains($0.host) }) else { continue }
             let host = keys(ref.host).min() ?? ref.host
             state.hosts[id] = host
             state.hostNames[host] = state.hostNames[host] ?? ref.hostName ?? ref.host

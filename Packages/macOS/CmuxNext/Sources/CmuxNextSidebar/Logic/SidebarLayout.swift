@@ -141,9 +141,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var y = m.topPadding
         var gapY: CGFloat?
         let filtering = o.filterMatches != nil
-        // User-chosen folder/status views and drag targets keep their own layout.
+        // User-chosen folder/status views keep their own layout; dragging retains host groups.
         let groupsSessions = o.sessionTree?.hosts.isEmpty == false && !filtering
-            && !o.grouping.byStatus && !o.groupsByFolder && !o.showEmptyPinned && o.gap == nil
+            && !o.grouping.byStatus && !o.groupsByFolder
         // One machine needs no machine header: its name adds nothing.
         let machineCount = SidebarSection.machineCount(sections)
         // One list (cx-mdo0, Lawrence 2026-10-10: "just have linear list of
@@ -493,7 +493,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         layout.rowSpacing = m.rowSpacing
         (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
         if groupsSessions, let tree = o.sessionTree {
-            return layout.groupingSessions(tree, sections: sections, metrics: m)
+            return layout.groupingSessions(tree, sections: sections, gap: o.gap, metrics: m)
         }
         return layout
     }

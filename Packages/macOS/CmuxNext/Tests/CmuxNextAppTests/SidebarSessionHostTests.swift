@@ -84,6 +84,45 @@ import Testing
         #expect(hostFolded.row(for: .sessionHost(Self.host))?.childCount == 2)
     }
 
+    @Test func publishKeepsSessionTreeOffByDefault() {
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "SidebarSessionHostTests-off-\(UUID().uuidString)") ?? .standard)
+        let pass = SidebarSessionTreeFeed.Pass(state: Self.state(), asks: [], showsTree: false)
+        SidebarSessionTreeFeed.publish(pass, to: tree)
+        #expect(tree.state == nil)
+        #expect(tree.pullRequests.isEmpty)
+    }
+
+    @Test func localOnlyAgentRefsDoNotCreateAHostGroup() {
+        let chats = [(Self.parent, [AgentSessionRef(host: "install:local", hostName: "This Mac", session: "local-agent")]),
+                     (Self.child, [AgentSessionRef(host: "install:local", hostName: "This Mac", session: "local-worker")])]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], localHost: "install:local", pullRequests: [:])
+        #expect(pass.state.hosts.isEmpty)
+        let alias = SidebarSessionTreeFeed.pass([(Self.parent, [AgentSessionRef(host: "registry:local", session: "alias")])], lanes: [:],
+                                                hostAliases: ["install:local": ["registry:local"]], localHost: "install:local", pullRequests: [:])
+        #expect(alias.state.hosts.isEmpty)
+        #expect(Self.layout(pass.state) == Self.layout(nil))
+    }
+
+    @Test func pinnedParentDoesNotPullFleetChildAcrossSectionBoundary() {
+        let pinned = SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "Pinned"))])
+        let machine = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+                                     nodes: [.workspace(SidebarWorkspace(id: Self.child, title: "Worker"))])
+        var options = SidebarLayoutOptions(); options.sessionTree = Self.state()
+        let layout = SidebarLayout.make(sections: [pinned, machine], metrics: .standard, options: options)
+        #expect(layout.row(for: .sessionHost(Self.host)) != nil)
+        #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 1)
+    }
+
+    @Test func pinnedChildKeepsPinnedPlacementWhenItsParentIsAVisibleFleetLane() {
+        let machine = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+                                     nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "Coordinator"))])
+        let pinned = SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: Self.child, title: "Pinned worker"))])
+        var options = SidebarLayoutOptions(); options.sessionTree = Self.state()
+        let layout = SidebarLayout.make(sections: [machine, pinned], metrics: .standard, options: options)
+        #expect(layout.row(for: .workspace(Self.child))?.section == .pinned)
+        #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 0)
+    }
+
     @Test func disabledTreeAndWorkspacesWithoutAgentRefsKeepTheirExistingRows() {
         let disabled = Self.layout(nil)
         #expect(disabled.rows.map(\.key) == [.workspace(Self.parent), .workspace(Self.other), .workspace(Self.child)])
@@ -115,6 +154,105 @@ import Testing
         #expect(layout.row(for: .workspace(Self.child))?.group == nil)
         #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 1)
         #expect(layout.row(for: .workspace(Self.child))?.depth == 1)
+    }
+
+    @Test func dragGapKeepsHostProjectionAndDropIdentity() throws {
+        var options = SidebarLayoutOptions()
+        options.sessionTree = Self.state()
+        options.gap = DropPosition(section: .machine(.local), index: 1)
+        options.gapHeight = 24
+        options.showEmptyPinned = true
+        let layout = SidebarLayout.make(sections: Self.sections(), metrics: .standard, options: options)
+        let gapY = try #require(layout.gapY)
+        let target = try #require(layout.row(for: .workspace(Self.other)))
+        #expect(target.y == gapY + layout.gapShift)
+        #expect(layout.row(at: gapY + layout.gapHeight / 2) == nil)
+        #expect(layout.row(for: .sessionHost(Self.host)) != nil)
+        #expect(layout.rows.filter { $0.key == .workspace(Self.child) }.count == 1)
+        #expect(layout.row(for: .workspace(Self.child))?.siblingIndex == 2)
+    }
+
+    @Test func dropBeforeReorderedChildAndAtListEndReservesRealSpace() throws {
+        for index in [2, 3] {
+            var options = SidebarLayoutOptions()
+            options.sessionTree = Self.state()
+            options.gap = DropPosition(section: .machine(.local), index: index)
+            options.gapHeight = 24
+            let layout = SidebarLayout.make(sections: Self.sections(), metrics: .standard, options: options)
+            let gapY = try #require(layout.gapY)
+            if index == 2 {
+                #expect(layout.row(for: .workspace(Self.child))?.y == gapY + layout.gapShift)
+            } else {
+                let last = try #require(layout.rows.last)
+                #expect(gapY == last.maxY + layout.rowSpacing)
+            }
+            #expect(layout.row(at: gapY + layout.gapHeight / 2) == nil)
+            #expect(layout.totalHeight >= gapY + layout.gapHeight)
+        }
+    }
+
+    @Test func sectionEndDropDoesNotFollowAWorkspaceFromTheNextMachine() throws {
+        var options = SidebarLayoutOptions()
+        var state = Self.state()
+        state.parents = [:]
+        options.sessionTree = state
+        options.flattensMachines = true
+        options.gap = DropPosition(section: .machine(.local), index: 2)
+        options.gapHeight = 24
+        let layout = SidebarLayout.make(sections: Self.sections(crossMachine: true), metrics: .standard, options: options)
+        let lastLocal = try #require(layout.row(for: .workspace(Self.other)))
+        let gapY = try #require(layout.gapY)
+        #expect(gapY == lastLocal.maxY + layout.rowSpacing)
+        #expect(layout.row(at: gapY + layout.gapHeight / 2) == nil)
+        #expect(layout.row(for: .workspace(Self.child))?.section == .machine(MachineID("remote")))
+    }
+
+    @Test func historyAndSectionGapsStayAtTheirBoundariesAfterReorderingAndFolding() throws {
+        let chat = SidebarHistoryChat(id: "old", title: "Earlier chat", updatedAt: .distantPast)
+        let history = SidebarChatHistoryState(pinned: [chat], earlier: [chat])
+        let tail = SidebarSection(kind: .custom(SidebarCustomSection(id: "tail")), nodes: [])
+        for hasTail in [false, true] {
+            for folded in [false, true] {
+                var options = SidebarLayoutOptions()
+                var state = Self.state()
+                if folded { state.collapsed = [Self.parent] }
+                options.sessionTree = state
+                options.chatHistory = history
+                options.blockHeights = ["tail": 44]
+                let sections = Self.sections() + (hasTail ? [tail] : [])
+                let layout = SidebarLayout.make(sections: sections, metrics: .standard, options: options)
+                let metrics = SidebarLayoutMetrics.standard.resolved(for: options)
+                let pinnedY = try #require(layout.pinnedChatsY)
+                let earlierY = try #require(layout.earlierChatsY)
+                let header = try #require(layout.row(for: .sessionHost(Self.host)))
+                let lastWorkspace = try #require(layout.row(for: .workspace(Self.other)))
+                #expect(header.y == pinnedY + history.pinnedHeight(metrics))
+                #expect(earlierY == lastWorkspace.maxY + metrics.rowSpacing + metrics.sectionSpacing)
+                if hasTail {
+                    #expect(layout.row(for: .block("tail"))?.y == earlierY + history.earlierHeight(metrics))
+                }
+                #expect(layout.totalHeight >= earlierY + history.earlierHeight(metrics))
+                // The moved child must not carry the section/history gap into its family.
+                if !folded {
+                    let parent = try #require(layout.row(for: .workspace(Self.parent)))
+                    #expect(layout.row(for: .workspace(Self.child))?.y == parent.maxY + metrics.rowSpacing)
+                }
+            }
+        }
+    }
+
+    @Test func pinnedHistoryAfterAnExplicitSectionStaysAboveTheHostHeader() throws {
+        let pinned = SidebarSection(kind: .pinned, nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pin"), title: "Pinned"))])
+        let history = SidebarChatHistoryState(pinned: [.init(id: "chat", title: "Chat", updatedAt: .distantPast)])
+        var options = SidebarLayoutOptions()
+        options.sessionTree = Self.state()
+        options.chatHistory = history
+        let layout = SidebarLayout.make(sections: [pinned] + Self.sections(), metrics: .standard, options: options)
+        let metrics = SidebarLayoutMetrics.standard.resolved(for: options)
+        let pinnedY = try #require(layout.pinnedChatsY)
+        #expect(layout.row(for: .sessionHost(Self.host))?.y == pinnedY + history.pinnedHeight(metrics))
+        let pin = try #require(layout.row(for: .workspace(WorkspaceID("pin"))))
+        #expect(pinnedY == pin.maxY + metrics.rowSpacing + metrics.sectionSpacing)
     }
 
     @Test func sessionTreeStillKeepsDoneAndLimitedRowsInsideTheCount() {
