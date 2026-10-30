@@ -603,15 +603,17 @@
 }
 /* The slider version: the stepped track stood on end, Low at the bottom. */
 .acpmux-quick-effort-vertical {
+  /* One length for the track and the column that holds it stood on end, so they never drift apart
+     at any interface scale. */
+  --acpmux-effort-vertical-track: 124px;
   display: grid;
   place-items: center;
   width: 40px;
-  /* Six of the dropdown's rows: room for the 124px track stood on end and its insets. */
-  height: calc(6 * var(--ui-row-height));
+  height: calc(var(--acpmux-effort-vertical-track) + 2 * var(--ds-space-2));
   padding: var(--ds-space-2) 0;
 }
 .acpmux-quick-effort-vertical .acpmux-effort-track {
-  width: 124px;
+  width: var(--acpmux-effort-vertical-track);
   margin: 0;
   transform: rotate(-90deg);
   animation: none;
