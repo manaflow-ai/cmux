@@ -232,6 +232,15 @@ extension NewTabPage {
             && ChatColumnPlacement.resolve(from: pane, services: pane.services, ignoringPages: true) == .dockChat
     }
 
+    /// What docks the lone chat in `page`'s pane left once a pick there lands (``docksChat(_:)``).
+    private static func docking(_ page: PaneController) -> @MainActor (SurfaceID) -> Void {
+        let services = page.services
+        return { [weak page] surface in
+            guard let page else { return }
+            MainPaneLayout.dockChat(of: page, keeping: surface, focus: true, services: services)
+        }
+    }
+
     /// Whether a pick of `kind` on a New Tab page in the main pane goes beside the chat: a terminal or browser
     /// does, a chat stays (the chat dock holds chats).
     nonisolated static func picksBeside(_ kind: AgentPaneTabKind) -> Bool { kind != .agent }
@@ -340,9 +349,7 @@ extension NewTabPage {
         let strip = picksBeside(kind) ? ChatColumnPlacement.pagePick(from: page) : nil
         let pane = strip ?? page
         let docks = picksBeside(kind) && strip == nil && docksChat(page)
-        let landed: (@MainActor (SurfaceID) -> Void)? = !docks ? nil : { [weak page] surface in
-            if let page { MainPaneLayout.dockChat(of: page, keeping: surface, focus: true, services: page.services) }
-        }
+        let landed = docks ? docking(page) : nil
         switch (kind, trimmed.isEmpty) {
         case (.terminal, _): pane.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil, then: landed)
         case (.browser, true): _ = pane.newBrowserTab(then: landed)
