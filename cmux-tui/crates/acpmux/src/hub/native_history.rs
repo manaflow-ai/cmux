@@ -8,7 +8,7 @@
 //! record asks for the page before that cursor, then for the page before the cursor each reply
 //! gives, until it is 0. The reply goes to the caller only: no page is ever written to the log.
 //!
-//! `{sessionId, before}` → `{events, before, turns, read}`. `events` are the page's turns as
+//! `{sessionId, before, mark}` → `{events, before, mark, turns, read}`. `events` are the page's turns as
 //! adopting logs them (`turn_records`), oldest first, each with a `seq` below 1, so they sort before
 //! every logged record and never count as one of the log's (`native_seq`). `before` is the next
 //! cursor, 0 when nothing older holds a turn. A page reads at most `PAGE_MAX_BYTES` (16 MiB) and
@@ -24,7 +24,9 @@ use crate::rpc::RpcError;
 use crate::store::now_ms;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use sha2::{Digest, Sha256};
+use std::io::{Read, Seek, SeekFrom};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The `initialize` feature of a daemon that serves `_acpmux/native_history`; a peer that does
@@ -42,6 +44,84 @@ const KEY_BITS: u32 = 18;
 const SEQ_SPAN: i64 = 1 << 52;
 /// The furthest cursor a seq can hold: 16 GiB into a transcript.
 pub(super) const MAX_BEFORE: u64 = 1 << (52 - KEY_BITS);
+
+/// Bytes around a native cursor that identify the transcript version. The mark includes the
+/// file's stable identity where the platform supplies one, plus a full SHA-256 of the bytes
+/// immediately before the cursor. Appending to a transcript preserves this boundary; truncating,
+/// rotating, or replacing it makes the cursor stale without hashing a whole (possibly huge) file.
+const MARK_BYTES: u64 = 4096;
+
+fn file_identity(meta: &std::fs::Metadata) -> (u64, u64) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        (0, 0)
+    }
+}
+
+fn digest(file: &mut std::fs::File, at: u64, n: u64) -> Option<String> {
+    file.seek(SeekFrom::Start(at)).ok()?;
+    let mut bytes = vec![0; usize::try_from(n).ok()?];
+    file.read_exact(&mut bytes).ok()?;
+    Some(format!("{:x}", Sha256::digest(bytes)))
+}
+
+/// A cursor mark is `v1:<dev>:<ino>:<len>:<n>:<sha256>`, where `n` bytes immediately before `before`
+/// were hashed. The empty mark is impossible for a usable cursor (`before > 0`).
+pub(crate) fn mark(input: &mut std::fs::File, before: u64) -> Option<String> {
+    let meta = input.metadata().ok()?;
+    if before == 0 || before > meta.len() {
+        return None;
+    }
+    let n = before.min(MARK_BYTES);
+    let hash = digest(input, before - n, n)?;
+    let (dev, ino) = file_identity(&meta);
+    Some(format!("v1:{dev}:{ino}:{}:{n}:{hash}", meta.len()))
+}
+
+/// Validates a cursor against the same transcript identity and boundary bytes. A growing file is
+/// valid; a shorter, replaced, or rewritten boundary is rejected.
+fn mark_holds(input: &mut std::fs::File, before: u64, mark: &str) -> bool {
+    let meta = match input.metadata() {
+        Ok(meta) => meta,
+        Err(_) => return false,
+    };
+    let mut fields = mark.split(':');
+    if fields.next() != Some("v1") {
+        return false;
+    }
+    let (Ok(dev), Ok(ino), Ok(len), Ok(n)) = (
+        fields.next().unwrap_or_default().parse::<u64>(),
+        fields.next().unwrap_or_default().parse::<u64>(),
+        fields.next().unwrap_or_default().parse::<u64>(),
+        fields.next().unwrap_or_default().parse::<u64>(),
+    ) else {
+        return false;
+    };
+    let Some(hash) = fields.next().filter(|hash| !hash.is_empty()) else { return false };
+    let (current_dev, current_ino) = file_identity(&meta);
+    if (dev, ino) != (current_dev, current_ino)
+        || len < before
+        || fields.next().is_some()
+        || n == 0
+        || n > MARK_BYTES
+        || n > before
+        || before > meta.len()
+    {
+        return false;
+    }
+    digest(input, before - n, n).is_some_and(|actual| actual == hash)
+}
+
+fn stale() -> RpcError {
+    RpcError::invalid_params("the transcript changed since this history cursor was read")
+        .with_data(json!({"reason": "transcriptRead.stale"}))
+}
 
 /// The seq of the `k`th record of the page that ends at `before`. The same cursor gives the same
 /// seqs every time, so a page read twice merges as one, and every seq of an older page (a smaller
@@ -145,10 +225,28 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
         .await
         .ok_or_else(|| RpcError::invalid_params("the chat has no Claude Code transcript"))?;
     let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
+    let mark = params.get("mark").and_then(Value::as_str).map(str::to_owned).ok_or_else(stale)?;
     let session = session.clone();
-    tokio::task::spawn_blocking(move || older_page(&session, &file, before))
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))
+    tokio::task::spawn_blocking(move || {
+        let mut input = std::fs::File::open(&file).map_err(|_| stale())?;
+        if !mark_holds(&mut input, before, &mark) {
+            return Err(stale());
+        }
+        let page = crate::adopt_replay::claude_page_with_turns_open(
+            &mut input,
+            Some(before),
+            crate::adopt_replay::PAGE_TURNS,
+        );
+        // The page and its marks use one descriptor. Recheck after reading for an in-place
+        // truncate/rewrite; appends are fine, as are rotations while this descriptor is held.
+        if !mark_holds(&mut input, before, &mark) {
+            return Err(stale());
+        }
+        let next_mark = if page.start > 0 { self::mark(&mut input, page.start) } else { None };
+        Ok(page_reply(&session, before, page, next_mark))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?
 }
 
 /// The chat's Claude Code transcript: the one it watches, else its Claude session's in its store.
@@ -162,13 +260,12 @@ async fn transcript(hub: &Arc<Hub>, session: &Session) -> Option<PathBuf> {
     tokio::task::spawn_blocking(move || crate::adopt::find_claude(&home, &id)).await.ok().flatten()
 }
 
-/// The reply for the page of `file` that ends at `before`.
-pub(super) fn older_page(session: &Session, file: &Path, before: u64) -> Value {
-    let page = crate::adopt_replay::claude_page_with_turns(
-        file,
-        Some(before),
-        crate::adopt_replay::PAGE_TURNS,
-    );
+fn page_reply(
+    session: &Session,
+    before: u64,
+    page: crate::adopt_replay::ClaudePage,
+    mark: Option<String>,
+) -> Value {
     let agent_sid = session.meta().agent_session_id.unwrap_or_default();
     // A record the transcript gives no time takes the one before it, else the page's first.
     let mut at = page.turns.iter().find_map(|t| t.prompt_at.or(t.answer_at)).unwrap_or_else(now_ms);
@@ -192,7 +289,7 @@ pub(super) fn older_page(session: &Session, file: &Path, before: u64) -> Value {
                 "dir": record.dir, "kind": record.kind, "msg": msg}));
         }
     }
-    json!({"events": events, "before": page.start, "turns": page.turns.len(), "read": page.read})
+    json!({"events": events, "before": page.start, "mark": mark, "turns": page.turns.len(), "read": page.read})
 }
 
 #[cfg(test)]

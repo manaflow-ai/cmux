@@ -61,20 +61,21 @@ fn transcript(file: &Path, turns: usize, pad: usize) {
     }
 }
 
-/// The seeded log's prompts and its `native_history` cursor.
-fn seeded(hub: &Hub) -> (Vec<String>, u64) {
-    let (mut prompts, mut before) = (Vec::new(), 0);
+/// The seeded log's prompts and its `native_history` cursor with its mark.
+fn seeded(hub: &Hub) -> (Vec<String>, (u64, String)) {
+    let (mut prompts, mut cursor) = (Vec::new(), (0, String::new()));
     hub.store
         .scan_kinds("chat", &["user_message", "native_history"], &mut |rec| {
             if rec.kind == "user_message" {
                 prompts.push(rec.msg["text"].as_str().unwrap_or_default().to_owned());
             } else {
-                before = rec.msg["before"].as_u64().unwrap();
+                let mark = rec.msg["mark"].as_str().expect("a seeded cursor has a mark");
+                cursor = (rec.msg["before"].as_u64().unwrap(), mark.to_owned());
             }
             true
         })
         .unwrap();
-    (prompts, before)
+    (prompts, cursor)
 }
 
 fn prompts_of(events: &[Value]) -> Vec<String> {
@@ -85,8 +86,13 @@ fn prompts_of(events: &[Value]) -> Vec<String> {
         .collect()
 }
 
-async fn page(hub: &Arc<Hub>, before: u64) -> Value {
-    handle(hub, &json!({"sessionId": "chat", "before": before})).await.unwrap()
+async fn page(hub: &Arc<Hub>, (before, mark): &(u64, String)) -> Value {
+    handle(hub, &json!({"sessionId": "chat", "before": before, "mark": mark})).await.unwrap()
+}
+
+/// The cursor a reply gives for the page before it.
+fn next(reply: &Value) -> (u64, String) {
+    (reply["before"].as_u64().unwrap(), reply["mark"].as_str().unwrap_or_default().to_owned())
 }
 
 #[tokio::test]
@@ -98,13 +104,14 @@ async fn paging_back_to_zero_reads_every_turn_once() {
     transcript(&file, 700, 16);
     let session = hub.resolve("chat").unwrap();
     hub.replay_adopted(&session, "claude", file.clone()).await;
-    let (mut all, mut before) = seeded(&hub);
+    let (mut all, mut cursor) = seeded(&hub);
     assert_eq!(all.first().map(String::as_str), Some("prompt 500"));
-    assert!(before > 0);
+    assert!(cursor.0 > 0);
     let mut newer_seq = 1i64;
     let mut pages = 0;
-    while before > 0 {
-        let reply = page(&hub, before).await;
+    while cursor.0 > 0 {
+        let before = cursor.0;
+        let reply = page(&hub, &cursor).await;
         let events = reply["events"].as_array().unwrap().clone();
         assert!(!events.is_empty(), "a page before {before} holds turns");
         let seqs: Vec<i64> = events.iter().map(|e| e["seq"].as_i64().unwrap()).collect();
@@ -125,9 +132,9 @@ async fn paging_back_to_zero_reads_every_turn_once() {
         let mut older = prompts_of(&events);
         older.extend(all);
         all = older;
-        let next = reply["before"].as_u64().unwrap();
-        assert!(next < before, "the cursor moves back: {next} after {before}");
-        before = next;
+        cursor = next(&reply);
+        assert!(cursor.0 < before, "the cursor moves back: {} after {before}", cursor.0);
+        assert_eq!(cursor.1.is_empty(), cursor.0 == 0, "a cursor above 0 has a mark");
         pages += 1;
     }
     let every: Vec<String> = (0..700).map(|n| format!("prompt {n}")).collect();
@@ -146,10 +153,10 @@ async fn a_page_read_again_has_the_same_seqs() {
     transcript(&file, 260, 16);
     let session = hub.resolve("chat").unwrap();
     hub.replay_adopted(&session, "claude", file.clone()).await;
-    let (_, before) = seeded(&hub);
-    let (first, second) = (page(&hub, before).await, page(&hub, before).await);
+    let (_, cursor) = seeded(&hub);
+    let (first, second) = (page(&hub, &cursor).await, page(&hub, &cursor).await);
     assert_eq!(first["events"], second["events"]);
-    assert_eq!(first["events"][0]["seq"].as_i64(), Some(native_seq(before, 0)));
+    assert_eq!(first["events"][0]["seq"].as_i64(), Some(native_seq(cursor.0, 0)));
     let _ = std::fs::remove_dir_all(home);
 }
 
@@ -168,8 +175,11 @@ async fn a_watched_chat_pages_its_watched_transcript() {
         codex_items: false,
         open: None,
     });
-    let start = crate::adopt_replay::newest_prompt_start(&file, crate::adopt_replay::PAGE_TURNS);
-    let reply = page(&hub, start.unwrap()).await;
+    let start =
+        crate::adopt_replay::newest_prompt_start(&file, crate::adopt_replay::PAGE_TURNS).unwrap();
+    let reply =
+        page(&hub, &(start, super::mark(&mut std::fs::File::open(&file).unwrap(), start).unwrap()))
+            .await;
     let prompts = prompts_of(reply["events"].as_array().unwrap());
     let want: Vec<String> = (0..60).map(|n| format!("prompt {n}")).collect();
     assert_eq!(prompts, want);
@@ -182,11 +192,44 @@ async fn a_watched_chat_pages_its_watched_transcript() {
 async fn a_cursor_must_be_a_native_history_one() {
     let home = home("refused");
     let hub = hub(&home);
-    for params in [json!({"sessionId": "chat"}), json!({"sessionId": "chat", "before": 0})] {
+    for params in [
+        json!({"sessionId": "chat"}),
+        json!({"sessionId": "chat", "before": 0, "mark": "1-0"}),
+        json!({"sessionId": "chat", "before": 10}),
+    ] {
         assert!(handle(&hub, &params).await.is_err(), "{params}");
     }
     // A chat whose transcript is not in its store has no native history.
-    assert!(handle(&hub, &json!({"sessionId": "chat", "before": 10})).await.is_err());
+    assert!(
+        handle(&hub, &json!({"sessionId": "chat", "before": 10, "mark": "1-0"})).await.is_err()
+    );
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// A transcript replaced since its cursor was read (cut, rotated, another conversation written
+/// there) does not page the new file's turns in as the chat's older ones: the cursor is refused.
+#[tokio::test]
+async fn a_cursor_into_a_replaced_transcript_is_refused() {
+    let home = home("replaced");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    transcript(&file, 260, 16);
+    let session = hub.resolve("chat").unwrap();
+    hub.replay_adopted(&session, "claude", file.clone()).await;
+    let (_, cursor) = seeded(&hub);
+    // Appending keeps the cursor good: the bytes it starts are still there.
+    std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
+    assert!(page(&hub, &cursor).await["turns"].as_u64().unwrap() > 0);
+    // Another, longer transcript in its place.
+    transcript(&file, 400, 24);
+    assert!(std::fs::metadata(&file).unwrap().len() > cursor.0);
+    let params = json!({"sessionId": "chat", "before": cursor.0, "mark": cursor.1});
+    let refused = handle(&hub, &params).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transcriptRead.stale");
+    // A cut one, shorter than the cursor.
+    transcript(&file, 3, 16);
+    let refused = handle(&hub, &params).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transcriptRead.stale");
     let _ = std::fs::remove_dir_all(home);
 }
 
@@ -227,12 +270,13 @@ async fn bench_older_native_page_of_a_400_mb_transcript() {
     let len = std::fs::metadata(&file).unwrap().len();
     let session = hub.resolve("chat").unwrap();
     hub.replay_adopted(&session, "claude", file.clone()).await;
-    let (_, mut before) = seeded(&hub);
+    let (_, mut cursor) = seeded(&hub);
     let mut times = Vec::new();
     let mut turns = 0;
-    while before > 0 && times.len() < 12 {
+    while cursor.0 > 0 && times.len() < 12 {
+        let before = cursor.0;
         let started = std::time::Instant::now();
-        let reply = page(&hub, before).await;
+        let reply = page(&hub, &cursor).await;
         let ms = started.elapsed().as_secs_f64() * 1e3;
         let bytes = serde_json::to_string(&reply).unwrap().len();
         times.push(ms);
@@ -244,7 +288,7 @@ async fn bench_older_native_page_of_a_400_mb_transcript() {
             reply["read"].as_f64().unwrap() / 1e6,
             bytes / 1024,
         );
-        before = reply["before"].as_u64().unwrap();
+        cursor = next(&reply);
     }
     let mut sorted = times.clone();
     sorted.sort_by(f64::total_cmp);

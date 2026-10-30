@@ -21,6 +21,7 @@ pub use page::{
     ClaudePage, PAGE_TURNS, claude_page, claude_page_with_turns, newest_claude_page,
     newest_prompt_start,
 };
+pub(crate) use page::{claude_page_with_turns_open, newest_prompt_start_open};
 
 /// One past exchange: the person's prompt, the tool calls it led to, in order, and the
 /// assistant's answer text.

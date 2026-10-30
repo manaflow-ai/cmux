@@ -520,25 +520,32 @@ impl Hub {
         // be hundreds of megabytes, and the chat shows its newest turns first.
         let read = tokio::task::spawn_blocking(move || {
             if fam == "claude" {
-                let page =
-                    crate::adopt_replay::newest_claude_page(&file, crate::adopt_replay::PAGE_TURNS);
-                (page.turns, page.start)
+                let Ok(mut input) = std::fs::File::open(&file) else {
+                    return (Vec::new(), 0, None);
+                };
+                let page = crate::adopt_replay::claude_page_with_turns_open(
+                    &mut input,
+                    None,
+                    crate::adopt_replay::PAGE_TURNS,
+                );
+                let mark = super::native_history::mark(&mut input, page.start);
+                (page.turns, page.start, mark)
             } else {
-                (crate::adopt_replay::read(&fam, &file), 0)
+                (crate::adopt_replay::read(&fam, &file), 0, None)
             }
         })
         .await;
-        let Ok((turns, before)) = read else { return };
+        let Ok((turns, before, mark)) = read else { return };
         if turns.is_empty() {
             return;
         }
         // Older turns stay in the transcript: `before` is where the next older page ends.
-        if before > 0 {
+        if before > 0 && mark.is_some() {
             self.append(
                 session,
                 "mux",
                 "native_history",
-                json!({"family": family, "before": before, "turns": turns.len()}),
+                json!({"family": family, "before": before, "mark": mark, "turns": turns.len()}),
             );
         }
         // The chat's title and counts come from its past, as live turns set them (turns.rs).
