@@ -128,8 +128,9 @@ import CmuxNextDesignTokens
     /// Metal layer: on a CI mini, in a test process with no window before
     /// this one, the first capture threw `.blank` (0.37 s into the test) and
     /// a crop's corner came out transparent while its center was red (#26809).
-    /// The last capture runs outside the loop, so a window that never shows
-    /// still fails with that capture's own error.
+    /// The last capture runs outside the loop and is returned unchecked: a
+    /// window that never shows still fails, with that capture's own error or
+    /// in the caller's `expectWindowPixels`, which every test runs on it.
     private func settledImage(_ fixture: Fixture, _ capture: () async throws -> CGImage?) async throws -> CGImage? {
         let deadline = ContinuousClock.now + .seconds(5)
         let size = fixture.window.frame.size
@@ -200,6 +201,8 @@ import CmuxNextDesignTokens
         defer { fixture.close() }
         let window = fixture.window
         let full = try #require(try await settledImage(fixture) { try await window.screenshotImage() })
+        // The whole image first, as the other paths check theirs: a crop of a wrong image proves nothing.
+        try expectWindowPixels(full, fixture, path: "screenshotImage")
         let rect = fixture.metal.convert(fixture.metal.bounds, to: nil)
         let crop = try #require(full.cropped(toWindowRect: rect, windowSize: window.frame.size))
         #expect(crop.width == Int((rect.width * window.backingScaleFactor).rounded()))
