@@ -966,7 +966,10 @@ fn inside_without_links(dir: &Path, path: &Path) -> bool {
 /// leaves out, and the files it leaves out because a directory on their way
 /// is a symlink.
 pub(crate) fn sync_list(dir: &Path) -> Result<SyncList, CliError> {
-    let listed = git_files(dir).map_or_else(|| walk(dir), Ok)?;
+    let listed = match git_files(dir)? {
+        Some(listed) => listed,
+        None => walk(dir)?,
+    };
     let mut list = SyncList::default();
     for path in listed {
         let in_skipped_dir = path.parent().is_some_and(|parent| {
@@ -1020,7 +1023,22 @@ fn hard_linked(_meta: &std::fs::Metadata) -> bool {
     false
 }
 
-fn git_files(dir: &Path) -> Option<Vec<PathBuf>> {
+/// The files git would show in `dir`: tracked and untracked, without the
+/// ignored ones. `Ok(None)` outside a git worktree (the caller walks the
+/// directory instead); an error inside one whose files git cannot list,
+/// since walking it would upload what .gitignore leaves out.
+fn git_files(dir: &Path) -> Result<Option<Vec<PathBuf>>, CliError> {
+    let inside = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .stderr(Stdio::null())
+        .output();
+    match inside {
+        Ok(out) if out.status.success() && out.stdout.starts_with(b"true") => {}
+        // No git, or not a worktree: nothing for git to ignore.
+        _ => return Ok(None),
+    }
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -1031,14 +1049,18 @@ fn git_files(dir: &Path) -> Option<Vec<PathBuf>> {
             "--others",
             "--exclude-standard",
         ])
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .output()
-        .ok()?;
+        .map_err(|e| CliError::unexpected(format!("--sync could not run git ls-files: {e}")))?;
     if !output.status.success() {
-        return None;
+        return Err(CliError::unexpected(format!(
+            "--sync could not list {}'s files with git, so it does not know what .gitignore leaves out: {}",
+            dir.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
     }
     let mut seen = std::collections::BTreeSet::new();
-    Some(
+    Ok(Some(
         output
             .stdout
             .split(|b| *b == 0)
@@ -1046,7 +1068,7 @@ fn git_files(dir: &Path) -> Option<Vec<PathBuf>> {
             .filter_map(git_path)
             .filter(|path| seen.insert(path.clone()))
             .collect(),
-    )
+    ))
 }
 
 /// A path from `git ls-files -z`: its bytes as they are on unix, so a name
@@ -1552,6 +1574,34 @@ mod tests {
         let answer = run(&["missing"], 1024 * 1024);
         assert_ne!(answer.split_whitespace().nth(1), Some("0"), "{answer}");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_worktree_git_cannot_list_is_refused_not_walked() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-bad-index-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        assert!(git(&["init", "-q"]).status.success());
+        std::fs::write(dir.join(".gitignore"), "secret.txt\n").unwrap();
+        std::fs::write(dir.join("secret.txt"), "s").unwrap();
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+        assert!(git(&["add", "a.txt", ".gitignore"]).status.success());
+        let listed = sync_list(&dir).unwrap();
+        assert!(!listed.files.contains(&PathBuf::from("secret.txt")));
+        // A corrupt index: git fails, and the ignored file is never walked into the sync.
+        std::fs::write(dir.join(".git/index"), "not an index").unwrap();
+        let error = sync_list(&dir).unwrap_err();
+        assert!(error.message().contains("git"), "{}", error.message());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

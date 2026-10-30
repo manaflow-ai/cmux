@@ -358,7 +358,19 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
             }
             return fail(&code, &message, exit);
         }
-        Err(message) => return fail("app.transport", &message, 1),
+        // The app may have minted before its answer was lost. The service
+        // takes no idempotency key for agent keys, so that key cannot be
+        // found again; it was never shown, has no VMs and expires within its
+        // --ttl (the same window as a lost answer on the API path).
+        Err(message) => {
+            return fail(
+                "app.transport",
+                &format!(
+                    "{message}; if the app minted a key, it was never shown, has no VMs and expires within its --ttl"
+                ),
+                cmux_vm::exit::NETWORK,
+            );
+        }
     };
     let text = |name: &str| created.get(name).and_then(Value::as_str).map(str::to_owned);
     let body = serde_json::to_vec(&created).unwrap_or_default();
