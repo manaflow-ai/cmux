@@ -935,6 +935,9 @@ impl Hub {
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
+        // chat's threads stay readable.
+        self.restore_inbox(session);
         if session.meta().status == SessionStatus::Closed {
             return;
         }
@@ -1135,6 +1138,10 @@ impl Hub {
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
             let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
+            // An inbox notice is never run again: what it carried is new again (`inbox.rs`).
+            if super::inbox::is_notice(provenance.as_ref()) {
+                continue;
+            }
             let mut restored_message_opts = PromptOptions::default();
             super::message_events::restore_message_options(
                 &mut restored_message_opts,
@@ -1206,6 +1213,14 @@ impl Hub {
     /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
         for session in sessions {
+            // What the restored inbox holds new goes in as it may (`inbox.rs`).
+            {
+                let (hub, session) = (self.clone(), session.clone());
+                tokio::spawn(async move {
+                    hub.wait_startup().await;
+                    hub.inbox_review(&session);
+                });
+            }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
             let restored: Vec<QueuedPrompt> = session
@@ -1275,7 +1290,7 @@ pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>)
 }
 
 /// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
-fn closing(session: &Session) -> bool {
+pub(super) fn closing(session: &Session) -> bool {
     session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
 }
 

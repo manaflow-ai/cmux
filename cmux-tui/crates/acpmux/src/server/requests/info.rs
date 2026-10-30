@@ -5,7 +5,7 @@ use super::*;
 /// `transferBlocked` is the cached durable transfer decision (`hub/transfer_authority.rs`):
 /// true while a move away is begun or committed, null until a restored log is read.
 pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
-    let s = hub.resolve(session_key(params)?)?;
+    let s = hub.resolve_told(session_key(params)?, conn.origin == Origin::Local)?;
     // After a restart the chat logs are read after the ready line; until
     // then the queue, the turn and the status are the session list's. Info
     // waits for this chat's (#22916; read now if the background pass has not

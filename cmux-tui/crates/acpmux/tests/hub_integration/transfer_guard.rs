@@ -74,6 +74,8 @@ fn config(policy: &str, extra: Value) -> Config {
 /// A daemon on `cfg`, its log in memory or under `store`, and a client that is the person.
 async fn daemon(mut cfg: Config, store: Option<&Path>) -> (Arc<Hub>, TestClient) {
     cfg.store.mode = if store.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let dir = store.unwrap_or(Path::new("/nonexistent"));
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, dir).unwrap());
     let client = connect(&hub).await;
