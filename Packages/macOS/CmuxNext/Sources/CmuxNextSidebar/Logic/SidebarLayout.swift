@@ -246,6 +246,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
+            // A Cloud machine with no workspace (paused, or still connecting) lists nothing in one list, as before it had a header;
+            // a remote group the person made keeps its header empty.
+            if o.flattensMachines && section.machine?.kind == .cloud && !section.isHostGroup && nodes.isEmpty && !gapHere { continue }
             // Consecutive computers in one list read as one list: no gap. A block brings its own top padding; under
             // it the next row follows by the row spacing, as under any row (Leo 2026-10-21: no gap after the pins).
             if firstSection && blockHeight > 0 { y -= m.topPadding }
