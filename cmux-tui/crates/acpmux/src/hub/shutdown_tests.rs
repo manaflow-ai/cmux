@@ -351,3 +351,32 @@ async fn a_shutdown_waits_for_a_detach_that_is_ending_its_agent() {
     assert!(!child.is_alive().await, "the detach did not end its agent");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A retry whose turn was cut before a shutdown began sets no wait once it began, however late
+/// its task gets there (router review of #28503): a cut handed on is the next daemon's to
+/// continue, Quit Everything continues nothing, and the wait is what the next daemon restores.
+#[tokio::test]
+async fn a_retry_set_after_a_shutdown_began_waits_for_nothing() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![120_000]);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.retry_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let blocks = vec![json!({"type": "text", "text": "die-later: gone"})];
+    let answer = hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await;
+    assert!(answer.is_err(), "{answer:?}");
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    hub.end_agents_at_shutdown(Default::default()).unwrap();
+    hub.shutdown_all().await;
+    let _ = release.send(());
+    until("the retry's task settled", || hub.retry_row(&s, None).0.is_some() || {
+        s.auto_resume.lock().is_none()
+    })
+    .await;
+    let waits = hub.retry_row(&s, None).0;
+    assert!(waits.is_none(), "a retry waits after the shutdown began: {waits:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
