@@ -55,7 +55,7 @@ afterEach(async () => {
 const steers = { count: 0 };
 async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${(steers.count += 1)}` }) {
   const container = dom?.window.document.getElementById("root") ?? installDom();
-  const unsteer = async () => true;
+  const unsteer = async () => "back" as const;
   await act(async () => {
     root = createRoot(container);
     root.render(
@@ -103,7 +103,7 @@ test("Send now and the X disappear when the agent reads the steer first", async 
   const draw = (row: AcpmuxRow) =>
     act(async () =>
       root!.render(
-        <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
           <PendingSteer row={row} send={() => new Promise<boolean>(() => {})} />
         </TurnActionsContext.Provider>,
       ),
@@ -121,7 +121,7 @@ test("a steer read before it was drawn has no Send now or X", async () => {
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+      <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
         <PendingSteer row={{ ...waiting, steer: "landed" }} send={async () => true} />
       </TurnActionsContext.Provider>,
     );
