@@ -116,6 +116,8 @@ final class AppServices {
     /// What ``cloudContext`` reads; each flush applies (a tuple: no dedupe, as the loop it replaced).
     typealias CloudContextFacts = (signedIn: Bool, machines: Int, user: String?, team: String?)
     var cloudStart: CloudStartPost?  // the launch's Cloud start (`postCloudStart`); nil in tests
+    /// Each window's own Home (cmux#27880).
+    private(set) lazy var windowHomes = WindowHomes(host: self)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)

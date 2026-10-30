@@ -107,7 +107,7 @@ public final class WorkspaceAutoNamer {
             let workspace = target.workspace
             let submission = Submission(machineID: target.machineID, workspaceID: workspace.id,
                                         daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision)
-            guard target.supportsNameSource, workspace.kind != SidebarMapping.homeKind, workspace.app == nil,
+            guard target.supportsNameSource, !workspace.isAnyHome, workspace.app == nil,
                   !submitted.contains(submission), target.nameSource == .auto,
                   rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title,
                                       nameSource: target.nameSource, nameRevision: target.nameRevision),
