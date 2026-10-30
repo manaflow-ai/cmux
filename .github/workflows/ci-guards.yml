@@ -501,6 +501,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_next_tour.py
 
+      - name: Test the cmux NEXT nightly visual gate
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_next_visual_gate.py
+
       - name: Test XCStrings catalog lint
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_lint_xcstrings.py
