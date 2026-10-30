@@ -678,9 +678,10 @@ class BunTestReds(unittest.TestCase):
                                                       "Received: 3.5 at test/zz-capture/red.test.ts:5"),
             red + "reads the slow history": "timed out after 50ms",
             "test/zz-capture/unhandled.test.ts > waits": "late failure outside a test at test/zz-capture/unhandled.test.ts:3",
+            load + "unhandled error: Cannot find module './does-not-exist' from 'test/zz-capture/load.test.ts'":
+                "Cannot find module './does-not-exist' from 'test/zz-capture/load.test.ts'",
         })
-        self.assertEqual(found.failed, set(found.messages) | {
-            load + "unhandled error: Cannot find module './does-not-exist' from 'test/zz-capture/load.test.ts'"})
+        self.assertEqual(found.failed, set(found.messages))
         self.assertEqual((found.crashes, found.truncated), ([], []))
 
     def test_a_bun_run_killed_mid_file_is_a_crash_and_cut_short(self):
@@ -794,6 +795,44 @@ class BunTestReds(unittest.TestCase):
         other = unhandled.replace("./gone", "./missing")
         self.assertTrue(reds.classify(unhandled, other).own)
         self.assertFalse(reds.classify(unhandled, unhandled).own)
+
+    def test_an_unhandled_assertion_compares_its_whole_block_and_location(self):
+        # Sol on #28330 at d571e44a: an unhandled error kept only its headline, so two assertions with the same matcher
+        # but other values or lines compared as one shared failure.
+        def run(received, line=7):
+            return log("bun test v1.4.4 (38afee6c8)", f"##[group]{UNAVAILABLE}:", "# Unhandled error between tests",
+                       "-------------------------------", "error: expect(received).toBe(expected)", "", "Expected: 1",
+                       f"Received: {received}", "",
+                       f"      at <anonymous> (/home/runner/_work/cmux/cmux/webviews/{UNAVAILABLE}:{line}:3)",
+                       "-------------------------------", "", " 0 pass", " 1 fail", " 1 error")
+        name = f"{UNAVAILABLE} > unhandled error: expect(received).toBe(expected)"
+        self.assertEqual(reds.read(run(2)).messages,
+                         {name: f"expect(received).toBe(expected) / Expected: 1 / Received: 2 at {UNAVAILABLE}:7"})
+        for head in (run(3), run(2, line=9)):
+            with self.subTest(head=head[-260:]):
+                verdict = reds.classify(head, run(2))
+                self.assertTrue(verdict.own)
+                self.assertIn("1 test(s) fail differently on the base", verdict.reasons[0])
+        self.assertFalse(reds.classify(run(2), run(2)).own)
+
+    def test_bun_native_exceptions_are_the_diagnostic(self):
+        # Sol on #28330 at d571e44a: bun prints a thrown TypeError / ReferenceError as `TypeError: ...`, not `error:`;
+        # ignored, two different exceptions in one test compared as one shared failure.
+        def run(error):
+            return log("bun test v1.4.4 (38afee6c8)", f"##[group]{UNAVAILABLE}:", "5 |   render(state.pane);",
+                       "                   ^", error,
+                       f"      at render (/home/runner/_work/cmux/cmux/webviews/{UNAVAILABLE}:5:19)",
+                       "(fail) chat > renders [0.40ms]", "##[endgroup]", " 0 pass", " 1 fail")
+        type_error = "TypeError: undefined is not an object (evaluating 'state.pane')"
+        self.assertEqual(reds.read(run(type_error)).messages,
+                         {f"{UNAVAILABLE} > chat > renders": f"{type_error} at {UNAVAILABLE}:5"})
+        for base in ("ReferenceError: state is not defined", "TypeError: null is not an object (evaluating 'state.pane')",
+                     "error: expect(received).toBe(expected)"):
+            with self.subTest(base=base):
+                verdict = reds.classify(run(type_error), run(base))
+                self.assertTrue(verdict.own)
+                self.assertIn("1 test(s) fail differently on the base", verdict.reasons[0])
+        self.assertFalse(reds.classify(run(type_error), run(type_error)).own)
 
     def test_a_cut_short_bun_run_is_never_a_base_red(self):
         tests = (UNAVAILABLE, [("chat > a", "boom"), ("chat > b", None)])
