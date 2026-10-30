@@ -481,6 +481,10 @@ TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 # their re-runs. owned_pool_sources.py must find no owned workflow outside these and
 # WATCHED_WORKFLOW_PATHS (tests/test_ci_owned_pool_sources.py).
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/stable-next.yml":
+        "feat-cmux-next only (main keeps only its tick); the nightly cmux NEXT Stable run, whose owned jobs only submit "
+        "fleet steps or smoke the signed DMG: a refused or stuck run fails, and the next hourly tick of the night "
+        "starts a fresh run (at most 3 failed runs a night), so nothing needs moving",
     ".github/workflows/release.yml":
         "the release signing job takes a drained owned Mac only on attempt 1 while vars.CI_SIGN_OWNED is 1 "
         "(pick-sign-runner, scripts/ci/signing_runner.py); glaeda refuses it within 300 s if the mini does not "
