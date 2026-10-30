@@ -1951,12 +1951,17 @@ async fn dispatch_request(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // A restart reads the chat logs after its ready line: the queue, turn and status
-            // shown here come from this chat's (`hub/log_load.rs`).
-            hub.session_log(&s).await;
+            // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
+            // reads it, and its first page below, ahead of agent work (`qos.rs`).
+            if hidden {
+                hub.session_log(&s).await;
+            } else {
+                hub.session_log_on_screen(&s).await;
+            }
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // Opening a hibernated chat on screen wakes its agent (`hub/idle.rs`).
             if !hidden {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
@@ -1979,8 +1984,9 @@ async fn dispatch_request(
             // end holds every record up to it (of the kinds asked), so a client may take
             // the page as covering it.
             let last = s.meta().last_seq;
-            let page = hub
-                .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
+            let read =
+                || hub.events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter);
+            let page = if hidden { read() } else { crate::qos::on_screen(read) }
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
