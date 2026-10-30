@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { NewTabScreen } from "./NewTabScreen";
+import { NewTabPage } from "../NewTabPage";
+import type { ComposerAttachment } from "../Composer";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 
 let dom: JSDOM | undefined;
@@ -319,7 +321,7 @@ test.each(
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
 });
 
-test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {
+test("a page always hands over its current draft, including empty", async () => {
   const left: unknown[][] = [];
   const page = () => (
     <NewTabScreen
@@ -337,7 +339,8 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   );
   await act(async () => root!.render(page()));
   await act(async () => root!.render(<main />));
-  expect(left).toEqual([]);
+  expect(left).toEqual([["", []]]);
+  left.length = 0;
   await act(async () => root!.render(page()));
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
   const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
@@ -346,3 +349,32 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => root!.render(<main />));
   expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
+
+
+for (const classic of [false, true]) {
+  test(`${classic ? "Classic" : "New Tab"}: carry, clear, fail again, retry stays empty`, async () => {
+    let carried = { text: "kept before failure", attachments: [] as ComposerAttachment[] };
+    const Component = classic ? NewTabPage : NewTabScreen;
+    const page = () => <Component
+      snapshot={noChat()}
+      onAsk={() => {}} onOpen={() => {}} onSearch={() => {}} onShell={() => {}}
+      onJump={() => {}} onOpenSession={() => {}} onShowAll={() => {}}
+      takeDraft={() => carried}
+      onLeaveDraft={(text, attachments) => { carried = { text, attachments }; }}
+    />;
+    await act(async () => root!.render(page()));
+    const selector = classic ? "input.acpmux-newtab-field" : ".nt-field";
+    const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
+    expect(input.value).toBe("kept before failure");
+    const prototype = classic ? dom!.window.HTMLInputElement.prototype : dom!.window.HTMLTextAreaElement.prototype;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(input, "");
+      input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    // Host failure unmounts; retry remounts from the exact same parent's buffer.
+    await act(async () => root!.render(<main />));
+    expect(carried).toEqual({ text: "", attachments: [] });
+    await act(async () => root!.render(page()));
+    expect(container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!.value).toBe("");
+  });
+}

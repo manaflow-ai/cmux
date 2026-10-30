@@ -282,3 +282,69 @@ test("a composer leaving its chat forgets the queued text, and the write still g
   await settlePendingDraftWrites();
   expect(writer.landed.map((write) => write.text)).toEqual(["typed"]);
 });
+
+
+const staleGeneration = () => Object.assign(new Error("stale composer draft generation 0; current generation is 1"), {
+  code: "draft.stale_generation",
+});
+
+test("a stale-generation rejection is final and releases the web swap hold", async () => {
+  let calls = 0;
+  let reads = 0;
+  scope.window = { cmuxAcpmuxActions: {
+    "chat.writeDraft": async () => { calls += 1; throw staleGeneration(); },
+    "chat.readDraft": async () => { reads += 1; return { draft: null, generation: 1 }; },
+  } };
+  writePersistedDraft("stale-final", "sent text", 0);
+  await settlePendingDraftWrites();
+  await tick();
+  expect(hasPendingDraftWrite("stale-final")).toBe(false);
+  expect(composerHold()).toBeNull();
+  await settlePendingDraftWrites();
+  expect(calls).toBe(1);
+  expect(reads).toBe(1);
+});
+
+test("a timed-out write rejected after a send never retries or holds the swap", async () => {
+  draftWriteLimits.timeoutMs = 20;
+  let calls = 0;
+  let rejectOld: ((error: unknown) => void) | undefined;
+  let reads = 0;
+  scope.window = { cmuxAcpmuxActions: {
+    "chat.writeDraft": () => { calls += 1; return new Promise((_, reject) => { rejectOld = reject; }); },
+    "chat.readDraft": async () => { reads += 1; return { draft: null, generation: 1 }; },
+  } };
+  writePersistedDraft("stale-timeout", "sent text", 0);
+  await settlePendingDraftWrites();
+  // The daemon accepted the prompt and advanced to generation 1 while this write was in flight.
+  rejectOld!(staleGeneration());
+  await tick();
+  await settlePendingDraftWrites();
+  expect(hasPendingDraftWrite("stale-timeout")).toBe(false);
+  expect(composerHold()).toBeNull();
+  expect(calls).toBe(1);
+  expect(reads).toBe(1);
+});
+
+test("late stale rejection drops superseded edits but preserves the next generation", async () => {
+  draftWriteLimits.timeoutMs = 20;
+  let rejectOld: ((error: unknown) => void) | undefined;
+  const generations: number[] = [];
+  scope.window = { cmuxAcpmuxActions: {
+    "chat.writeDraft": ({ generation }: Record<string, unknown>) => {
+      generations.push(Number(generation));
+      if (generation === 0) return new Promise((_, reject) => { rejectOld = reject; });
+      return Promise.resolve();
+    },
+    "chat.readDraft": async () => ({ draft: "current", generation: 1 }),
+  } };
+  writePersistedDraft("stale-newer", "old", 0);
+  await settlePendingDraftWrites();
+  writePersistedDraft("stale-newer", "current", 1);
+  rejectOld!(staleGeneration());
+  await tick();
+  await settlePendingDraftWrites();
+  expect(generations).toEqual([0, 1]);
+  expect(hasPendingDraftWrite("stale-newer")).toBe(false);
+  expect(composerHold()).toBeNull();
+});
