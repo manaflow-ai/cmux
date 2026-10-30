@@ -40,6 +40,7 @@ enum HomeDockOpens {
             // creator refuses or fails before invoking it. Arm before the caller callback so the
             // callback cannot observe a transient Home strip.
             let outbound = services.paneController(for: pane).map { OutboundTab.begin(in: $0) }
+            outbound?.made(surface)
             then?(surface)
             if let controller = services.paneController(for: pane) {
                 services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target, outbound: outbound)

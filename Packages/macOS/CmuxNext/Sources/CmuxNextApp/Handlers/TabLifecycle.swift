@@ -63,10 +63,11 @@ enum TabLifecycle {
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
             // A script's tab aimed at Home's dock opens beside it (HomeDockOpens), in its slot or not.
+            let homePlacement = target.map { HomeDockOpens.opensBeside($0.pane, services: ctx.services) } ?? false
             let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
                                                                 then: NewTabSlot.placing(slot, services: ctx.services, then: nil)) }
             target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
-                                   placementOwner: placed != nil, then: placed)
+                                   placementOwner: homePlacement, then: placed)
             return
         }
         let handle = pane.handle
