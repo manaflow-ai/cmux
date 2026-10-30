@@ -73,7 +73,9 @@ extension UpdaterService {
             if cancelStaged() {
                 if droppedPulled.insert(staged).inserted {
                     log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
-                    startNewestCheck(.stagedPulled)
+                    let runningPulled = pulledWatch.isPulled(identity.build)
+                    if runningPulled { runningPulledHandled = true }
+                    startNewestCheck(runningPulled ? .runningPulled : .stagedPulled)
                 } else {
                     // The feed staged it again (a cached appcast): drop it and wait for the next scheduled check.
                     log.append("staged build \(staged) was pulled and staged again: dropped")
