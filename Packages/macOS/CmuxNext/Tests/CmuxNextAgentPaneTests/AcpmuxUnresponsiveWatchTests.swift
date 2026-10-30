@@ -101,20 +101,34 @@ struct AcpmuxUnresponsiveWatchTests {
 /// The watch signals only the process it found, known by its pid and start time: a pid the
 /// kernel gave to another process (another start time) gets no signal. The "other process" is a
 /// stand-in identity; the signalled process is a `sleep` this test starts.
-@Suite(.serialized, .timeLimit(.minutes(1)))
+///
+/// No suite time limit: every wait here is bounded (the child's `exec`, the grace, the SIGKILL's
+/// exit), and in the full parallel run on a loaded 6-vCPU runner a whole test process stalls for
+/// a minute or more (job 122473154125: `AcpmuxUnresponsiveWatchTests`, which only advances a
+/// manual clock, took 170 s), so a one-minute limit failed tests that checked nothing about time.
+@Suite(.serialized)
 struct AcpmuxUnresponsiveIdentityTests {
     /// A `sleep` child; with `ignoresTerm` it ignores SIGTERM (the disposition survives `exec`).
+    /// It outlives any stall of this test (the test kills it), so "still running" means it was
+    /// not signalled, never that it has not exited yet.
     private func child(ignoresTerm: Bool) async throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", (ignoresTerm ? "trap '' TERM; " : "") + "exec /bin/sleep 60"]
+        process.arguments = ["-c", (ignoresTerm ? "trap '' TERM; " : "") + "exec /bin/sleep 3600"]
         process.standardInput = FileHandle.nullDevice
         try process.run()
-        // Signalled before its `exec`, bash would still take SIGTERM.
-        let deadline = ContinuousClock.now + .seconds(5)
-        while AcpmuxVersionHandoff.executablePath(pid: process.processIdentifier) != "/bin/sleep", ContinuousClock.now < deadline {
+        // The caller's cleanup starts once this returns; until then a failed start kills it here.
+        var started = false
+        defer { if !started { kill(process.processIdentifier, SIGKILL) } }
+        // Signalled before its `exec`, bash would still take SIGTERM. A load-tolerant deadline:
+        // the test checks the signals, not how fast a child starts.
+        let deadline = ContinuousClock.now + .seconds(60)
+        while AcpmuxVersionHandoff.executablePath(pid: process.processIdentifier) != "/bin/sleep",
+              process.isRunning, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
+        try #require(AcpmuxVersionHandoff.executablePath(pid: process.processIdentifier) == "/bin/sleep")
+        started = true
         return process
     }
 
@@ -216,7 +230,11 @@ struct AcpmuxUnresponsiveIdentityTests {
 /// the app stops it and starts a daemon. The hung daemon is `nc` copied (and signed ad hoc) to a
 /// file named `acpmux`, listening on the temp home's socket; the started daemon is a stand-in that only
 /// records its launch. Never this app's acpmux.
-@Suite(.serialized, .timeLimit(.minutes(2)),
+///
+/// No suite time limit, as for ``AcpmuxUnresponsiveIdentityTests``: every wait is bounded (the
+/// status deadlines, the grace, the daemon's start and exit), and a stalled test process passed
+/// these tests after 90 to 390 s in the full parallel run, so a two-minute limit only measured load.
+@Suite(.serialized,
        .enabled(if: FileManager.default.isExecutableFile(atPath: "/usr/bin/nc"), "needs /usr/bin/nc"))
 struct AcpmuxUnresponsiveRestartTests {
     struct Fixture {
@@ -263,9 +281,12 @@ struct AcpmuxUnresponsiveRestartTests {
             }
             try process.run()
             let hung = HungDaemon(process, ended: ended)
-            let deadline = ContinuousClock.now + .seconds(5)
+            // `codesign` and the copy's first exec are slow on a loaded runner (job 122654052267
+            // missed a 5 s deadline here). The test checks the restart, not the start, so this
+            // waits for the listener with a load-tolerant deadline and stops early if it exited.
+            let deadline = ContinuousClock.now + .seconds(60)
             while AcpmuxUnresponsiveWatch.listenerPID(socketPath: socketPath) != process.processIdentifier,
-                  ContinuousClock.now < deadline {
+                  process.isRunning, ContinuousClock.now < deadline {
                 try await Task.sleep(for: .milliseconds(20))
             }
             #expect(AcpmuxUnresponsiveWatch.listenerPID(socketPath: socketPath) == process.processIdentifier)
@@ -429,9 +450,10 @@ nonisolated final class HungDaemon: @unchecked Sendable {  // `process` is only 
         self.ended = ended
     }
 
-    /// The signal that ended it (0: it exited); nil when it has not ended within 5 s.
+    /// The signal that ended it (0: it exited); nil when it has not ended within 60 s, a
+    /// load-tolerant deadline (the termination handler runs once Foundation reaps it).
     func signal() async -> Int32? {
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(60)
         while ended.signal.withLock({ $0 }) == nil, ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(20))
         }

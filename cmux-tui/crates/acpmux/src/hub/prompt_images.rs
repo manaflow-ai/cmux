@@ -8,6 +8,7 @@
 
 use super::{EventFilter, Hub, Session};
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -80,9 +81,8 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
     if size < header + 8 || size > bytes.len() || (size - header - 8) % 4 != 0 {
         return None;
     }
-    let brands: Vec<&[u8]> = std::iter::once(&bytes[header..header + 4])
-        .chain(bytes[header + 8..size].chunks_exact(4))
-        .collect();
+    let (major, compatible) = (bytes.get(header..header + 4)?, bytes.get(header + 8..size)?);
+    let brands: Vec<&[u8]> = std::iter::once(major).chain(compatible.chunks_exact(4)).collect();
     let has =
         |names: &[&[u8; 4]]| brands.iter().any(|brand| names.iter().any(|name| *brand == *name));
     if has(&[b"avif", b"avis"]) {
@@ -115,7 +115,7 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
     let mut named = json!({"id": id, "mimeType": mime});
     if let Some(name) = block.get("name").and_then(Value::as_str) {
-        named["name"] = json!(name);
+        named.set("name", json!(name));
     }
     Some((bytes, named))
 }
@@ -186,6 +186,10 @@ pub(super) fn inline_parts(
     let kept_images: HashSet<&str> =
         images.iter().filter_map(|image| image.get("id").and_then(Value::as_str)).collect();
     let display = validated_display_parts(display_parts, blocks);
+    let companion_images: HashSet<u64> = display
+        .values()
+        .filter_map(|part| part.get("companionOf").and_then(Value::as_u64))
+        .collect();
     blocks
         .iter()
         .enumerate()
@@ -202,17 +206,17 @@ pub(super) fn inline_parts(
                         )
                     {
                         let mut part = display_part.clone();
-                        part["text"] = Value::String(text.to_owned());
+                        part.set("text", Value::String(text.to_owned()));
                         if part.get("kind").and_then(Value::as_str) == Some("pasted")
                             && part.get("name").is_none()
                         {
-                            part["name"] = Value::String("Pasted text".into());
+                            part.set("name", Value::String("Pasted text".into()));
                         }
                         return Some(part);
                     }
                     let mut part = json!({"kind": "text", "text": text});
                     if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
-                        part["pasted"] = Value::Bool(true);
+                        part.set("pasted", Value::Bool(true));
                     }
                     Some(part)
                 }
@@ -221,9 +225,12 @@ pub(super) fn inline_parts(
                     let id = named.get("id").and_then(Value::as_str)?;
                     let persisted = kept_images.contains(id);
                     let mut part = named;
-                    part["kind"] = Value::String("image".into());
+                    part.set("kind", Value::String("image".into()));
+                    if companion_images.contains(&(block_index as u64)) {
+                        part.set("blockIndex", json!(block_index));
+                    }
                     if !persisted {
-                        part["persisted"] = Value::Bool(false);
+                        part.set("persisted", Value::Bool(false));
                     }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
@@ -235,13 +242,13 @@ pub(super) fn inline_parts(
                     let name = block.get("name").and_then(Value::as_str).unwrap_or(fallback);
                     let mut part = json!({"kind": kind, "name": name});
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
-                        part["mimeType"] = Value::String(mime_type.into());
+                        part.set("mimeType", Value::String(mime_type.into()));
                     }
                     if let Some(size) = block_size(block) {
-                        part["size"] = json!(size);
+                        part.set("size", json!(size));
                     }
                     if let Some(page_count) = block.get("pageCount").and_then(Value::as_u64) {
-                        part["pageCount"] = json!(page_count);
+                        part.set("pageCount", json!(page_count));
                     }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
@@ -256,7 +263,7 @@ pub(super) fn inline_parts(
                     let name = block.get("name").and_then(Value::as_str).unwrap_or(uri);
                     let mut part = json!({"kind": "file", "name": name, "uri": uri});
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
-                        part["mimeType"] = Value::String(mime_type.into());
+                        part.set("mimeType", Value::String(mime_type.into()));
                     }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
@@ -317,6 +324,20 @@ pub(crate) fn validated_display_parts(
         }
         let mut out =
             serde_json::Map::from_iter([(String::from("kind"), Value::String(kind.into()))]);
+        if let Some(raw) = object.get("companionOf") {
+            let Some(index) = raw.as_u64().and_then(|n| usize::try_from(n).ok()) else { continue };
+            if kind != "file"
+                || block_type != "resource_link"
+                || index.checked_add(1) != Some(block_index)
+                || !blocks.get(index).is_some_and(|target| {
+                    target.get("type").and_then(Value::as_str) == Some("image")
+                        && decode(target).is_some()
+                })
+            {
+                continue;
+            }
+            out.insert("companionOf".into(), json!(index));
+        }
         if let Some(name) = object.get("name").and_then(Value::as_str) {
             if name.is_empty() || name.chars().count() > MAX_DISPLAY_NAME {
                 continue;
@@ -362,7 +383,7 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in ["name", "mimeType", "size", "pageCount", "start", "end"] {
+    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf"] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
@@ -396,7 +417,7 @@ pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
                 "data": base64::engine::general_purpose::STANDARD.encode(bytes),
             });
             if let Some(name) = named.get("name") {
-                block["name"] = name.clone();
+                block.set("name", name.clone());
             }
             Some(block)
         })
@@ -416,7 +437,7 @@ impl Hub {
     ) {
         let images = keep(blocks);
         if !images.is_empty() {
-            msg["images"] = Value::Array(images);
+            msg.set("images", Value::Array(images));
         }
         let ordered = inline_parts(
             blocks,
@@ -424,12 +445,12 @@ impl Hub {
             display_parts,
         );
         if !ordered.is_empty() {
-            msg["inlineParts"] = Value::Array(ordered);
+            msg.set("inlineParts", Value::Array(ordered));
         }
         super::session::mark_pasted(&mut msg, blocks);
         // Not recorded, so a retry knows it cannot send the prompt again whole (`retry_turn.rs`).
         if blocks.iter().any(crate::prompt_context::is_context) {
-            msg["hiddenContext"] = Value::Bool(true);
+            msg.set("hiddenContext", Value::Bool(true));
         }
         self.append(session, "mux", "user_message", msg);
     }
@@ -658,5 +679,34 @@ mod tests {
         let resource_block =
             vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
         assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
+    }
+    #[test]
+    fn inline_parts_validate_companion_relation() {
+        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
+        let file =
+            json!({"type": "resource_link", "name": "one.png", "uri": "file:///tmp/one.png"});
+        let blocks = vec![
+            image.clone(),
+            file.clone(),
+            json!({"type": "text", "text": "between"}),
+            image,
+            file,
+        ];
+        let display = json!([
+            {"kind": "file", "blockIndex": 1, "companionOf": 0},
+            {"kind": "file", "blockIndex": 4, "companionOf": 3}
+        ]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(parts[0]["id"], parts[3]["id"], "same bytes, distinct block identities");
+        assert_eq!(parts[0]["blockIndex"], 0);
+        assert_eq!(parts[1]["companionOf"], 0);
+        assert_eq!(parts[3]["blockIndex"], 3);
+        assert_eq!(parts[4]["companionOf"], 3);
+        assert_eq!(parts[1]["uri"], "file:///tmp/one.png", "the file is still delivered");
+        for (block, target) in [(1, 2), (1, 99), (1, -1), (0, 3), (4, 0)] {
+            let invalid = json!([{"kind": if block == 0 { "image" } else { "file" }, "blockIndex": block, "companionOf": target}]);
+            let parts = inline_parts(&blocks, &[], Some(&invalid));
+            assert!(parts.iter().all(|part| part.get("companionOf").is_none()));
+        }
     }
 }

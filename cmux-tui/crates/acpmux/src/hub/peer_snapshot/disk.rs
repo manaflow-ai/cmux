@@ -1,7 +1,8 @@
 //! The on-disk form of a peer session's copy (`peer_snapshot.rs`): one file per session,
-//! `peers/.snapshots/<hex peer>/<hex muxSessionId>.json`, beside `peers/<peer>.json`
-//! (`peer_cache.rs`). Its first line is the copy's `Head` (whose session it is, its generation,
-//! lastSeq, capturedAt, the last-known row), then a record a line, oldest first. Names are
+//! `peer-snapshots/<hex peer>/<hex muxSessionId>.json` in the daemon's home, beside `peers/` and
+//! never in it: what lists the peer caches (`peers/<peer>.json`, `peer_cache.rs`) never sees it.
+//! Its first line is the copy's `Head` (whose session it is, its generation, lastSeq, capturedAt,
+//! the last-known row), then a record a line, oldest first. Names are
 //! lowercase hex, so two ids that differ only in case never share a file on a case-insensitive
 //! volume. A file is always written whole to a temporary file renamed over the old one
 //! (`config::write_atomic`): a full disk or a crash leaves the old copy or the new one, never a
@@ -67,14 +68,16 @@ fn unhex(s: &str) -> Option<String> {
     if s.is_empty() || !s.len().is_multiple_of(2) || !s.bytes().all(lower) {
         return None;
     }
-    let bytes: Option<Vec<u8>> =
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect();
+    let bytes: Option<Vec<u8>> = (0..s.len())
+        .step_by(2)
+        .map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect();
     String::from_utf8(bytes?).ok().filter(|id| id.len() <= ID_BYTES)
 }
 
-/// Where every copy lives under the peers directory.
-pub(super) fn root(peers: &Path) -> PathBuf {
-    peers.join(".snapshots")
+/// Where every copy lives in the daemon's home `home`.
+pub(super) fn root(home: &Path) -> PathBuf {
+    home.join("peer-snapshots")
 }
 
 pub(super) fn peer_dir(root: &Path, peer: &str) -> Option<PathBuf> {

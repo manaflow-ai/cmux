@@ -240,5 +240,6 @@ function isEventRecord(value: unknown): value is EventRecord {
 /// Test seam: a fresh page, holding no tails of its own (the host keeps its own).
 export function resetKeptTailsForTests(): void {
   keptTails.clear();
+  readAheadTails.clear();
   reading.clear();
 }

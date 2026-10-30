@@ -1,4 +1,5 @@
 import Foundation
+public import AppKit
 public import Observation
 public import SwiftUI
 import CmuxNextDesign
@@ -29,14 +30,29 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     public let health: HostHealth?
     /// The step the last check flagged (its first failure, else its first warning).
     public let healthStep: HostStep?
+    /// A machine that joined with a one-line token (Labs `labs.machineJoin`): reached through the
+    /// mesh, with Check, Rotate Credential and Revoke. Nil for a machine the app connects to.
+    public let joined: JoinedMachine?
 
-    public init(id: String, name: String, isConnected: Bool, isLocal: Bool, health: HostHealth? = nil, healthStep: HostStep? = nil) {
+    public init(id: String, name: String, isConnected: Bool, isLocal: Bool, health: HostHealth? = nil, healthStep: HostStep? = nil,
+                joined: JoinedMachine? = nil) {
         self.id = id
         self.name = name
         self.isConnected = isConnected
         self.isLocal = isLocal
         self.health = health
         self.healthStep = healthStep
+        self.joined = joined
+    }
+
+    /// Whether the row is a machine the app connects to (it can open a workspace), not a joined
+    /// machine reached through the mesh alone.
+    public var isLinked: Bool { joined == nil || id != joined.map { JoinedMachine.healthID($0.id) } }
+
+    /// The row of a joined machine, with its last Check from `health`.
+    public static func joined(_ machine: JoinedMachine, health: HostReport?) -> MachineSectionRow {
+        MachineSectionRow(id: JoinedMachine.healthID(machine.id), name: machine.name, isConnected: machine.state == .online, isLocal: false,
+                          health: health?.health, healthStep: health?.worstStep?.step, joined: machine)
     }
 
     /// The tooltip of the status dot: which step the last check flagged.
@@ -69,20 +85,35 @@ public struct MachineSectionListView: View {
     let model: MachineSectionModel
     let newWorkspace: @MainActor (String) -> Void
     let addMachine: @MainActor () -> Void
+    /// A joined machine's "…" menu (the registry's rows for it), with the row it opens on.
+    let joinedMenu: @MainActor (JoinedMachine, MachineSectionRow) -> NSMenu?
+    let joinedStore: JoinedMachineStore?
 
     public init(model: MachineSectionModel, newWorkspace: @escaping @MainActor (String) -> Void,
-                addMachine: @escaping @MainActor () -> Void) {
+                addMachine: @escaping @MainActor () -> Void, joinedStore: JoinedMachineStore? = nil,
+                joinedMenu: @escaping @MainActor (JoinedMachine, MachineSectionRow) -> NSMenu? = { _, _ in nil }) {
         self.model = model
         self.newWorkspace = newWorkspace
         self.addMachine = addMachine
+        self.joinedStore = joinedStore
+        self.joinedMenu = joinedMenu
     }
 
     public var body: some View {
         let rows = model.rows
+        // The store is read here, above the ForEach; each row gets values and closures only.
+        let openMenu = joinedStore?.openMenu, busy = joinedStore?.busy ?? [], failed = joinedStore?.failed ?? [:]
         VStack(alignment: .leading, spacing: 2) {
             ForEach(rows) { row in
-                HStack(spacing: Metrics.panelInset) {
-                    Image(systemName: row.isLocal ? "laptopcomputer" : "cloud").foregroundStyle(.secondary)
+                if let joined = row.joined {
+                    JoinedMachineRowHost(
+                        snapshot: .init(row: row, machine: joined, busy: busy.contains(joined.id), failed: failed[joined.id],
+                                        menuOpen: openMenu == joined.id),
+                        actions: .init(newWorkspace: { newWorkspace(row.id) }, menu: { joinedMenu(joined, row) }))
+                } else {
+                HStack(alignment: .center, spacing: Metrics.panelInset) {
+                    Icon(row.isLocal ? .machineLocal : .machineRemote, size: Metrics.iconSize)
+                        .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: Metrics.space2) {
                             Text(verbatim: row.name).font(Font(Typography.body)).lineLimit(1)
@@ -105,13 +136,15 @@ public struct MachineSectionListView: View {
                     .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
                     .disabled(!row.isConnected)
                 }
-                .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
+                .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
+                }
             }
             Button(action: addMachine) {
-                Label(AddMachineStrings.addMachine, systemImage: "plus.circle").font(Font(Typography.body))
+                Label(AddMachineStrings.addMachine, systemImage: "plus.circle")
+                    .font(Font(Typography.body))
             }
             .buttonStyle(.borderless)
-            .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
+            .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -120,6 +153,21 @@ public struct MachineSectionListView: View {
 
 /// The last check of a machine as a small mark after its name: a check when every step passed, a
 /// dot in the warning or danger color otherwise, nothing before a check ran.
+/// A joined machine's AppKit row (`JoinedMachineRowView`) in this list, until the section's rows are
+/// all AppKit (plans/cmux-next/no-swiftui-DESIGN.md: Machines section, AppKit rows).
+struct JoinedMachineRowHost: NSViewRepresentable {
+    let snapshot: JoinedMachineRowView.Snapshot
+    let actions: JoinedMachineRowView.Actions
+
+    func makeNSView(context: Context) -> JoinedMachineRowView { JoinedMachineRowView() }
+
+    func updateNSView(_ view: JoinedMachineRowView, context: Context) { view.update(snapshot, actions) }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: JoinedMachineRowView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? nsView.frame.width, height: JoinedMachineMetrics.rowHeight)
+    }
+}
+
 struct MachineHealthDot: View {
     let health: HostHealth?
 

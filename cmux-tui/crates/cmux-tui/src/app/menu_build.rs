@@ -156,6 +156,9 @@ impl App {
         if self.surface_only.is_none() {
             items.push(self.sidebar_presentation_menu_item());
         }
+        if let Some(docks) = self.dock_menu_item() {
+            items.push(docks);
+        }
         items.push(self.menu_item(MenuAction::ShowShortcuts));
         items
     }

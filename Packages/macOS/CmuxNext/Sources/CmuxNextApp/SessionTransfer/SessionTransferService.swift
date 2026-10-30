@@ -2,96 +2,19 @@ import CmuxNextCompat
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextSessionTransfer
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
 typealias TransferJSONValue = CmuxNextSettings.JSONValue
 
-/// A live tab that another local cmux build can hand to this App.
-nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable {
-    let sourceSurface: String
-    let workspace: String
-    let kind: Kind
-    let title: String
-    let cwd: String?
-    /// The host portion of an SSH command, when the source exposes one.
-    let sshTarget: String?
-    /// A source terminal's original launch command, when available (classic peers).
-    let command: String?
-    let agentHarness: String?
-    let agentSessionID: String?
-    /// A `chat` (a cmux-next agent chat, `agentSessionID` its acpmux session): the source build's
-    /// acpmux socket and home, which `acpmux transfer` moves it from.
-    var acpmuxSocket: String?
-    var acpmuxHome: String?
-
-    /// `agent` resumes a harness's own session id; `chat` moves an acpmux chat with its history,
-    /// queue and draft (a build that predates it skips the record).
-    nonisolated enum Kind: String, Sendable { case terminal, agent, chat }
-    var id: String { sourceSurface }
-
-    var json: TransferJSONValue {
-        [
-            "surface": .string(sourceSurface),
-            "workspace": .string(workspace),
-            "kind": .string(kind.rawValue),
-            "title": .string(title),
-            "cwd": .optional(cwd),
-            "ssh_target": .optional(sshTarget),
-            "command": .optional(command),
-            "agent": .optional(agentHarness),
-            "agent_session": .optional(agentSessionID),
-            "acpmux_socket": .optional(acpmuxSocket),
-            "acpmux_home": .optional(acpmuxHome),
-        ]
-    }
-
-    init(sourceSurface: String, workspace: String, kind: Kind, title: String, cwd: String?, sshTarget: String?,
-         command: String?, agentHarness: String?, agentSessionID: String?) {
-        self.sourceSurface = sourceSurface
-        self.workspace = workspace
-        self.kind = kind
-        self.title = title
-        self.cwd = cwd
-        self.sshTarget = sshTarget
-        self.command = command
-        self.agentHarness = agentHarness
-        self.agentSessionID = agentSessionID
-    }
-
-    init?(json: TransferJSONValue, defaultWorkspace: String = "") {
-        guard let object = json.objectValue,
-              let sourceSurface = object["surface"]?.stringValue ?? object["id"]?.stringValue,
-              let kind = object["kind"]?.stringValue.flatMap(Kind.init(rawValue:)) else { return nil }
-        self.sourceSurface = sourceSurface
-        workspace = object["workspace"]?.stringValue ?? object["workspace_id"]?.stringValue ?? defaultWorkspace
-        self.kind = kind
-        title = object["title"]?.stringValue ?? object["name"]?.stringValue ?? ""
-        cwd = object["cwd"]?.stringValue
-        sshTarget = object["ssh_target"]?.stringValue
-        command = object["command"]?.stringValue
-        agentHarness = object["agent"]?.stringValue
-        agentSessionID = object["agent_session"]?.stringValue
-        acpmuxSocket = object["acpmux_socket"]?.stringValue
-        acpmuxHome = object["acpmux_home"]?.stringValue
-    }
-}
-
-nonisolated struct SessionTransferPeer: Sendable {
-    let path: String
-    let app: String
-    let build: String
-    let tag: String?
-    let pid: Int32
-    let items: [SessionTransferItem]
-}
-
 /// Discovers live sibling builds and performs an acknowledge-then-close move.
 /// The destination creates every item first; a source is only asked to close
-/// after the corresponding destination operation succeeds. Reached only over
-/// the control socket (`session.transfer.peers` / `session.transfer.pull`),
-/// for scripts and agents; there is no migration UI.
+/// after the corresponding destination operation succeeds. A person runs it
+/// from the palette (Move Sessions from Another cmux Build…, `SessionMoveFromBuild`);
+/// scripts and agents use the control socket (`session.transfer.peers` /
+/// `session.transfer.pull`).
 @MainActor
 final class SessionTransferService {
     private(set) weak var services: AppServices?
@@ -106,8 +29,12 @@ final class SessionTransferService {
     /// shell in the same folder and ends the source's process; a chat's moves the chat
     /// itself (``moveChat(_:interrupt:cwd:)``), refused while it runs a turn unless `interrupt`, and
     /// into folder `cwd` here when given (a chat whose folder is not on this machine).
-    /// One item's failure never stops the others; each is reported.
-    func pull(source: String, ids: Set<String> = [], interrupt: Bool = false, cwd: String? = nil) async throws -> TransferJSONValue {
+    /// One item's failure never stops the others; each is reported. With `idleTerminalsOnly`
+    /// (the palette's picker, which offers only idle terminals), each terminal is asked again
+    /// right before its move and stays when it is no longer idle at its shell
+    /// (``Failure/terminalBusy(_:)``): the picker's answer may be minutes old.
+    func pull(source: String, ids: Set<String> = [], interrupt: Bool = false, cwd: String? = nil,
+              idleTerminalsOnly: Bool = false) async throws -> TransferJSONValue {
         let peers = try await discover(only: source)
         let selected = peers.flatMap { peer -> [(SessionTransferPeer, SessionTransferItem)] in
             guard source == peer.path || source == peer.tag else { return [] }
@@ -120,7 +47,7 @@ final class SessionTransferService {
             // A pull past its deadline (the control router cancels it) moves nothing more.
             try Task.checkCancellation()
             do {
-                try await move(item, from: peer, interrupt: interrupt, cwd: cwd)
+                try await move(item, from: peer, interrupt: interrupt, cwd: cwd, idleTerminalsOnly: idleTerminalsOnly)
                 moved.append(item.json)
             } catch {
                 var entry: [String: TransferJSONValue] = ["surface": .string(item.id), "source": .string(peer.path), "error": .string(Self.message(for: error))]
@@ -132,11 +59,47 @@ final class SessionTransferService {
         return ["moved": .array(moved), "failed": .array(failed)]
     }
 
-    func complete(surfaces: [String]) async throws {
+    /// Closes `surfaces` and ends their terminals. With `idleOnly` (a taker that offered only
+    /// idle terminals), first asks each its foreground program and closes none when one is no
+    /// longer idle at its shell (``Failure/terminalBusy(_:)``, the control code ``busyCode``).
+    func complete(surfaces: [String], idleOnly: Bool = false) async throws {
         guard let services, let connection = services.daemon.connection else { throw Failure.unavailable }
         let ids = surfaces.compactMap { UInt64($0).map(SurfaceID.init(rawValue:)) }
         guard ids.count == surfaces.count else { throw Failure.invalidSurfaces }
+        if idleOnly {
+            let programs = await foregroundPrograms(surfaces)
+            for surface in surfaces {
+                // Missing: no answer, which is not idle. `.some(nil)`: its shell only.
+                guard let program = programs[surface] else { throw Failure.terminalBusy(SessionMoveSelection.becameUnknown) }
+                if let program {
+                    throw Failure.terminalBusy(program.isEmpty ? SessionMoveSelection.becameUnknown : SessionMoveSelection.becameBusy(program))
+                }
+            }
+        }
         try await connection.closeTabs(ids, endTerminals: true)
+    }
+
+    /// Each local terminal's foreground program by surface, for `session.transfer.list`'s
+    /// `idle` and `foreground_program`, asked at once with a short deadline. A nil program:
+    /// its shell only. A terminal missing from it did not answer or reported no foreground,
+    /// so a taker treats it as busy: a move ends it, so unlike a close, no answer is not idle.
+    func foregroundPrograms(_ surfaces: [String]) async -> [String: String?] {
+        guard let connection = services?.daemon.connection else { return [:] }
+        return await withTaskGroup(of: (String, String??).self) { group in
+            for surface in surfaces {
+                guard let id = UInt64(surface).map(SurfaceID.init(rawValue:)) else { continue }
+                group.addTask {
+                    let info = try? await connection.request(TerminalProcessInfoRequest(surface: id), timeout: .milliseconds(500))
+                    guard let info, info.foregroundExecutable?.isEmpty == false else { return (surface, nil) }
+                    return (surface, .some(info.runningProgram))
+                }
+            }
+            var programs: [String: String?] = [:]
+            for await (surface, program) in group {
+                if let program { programs[surface] = .some(program) }
+            }
+            return programs
+        }
     }
 
     /// The sibling builds and their movable sessions, for `session.transfer.peers` and `.pull`.
@@ -168,7 +131,8 @@ final class SessionTransferService {
             let build = fields["build"]?.stringValue ?? fields["version"]?.stringValue ?? ""
             let tag = fields["tag"]?.stringValue ?? ControlSocketPath.shared.bundleTag(fields["bundle_identifier"]?.stringValue)
             let items: [SessionTransferItem]
-            if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list"),
+            // A cmux-next source asks each terminal for its foreground program (up to half a second).
+            if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list", timeout: .seconds(5)),
                let records = list["sessions"]?.arrayValue {
                 items = records.compactMap { SessionTransferItem(json: $0) }
             } else {
@@ -191,11 +155,33 @@ final class SessionTransferService {
         return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 
-    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool, cwd: String?) async throws {
+    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool, cwd: String?,
+                      idleTerminalsOnly: Bool) async throws {
         if item.kind == .chat { return try await moveChat(item, from: peer, interrupt: interrupt, cwd: cwd) }
-        _ = try await create(item)
-        try await completeOnPeer(item: item, peer: peer)
+        if item.kind == .terminal, idleTerminalsOnly {
+            // Moving ends the terminal there, so ask its build now, not what discovery saw:
+            // a terminal idle when picked may run `vim` with unsaved work by now.
+            let list = try? await ControlPeerClient.request(path: peer.path, method: "session.transfer.list", timeout: .seconds(5))
+            if let refusal = SessionMoveSelection.handoffRefusal(surface: item.sourceSurface, list: list) {
+                throw Failure.terminalBusy(refusal)
+            }
+        }
+        let created = try await create(item)
+        guard item.kind == .terminal, idleTerminalsOnly else { return try await completeOnPeer(item: item, peer: peer) }
+        do {
+            // The source checks again as it closes (`idle_only`): the terminal may have started a
+            // program while the shell here opened. Refused, the new shell here closes again.
+            try await completeOnPeer(item: item, peer: peer, idleOnly: true)
+        } catch ControlPeerClient.Failure.peer(let control) where control.code == Self.busyCode {
+            if let connection = services?.daemon.connection {
+                _ = try? await connection.closeWorkspace(WorkspaceKey(rawValue: created), endTerminals: true)
+            }
+            throw Failure.terminalBusy(control.message)
+        }
     }
+
+    /// The `session.transfer.complete` error code for an `idle_only` terminal that is not idle.
+    nonisolated static let busyCode = "terminal_busy"
 
     /// Opens records read from classic's files (scripts/cmux-next/classic-to-next.py):
     /// `agent` {harness, session, cwd?, name?} becomes an agent chat resumed by its
@@ -290,10 +276,11 @@ final class SessionTransferService {
         return listed.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens.first?.layout.paneIDs.first
     }
 
-    func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer) async throws {
+    func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer, idleOnly: Bool = false) async throws {
         do {
-            _ = try await ControlPeerClient.request(path: peer.path, method: "session.transfer.complete",
-                                                    params: ["surfaces": .array([.string(item.sourceSurface)])])
+            var params: [String: TransferJSONValue] = ["surfaces": .array([.string(item.sourceSurface)])]
+            if idleOnly { params["idle_only"] = .bool(true) }
+            _ = try await ControlPeerClient.request(path: peer.path, method: "session.transfer.complete", params: params)
         } catch let error as ControlPeerClient.Failure where Self.isMissingTransferMethod(error) {
             // Classic builds expose the normal v2 close method instead of the
             // additive transfer acknowledgement method.
@@ -349,6 +336,8 @@ final class SessionTransferService {
                    bundle: .module)
         case Failure.chatNotMoved(let reason):
             String(localized: "sessionTransfer.error.chatNotMoved", defaultValue: "The agent chat did not move: \(reason)", bundle: .module)
+        case Failure.terminalBusy(let reason):
+            reason
         case Failure.invalidSurfaces:
             String(localized: "sessionTransfer.error.invalidSurfaces", defaultValue: "The source build returned invalid session identifiers.", bundle: .module)
         case let failure as ControlPeerClient.Failure:
@@ -368,9 +357,8 @@ final class SessionTransferService {
         case chatInChats
         /// The source build's acpmux does not answer.
         case sourceAgentsStopped
+        /// A terminal picked while idle runs a program now, or its build can no longer tell
+        /// (the reason, `SessionMoveSelection.handoffRefusal`); it stays in the source build.
+        case terminalBusy(String)
     }
-}
-
-private extension CmuxNextSettings.JSONValue {
-    nonisolated static func optional(_ value: String?) -> CmuxNextSettings.JSONValue { value.map(CmuxNextSettings.JSONValue.string) ?? .null }
 }
