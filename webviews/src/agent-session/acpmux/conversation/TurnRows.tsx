@@ -329,9 +329,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const [retryNote, setRetryNote] = useState<RetryNote>();
   // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
   // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
-  const failedRetry = !failed
-    ? undefined
-    : retryFailed && row.retryable
+  // `retryFailed` reaches only the chat the row was drawn for; App gives none to a View Only chat, a
+  // read-only pane or one whose composer cannot send, where Retry falls back to the plain resend.
+  const ownedRetry =
+    failed && retryFailed && row.retryable
       ? () => {
           setRetrying(true);
           setRetryNote(undefined);
@@ -339,9 +340,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             .then(setRetryNote, () => setRetryNote("retry.failed"))
             .finally(() => setRetrying(false));
         }
-      : retry && prompt && row.retryRowId
-        ? () => retry(row.retryRowId!, prompt)
-        : undefined;
+      : undefined;
+  const resend = failed && retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined;
+  const failedRetry = ownedRetry ?? resend;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -357,6 +358,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           compact={compact}
           reauthenticate={reauthenticate}
           retry={failedRetry}
+          retryOwned={ownedRetry !== undefined}
           retrying={retrying}
           retryNote={retryNote}
         />
@@ -462,6 +464,7 @@ function TurnFailure({
   compact,
   reauthenticate,
   retry,
+  retryOwned = false,
   retrying = false,
   retryNote,
 }: {
@@ -474,6 +477,9 @@ function TurnFailure({
   /// route, asks to sign in; cx-w10a).
   reauthenticate?: () => void;
   retry?: () => void;
+  /// `retry` is the failed turn's own (TurnActions `retryFailed`): it reaches only the chat the row
+  /// was drawn for, never a View Only chat, a read-only pane or the next chat during a switch.
+  retryOwned?: boolean;
   /// A Retry is in flight: its button waits.
   retrying?: boolean;
   /// Why acpmux refused the last Retry (turnRetry.ts), shown beside the actions.
@@ -497,7 +503,10 @@ function TurnFailure({
   // was: Switch model or CodeRouter, and no Retry, which would fail the same way.
   const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
   // Retry is the way out, or the second one after Switch model, Compact or Sign in again; never for trust.
-  const offersRetry = recovery !== undefined && retry !== undefined && (recovery !== "sign-in" || signInFirst);
+  // A sign-in card's Retry is only the failed turn's own, which reaches only its chat: a View Only
+  // chat or a read-only pane keeps Sign in again without one, as before.
+  const offersRetry =
+    recovery !== undefined && retry !== undefined && (recovery !== "sign-in" || (signInFirst && retryOwned));
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
