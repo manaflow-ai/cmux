@@ -74,4 +74,24 @@ struct AgentPaneChromiumVisibilityTests {
         #expect(view.pageContent.alphaValue == 1)
         #expect(chromium.visibility.last == true)
     }
+
+    @Test func handingOffAHoldKeepsWithdrawnChromiumHidden() async throws {
+        let (view, chromium, window) = try await pane()
+        defer { view.page?.close(); window.close() }
+        view.loadingView.leave(over: view.pageContent, fades: false)
+        let host = NSView()
+        let outgoing = NSView()
+        let incoming = GatedHost()
+        window.contentView = host
+        host.addSubview(outgoing)
+        host.addSubview(incoming)
+        incoming.addSubview(view)
+        let hold = PanePaintHold(owner: "test.window.chromium-handoff")
+        hold.begin(outgoing: outgoing, incoming: incoming, in: host, release: { $0.removeFromSuperview() })
+        hold.handOff { $0.removeFromSuperview() }
+        #expect(incoming.alphaValue == 1)
+        #expect(chromium.visibility.last == false)
+        host.addSubview(incoming)
+        #expect(chromium.visibility.last == true)
+    }
 }
