@@ -13,15 +13,12 @@ extension CEFRuntime {
     func evaluate(_ browser: Int32, world: String, script: String, userGesture: Bool,
                   timeout: Duration = CEFRuntime.evaluateTimeout) async throws -> CEFEvaluationResult {
         guard let tabEvaluate = shim?.tabEvaluate else { throw BrowserTabError.closed }
-        let order = devToolsOrder
-        let ticket = order.take(browser)
-        await order.turn(ticket, of: browser)
+        // red proof: the fork evaluate leaves at once, outside the browser's order
         let token = nextEvaluation
         nextEvaluation = nextEvaluation == .max ? 1 : nextEvaluation + 1
         evaluationBrowsers[token] = browser
         defer { evaluationBrowsers[token] = nil }
         let sent = tabEvaluate(browser, token, world, script, userGesture ? 1 : 0) == 1
-        order.leave(ticket, of: browser)
         guard sent else { throw BrowserTabError.closed }
         if let early = earlyEvaluations.removeValue(forKey: token) { return early }
         return try await evaluations.reply(for: token, timeout: timeout) { BrowserTabError.timedOut("evaluate (\(timeout))") }
@@ -39,11 +36,8 @@ extension CEFRuntime {
         let token = nextEvaluation
         nextEvaluation = nextEvaluation == .max ? 1 : nextEvaluation + 1
         latestEvaluation = (token, browser, done)
-        devToolsOrder.post(browser) { [weak self] in
-            let sent = tabEvaluate(browser, token, world, script, 0) == 1
-            if !sent, let self, self.latestEvaluation?.token == token { self.latestEvaluation.take()?.done(nil) }
-            return sent
-        }
+        // red proof: evaluateLatest leaves at once, outside the browser's order
+        if tabEvaluate(browser, token, world, script, 0) != 1, latestEvaluation?.token == token { latestEvaluation.take()?.done(nil) }
     }
 
     /// Runs `script` in `browser`'s main frame (`world` "" = the page's world) and keeps no answer: for a
