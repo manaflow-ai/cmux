@@ -194,8 +194,8 @@ extension AgentTabStore {
         // A pane may outlive the Cloud teardown. Clear the action handler as soon as sign-out
         // begins so an already-open page cannot call a recovery action that native recovery rejects.
         services.cloud.willSignOut.append { [weak tabs] in tabs?.cloudCredentialTransfer = nil }
-        // A chat in a plain split (chat | terminal) gets a tab in the pane already on its right; the
-        // side pane (AgentSidePanes) reuses only a pane it made, so it would make a third split.
+        // A chat opens on the right as a link does (LinkOpener, RightColumnPlacement): a split right of
+        // the chat, else one split below what is already there (a plain split's terminal included), else a tab in the lower pane.
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
         tabs.openRight = { [weak services, weak tabs] chat, session in
             guard let services, let tabs, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { return false }
@@ -221,9 +221,14 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
-        tabs.paneWidth = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
-            return services.paneController(for: pane)?.view.bounds.width
+        tabs.rightColumn = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key), let source = services.paneController(for: pane) else { return .init() }
+            return RightColumn.measure(beside: source)
+        }
+        tabs.locatePane = { [weak services] key in
+            guard let services else { return nil }
+            let pane = services.windows.controllers.lazy.compactMap { $0.content?.paneController(key: key) }.first
+            return pane.map { (pane: $0.pane.handle, daemon: $0.daemon) }
         }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key) else { return }

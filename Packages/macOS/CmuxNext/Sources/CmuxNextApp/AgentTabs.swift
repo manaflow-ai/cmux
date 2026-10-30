@@ -39,8 +39,10 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
-    /// The width in points of the pane holding tab `key` (a subagent split's room, ``AgentSubagentPanes``).
-    var paneWidth: @MainActor (String) -> CGFloat? = { _ in nil }
+    /// The right column beside the pane holding chat tab `key`, as ``RightColumnPlacement`` reads it (``RightColumn``).
+    var rightColumn: @MainActor (String) -> RightColumnPlacement.Column = { _ in RightColumnPlacement.Column() }
+    /// A right-column pane by its ``RightColumnPlacement/Column`` key (a layout pane id) and its daemon.
+    var locatePane: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
     /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).
     var selectInPane: @MainActor (String) -> Void = { _ in }
     /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
