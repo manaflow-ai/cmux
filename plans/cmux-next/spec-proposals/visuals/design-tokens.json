@@ -136,12 +136,12 @@
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:190 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+Marks.swift:72-80 (ProfileBarView.markColor)"
    },
    "textPrimary": {
-    "value": "readable(fg, worst, 4.5), worst = the lower-contrast for fg of over(pressedFill,bg) and over(selectionFill,bg) (pressedFill with the neutral accent): fg pushed toward white (surface lum<0.18) or black in 0.02 steps until 4.5:1",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153-155,224-234 (ThemeTokens.derive)"
+    "value": "inks(fg, rows = [worst, bg]), worst = the lower-contrast for fg of over(pressedFill,bg) and over(selectionFill,bg) (pressedFill with the neutral accent). fg when it reaches 4.5:1 on both rows; otherwise two candidates, fg pushed toward white and toward black (the pole with more contrast on worst first) in 0.02 steps until 4.5:1 on both rows (or the pole), each with its own textSecondary and textTertiary; the candidate whose textPrimary and textSecondary keep the higher least contrast over rows wins, the score capped at 4.5 (a tie keeps the first). Grass takes white (black reaches only 3.73:1 on its bg), Hot Dog Stand the dark ink (white reaches 4.20:1 on its red). Every port replays schemas/theme/theme-ink-vectors.json",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156-161,240-273 (ThemeTokens.derive, ThemeTokens.inks, ThemeTokens.readable(_:over:toward:minimum:))"
    },
    "textSecondary": {
-    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over inkWorst); steps of 0.01. inkWorst = worst (see textPrimary), or with background-opacity < 1 the lowest-contrast for textPrimary of worst, tint, over(pressedFill,tint) and over(selectionFill,tint), tint = over(alpha(bg, background-opacity), dark ? white : black)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156,239-247 (ThemeTokens.derive)"
+    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over inkWorst); steps of 0.01. inkWorst = the lowest-contrast for textPrimary (each inks candidate's, see textPrimary) of worst and bg, and with background-opacity < 1 also of tint, over(pressedFill,tint) and over(selectionFill,tint), tint = over(alpha(bg, background-opacity), dark ? white : black)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:253-254,276-294 (ThemeTokens.inks, ThemeTokens.seeThroughSurfaces, ThemeTokens.muted)"
    },
    "textTertiary": {
     "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over inkWorst (see textSecondary))",
@@ -2036,7 +2036,7 @@
    "olderMacOS": "The vibrancy branch cannot run in the macOS app today: Packages/macOS/CmuxNext/Package.swift requires macOS 26. Ports without Liquid Glass use vibrancy where the platform has a blur, else the opaque fallback."
   },
   "opaqueFallback": {
-   "value": "mix(opaque windowBackground, opaque textPrimary, 0.14) with 1/scale border opaque separator",
+   "value": "light theme, or a dark theme whose opaque textPrimary is darker than its page (Hot Dog Stand): mix(opaque windowBackground, white, 0.14); else mix(opaque windowBackground, opaque textPrimary, 0.14), the amount stepping down by 0.01 until textSecondary keeps 4.5:1 on over(hoverFill, fill) (the page at 0). 1/scale border opaque separator. schemas/theme/theme-ink-vectors.json holds it per bundled theme",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (ThemeTokens.opaqueOverlayFill); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlaySurface.swift (OverlaySurfaceView.applyTheme); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:40-42 (ChromeTunables.opaqueOverlayLift)"
   },
   "glassTintStrength": {

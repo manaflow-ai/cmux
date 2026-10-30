@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "重新建立這台機器",
       "message": "這台機器建立於 Cloud 更新之前，無法連線。",
-      "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
+      "action": "建立一台新機器。用 `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` 準備 SCP 端點，然後透過 SCP 複製檔案，確認完成後再刪除這台機器。"
     },
     "guestUnresponsive": {
       "title": "機器沒有回應",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "仍在進行中",
       "message": "雲端服務供應商尚未完成此變更，它稍後仍可能完成。",
-      "action": "重試之前，請使用 cmux vm ls 或在機器列表中查看機器狀態。"
+      "action": "重試之前，請使用 cmux cloud list-machines 或在機器列表中查看機器狀態。"
     },
     "providerTimeout": {
       "title": "雲端服務供應商回應緩慢",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "機器忙碌中",
       "message": "這台機器正在啟動、暫停或未執行，因此現在無法執行此操作。",
-      "action": "請稍候再試。用 cmux vm ls 查看機器狀態；如果已暫停，請先繼續執行它。"
+      "action": "請稍候再試。用 cmux cloud list-machines 查看機器狀態；如果已暫停，請先繼續執行它。"
     },
     "networkRuleCapacity": {
       "title": "網路規則已達上限",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
         "restore": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
-        "fork": "請勿重試。請使用 `cmux vm new` 建立新的虛擬機。",
-        "openPort": "請勿重試。請在機器內使用 `cmux vm exec` 存取服務，或使用支援開啟連接埠的機器類型。",
-        "default": "請勿重試。使用 `cmux vm ls` 查看虛擬機；如果你認為這是錯誤，請聯絡支援團隊。"
+        "fork": "請勿重試。請使用 `cmux cloud new-machine` 建立新的虛擬機。",
+        "openPort": "請勿重試。請在機器內使用 `cmux cloud exec --target machine:<id> --command <command>` 存取服務，或使用支援開啟連接埠的機器類型。",
+        "default": "請勿重試。使用 `cmux cloud list-machines` 查看虛擬機；如果你認為這是錯誤，請聯絡支援團隊。"
       }
     },
     "requiresPro": {
-      "title": "需要 cmux Pro",
-      "message": "雲端虛擬機需要 cmux Pro 方案。",
-      "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
+      "title": "需要 cmux {plan}",
+      "message": "雲端虛擬機需要 cmux {plan} 方案。",
+      "action": "請前往 {upgradeUrl} 升級至 cmux {plan} 以建立雲端虛擬機。"
     },
     "displayName": {
       "title": "機器名稱無效",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "無法驗證來源機器的記憶體大小。",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "此機器規格目前無法使用。請選擇不超過 {max} GiB 的規格。",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go 最多儲存兩台 VM，包括正在執行的 VM。",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go 同時可執行一台 VM。",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go 本月的 40 VM 小時已用完。儲存的 VM 可在下一個計費週期開始後繼續使用。",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan} 運算額度已用完",
       "computeMessage": "你的 {plan} 方案已用完本計費週期的 {included} 運算小時。1 運算小時是 1 個 vCPU 搭配 2 GB 記憶體執行一小時。你的機器可在 {resetDate} 再次啟動。",
       "computeAction": "已暫停的機器會保留其檔案。如需在 {resetDate} 之前取得更多運算資源，請聯絡支援團隊。",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} 磁碟額度已用完",
       "storageMessage": "你的 {plan} 方案為所有已儲存的機器總共提供 {included} GB 磁碟。已儲存的機器使用了 {used} GB，此請求需要 {requested} GB。",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Cloud VM 資源不足",

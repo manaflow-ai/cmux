@@ -170,7 +170,7 @@ final class CloseUndoToasts {
                 // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): the page
                 // decides, and its own close (after Leave) closes the tab then.
                 let decides = pane.services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
-                let deciders = user ? part.ids.filter { decides(pane, $0) } : []
+                let deciders = user ? part.ids.filter { !pane.isMirror($0) && decides(pane, $0) } : [] // a mirror's close takes out the chip, never the page
                 if let undo = pane.services.closedTabs?.undoToasts {
                     for id in deciders { if let page = pane.services.cache.browsers[id.rawValue]?.tab { undo.pageClosing.begin(id.rawValue, page: page) } }
                 }

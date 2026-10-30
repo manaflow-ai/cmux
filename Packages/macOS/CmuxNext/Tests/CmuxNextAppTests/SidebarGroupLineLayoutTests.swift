@@ -103,13 +103,15 @@ import Testing
             #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
                     "\(layout): the cut shape covers a rail during its bounds spring")
 
-            #expect(line.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding), "\(layout): the line left the rail, at \(line.minX)")
+            let railPadding = layout == .inside ? 0 : SidebarStyle.groupEdgePadding
+            #expect(line.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, railPadding), "\(layout): the line left the rail, at \(line.minX)")
             #expect(header.pill.frame.minX == 0 && header.pill.frame.width == head.width, "\(layout): the bar spans \(header.pill.frame)")
             switch layout {
             case .edge, .joined:
                 #expect(head.minX == line.minX, "\(layout): the bar starts at \(head.minX), the line at \(line.minX)")
             case .inside:
-                #expect(head.minX == max(0, line.minX - SidebarStyle.groupLineCornerInset) && head.minX < line.minX,
+                // Inside keeps the corner overhang until the list edge; its rail stays clear of member fills.
+                #expect(head.minX == max(0, line.minX - SidebarStyle.groupLineCornerInset) && head.minX <= line.minX,
                         "inside: the bar starts at \(head.minX), the line at \(line.minX)")
             }
             #expect(head.minX >= 0, "\(layout): the bar runs off the list at \(head.minX)")
@@ -200,7 +202,10 @@ import Testing
                     return false
                 }
                 if let member { // a group of subgroups only has no own member to measure the rail from
-                    #expect(line.frame.minX == list.frame(for: member).minX - SidebarStyle.groupRailReach, "\(layout): \(line.group.rawValue) left its rail")
+                    // A top-level rail keeps `groupEdgePadding` from the list's edge (b5400e7e342f4).
+                    let railPadding = layout == .inside ? 0 : SidebarStyle.groupEdgePadding
+                    let rail = max(list.frame(for: member).minX - SidebarStyle.groupRailReach, railPadding)
+                    #expect(line.frame.minX == rail, "\(layout): \(line.group.rawValue) left its rail")
                 }
                 for row in list.displayed.rows {
                     let frame = list.frame(for: row)

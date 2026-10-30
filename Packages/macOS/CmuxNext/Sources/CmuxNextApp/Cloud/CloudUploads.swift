@@ -234,7 +234,12 @@ enum CloudUploadStrings {
     static var failed: String {
         String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module)
     }
+    /// Names the limits from ``CloudUploads/maximumFileBytes`` and ``CloudUploads/maximumTotalBytes``.
     static var refused: String {
-        String(localized: "cloud.upload.refused", defaultValue: "This Mac won't send that file to the Cloud machine.", table: "Cloud", bundle: .module)
+        let size = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary) }
+        return String(format: String(localized: "cloud.upload.refused",
+                                     defaultValue: "This Mac won't send that file to the Cloud machine: send regular files of up to %1$@ each, %2$@ in all.",
+                                     table: "Cloud", bundle: .module),
+                      size(CloudUploads.maximumFileBytes), size(CloudUploads.maximumTotalBytes))
     }
 }

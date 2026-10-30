@@ -6,7 +6,10 @@ import CmuxNextDesign
 // (the sidebar's one drag feel, `MotionSpring.selection`); a release over the footer band moves
 // the space with the same reorder as the space menu's Move Left / Move Right
 // (`SidebarIntent.reorderProfile`, `move-profile`). A release off the band moves nothing: the
-// dots spring back. A press that does not move past the drag threshold stays a click.
+// dots spring back. A release outside the window opens the space in a new window
+// (`SidebarIntent.openProfileInNewWindow`, Open Space in New Window; spaces-overhaul-DESIGN.md rule 4)
+// and the dots spring back: the space stays in this window. A press that does not move past the
+// drag threshold stays a click.
 extension ProfileBarView {
     /// The spaces in the order the strip shows during a dot drag; nil while no dot is dragged.
     var previewOrder: [ProfileKey]? {
@@ -30,8 +33,8 @@ extension ProfileBarView {
         drag.dots[drag.from].position = CGPoint(x: x, y: bounds.midY)
         CATransaction.commit()
         drag.overBand = footerBand(contains: point)
-        let insertion = ProfileBarLogic.insertionIndex(forX: Double(x), centers: centers.map { Double($0) })
-        let target = drag.overBand ? ProfileBarLogic.finalIndex(from: drag.from, insertion: insertion, count: centers.count) ?? drag.from : drag.from
+        drag.outsideWindow = outsideWindow(point)
+        let target = drag.overBand ? ProfileBarLogic.dropPosition(from: drag.from, x: Double(x), centers: centers.map { Double($0) }) : drag.from
         guard target != drag.target else { return }
         drag.target = target
         placeDots(drag, includingDragged: false)
@@ -41,10 +44,10 @@ extension ProfileBarView {
     func dropDot() -> Bool {
         guard let drag = dotDrag, !drag.landing else { return dotDrag != nil }
         drag.landing = true
-        if !drag.overBand { drag.target = drag.from }
-        if drag.target != drag.from {
-            // The insertion index of `move-profile` (an index before removal), as Move Right/Left send it.
-            let insertion = drag.target > drag.from ? drag.target + 1 : drag.target
+        if drag.outsideWindow { model.send(.openProfileInNewWindow(model.profiles[drag.from].id)) }
+        if !drag.overBand || drag.outsideWindow { drag.target = drag.from }
+        // The insertion index of `move-profile` (an index before removal), as Move Right/Left send it.
+        if let insertion = ProfileBarLogic.moveInsertion(from: drag.from, to: drag.target, count: model.profiles.count) {
             model.send(.reorderProfile(model.profiles[drag.from].id, index: insertion))
         }
         CATransaction.begin()
@@ -53,6 +56,12 @@ extension ProfileBarView {
         Motion.sidebar.set(drag.dots[drag.from], "transform.scale", to: NSNumber(value: 1), spring: .selection)
         CATransaction.commit()
         return true
+    }
+
+    /// Whether `point` (bar coordinates) is outside the window's content.
+    private func outsideWindow(_ point: NSPoint) -> Bool {
+        guard let content = window?.contentView else { return false }
+        return !content.bounds.contains(content.convert(point, from: self))
     }
 
     private func beginDotDrag(_ index: Int, at start: NSPoint) {

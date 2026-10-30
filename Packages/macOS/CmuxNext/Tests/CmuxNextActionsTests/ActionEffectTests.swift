@@ -52,6 +52,25 @@ import Testing
         #expect(registry.effectBoundCount == 1)
     }
 
+    @Test func aResultEffectStartsAfterTheHandlerAndReturnsItsFields() async throws {
+        let world = World()
+        let registry = ActionRegistry(catalog: Self.catalog)
+        registry.bindEffect("test.rename", effect: { _ in
+            world.shown = "new"
+            return .applied(result: {
+                world.sent += 1
+                return .success(["status": .string("pending")])
+            })
+        })
+        let run = registry.capturingRun { registry.perform("test.rename") }
+        #expect(world.shown == "new")
+        #expect(world.sent == 0)
+        #expect(run.work.count == 1)
+        let result = try #require(run.results.first)
+        #expect(try await result.value.get()["status"] == .string("pending"))
+        #expect(world.sent == 1)
+    }
+
     /// A failure the person did not wait on (a key or menu run) rolls back and shows the notice once.
     @Test func aFailureRollsBackAndIsShownOnce() async {
         let world = World()
@@ -85,6 +104,41 @@ import Testing
         let registry = Self.registry(world, failing: false, wait: true)
         for task in registry.capturingWork({ registry.perform("test.rename"); registry.perform("test.rename") }) { _ = await task.value }
         #expect(registry.waitingRuns["test.rename"]?[.daemonEcho] == 2)
+    }
+
+    /// Tracked interactive work must leave refusal reporting enabled so the
+    /// App can present its normal failure notice. A captured CLI run still
+    /// receives the refusal through its action result.
+    @Test func trackedWorkKeepsInteractiveFailuresVisibleAndCapturesCliRefusals() async {
+        let registry = ActionRegistry(catalog: Self.catalog)
+        var interactiveRefusalCapture = true
+        var notices: [String] = []
+        var onNotice: (() -> Void)?
+        registry.remoteFailureObserver = { _, notice in
+            notices.append(notice)
+            onNotice?()
+        }
+        registry.bindEffect("test.rename") { _ in
+            registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure("cancelled")) {
+                interactiveRefusalCapture = registry.isCapturingRefusal
+                return ActionWorkFailure("create failed")
+            }
+        }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            onNotice = { done.resume() }
+            #expect(registry.perform("test.rename"))
+        }
+        #expect(!interactiveRefusalCapture)
+        #expect(notices.count == 1)
+        #expect(notices[0].contains("create failed"))
+
+        let cli = registry.capturingWork {
+            #expect(registry.perform("test.rename", invocation: ActionInvocation(origin: .cli)))
+        }
+        var failures: [String?] = []
+        for task in cli { failures.append((await task.value)?.message) }
+        #expect(failures.contains("create failed"))
+        #expect(notices.count == 1)
     }
 
     @Test func aRefusedEffectRefuses() {

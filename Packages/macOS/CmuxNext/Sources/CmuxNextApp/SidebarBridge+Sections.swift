@@ -85,38 +85,42 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.client
         let store = services.machines.local.store
+        let settings = services.settings
         let refs = WorkspaceLayoutRefs(machines: services.machines)
-        // The chosen pet character (`home.chiefPetMascot`) is the Chief item's picture: a new pick redraws it.
-        let chiefMascot = { [weak services] in services?.settings?.snapshot.homeChiefPetMascot }
+        // The default Chief's upload, else its pet character (`home.chiefPetMascot`), is the Chief item's picture: a new pick redraws it.
+        let chiefPicture = { [weak services] in services?.characterPicture(of: nil) }
+        let uploads = services.chiefAvatarUploads
         let home = services.home
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, homeUnread, shortcuts, workspaces, mascot) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], String?) in
+            for await (layout, unread, homeUnread, shortcuts, workspaces, picture, previewFeatures) in ObservationStream({
+                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
                 _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefMascot())
+                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture(), settings?.snapshot.previewFeatures == true)
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = layout.withoutChats
+                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: previewFeatures)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
-                                          workspace: { workspaces[$0] }, chiefMascot: mascot)
+                                          workspace: { workspaces[$0] }, chiefPicture: picture,
+                                          chiefImage: picture.flatMap(uploads.image(at:)))
                 if model.itemInfo != infos { model.itemInfo = infos }
+                if model.newWorkspaceShortcut != shortcuts["newTab"] { model.newWorkspaceShortcut = shortcuts["newTab"] }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
         }
     }
 
-    /// The shortcut of each built-in's action, as menus show it.
+    /// Built-in tooltips and the empty-workspace hint use the same shortcut text as menus.
     static func builtInShortcuts(_ registry: ActionRegistry) -> [ActionID: String] {
         var shortcuts: [ActionID: String] = [:]
-        for action in builtInActions.values {
+        for action in Array(builtInActions.values) + ["newTab"] {
             if let shortcut = registry.shortcutDisplay(for: action) { shortcuts[action] = shortcut }
         }
         return shortcuts
@@ -125,7 +129,8 @@ extension SidebarBridge {
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
     /// whether an action exists. Notifications carries `unread`, Home (built-in or app) a dot for `homeUnread` (its
     /// unread conversations, ``HomeService/unreadConversations``), the Chief its status (`ChiefSidebar`) and the
-    /// picture of the chosen pet character `chiefMascot` (`home.chiefPetMascot`), and each
+    /// picture `chiefPicture` (its worn upload, first frame `chiefImage` already decoded, or its character's), else
+    /// that of the chosen pet character `chiefMascot` (`home.chiefPetMascot`), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
@@ -134,7 +139,8 @@ extension SidebarBridge {
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
-                         chiefMascot: String? = nil) -> [LayoutItemID: SidebarItemInfo] {
+                         chiefMascot: String? = nil, chiefPicture: URL? = nil,
+                         chiefImage: CGImage? = nil) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
@@ -153,7 +159,7 @@ extension SidebarBridge {
                     Self.markHomeUnread(&info, homeUnread)
                 } else if builtIn == .chief {
                     ChiefSidebar.shared.decorate(&info)
-                    info.favicon = ChiefSidebarPicture.favicon(mascot: chiefMascot)
+                    info.favicon = ChiefSidebarPicture.favicon(mascot: chiefMascot, picture: chiefPicture, image: chiefImage)
                 }
                 infos[item.id] = info
             }
@@ -185,9 +191,9 @@ extension SidebarBridge {
     /// Section only on Recents (`SidebarHiddenSections`).
     func layoutSectionMenu(_ id: LayoutSectionID) -> NSMenu? {
         let isApp = model.layout.section(id)?.owningAppID != nil
-        let entries = ContextMenuCatalog.shared.entries(for: .sidebarSection, removing: SidebarHiddenSections.headerMenuRemovals(id, isApp: isApp))
+        let entries = services.registry.contextMenuEntries(for: .sidebarSection, removing: SidebarHiddenSections.headerMenuRemovals(id, isApp: isApp))
         return services.registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue),
-                                                 entries: entries)
+                                                 entries: entries, customize: true)
     }
 
     /// The open workspace a pinned workspace's tile names, or nil (another item, a closed or
@@ -212,13 +218,24 @@ extension SidebarBridge {
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
-        let menus = ContextMenuCatalog.shared
-        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil))
+        let entries = services.registry.contextMenuEntries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil)
+            .union(Self.pendingEdits(id)))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
-                                                 entries: entries)
+                                                 entries: entries, customize: true)
+    }
+
+    /// The item menu rows an item `id` does not offer while its add waits for the daemon (a Chief just dragged in): an
+    /// edit of its own fields waits for the echo (the planner refuses it until then), so the menu leaves it out.
+    static func pendingEdits(_ id: LayoutItemID) -> Set<ActionID> {
+        SidebarDocStore.current?.isPending(id) == true ? ["sidebar.item.toggleLabel"] : []
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {
-        PinCommands(context: AppActionContext(services: services)).userBandEdit(op)
+        // `model.layout` is the projected document shown by this window. A
+        // preview-disabled projection omits rows that remain in the stored
+        // legacy document, so expand item indexes before sending the op.
+        let stored = services.sidebarLayout.document
+        let translated = op.translatingHiddenItemIndex(from: model.layout, to: stored)
+        PinCommands(context: AppActionContext(services: services)).userBandEdit(translated)
     }
 }

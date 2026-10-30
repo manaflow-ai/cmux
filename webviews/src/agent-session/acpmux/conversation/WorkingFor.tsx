@@ -21,13 +21,17 @@
 // Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
 // has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
-import { createContext, useContext, useEffect, useState } from "react";
-import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
-import type { AcpmuxRow } from "../model";
+import { createContext, useContext } from "react";
+import { type Translate, useT } from "../i18n";
+import type { AcpmuxRow, TurnTokenSplit } from "../model";
+import { usePageNow as useTicking } from "../../../ui/pageClock";
+export { usePageNow as useTicking } from "../../../ui/pageClock";
 import { TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
+import { TimedLabel, TurnTokens } from "./TurnTokens";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
+import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
@@ -44,7 +48,11 @@ export type WorkingCounts = {
   openSessions: () => void;
   /// The turn's generated output tokens so far (snapshot `turnTokens`), when the harness reports them.
   tokens?: number;
+  /// Those tokens split into output and what the calls read (snapshot `turnTokenSplit`), when known.
+  split?: TurnTokenSplit;
 };
+
+export { workingTokens } from "./TurnTokens";
 
 /// The running line's counts, each opening what it counts: the subagents and the chats the agent
 /// started are one count, "3 subagents" (the tray's word, subagents/SubagentTray.tsx), then the
@@ -66,31 +74,10 @@ export function workingParts(t: Translate, counts: WorkingCounts): { key: string
   return parts.filter((part) => part !== false);
 }
 
-/// "2.1M out": the running turn's generated output, compact in the pane's language. Prompt and
-/// cache tokens belong to the context card and are never folded into this turn count.
-export const workingTokens = (t: Translate, language: PaneLanguage, tokens: number) =>
-  t("turn.working.outputTokens", {
-    n: tokens,
-    tokens: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens),
-  });
-
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
-
-/// `now()`, again each second while `running`.
-export function useTicking(running: boolean, now: () => number = Date.now): number {
-  const [time, setTime] = useState(now);
-  useEffect(() => {
-    if (!running) return;
-    setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
-  }, [now, running]);
-  return time;
-}
 
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
-  const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const waiting = useContext(WaitingOnContext);
   const held = !row.below && row.durationMs !== undefined;
@@ -99,13 +86,17 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
-  const doing = row.doingGroup && groupOpen ? undefined : row.doing;
+  const shown = row.doingGroup && groupOpen ? undefined : row.doing;
+  // A send in flight names who it goes to, not its command (acpmuxSends.ts, turns.ts `sendingTo`).
+  const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
+  const sending = shown !== undefined && sendName !== undefined;
+  const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(t, counts) : [];
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
     <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"} data-find-skip>
-      {!waiting && doing && row.doingCommand && (
+      {!waiting && doing && row.doingCommand && !sending && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
         </span>
@@ -122,14 +113,16 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
-        <span className="cv-worked__label">{workingLabel(t, row.at, until)}</span>
+        <span className="cv-worked__label">
+          <TimedLabel text={(time) => t("turn.working", { time })} time={Math.max(0, until - row.at)} />
+        </span>
       )}
       {counts?.tokens ? (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <span className="cv-worked__tokens">{workingTokens(t, language, counts.tokens)}</span>
+          <TurnTokens total={counts.tokens} split={counts.split} />
         </span>
       ) : null}
       {parts.map((part) => (

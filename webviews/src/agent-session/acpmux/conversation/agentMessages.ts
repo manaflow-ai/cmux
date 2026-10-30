@@ -1,8 +1,10 @@
 // Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
-// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage and
-// cmux-sessions' send_to_session. The transcript draws
-// them as message cards (MessageCard.tsx) instead of raw shell or JSON.
+// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage,
+// cmux-sessions' send_to_session and the acpmux MCP server's send (`acpmux_send` behind the cmux
+// server, acpmux_mcp.rs). The transcript draws them as message cards (MessageCard.tsx) instead of
+// raw shell or JSON. A shell `acpmux send` is acpmuxSends.ts's.
 import type { AcpmuxActivity } from "../model";
+import { mcpCall } from "./mcpCalls";
 
 /// How the message went out, for the card's quiet label.
 export type AgentMessageChannel = "coordinator" | "terminal" | "mailbox" | "agent";
@@ -23,6 +25,19 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 export function agentMessage(tool: Tool): AgentMessage | undefined {
   if (tool.command) return commandMessage(tool.command);
   const input = parseInput(tool.inputSummary);
+  const chief = mcpCall(tool);
+  const tell = chief
+    ? chief.server === "optchat" && chief.tool === "tell"
+      ? chief.args
+      : undefined
+    : /^(?:optchat\.)?tell$/.test(tool.title.trim())
+      ? input
+      : undefined;
+  if (tell && typeof tell === "object" && !Array.isArray(tell)) {
+    const args = tell as Record<string, unknown>;
+    if (typeof args.id === "string" && args.id.trim() && typeof args.message === "string")
+      return { channel: "agent", to: args.id, text: args.message };
+  }
   // Claude Code's own tool, by its exact name: an MCP tool such as `mcp__gmail__send_message`
   // is not a message to an agent.
   if (input && /^send ?message$/i.test(tool.title.trim()) && typeof input.to === "string") {
@@ -38,6 +53,16 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
     typeof input.session === "string"
   )
     return { channel: "agent", to: input.session, text: oneMessage(typeof input.text === "string" ? input.text : "") };
+  // The acpmux MCP server's send (acpmux_mcp.rs): `acpmux_send` behind the cmux server
+  // (`mcp__cmux__acpmux_send`, Codex's `{server: "cmux", tool: "acpmux_send"}`), `send` on the
+  // acpmux server itself, or the tool's bare or dotted name.
+  const acpmux = acpmuxSendArgs(tool);
+  if (acpmux && typeof acpmux.to === "string" && acpmux.to.trim())
+    return {
+      channel: "agent",
+      to: acpmux.to.trim(),
+      text: oneMessage(typeof acpmux.text === "string" ? acpmux.text : ""),
+    };
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
   const diffs = tool.diffs ?? [];
@@ -49,6 +74,18 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
       return { channel: "mailbox", to, text: oneMessage(diff.newText.slice(before.length)) };
   }
   return undefined;
+}
+
+function acpmuxSendArgs(tool: Tool): Record<string, unknown> | undefined {
+  const call = mcpCall(tool);
+  if (call) {
+    const named =
+      (call.server === "cmux" && call.tool === "acpmux_send") || (call.server === "acpmux" && call.tool === "send");
+    return named && call.args && typeof call.args === "object" && !Array.isArray(call.args)
+      ? (call.args as Record<string, unknown>)
+      : undefined;
+  }
+  return /^(?:cmux\.)?acpmux_send$/.test(tool.title.trim()) ? parseInput(tool.inputSummary) : undefined;
 }
 
 function parseInput(summary: string | undefined): Record<string, unknown> | undefined {
@@ -214,6 +251,13 @@ function receiptWords(text: string, message?: Pick<AgentMessage, "text" | "to">)
 
 /// A send's printed words, read for how far it got.
 function deliveryWords(text: string): Delivery {
+  // Chief's tell tool returns a plain-text outcome rather than JSON. Refusals are
+  // successful tool calls at the transport layer, so the generic empty-output
+  // fallback would otherwise label a cancelled or deleted agent as Sent.
+  const outcome = /^\s*outcome\s*:\s*(queued|done|noop|refused)\b/i.exec(text)?.[1]?.toLowerCase();
+  if (outcome === "refused") return "failed";
+  if (outcome === "queued") return "queued";
+  if (outcome === "done" || outcome === "noop") return "sent";
   if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
   // "could not be delivered", "wasn't delivered", "failed to deliver", "undeliverable".
   if (
@@ -240,13 +284,13 @@ export function notDeliveredReason(tool: Pick<Tool, "output">): NotDelivered {
     [result.error, result.message, result.reason, result.result].find((part) => typeof part === "string") ?? output;
   const text = String(said);
   if (
-    /\bno (?:such |agent |session )?(?:agent|session|teammate|recipient)\b|\bno_session\b|\b(?:agent|session|recipient|teammate)\b[^.\n]{0,40}\bnot found\b|\bunknown (?:agent|session|recipient|teammate)\b/i.test(
+    /\bno (?:such |agent |session )?(?:agent|session|teammate|recipient)\b|\bno_session\b|\b(?:agent|session|recipient|teammate)\b[^.\n]{0,40}\bnot found\b|\bunknown (?:agent|session|recipient|teammate)\b|\b(?:cloud )?vm\b[^.\n]{0,40}\bdeleted\b/i.test(
       text,
     )
   )
     return "noAgent";
   if (
-    /\b(?:stopped|won['’]t be resumed|not running|no longer running|has exited|exited|was killed|has ended|terminated)\b/i.test(
+    /\b(?:stopped|cancelled|canceled|won['’]t be resumed|not running|no longer running|has exited|exited|was killed|has ended|terminated)\b/i.test(
       text,
     )
   )

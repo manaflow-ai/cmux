@@ -27,6 +27,8 @@ final class BrowserImportOfferService {
     private var waiting: [@MainActor ([InstalledImportBrowser]) -> Void] = []
     /// One card per launch: a second tab never shows it.
     private(set) var shownThisLaunch = false
+    /// The chrome showing the card this launch, to hide it when browser import is turned off.
+    private weak var shownOn: BrowserChromeView?
 
     static let forceKey = "CMUX_NEXT_BROWSER_IMPORT_OFFER"
     /// The kinds Import checks in the Import from Browser window.
@@ -46,7 +48,9 @@ final class BrowserImportOfferService {
     }
 
     private var enabled: Bool {
-        enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
+        // `browser.import.enabled` off: no offer, whatever the launch.
+        guard services?.browserImportEnabled != false else { return false }
+        return enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
     }
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
@@ -61,7 +65,7 @@ final class BrowserImportOfferService {
         guard enabled, !shownThisLaunch, state.offers(page(entry)) else { return }
         findBrowsers { [weak self, weak entry] found in
             // Asked again: the person may have answered elsewhere, or another tab showed it, while the browsers were found.
-            guard let self, let entry, !found.isEmpty, !shownThisLaunch, state.offers(page(entry)) else { return }
+            guard let self, let entry, enabled, !found.isEmpty, !shownThisLaunch, state.offers(page(entry)) else { return }
             show(on: entry.chrome, browsers: found)
         }
     }
@@ -78,6 +82,7 @@ final class BrowserImportOfferService {
     func show(on chrome: BrowserChromeView, browsers: [InstalledImportBrowser]) {
         guard let first = browsers.first else { return }
         shownThisLaunch = true
+        shownOn = chrome
         let offer = BrowserCookieImportOffer(icons: [first.icon], title: BrowserImportOfferStrings.title(browser: first.browser.displayName),
                                              detail: BrowserImportOfferStrings.detail, importTitle: BrowserImportOfferStrings.importData,
                                              notNowTitle: BrowserImportOfferStrings.notNow)
@@ -95,12 +100,22 @@ final class BrowserImportOfferService {
         case .notNow, .never:
             update { $0.dismissed = true }
         case .importCookies:
+            // A card left from before browser import was turned off opens and detects nothing.
+            guard services?.browserImportEnabled != false else { return }
             // Not recorded: a cancelled import offers again next launch. A finished one ends it (`importFinished`).
             guard let onboarding = services?.onboarding else { return }
             onboarding.show(step: .importData, importKinds: Self.kinds, importTarget: profile)
             // The person asked to import: finding their browsers now is theirs, not a launch-time read.
             onboarding.controller?.model.importer.detect()
         }
+    }
+
+    /// `browser.import.enabled` turned off: the card on screen goes (it is not recorded as answered),
+    /// so once it is on again the next finished page may offer it again this launch.
+    func importTurnedOff() {
+        shownOn?.hideCookieImportOffer()
+        shownOn = nil
+        shownThisLaunch = false
     }
 
     /// A finished import (this offer's or File > Import from Browser): once

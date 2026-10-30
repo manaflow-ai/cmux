@@ -1,3 +1,4 @@
+import type { ReadSessionAuth, SessionAuth } from "./sessionAuth";
 import { createContext, useContext } from "react";
 
 /// The harnesses this Mac's acpmux last found signed out (`_acpmux/harness/health`, cx-ae9eb),
@@ -5,6 +6,14 @@ import { createContext, useContext } from "react";
 /// picker's rail dims them and offers Log In in place of their models, so a pick never starts a
 /// chat that fails on its first turn.
 export type SignIn = {
+  /** Selected chat/target only; from _acpmux/session/auth, never host-wide health. */
+  sessionAuth?: SessionAuth;
+  recheckSession?(): void;
+  loginSession?(auth?: SessionAuth): void;
+  readSessionAuth?: ReadSessionAuth;
+  authEpoch?: string | number;
+  authRefresh?: number;
+  authObservation?: number;
   signedOut: Readonly<Record<string, string>>;
   /// Runs `login` for `harness` in a terminal tab; the pane checks again when it is back.
   logIn(harness: string, login: string): void;

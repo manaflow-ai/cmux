@@ -51,7 +51,7 @@ final class LinkOpener {
     /// showing that tab, else the active window's focused pane.
     func source(tab key: String?) -> PaneController? {
         guard let services else { return nil }
-        if let key, let (_, pane) = services.locateTab(key), let controller = services.paneController(for: pane) { return controller }
+        if let key, let (_, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) { return controller }
         if let key, let controller = services.paneController(showingTab: key) { return controller }
         return services.windows.active?.focusedPane
     }
@@ -117,12 +117,14 @@ final class LinkOpener {
             })
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
-            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right.
+            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right,
+            // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right.
             guard source.isOpenPinnedDockPane else { return make(source, nil) }
-            return make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return }
-                self.moveBeside(surface, from: source, focus: !background)
-            }
+            let outbound = OutboundTab.begin(in: source)
+            return outbound.started(make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return outbound.finish(moved: false) }
+                self.moveBeside(surface, from: source, focus: !background, outbound: outbound)
+            })
         case .dockChat:
             let outbound = OutboundTab.begin(in: source)
             return outbound.started(make(source) { [weak source] surface in
@@ -137,14 +139,30 @@ final class LinkOpener {
     /// link (Leo 2026-10-21). In the source's own pane the clicked tab is its opener: the new tab
     /// goes right after it and its close selects it again (``BrowserTabOpeners``). A focused tab
     /// anywhere else gives the focus back to the source when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
+    /// `reusesTab` (an agent chat's links and cards): a page the pane on the right already shows is
+    /// selected there instead of opened again; a terminal's Cmd-click stays a new, fresh tab.
     @discardableResult
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool) -> Bool {
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
         // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
         if !background { _ = from?.workspace?.beginFocusIntent() }
+        // The same link clicked again (a chat's PR link or card): the pane on the right selects the
+        // tab it already has for that page instead of piling up another (Austin 2026-10-25, eleven
+        // tabs of one PR). A tab in the source's own pane stays Chrome's: each click is a new tab.
+        if reusesTab, !background, let from, case .pane(let id) = target(from: from), id != from.layoutPaneID,
+           let pane = from.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) {
+            // As for a new tab clicked open there: its close, emptying that pane, gives the focus back.
+            if let content = from.workspace { returnFocus(of: shown.surface, to: from.layoutPaneID, in: content) }
+            pane.select(StripTabID(shown.id))
+            pane.focusContent()
+            return true
+        }
         return open(from: from, background: background) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
-            let opener = here ? from?.selectedTab?.surface : nil
+            // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
+            // tab into another pane, the source pane must not claim it as a child; the placement
+            // callback owns focus and insertion for that destination.
+            let opener = here ? pane.selectedTab?.surface : nil
             let back = background || here ? nil : from
             var then = placed
             if back != nil {
@@ -153,7 +171,17 @@ final class LinkOpener {
                     placed?(surface)
                 }
             }
-            return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
+            return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, placementOwner: placed != nil, then: then)
+        }
+    }
+
+    /// A browser tab of `pane` showing `url`'s page (``SidebarBridge/samePage(_:_:)``) at the same
+    /// fragment, so a link to a comment still opens at it: the live page first, else the daemon's record.
+    func browserTab(showing url: URL, in pane: PaneController) -> TabModel? {
+        pane.pane.tabs.first { tab in
+            guard tab.kind == .browser, !ProvisionalTab.isProvisional(tab.id),
+                  let shown = services?.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:)) else { return false }
+            return SidebarBridge.samePage(shown, url) && shown.fragment == url.fragment
         }
     }
 
@@ -247,7 +275,8 @@ final class LinkOpener {
         guard let anchor, let pane = content.panes[anchor] else { return false }
         let make: Make = { pane, placed in
             switch item {
-            case .web(let url): return pane.newBrowserTab(url: url, background: placed != nil, then: placed)
+            case .web(let url): return pane.newBrowserTab(url: url, background: placed != nil,
+                                                          placementOwner: placed != nil, then: placed)
             case .file(let url): return pane.services.viewers.openFile(url, in: pane, markdown: false, placed: placed)
             }
         }
@@ -261,8 +290,10 @@ final class LinkOpener {
 
     /// Moves new tab `surface`, made in `source`, to a new column right of it, focusing `target` in
     /// it when `focus` (Home's dock, which takes tabs, opens its tools beside itself this way).
-    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content) {
-        move(surface, from: source, to: .besideColumn, focus: focus, target: target)
+    /// `outbound`, begun before the tab was made, keeps it out of `source`'s strip until it has moved.
+    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content,
+                    outbound: OutboundTab? = nil) {
+        move(surface, from: source, to: .besideColumn, focus: focus, target: target, outbound: outbound)
     }
 
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
@@ -273,7 +304,16 @@ final class LinkOpener {
         outbound?.made(surface)
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
+        let window = source.view.window
+        let input = services.keyRouter.creationInputCoordinator
+        let keys = focus ? input.continueCreation(in: window, generation: intent) : nil
+        if keys != nil, let intent {
+            // The source still holds the tab: only the destination may satisfy this focus request.
+            source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent)
+        }
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
+            var landed = false
+            defer { input.resolve(keys, landed: landed, in: window) }
             let listed = Task { @MainActor () -> TabModel? in
                 if let tab = store.tab(surface: surface) { return tab }
                 // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
@@ -310,10 +350,12 @@ final class LinkOpener {
             if moved {
                 if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
+                landed = true
                 return nil
             }
             source.select(StripTabID(tab.id))
             if focus { source.focusContent() }
+            landed = focus
             return "link open: the move to the right failed (see the app log)"
         })
     }

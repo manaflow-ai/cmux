@@ -47,8 +47,8 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
         return Decision("skip", f"run is {run.get('status')}/{run.get('conclusion')}, not a completed failure")
     # The pushes nightly-next promotes from; a red lane branch or PR is usually a real failure.
     branch = run.get("head_branch") or ""
-    if run.get("event") != "push" or not (branch == "feat-cmux-next" or branch.startswith("cmux-tui-pin-")):
-        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only feat-cmux-next and cmux-tui-pin-* pushes are retried")
+    if run.get("event") != "push" or branch != "feat-cmux-next":
+        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only feat-cmux-next pushes are retried")
     # main's cmux-tui artifacts workflow has the same name but publishes no tree;
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):

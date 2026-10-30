@@ -81,7 +81,10 @@ if [[ -z "$app" ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
+  # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
+  # cargo and web-bundle builds) until it exited, which read as a hang (cmux20-bench step 0b17cb3f). The
+  # xcodebuild compile itself still prints nothing until reload.sh exits (it keeps that in its own log).
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2

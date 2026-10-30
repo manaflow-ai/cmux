@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 /// The packs cmux ships, as `(name, pack.toml, SKILL.md)`, by name.
-pub const BUILTIN: [(&str, &str, &str); 4] = [
+pub const BUILTIN: [(&str, &str, &str); 5] = [
     (
         "browser",
         include_str!("../toolpacks/browser/pack.toml"),
@@ -35,6 +35,11 @@ pub const BUILTIN: [(&str, &str, &str); 4] = [
         "cmux",
         include_str!("../toolpacks/cmux/pack.toml"),
         include_str!("../toolpacks/cmux/SKILL.md"),
+    ),
+    (
+        "gdocs",
+        include_str!("../toolpacks/gdocs/pack.toml"),
+        include_str!("../toolpacks/gdocs/SKILL.md"),
     ),
     (
         "github",
@@ -47,6 +52,11 @@ pub const BUILTIN: [(&str, &str, &str); 4] = [
         include_str!("../toolpacks/vercel/SKILL.md"),
     ),
 ];
+
+/// The scripts shipped packs carry as their CLI (`[tool] script`), as
+/// `(pack, file name, text)`: written beside pack.toml, mode 0755.
+pub const BUILTIN_SCRIPTS: [(&str, &str, &str); 1] =
+    [("gdocs", "gdocs", include_str!("../toolpacks/gdocs/gdocs"))];
 
 /// The line that marks a pack file the host may rewrite.
 const MANAGED: &str = "# cmux-managed: true";
@@ -123,6 +133,9 @@ fn yes() -> bool {
 #[serde(deny_unknown_fields)]
 pub struct Tool {
     pub bin: String,
+    /// The CLI is this file of the pack's own folder (a script it ships), not
+    /// a program on PATH: the turn's `bin/<bin>` runs it.
+    pub script: Option<String>,
     pub brew: Option<String>,
     pub apt: Option<String>,
     pub npm: Option<String>,
@@ -234,6 +247,11 @@ pub fn parse(text: &str) -> Result<Pack, String> {
     if !word_ok(&p.tool.bin, b"._-") {
         return Err(format!("tool.bin {:?}: [A-Za-z0-9._-] only", p.tool.bin));
     }
+    if let Some(s) = p.tool.script.as_deref().filter(|s| !word_ok(s, b"._-")) {
+        return Err(format!(
+            "tool.script {s:?}: a file name of the pack's folder"
+        ));
+    }
     if let Some(i) = &p.inject {
         if let Some(e) = i.env.iter().find(|e| {
             !e.bytes()
@@ -312,7 +330,14 @@ pub fn install_builtin(dir: &Path) -> std::io::Result<Vec<String>> {
     let mut written = Vec::new();
     for (name, toml, skill) in BUILTIN {
         let mut wrote = false;
-        for (file, text) in [("pack.toml", toml), ("SKILL.md", skill)] {
+        let scripts = BUILTIN_SCRIPTS
+            .iter()
+            .filter(|s| s.0 == name)
+            .map(|s| (s.1, s.2));
+        for (file, text) in [("pack.toml", toml), ("SKILL.md", skill)]
+            .into_iter()
+            .chain(scripts)
+        {
             let path = dir.join(name).join(file);
             match std::fs::read_to_string(&path) {
                 Ok(old) if old == text => continue,
@@ -323,6 +348,10 @@ pub fn install_builtin(dir: &Path) -> std::io::Result<Vec<String>> {
             }
             std::fs::create_dir_all(dir.join(name))?;
             crate::session_dir::write_if_changed(&path, text.as_bytes())?;
+            if file != "pack.toml" && file != "SKILL.md" {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+            }
             wrote = true;
         }
         if wrote {
@@ -1627,7 +1656,8 @@ pub fn wrappers(packs: &[Pack]) -> Vec<(String, String)> {
     for p in packs {
         let Some(i) = &p.inject else { continue };
         let bin = &p.tool.bin;
-        if !i.env.is_empty() && !out.iter().any(|(n, _)| n == bin) {
+        // A pack that ships its CLI gets its wrapper from script_wrappers.
+        if p.tool.script.is_none() && !i.env.is_empty() && !out.iter().any(|(n, _)| n == bin) {
             let first = &i.env[0];
             let mut text = format!(
                 "#!/bin/sh\n# optchat-chief: {bin} with this Chief's own {} login when it has one\n# (tool pack {}, toolpacks.rs; `chief pack status {}`), else as it is.\n{DROP_SELF}",
@@ -1663,6 +1693,66 @@ pub fn wrappers(packs: &[Pack]) -> Vec<(String, String)> {
             }
             out.push((format!("git-credential-chief-{}", p.name), text));
         }
+    }
+    out
+}
+
+/// The turn's `bin/<tool.bin>` for each pack that ships its CLI as a script
+/// (`[tool] script`), as `(file name, text)`: it puts the Chief's own token
+/// in the pack's env vars when it has one (`chief pack token`, per call),
+/// then runs the script from the pack's folder. A shipped pack not on disk
+/// yet gets its script under `$MUX_HOME/optchat/pack-skills/NAME/` first.
+pub fn script_wrappers(mux_home: &Path, packs: &[Pack]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for p in packs {
+        let Some(script) = &p.tool.script else {
+            continue;
+        };
+        if out.iter().any(|(n, _)| *n == p.tool.bin) {
+            continue;
+        }
+        let path = match &p.dir {
+            Some(d) => d.join(script),
+            None => {
+                let Some((_, _, text)) = BUILTIN_SCRIPTS
+                    .iter()
+                    .find(|b| b.0 == p.name && b.1 == script)
+                else {
+                    continue;
+                };
+                let d = pack_skills_dir(mux_home).join(&p.name);
+                let path = d.join(script);
+                let written = std::fs::create_dir_all(&d)
+                    .and_then(|()| crate::session_dir::write_if_changed(&path, text.as_bytes()))
+                    .and_then(|()| {
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                    });
+                if let Err(e) = written {
+                    eprintln!("optchat-chief toolpacks: {}: {e}", path.display());
+                    continue;
+                }
+                path
+            }
+        };
+        let quoted = format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
+        let mut text = format!(
+            "#!/bin/sh\n# optchat-chief: {} (tool pack {}, toolpacks.rs; `chief pack status {}`), the pack's own script.\nself_dir=$(cd \"$(dirname \"$0\")\" && pwd -P)\n",
+            p.tool.bin, p.name, p.name
+        );
+        if let Some(i) = p.inject.as_ref().filter(|i| !i.env.is_empty()) {
+            let first = &i.env[0];
+            text.push_str(&format!(
+                "if [ -z \"${{{first}:-}}\" ] && t=$(\"$self_dir/chief\" pack token {} 2>/dev/null) && [ -n \"$t\" ]; then\n",
+                p.name
+            ));
+            for e in &i.env {
+                text.push_str(&format!("  {e}=$t\n  export {e}\n"));
+            }
+            text.push_str("fi\n");
+        }
+        text.push_str(&format!("exec {quoted} \"$@\"\n"));
+        out.push((p.tool.bin.clone(), text));
     }
     out
 }

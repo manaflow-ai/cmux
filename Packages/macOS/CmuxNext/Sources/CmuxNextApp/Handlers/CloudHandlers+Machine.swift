@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 // Per-machine actions: open, terminal, rename, kill, pause/resume, copy,
 // resize, status, ports, tools, handoff, snapshot, promote to template,
@@ -20,15 +22,23 @@ extension CloudHandlers {
                 show(try await firstWorkspace(on: session, context), context)
             }
         }
+        bind("cloudOpenDesktop", registry, reason: reason) { invocation in
+            try openDesktop(try machine(invocation, context), context, viewer: invocation["viewer"]?.stringValue)
+        }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
+            // A CLI or agent run gets the new tab's ids (machine, workspace, surface), so it can
+            // type into it next; a paused machine resumes first and answers `pending` past the deadline.
+            guard origin(of: invocation) == .user else {
+                return result("open Cloud SSH terminal", context, pendingAfter: terminalAnswerWait, pending: terminalPending(session)) {
+                    try await attachedAndConnected(session, invocation)
+                    return try await newTerminalTab(on: session, at: try await terminalAnchor(on: session, context), invocation, context)
+                }
+            }
             runTracked("open Cloud SSH terminal", context) {
                 try await attachedAndConnected(session, invocation)
-                let anchor = try await terminalAnchor(on: session, context)
-                guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
-                let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
-                if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+                _ = try await newTerminalTab(on: session, at: try await terminalAnchor(on: session, context), invocation, context)
             }
         }
         bind("cloudExec", registry, reason: reason) { invocation in
@@ -39,9 +49,9 @@ extension CloudHandlers {
             // daemon); a machine without API exec refuses it. A person's run types it into a new tab.
             if origin(of: invocation) != .user {
                 // Typing into a tab gives a CLI or agent nothing to read: refuse instead.
-                guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable) }
+                guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable(session.machineID)) }
                 return result("exec on Cloud machine", context) {
-                    let ran = try await cloud.api.exec(session.machineID, command: command, timeoutMs: execTimeoutMs)
+                    let ran = try await cloud.machineAPI.exec(session.machineID, command: command, timeoutMs: execTimeoutMs)
                     return ["machine_id": .string(session.machineID), "exit_code": .int(ran.exitCode),
                             "stdout": .string(ran.stdout), "stderr": .string(ran.stderr)]
                 }
@@ -58,7 +68,7 @@ extension CloudHandlers {
         bind("cloudFilesList", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             answer("list Cloud files", invocation, context) {
-                let entries = try await cloud.api.listFiles(session.machineID, path: path)
+                let entries = try await cloud.machineAPI.listFiles(session.machineID, path: path)
                 let body = entries.map { entry in
                     var line = entry.kind == "directory" ? "d" : "-"
                     line += " \(entry.name)"
@@ -72,7 +82,7 @@ extension CloudHandlers {
         bind("cloudFileRead", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             answer("read Cloud file", invocation, context) {
-                let contents = try await cloud.api.readFile(session.machineID, path: path)
+                let contents = try await cloud.machineAPI.readFile(session.machineID, path: path)
                 var fields: [String: ActionResultValue] = ["path": .string(path), "encoding": .string(contents.text == nil ? "base64" : "utf8")]
                 if contents.text == nil { fields["data_base64"] = .string(contents.dataBase64) }
                 if let size = contents.size { fields["size"] = .int(Int(size)) }
@@ -83,21 +93,21 @@ extension CloudHandlers {
             let session = try machine(invocation, context), path = try filePath(invocation)
             guard let contents = invocation["contents"]?.stringValue else { throw ActionFailure(message: CloudStrings.fileContentsRequired) }
             runTracked("write Cloud file", context) {
-                try await cloud.api.writeFile(session.machineID, path: path, data: Data(contents.utf8))
+                try await cloud.machineAPI.writeFile(session.machineID, path: path, data: Data(contents.utf8))
             }
         }
         bind("cloudFileMkdir", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
-            runTracked("create Cloud directory", context) { try await cloud.api.makeDirectory(session.machineID, path: path) }
+            runTracked("create Cloud directory", context) { try await cloud.machineAPI.makeDirectory(session.machineID, path: path) }
         }
         bind("cloudFileRemove", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
-            runTracked("remove Cloud file", context) { try await cloud.api.removeFile(session.machineID, path: path) }
+            runTracked("remove Cloud file", context) { try await cloud.machineAPI.removeFile(session.machineID, path: path) }
         }
         bind("cloudFileStat", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             answer("stat Cloud file", invocation, context) {
-                let stat = try await cloud.api.statFile(session.machineID, path: path)
+                let stat = try await cloud.machineAPI.statFile(session.machineID, path: path)
                 var body = ["kind: \(stat.kind)"]
                 var fields: [String: ActionResultValue] = ["path": .string(path), "kind": .string(stat.kind)]
                 if let size = stat.size {
@@ -128,34 +138,30 @@ extension CloudHandlers {
         }
         bind("cloudNewTerminal", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            let workspace = try machineWorkspaceArgument(invocation, machine: session.machineID)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
-            // A CLI or agent run gets the new workspace's id, and the window keeps what it shows
+            // A CLI or agent run gets the ids of what it made, and the window keeps what it shows
             // unless the run asked for focus.
             guard origin(of: invocation) == .user else {
                 // A paused machine resumes first: answer `pending` if that outlasts the run's deadline.
-                let pending: [String: ActionResultValue] = session.machine.status == .paused
-                    ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
-                    : ["machine_id": .string(session.machineID)]
-                return result("new terminal on machine", context, pendingAfter: .seconds(30), pending: pending) {
+                return result("new terminal on machine", context, pendingAfter: terminalAnswerWait, pending: terminalPending(session)) {
                     try await attachedAndConnected(session, invocation)
-                    guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
-                        throw ActionFailure(message: CloudStrings.notConnected)
-                    }
-                    if invocation.allowsViewChange { show(id, context) }
-                    return ["machine_id": .string(session.machineID), "workspace_id": .string(id)]
+                    return try await newTerminal(on: session, in: workspace, invocation, context)
                 }
             }
             run("new terminal on machine", context) {
                 try await attachedAndConnected(session, invocation)
-                guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
-                    throw ActionFailure(message: CloudStrings.notConnected)
-                }
-                show(id, context)
+                _ = try await newTerminal(on: session, in: workspace, invocation, context)
             }
         }
         bind("cloudRenameMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            let rename = { (name: String) in run("rename machine", context) { try await cloud.renameMachine(session.machineID, to: name) } }
+            let rename = { (name: String) in
+                result("rename machine", context) {
+                    try await cloud.renameMachine(session.machineID, to: name)
+                    return machineFields(session.machineID, ["name": .string(name)])
+                }
+            }
             if let name = invocation["name"]?.stringValue { return rename(name) }
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
@@ -163,7 +169,10 @@ extension CloudHandlers {
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            run("kill machine", context) { try await cloud.deleteMachine(session.machineID) }
+            result("kill machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
+                try await cloud.deleteMachine(session.machineID)
+                return machineFields(session.machineID, ["status": .string("deleted")])
+            }
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -176,6 +185,14 @@ extension CloudHandlers {
             runTracked("resume machine", context) {
                 try await cloud.resumeMachine(session.machineID)
             }
+        }
+        // A live daemon proves Resume is redundant. Cached API status cannot: idle-pause
+        // and app-link resume can both change the server without refreshing that record.
+        // This only changes menu visibility; explicit commands remain idempotent.
+        ActionTargetVisibility.hide("cloudResumeMachine", in: registry) { invocation in
+            guard let session = try? machine(invocation, context), session.daemon.connection != nil else { return false }
+            if case .connected = session.daemon.store.connectionState { return true }
+            return false
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
@@ -192,17 +209,53 @@ extension CloudHandlers {
             guard let size = invocation["size"]?.stringValue, let (cpu, memory) = sizes[size] else {
                 throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
             }
-            run("resize machine", context) { try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory) }
+            result("resize machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["size": .string(size)])) {
+                try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory)
+                return machineFields(session.machineID, ["size": .string(size)])
+            }
         }
         // The idle auto-pause (web/services/vms/idlePause.ts): cmux Cloud pauses the machine
         // after this many minutes with nothing attached, running or forwarded; `off` never.
         bind("cloudSetIdlePause", registry, reason: reason) { invocation in
             try setIdlePause(invocation, context) { try await cloud.setIdlePause($0, minutes: $1) }
         }
+        // `cloud apply-machine-config --target machine:<id> [--machine-config FILE]` (CloudMachineConfig):
+        // uploads FILE, or reapplies the --repo checkout's `.cmux/machine.toml` or the last upload.
+        bind("cloudApplyMachineConfig", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context); guard session.machine.allows(.exec) else { throw operationUnavailable }
+            // A bare `--machine-config` (no value) arrives as `true`: refuse it, never apply the automatic source instead.
+            if invocation["machineConfig"] != nil, invocation["machineConfig"]?.stringValue?.isEmpty != false {
+                throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
+            }
+            let path = invocation["machineConfig"]?.stringValue.map(expandingHome)
+            let work = context.services.work, machineID = session.machineID
+            result("apply machine config", context) {
+                var request = CloudMachineRequest()
+                request.machineConfigPath = path
+                let config: CloudMachineConfig
+                do { config = try await request.loadMachineConfig(work: work) ?? CloudMachineConfig(contents: nil) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
+                    throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
+                }
+                let outcome = await config.apply(on: CloudMachineBootstrap.Machine(api: cloud.machineAPI, machineID: machineID))
+                guard outcome.status != "failed" else { throw ActionFailure(message: outcome.reason ?? "apply machine config failed") }
+                return ["machine_id": .string(machineID), "machine_config": machineConfigAnswer(outcome, machineID: machineID)]
+            }
+        }
+        // Not only for Cloud: an own machine needs no sign-in (deliverSecrets checks it for a Cloud machine).
+        bind("cloudDeliverSecrets", registry, reason: { nil }) { invocation in try deliverSecrets(invocation, context) }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
-                let stats = try await cloud.api.stats(session.machineID)
+                // Stats are a separate provider read, while idle-pause diagnostics
+                // live on the VM record. Fetch both so a status action observes a
+                // cron decision written after the sidebar last refreshed.
+                let read = cloud.beginRecordRead(machineID: session.machineID)
+                defer { cloud.finishRecordRead(read) }
+                async let statsRequest = cloud.api.stats(session.machineID)
+                async let recordRequest = cloud.api.machine(session.machineID)
+                let (stats, record) = try await (statsRequest, recordRequest)
+                // Through the list's own path: a pause suspends the link, a resume connects it.
+                cloud.apply(record, to: session, read: read)
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
             }
         }
@@ -220,7 +273,7 @@ extension CloudHandlers {
         bind("palette.cloud.tools", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.exec) else { throw operationUnavailable }
             answer("machine tools", invocation, context) {
-                let result = try await cloud.api.exec(session.machineID, command: toolsProbe)
+                let result = try await cloud.machineAPI.exec(session.machineID, command: toolsProbe)
                 return CloudAnswer(title: CloudStrings.toolsTitle, text: result.stdout,
                                    fields: ["machine_id": .string(session.machineID), "exit_code": .int(result.exitCode)])
             }
@@ -265,17 +318,219 @@ extension CloudHandlers {
         }
         bind("palette.cloud.restore", registry, reason: reason) { invocation in
             guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else { throw ActionFailure(message: CloudStrings.snapshotRequired) }
-            run("restore machine", context) {
-                _ = try await cloud.api.restore(snapshotID: snapshot)
+            result("restore machine", context, pendingAfter: machineAnswerWait, pending: ["snapshot_id": .string(snapshot)]) {
+                let restored = try await cloud.api.restore(snapshotID: snapshot)
                 await cloud.refresh()
+                return machineFields(restored.id, ["snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.fork", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.fork) else { throw operationUnavailable }
-            run("fork machine", context) {
-                _ = try await cloud.api.fork(session.machineID, name: nil)
+            result("fork machine", context, pendingAfter: machineAnswerWait, pending: ["source_machine_id": .string(session.machineID)]) {
+                let fork = try await cloud.api.fork(session.machineID, name: nil)
                 await cloud.refresh()
+                return machineFields(fork.id, ["source_machine_id": .string(session.machineID)])
             }
+        }
+    }
+
+    // MARK: Terminals
+
+    /// How long a CLI or agent `cloud ssh` or `new-terminal-on-machine` waits (a paused machine
+    /// resumes first) before it answers `pending`: inside `action.run`'s 40 s result deadline.
+    static let terminalAnswerWait: Duration = .seconds(30)
+
+    /// The `pending` answer of a terminal run that outlasted ``terminalAnswerWait``.
+    static func terminalPending(_ session: CloudMachineSession) -> [String: ActionResultValue] {
+        session.machine.status == .paused
+            ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
+            : ["machine_id": .string(session.machineID)]
+    }
+
+    /// `--workspace <id>` of `new-terminal-on-machine` on `machine`: nil without one; a bare or
+    /// blank flag refuses.
+    static func machineWorkspaceArgument(_ invocation: ActionInvocation, machine: String) throws -> String? {
+        guard let value = invocation["workspace"] else { return nil }
+        guard let id = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            throw ActionFailure(message: CloudStrings.machineWorkspaceRequired(machine))
+        }
+        return id
+    }
+
+    /// Workspace `requested` (its id, or its `ws_…` id) on the machine's daemon, where a new tab
+    /// lands: its first pane. Not found names the machine and the command that makes one. A
+    /// workspace whose pane the store has not mirrored yet gets the same bounded wait
+    /// ``terminalAnchor(on:_:)`` gives, then a refusal that names it.
+    @MainActor static func machineWorkspace(_ requested: String, on session: CloudMachineSession) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
+        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == requested || $0.resourceID?.rawValue == requested }) else {
+            throw ActionFailure.notFound(CloudStrings.noSuchMachineWorkspace(session.machineID, requested))
+        }
+        if let anchor = anchor(id: workspace.id, on: session) { return anchor }
+        if let anchor = await mirroredAnchor(id: workspace.id, on: session) { return anchor }
+        throw ActionFailure(message: CloudStrings.machineWorkspaceHasNoPane(session.machineID, requested))
+    }
+
+    /// New Terminal Workspace on Machine: a terminal tab in workspace `workspace` of the machine
+    /// when given, else a new workspace with a terminal. Answers the ids of what it made.
+    @MainActor static func newTerminal(on session: CloudMachineSession, in workspace: String?, _ invocation: ActionInvocation,
+                                       _ context: AppActionContext) async throws -> [String: ActionResultValue] {
+        let daemon = session.daemon
+        if let workspace {
+            // The store holds every workspace the daemon has, also right after a resume; a
+            // store that could not catch up is never read as "no such workspace".
+            do { try await daemon.appliedThroughSyncBarrier() } catch {
+                throw ActionFailure(message: CloudStrings.machineWorkspacesNotLoaded(session.machineID, workspace))
+            }
+            return try await newTerminalTab(on: session, at: try await machineWorkspace(workspace, on: session), invocation, context)
+        }
+        guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
+        if invocation.allowsViewChange { show(id, context) }
+        var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "workspace_id": .string(id)]
+        // Its terminal's ids, only once the store holds the create's events (a person's run reads
+        // nothing); a store that did not catch up answers the workspace without them.
+        guard origin(of: invocation) != .user, let connection = daemon.connection,
+              await daemon.appliedThroughReply(on: connection, after: "new terminal on machine") else { return fields }
+        if let tab = daemon.store.workspaces.first(where: { $0.id == id })?.screens.first?.panes.first?.tabs.first {
+            fields.merge(terminalFields(tab.surface, terminal: tab.terminalID)) { _, tab in tab }
+        }
+        return fields
+    }
+
+    /// A new terminal tab in `anchor`'s pane, shown when the run may change the view.
+    @MainActor static func newTerminalTab(on session: CloudMachineSession, at anchor: (id: String, key: WorkspaceKey, pane: PaneModel),
+                                          _ invocation: ActionInvocation, _ context: AppActionContext) async throws -> [String: ActionResultValue] {
+        guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+        let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
+        if invocation.allowsViewChange { reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context) }
+        return ["machine_id": .string(session.machineID), "workspace_id": .string(anchor.id)]
+            .merging(terminalFields(created.surface, terminal: created.terminalID)) { _, tab in tab }
+    }
+
+    /// A terminal tab's ids on the machine's daemon: `surface_id` (its handle there) and, from
+    /// daemons that report one, the durable `terminal_id`.
+    static func terminalFields(_ surface: SurfaceID, terminal: TerminalID?) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = ["surface_id": .string(surface.description)]
+        if let terminal { fields["terminal_id"] = .string(terminal.rawValue) }
+        return fields
+    }
+
+    /// `cloud deliver-secrets --target machine:<id> [--repo OWNER/NAME] [--names A,B]` (CloudMachineSecrets): the values
+    /// of the names the machine's last machine-config apply declared, from this Mac's Keychain to the
+    /// machine over its daemon link: `--repo`'s values first, else the global ones (the person picks
+    /// the scope, never the machine). Answers the names delivered and those with no value here; a
+    /// machine that already has what the Mac holds gets nothing (`unchanged`); a machine that had
+    /// values and now gets none has its set cleared.
+    static func deliverSecrets(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        // The arguments first. A bare `--repo` (no value) arrives as `true`: refuse it, never deliver the global
+        // values instead.
+        if invocation["repo"] != nil, invocation["repo"]?.stringValue == nil { throw ActionFailure(message: CloudStrings.secretRepoInvalid("--repo")) }
+        let repo = try invocation["repo"]?.stringValue.map { text in
+            guard let scope = CloudMachineSecrets.repoScope(text) else { throw ActionFailure(message: CloudStrings.secretRepoInvalid(text)) }
+            return scope
+        }
+        let names = try secretNames(invocation)
+        // An own machine (an SSH machine or an acpmux peer) over ssh, with the names the person gives
+        // (CloudHandlers+OwnMachineSecrets).
+        if let target = invocation.target, target.kind == .machine, !isCloudMachine(target.id, context) {
+            return try deliverSecretsToOwnMachine(target.id, names: names, repo: repo, context)
+        }
+        // A Cloud machine's names are the ones its machine config declares.
+        guard names == nil else { throw ActionFailure(message: CloudStrings.secretNamesOnCloudMachine) }
+        if let reason = context.services.cloud.unavailableReason ?? (context.services.cloud.isSignedIn ? nil : CloudStrings.signInFirst) {
+            throw ActionFailure(message: reason)
+        }
+        let cloud = context.services.cloud, work = context.services.work, session = try machine(invocation, context)
+        guard session.machine.allows(.exec) else { throw operationUnavailable }
+        guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+        let machineID = session.machineID, home = FileManager.default.homeDirectoryForCurrentUser
+        let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
+        // One delivery per machine at a time (plan, delivery and ledger together): an older run that
+        // finished after a newer one would leave the older values on the machine but the newer in the ledger.
+        // Not beside an own-machine delivery, which may reach this same machine over ssh.
+        guard !cloud.deliveringSecrets.contains(ownMachineDeliveryKey), cloud.deliveringSecrets.insert(machineID).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
+        // A delivery waits up to a minute on each of the receiver's answers, past the CLI's result deadline:
+        // the answer is then `pending`, the delivery goes on, and running the command again says how it ended
+        // (`unchanged` once delivered, or that one is still running).
+        let pending: [String: ActionResultValue] = ["machine_id": .string(machineID), "status": .string("delivering"),
+                                                    "check": .string("cmux cloud deliver-secrets --target machine:\(machineID)")]
+        result("deliver Cloud secrets", context, pendingAfter: .seconds(30), pending: pending) {
+            defer { cloud.deliveringSecrets.remove(machineID) }
+            let read = { (path: String) in (try? await cloud.machineAPI.readFile(machineID, path: path)).flatMap { Data(base64Encoded: $0.dataBase64) } }
+            guard let declared = CloudMachineSecrets.declared(status: await read(CloudMachineConfig.statusPath)) else {
+                throw ActionFailure(message: CloudStrings.machineConfigNotApplied)
+            }
+            let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
+            // Never through a link, never waiting on a FIFO, bounded: the files lane is shared.
+            let (index, ledgerFile) = try await work.run(.userBlocking, mayBlock: .files) {
+                (CloudMachineSecrets.read(indexURL.path), CloudMachineSecrets.read(ledgerURL.path))
+            }
+            // A damaged or unreadable index is not "no secrets": delivering then would clear the machine's set.
+            guard let stored = CloudMachineSecrets.index(from: index) else {
+                throw ActionFailure(message: CloudStrings.secretIndexUnreadable(indexURL.path))
+            }
+            // The person picks the scope. When the machine says it holds a repo that has its own values
+            // here, delivering global ones without a word would be the wrong values: ask for --repo.
+            if repo == nil, let claimed = CloudMachineSecrets.claimedRepo(record: await read(CloudMachineBootstrap.directory + "/repo.json")),
+               CloudMachineSecrets.hasRepoValues(for: declared, repo: claimed, index: stored) {
+                throw ActionFailure(message: CloudStrings.secretRepoNeeded(claimed))
+            }
+            let (items, missing) = CloudMachineSecrets.plan(declared: declared, repo: repo, index: stored)
+            let ledger = CloudMachineSecrets.Ledger(file: ledgerFile)
+            var answer: [String: ActionResultValue] = ["machine_id": .string(machineID), "declared": .array(declared.map(ActionResultValue.string)),
+                                                       "missing": .array(missing.map(ActionResultValue.string))]
+            guard !ledger.isCurrent(items, on: machineID) else {
+                answer["status"] = .string("unchanged")
+                return answer
+            }
+            let values = try await keychainValues(items)
+            // 0644 and run with `sh`: the file API may write as root, and the terminal runs as the work user.
+            // The receiver holds no value; the folder is the work user's 0700 one (the config apply made it),
+            // so its ticket (below) is readable by that user and root only.
+            try await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.receiverPath, data: Data(CloudMachineSecrets.receiver.utf8), mode: 0o644)
+            let key = try await terminalAnchor(on: session, context).key
+            // The handle is "<surface> <terminal id>": the surface takes input and waits, the id closes it.
+            let surface: @Sendable (String) -> SurfaceID = { SurfaceID(rawValue: $0.split(separator: " ").first.flatMap { UInt64($0) } ?? 0) }
+            // Read here, on the main actor (CloudStrings is main-actor isolated); the link's closures are not.
+            let notConnected = CloudStrings.notConnected
+            let link = CloudMachineSecrets.Link(
+                // Like the receiver: 0644 in the work user's 0700 folder, so only it (and root) can read it.
+                writeTicket: { ticket in
+                    try await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: ticket, mode: 0o644)
+                },
+                start: { argv in
+                    // An explicit empty environment: nil would take the app's terminal environment provider,
+                    // whose values the daemon stores with the receipt. Only the daemon's placement ids are added.
+                    let made = try await connection.createTerminal(in: key, argv: argv, name: "cmux secrets",
+                                                                   size: CellSize(cols: CloudMachineSecrets.terminalColumns, rows: 24), env: [:], keep: false)
+                    guard let surface = made.surface else { throw ActionFailure(message: notConnected) }
+                    return "\(surface.rawValue) \(made.terminalID.rawValue)"
+                },
+                waitFor: { handle, pattern, seconds in
+                    try await connection.request(WaitForTextRequest(surface: surface(handle), pattern: pattern, timeoutMs: seconds * 1000),
+                                                 timeout: .seconds(seconds + 5)).text
+                },
+                type: { handle, bytes in try await connection.send(surface(handle), bytes: bytes) },
+                close: { handle in
+                    guard let id = handle.split(separator: " ").last else { return }
+                    try? await connection.closeTerminal(TerminalID(rawValue: String(id)))
+                })
+            let count: Int
+            do { count = try await CloudMachineSecrets.deliver(values, over: link) } catch {
+                // A receiver that never started leaves its ticket: emptied, so no stale key stays behind.
+                try? await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: Data(), mode: 0o644)
+                guard let failed = error as? CloudMachineSecrets.DeliveryFailed else {
+                    // Only the kind of failure: no error text near the values reaches a log or the caller.
+                    throw ActionFailure(message: CloudStrings.secretsNotDelivered(String(describing: type(of: error))))
+                }
+                throw ActionFailure(message: CloudStrings.secretsNotDelivered(failed.reason))
+            }
+            // The values are on the machine either way; a ledger not written only means the next run delivers again.
+            try? await work.run(.userBlocking, mayBlock: .files) { try CloudMachineSecrets.Ledger.record(items, on: machineID, at: ledgerURL) }
+            answer["status"] = .string("delivered")
+            answer["delivered"] = .array(items.map { .string($0.name) })
+            answer["written"] = .int(count)
+            answer["next"] = .string("cmux cloud apply-machine-config --target machine:\(machineID)")
+            return answer
         }
     }
 
@@ -293,13 +548,25 @@ extension CloudHandlers {
         "gh --version 2>/dev/null | head -n 1 || true"
     ].joined(separator: "; ")
 
-    /// The handoff text, with the old app's fields and the cmux-next CLI verbs
-    /// for Open Machine and Machine Tools.
+    /// The handoff text, with the old app's fields and the CLI verbs that
+    /// open a terminal on the machine and report on it (`open-machine` and
+    /// `machine-tools` are GUI-only on the CLI).
     static func handoff(_ machine: CloudMachine) -> String {
         let target = "--target machine:\(machine.id)"
         return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider.isEmpty ? "?" : machine.provider)", "status: \(machine.status.rawValue)",
-                "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
+                "attach: cmux cloud new-terminal-on-machine \(target)", "inspect: cmux cloud machine-status \(target)"].joined(separator: "\n")
     }
+
+    /// A machine action's `action.run` result: the machine's id and the
+    /// `--target` that names it in the next command, plus `extra`.
+    static func machineFields(_ machineID: String, _ extra: [String: ActionResultValue] = [:]) -> [String: ActionResultValue] {
+        extra.merging(["machine_id": .string(machineID), "target": .string("machine:\(machineID)")]) { _, own in own }
+    }
+
+    /// How long a CLI or agent fork, restore, resize or kill waits for the
+    /// server before it answers `pending`: inside `action.run`'s 40 s result
+    /// deadline. The work finishes either way.
+    static let machineAnswerWait: Duration = .seconds(30)
 
     /// How long a CLI or agent snapshot waits for its id before it answers
     /// `pending` (a snapshot may take minutes): inside `action.run`'s 40 s
@@ -371,6 +638,36 @@ extension CloudHandlers {
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
+        if let idlePause = session.machine.idlePause {
+            fields["idle_pause"] = .object(idlePauseFields(idlePause))
+        }
+        return fields
+    }
+
+    /// The server's idle cron diagnostics, kept nested so `--json` mirrors
+    /// the `/api/vm/:id` response while retaining the action's snake-case
+    /// result convention.
+    static func idlePauseFields(_ idle: CloudMachine.IdlePauseDiagnostics) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = [
+            "minutes": .int(idle.minutes),
+            "last_checked_at": idle.lastCheckedAt.map { .int($0) } ?? .null,
+            "idle_since": idle.idleSince.map { .int($0) } ?? .null,
+            "last_api_activity_at": idle.lastApiActivityAt.map { .int($0) } ?? .null,
+            "private_address_known": .bool(idle.privateAddressKnown),
+        ]
+        if let decision = idle.lastDecision {
+            fields["last_decision"] = .object([
+                "at": .int(decision.at),
+                "outcome": .string(decision.outcome),
+                "reason": .string(decision.reason),
+                "run": .object([
+                    "checked": .int(decision.run.checked),
+                    "elapsed_ms": .int(decision.run.elapsedMs),
+                ]),
+            ])
+        } else {
+            fields["last_decision"] = .null
+        }
         return fields
     }
 
@@ -393,6 +690,18 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }
         if let address = session.machine.address?.ipv4 { lines.append("address: \(address)") }
         if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ $0.usage(now: now) }) { lines.append(usage) }
+        if let idlePause = session.machine.idlePause {
+            lines.append("idle pause: \(idlePause.minutes) minutes")
+            lines.append("idle pause last checked: \(idlePause.lastCheckedAt.map(String.init) ?? "null")")
+            lines.append("idle pause idle since: \(idlePause.idleSince.map(String.init) ?? "null")")
+            lines.append("idle pause last API activity: \(idlePause.lastApiActivityAt.map(String.init) ?? "null")")
+            lines.append("idle pause private address known: \(idlePause.privateAddressKnown)")
+            if let decision = idlePause.lastDecision {
+                lines.append("idle pause decision: \(decision.outcome) (\(decision.reason)) at \(decision.at); run checked=\(decision.run.checked), elapsed_ms=\(decision.run.elapsedMs)")
+            } else {
+                lines.append("idle pause decision: null")
+            }
+        }
         return lines.joined(separator: "\n")
     }
 }

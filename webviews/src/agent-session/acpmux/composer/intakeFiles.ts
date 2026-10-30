@@ -19,7 +19,7 @@ export type IntakeOptions = {
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
-  upload?(files: File[]): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
   cancelled?(index: number): boolean;
 };
@@ -33,6 +33,8 @@ export type IntakeEvents = {
   ready?(index: number, attachment: ComposerAttachment): void;
   /// File `index` could not be attached, and why.
   failed?(index: number, error: IntakeError): void;
+  /// File `index` is streaming to the session's machine: its tile no longer holds a send.
+  uploading?(index: number): void;
   /// Image `index`, already a chip, has its original saved at `path` (the agent reads it there).
   original?(index: number, path: string, name: string): void;
 };
@@ -130,9 +132,13 @@ export async function intakeFiles(
     for (let at = waiting.length - 1; at >= 0; at--) if (options.cancelled?.(waiting[at]!.index)) waiting.splice(at, 1);
   }
   if (waiting.length) {
-    const sent = await options.upload?.(waiting.map(({ file }) => file)).catch((failure: unknown): UploadResult => ({
-      error: failure instanceof Error ? failure.message : String(failure),
-    }));
+    for (const { index } of waiting) events.uploading?.(index);
+    const files = waiting.map(({ file }) => file);
+    const sent = await options
+      .upload?.(files, (at) => options.cancelled?.(waiting[at]!.index) ?? false)
+      .catch((failure: unknown): UploadResult => ({
+        error: failure instanceof Error ? failure.message : String(failure),
+      }));
     for (const [at, { index, file, image }] of waiting.entries()) {
       const path = sent && "paths" in sent && sent.paths.length === waiting.length ? sent.paths[at] : undefined;
       if (path && image) {
@@ -145,7 +151,7 @@ export async function intakeFiles(
           mimeType: file.type || "application/octet-stream",
           size: file.size,
         });
-      else if (!image)
+      else if (!image && !options.cancelled?.(index))
         fail(index, sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" });
     }
   }

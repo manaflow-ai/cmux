@@ -52,9 +52,12 @@ export function newTabScreenActions(deps: {
               : undefined;
           // `chat.new` resolves to the chat it started; none (a refused or held start): no send.
           ignore(
-            callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), peer }).then((started) =>
-              started ? send() : undefined,
-            ),
+            callNative("chat.new", {
+              harness,
+              ...(folder ? { cwd: folder } : {}),
+              ...(model ? { model } : {}),
+              peer,
+            }).then((started) => (started ? send() : undefined)),
           );
           return;
         }
@@ -101,6 +104,7 @@ export function newTabScreenActions(deps: {
       ignore(callNative("tab.open", { kind: "terminal", text: command, run: true, ...(cwd ? { cwd } : {}) }));
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
+    onAction: (id) => ignore(callNative("app.action", { id })),
     onOpenSession(sessionId) {
       deps.selectSession(sessionId);
     },
