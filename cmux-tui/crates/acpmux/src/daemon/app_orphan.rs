@@ -171,12 +171,13 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
     // that replaced it in between, and the watch would hold that one.
     let facts = std::env::current_exe().ok().and_then(|exe| {
         let opened = std::fs::File::open(&exe);
-        let app = App::of(&exe)?;
         // A binary already unlinked (a rebuild in the instant before the open): gone from the
         // start, or the watch could never see it go. Only "not found": any other refusal (a
         // binary it may not read) is never taken for gone.
         let missing = matches!(&opened, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
-        Some((app, Executable(opened.ok(), missing)))
+        let executable = Executable(opened.ok(), missing);
+        let app = App::of(&exe, executable.gone())?;
+        Some((app, executable))
     });
     async move {
         match facts {
@@ -198,12 +199,19 @@ pub(crate) struct App {
 }
 
 impl App {
-    fn of(exe: &Path) -> Option<Self> {
+    /// The app around `exe`, whose file is `gone` already at start. A bundle deleted before
+    /// its Info.plist was read is still watched, as an app of unknown id: its executable is
+    /// gone, so it stops (an empty `bundle_id`; see [`App::ends_agents`]).
+    fn of(exe: &Path, gone: bool) -> Option<Self> {
         if !cfg!(target_os = "macos") {
             return None;
         }
         let bundle = containing_app_bundle(exe)?;
-        Self::new(bundle.clone(), bundle_id(&bundle)?, app_socket_env())
+        match bundle_id(&bundle) {
+            Some(id) => Self::new(bundle, id, app_socket_env()),
+            None if gone => Some(Self { bundle, bundle_id: String::new(), socket: None }),
+            None => None,
+        }
     }
 
     /// The app of a bundle with `bundle_id`, given the daemon's `CMUX_SOCKET_PATH`; None when
@@ -232,7 +240,12 @@ impl App {
     /// a DEV build's whenever its executable is gone, any other channel's only when its install
     /// path holds no app of its bundle id any more (`installed` is that path's bundle id: none
     /// once deleted). An update of the same app keeps them for its next launch to adopt.
+    /// An app of unknown id (deleted before its Info.plist was read) ends them only when its
+    /// install path holds no app at all.
     pub(crate) fn ends_agents(&self, gone: bool, installed: Option<&str>) -> bool {
+        if self.bundle_id.is_empty() {
+            return gone && installed.is_none();
+        }
         gone && (self.is_dev() || installed != Some(self.bundle_id.as_str()))
     }
 }
@@ -414,6 +427,12 @@ mod tests {
         let release = app("com.cmuxterm.app");
         assert!(release.ends_agents(true, None));
         assert!(!release.ends_agents(true, Some("com.cmuxterm.app")));
+        // Deleted before its Info.plist was read: an unknown id.
+        let unknown =
+            App { bundle: PathBuf::from("/A/x.app"), bundle_id: String::new(), socket: None };
+        assert!(unknown.ends_agents(true, None));
+        assert!(!unknown.ends_agents(true, Some("com.cmuxterm.app")), "an app is installed there");
+        assert!(!unknown.ends_agents(false, None));
         // A DEV rebuild ends them: no build of it is left to adopt them.
         let dev = app("com.cmuxterm.app.debug.t");
         assert!(dev.ends_agents(true, Some("com.cmuxterm.app.debug.t")));
