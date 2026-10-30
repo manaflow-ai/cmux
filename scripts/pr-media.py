@@ -20,8 +20,9 @@ upload is refused instead. Lower `--gif-fps` or `--gif-width`, or record less.
 An mp4 is only linked, so it is allowed to be larger.
 
 Nothing already on the branch is replaced without `--force`, and the run names
-the blob it replaced. Every file is converted and measured before the first
-upload, so a file the tool refuses cannot leave the earlier ones stranded.
+the blob it replaced. Every file is converted and measured before the upload,
+and the whole batch lands as one commit, so a file the tool refuses cannot
+leave the earlier ones stranded.
 
 Every file goes through the shared privacy check (scripts/ci/pr_media_privacy.py)
 before the first upload, the gif made from an mp4 included: a capture that
@@ -34,17 +35,20 @@ step runs inside .github/actions/pr-media-publish, the one publishing step: it
 brings the pr-media environment's private-terms list and an OCR tool, so a CI
 writer never falls back to the built-in patterns with its images unread.
 
-Conversion needs ffmpeg. Everything else needs `gh` with push access to the
-repository. `--dry-run` resolves the whole plan and prints it without running
-either; it still runs the privacy check on the files as given (no gif yet).
+Conversion needs ffmpeg. The branch is read and written with git alone (no
+GitHub REST call; see MediaBranch), so this needs push access to the repository
+over git: the host's ssh key or credential helper, or GH_TOKEN in CI. `gh` is
+used only for `--comment`. `--dry-run` resolves the whole plan and prints it
+without running either; it still runs the privacy check on the files as given
+(no gif yet).
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
+import contextlib
+import fcntl
 import importlib.util
-import json
 import os
 import random
 import re
@@ -59,8 +63,6 @@ from pathlib import Path
 
 REPO = "manaflow-ai/cmux"
 BRANCH = "pr-media"
-# One write plus retries of a lost race or a GitHub 5xx (put_file).
-PUT_ATTEMPTS = 5
 RAW_HOST = "https://raw.githubusercontent.com"
 
 VIDEO_SUFFIXES = (".mp4", ".mov")
@@ -372,199 +374,290 @@ def check_size(path: Path, kind: str) -> list[str]:
     return []
 
 
-def looks_absent(text: str) -> bool:
-    return "404" in text or "Not Found" in text
+# Every read and write of the media branch goes through git, never the REST API: on agent hosts the
+# glaeda-gh shim refuses a `contents/` read of a repository checked out there, and gh-quota refuses REST
+# reads with no GraphQL equivalent (`branches/`, `pulls/N`) and every REST write once the shared quota
+# runs low, which stopped every `cmux-ci capture --pr` upload (2026-10-30). Git spends none of that quota.
+#
+# The writer is a bare, shallow (depth 1), blob-less clone that tracks only the media branch, kept in the
+# user's cache dir (PR_MEDIA_CACHE_DIR, default $XDG_CACHE_HOME/cmux-pr-media) and reused by every run on
+# the host: fetching the branch tip costs its trees (about 1 MB for two thousand pull requests' folders),
+# never the media in it. An upload builds one commit on the fetched tip with `git mktree --missing`, so no
+# blob already on the branch is ever read or fetched, and pushes it without force; a push that lost a race
+# (the branch moved) fetches the new tip and builds the commit again. One flock per clone serializes the
+# runs on a host. PR_MEDIA_REMOTE_URL overrides the remote (tests point it at a local repository).
+PUSH_ATTEMPTS = 6
+CACHE_ENV = "PR_MEDIA_CACHE_DIR"
+REMOTE_ENV = "PR_MEDIA_REMOTE_URL"
+GIT_TIMEOUT = 300
+# What a lost race or a GitHub hiccup looks like from `git push`; anything else (a protected branch, no push
+# access) is final.
+PUSH_RETRYABLE = re.compile(r"non-fast-forward|fetch first|cannot lock ref|failed to update ref|incorrect old value"
+                            r"|HTTP 50[0234]|RPC failed|remote end hung up|early EOF|Connection reset|timed out")
+DEFAULT_IDENTITY = ("cmux pr-media", "pr-media@users.noreply.github.com")
 
 
-def looks_like_a_conflict(text: str) -> bool:
-    """A write that lost a race: the file moved between the read and the PUT."""
-    return "409" in text or "but expected" in text or "wasn't supplied" in text
+def cache_root() -> Path:
+    explicit = os.environ.get(CACHE_ENV)
+    if explicit:
+        return Path(explicit)
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cmux-pr-media"
 
 
-def looks_like_a_server_error(text: str) -> bool:
-    """GitHub's own failure (500, 502, 503, 504): the same write can land on a retry."""
-    return re.search(r"HTTP 50[0234]\b", text) is not None
+def remote_url(repo: str) -> str:
+    """Where the media branch lives. The origin URL of a local clone of REPO when there is one (this host
+    already authenticates that way, often over ssh), else https."""
+    explicit = os.environ.get(REMOTE_ENV)
+    if explicit:
+        return explicit
+    for candidate in (Path.cwd(), Path.home() / "Projects" / "cmux"):
+        done = subprocess.run(["git", "-C", str(candidate), "remote", "get-url", "origin"],
+                              capture_output=True, text=True)
+        url = done.stdout.strip()
+        if done.returncode == 0 and origin_is(url, repo):
+            return url
+    return f"https://github.com/{repo}.git"
 
 
-def gh_read(args: list[str], runner=None, absent_ok: bool = False, env=None) -> dict | None:
-    """A `gh api` read.
-
-    A failure is a failure: it returns None only for a 404 the caller asked to
-    treat as an absence. Collapsing every failure into None once meant a bad
-    token or a typo'd repository was reported as "the media branch does not
-    exist, create it", which is advice that overwrites a shared branch.
-    """
-    extra = {"env": env} if env is not None else {}
-    done = (runner or subprocess.run)(["gh", "api", *args], capture_output=True, text=True, **extra)
-    if done.returncode == 0:
-        try:
-            parsed = json.loads(done.stdout)
-        except json.JSONDecodeError as error:
-            raise MediaError(f"gh api {args[0]} returned something that is not JSON: {error}") from error
-        return parsed if isinstance(parsed, dict) else None
-    said = (done.stderr or done.stdout).strip() or f"exit status {done.returncode}"
-    if absent_ok and looks_absent(said):
-        return None
-    raise MediaError(f"gh api {args[0]} failed: {said}\nCheck `gh auth status` and --repo.")
-
-
-def contents_path(repo: str, path: str, branch: str | None = None) -> str:
-    route = f"repos/{repo}/contents/{urllib.parse.quote(path)}"
-    return f"{route}?ref={urllib.parse.quote(branch, safe='')}" if branch else route
-
-
-class GitUnanswered(Exception):
-    """Git could not say what is on the branch; the contents API is asked instead."""
-
-
-def git_out(checkout: Path, *args: str, timeout: float = 120) -> str:
-    try:
-        done = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True,
-                              timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise GitUnanswered(f"git {args[0]}: {error}") from error
-    if done.returncode != 0:
-        raise GitUnanswered(f"git {args[0]}: {(done.stderr or done.stdout).strip()}")
-    return done.stdout
-
-
-def origin_names(url: str, repo: str) -> bool:
-    """Whether URL is github.com's REPO (https, ssh or scp-like form, `.git` or not)."""
+def origin_is(url: str, repo: str) -> bool:
+    """Whether URL is github.com's REPO (https, ssh or scp-like form, with or without `.git`)."""
     match = re.fullmatch(r"(?:https?://(?:[^@/]+@)?|ssh://(?:[^@/]+@)?|[^@/:]+@)github\.com[:/]"
                          r"([^/]+/[^/]+?)(?:\.git)?/?", url.strip())
     return bool(match) and match.group(1).lower() == repo.lower()
 
 
-def media_checkout(repo: str, branch: str) -> Path | None:
-    """A clone of REPO that git can read BRANCH's tree from cheaply, or None.
+def git_env() -> dict[str, str]:
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0",
+           # A blob the branch already holds is never needed here; if something did ask for one, fail rather
+           # than download it.
+           "GIT_NO_LAZY_FETCH": "1"}
+    return env
 
-    On an agent host the glaeda-gh shim refuses a `contents/` read of a
-    repository that is checked out there (it spends the shared API quota on
-    bytes git has for free), so the existence check reads the branch with git
-    when it can. Candidates: $PR_MEDIA_CHECKOUT, the current directory's clone,
-    ~/Projects/cmux. A shallow clone is passed over, and so is a full clone
-    that has never fetched BRANCH: fetching the media branch's whole history
-    with its blobs is far more than one API read. A partial (blob:none) clone,
-    or one that already tracks BRANCH, fetches only the new trees.
-    """
-    candidates = [os.environ.get("PR_MEDIA_CHECKOUT"), ".", str(Path.home() / "Projects" / "cmux")]
-    for candidate in candidates:
-        if not candidate:
-            continue
+
+def credential_args() -> list[str]:
+    """In CI the token is in the environment (the publish action's GH_TOKEN); hand it to git directly rather
+    than through `gh auth git-credential`, which a host's gh guard may refuse. Elsewhere git's own
+    configuration (an ssh key, a credential helper) authenticates, as it does for any push."""
+    if not (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")):
+        return []
+    helper = '!f() { echo username=x-access-token; echo "password=${GH_TOKEN:-$GITHUB_TOKEN}"; }; f'
+    return ["-c", f"credential.https://github.com.helper={helper}"]
+
+
+def safe_branch(branch: str) -> str:
+    if subprocess.run(["git", "check-ref-format", "--branch", branch], capture_output=True).returncode != 0:
+        raise MediaError(f"{branch!r} is not a branch name")
+    return branch
+
+
+def safe_remote_path(path: str) -> list[str]:
+    parts = path.split("/")
+    if not path or any(part in ("", ".", "..") or "\0" in part for part in parts):
+        raise MediaError(f"{path!r} is not a path on the branch")
+    return parts
+
+
+class MediaBranch:
+    """The media BRANCH of REPO, read and written with git through the shared cache clone."""
+
+    def __init__(self, repo: str, branch: str, url: str | None = None, root: Path | None = None):
+        self.repo, self.branch = repo, safe_branch(branch)
+        self.url = url or remote_url(repo)
+        root = root or cache_root()
+        self.dir = root / (re.sub(r"[^A-Za-z0-9._-]", "_", repo) + ".git")
+        self.lock_path = root / (self.dir.name + ".lock")
+        self.tracking = f"refs/remotes/origin/{self.branch}"
+        self.tip: str | None = None
+
+    def git(self, *args: str, input: str | None = None, cwd: Path | None = None, timeout: float = GIT_TIMEOUT,
+            check: bool = True) -> subprocess.CompletedProcess:
+        command = ["git", *credential_args(), "-C", str(cwd or self.dir), *args]
         try:
-            top = Path(git_out(Path(candidate), "rev-parse", "--show-toplevel", timeout=20).strip())
-            if not origin_names(git_out(top, "remote", "get-url", "origin", timeout=20), repo):
-                continue
-            if git_out(top, "rev-parse", "--is-shallow-repository", timeout=20).strip() == "true":
-                continue
-            partial = subprocess.run(["git", "-C", str(top), "config", "--get", "remote.origin.partialclonefilter"],
-                                     capture_output=True, text=True, timeout=20).stdout.strip()
-            tracked = subprocess.run(["git", "-C", str(top), "rev-parse", "-q", "--verify",
-                                      f"refs/remotes/origin/{branch}^{{commit}}"],
-                                     capture_output=True, text=True, timeout=20).returncode == 0
-        except (GitUnanswered, OSError, subprocess.TimeoutExpired):
-            continue
-        if partial or tracked:
-            return top
-    return None
+            done = subprocess.run(command, input=input, capture_output=True, text=True, env=git_env(),
+                                  timeout=timeout)
+        except subprocess.TimeoutExpired as error:
+            raise MediaError(f"git {args[0]} took longer than {timeout:.0f} s") from error
+        if check and done.returncode != 0:
+            raise MediaError(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}")
+        return done
 
-
-# (checkout, branch) -> the branch tip this process read. Re-read (fresh=True)
-# after a write lost a race; another writer's path is never trusted from here.
-_TIPS: dict[tuple[str, str], str] = {}
-
-
-def git_blob_sha(checkout: Path, branch: str, path: str, fresh: bool = False) -> str | None:
-    """PATH's blob sha on BRANCH as the remote has it now (the contents API's `sha`), or None."""
-    key = (str(checkout), branch)
-    tip = None if fresh else _TIPS.get(key)
-    if tip is None:
-        listed = git_out(checkout, "ls-remote", "origin", f"refs/heads/{branch}", timeout=60).split()
-        if not listed:
-            raise GitUnanswered(f"no {branch} on origin")
-        tip = listed[0]
-        if subprocess.run(["git", "-C", str(checkout), "cat-file", "-e", f"{tip}^{{tree}}"],
-                          capture_output=True).returncode != 0:
-            # By sha, not by name: no remote-tracking ref or FETCH_HEAD is written, so
-            # sessions sharing a clone never race on a ref lock. A partial clone keeps its filter.
-            git_out(checkout, "fetch", "--no-tags", "--no-write-fetch-head", "-q", "origin", tip)
-        _TIPS[key] = tip
-    entry = git_out(checkout, "ls-tree", "-z", tip, "--", path).split("\0")[0]
-    if not entry:
+    def ls_remote(self, ref: str) -> str | None:
+        """REF's commit on the remote, or None when the remote has no such ref."""
+        # Run from the cache dir, not the caller's checkout, so no repository's own config applies.
+        self.dir.parent.mkdir(parents=True, exist_ok=True)
+        done = self.git("ls-remote", "--exit-code", self.url, ref, cwd=self.dir.parent, check=False, timeout=120)
+        if done.returncode == 2:  # --exit-code: the remote answered and has no such ref
+            return None
+        if done.returncode != 0:
+            raise MediaError(f"git ls-remote {self.url} failed: {(done.stderr or done.stdout).strip()}")
+        for line in done.stdout.splitlines():
+            sha, _, name = line.partition("\t")
+            if name == ref:
+                return sha
         return None
-    meta, _, named = entry.partition("\t")
-    fields = meta.split()
-    if named != path or len(fields) != 3 or fields[1] != "blob":
-        return None
-    return fields[2]
+
+    @contextlib.contextmanager
+    def locked(self):
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.lock_path, "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def ensure_clone(self) -> None:
+        """Make the cache clone (the caller holds the lock), or point an existing one at this run's URL."""
+        if (self.dir / "HEAD").is_file():
+            self.git("config", "remote.origin.url", self.url)
+            return
+        staging = self.dir.with_name(f"{self.dir.name}.new-{os.getpid()}")
+        shutil.rmtree(staging, ignore_errors=True)
+        self.git("init", "-q", "--bare", str(staging), cwd=self.dir.parent)
+        for key, value in (("remote.origin.url", self.url),
+                           ("remote.origin.fetch", f"+refs/heads/{self.branch}:{self.tracking}"),
+                           ("remote.origin.promisor", "true"),
+                           ("remote.origin.partialclonefilter", "blob:none"),
+                           ("core.logAllRefUpdates", "false")):
+            self.git("config", key, value, cwd=staging)
+        staging.rename(self.dir)
+
+    def fetch(self) -> str:
+        """Fetch the branch tip (its trees, no blobs) into the cache clone and return it. Caller holds the lock."""
+        done = self.git("fetch", "-q", "--no-tags", "--depth", "1", "--filter=blob:none", "origin",
+                        f"+refs/heads/{self.branch}:{self.tracking}", check=False)
+        if done.returncode != 0:
+            said = (done.stderr or done.stdout).strip()
+            if "couldn't find remote ref" in said:
+                raise MediaError(f"no {self.branch} branch on {self.repo}. It holds PR media only; "
+                                 "create it before uploading.")
+            raise MediaError(f"git fetch of {self.branch} failed: {said}")
+        self.tip = self.git("rev-parse", "--verify", f"{self.tracking}^{{commit}}").stdout.strip()
+        return self.tip
+
+    def blob_sha(self, path: str) -> str | None:
+        """PATH's blob on the branch (the sha GitHub's contents API reports), or None when it is not a file
+        there. Reads the tip this run fetched first."""
+        safe_remote_path(path)
+        if self.tip is None:
+            with self.locked():
+                self.ensure_clone()
+                self.fetch()
+        entry = self.git("ls-tree", "-z", self.tip, "--", path).stdout.split("\0")[0]
+        meta, _, named = entry.partition("\t")
+        fields = meta.split()
+        if named != path or len(fields) != 3 or fields[1] != "blob":
+            return None
+        return fields[2]
+
+    def tree_with(self, base: str | None, changes: dict[str, str]) -> str:
+        """The tree BASE with CHANGES (relative path -> blob) written in, built with `mktree --missing` so
+        nothing it leaves alone is read."""
+        entries: dict[str, tuple[str, str, str]] = {}
+        if base:
+            for line in self.git("ls-tree", "-z", base).stdout.split("\0"):
+                if line:
+                    meta, _, name = line.partition("\t")
+                    mode, kind, sha = meta.split()
+                    entries[name] = (mode, kind, sha)
+        nested: dict[str, dict[str, str]] = {}
+        for path, blob in changes.items():
+            head, slash, rest = path.partition("/")
+            if slash:
+                nested.setdefault(head, {})[rest] = blob
+            elif entries.get(head, ("", "blob", ""))[1] != "blob":
+                raise MediaError(f"{head} is a folder on {self.branch}, not a file")
+            else:
+                entries[head] = ("100644", "blob", blob)
+        for name, inner in nested.items():
+            old = entries.get(name)
+            if old and old[1] != "tree":
+                raise MediaError(f"{name} is a file on {self.branch}, not a folder")
+            entries[name] = ("040000", "tree", self.tree_with(old[2] if old else None, inner))
+        listing = "".join(f"{mode} {kind} {sha}\t{name}\0" for name, (mode, kind, sha) in entries.items())
+        return self.git("mktree", "-z", "--missing", input=listing).stdout.strip()
+
+    def identity(self) -> dict[str, str]:
+        if self.git("config", "user.email", check=False).stdout.strip():
+            return {}
+        name, email = DEFAULT_IDENTITY
+        return {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
+                "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email}
+
+    def put(self, files: dict[str, Path], message: str) -> str:
+        """Write FILES (path on the branch -> local file) as one commit on the branch; return the commit."""
+        for path in files:
+            safe_remote_path(path)
+        with self.locked():
+            self.ensure_clone()
+            blobs = {path: self.git("hash-object", "-w", "--no-filters", "--", str(local.resolve())).stdout.strip()
+                     for path, local in files.items()}
+            for attempt in range(1, PUSH_ATTEMPTS + 1):
+                tip = self.fetch()
+                tree = self.tree_with(f"{tip}^{{tree}}", blobs)
+                env = {**git_env(), **self.identity()}
+                commit = subprocess.run(["git", "-C", str(self.dir), "commit-tree", tree, "-p", tip, "-m", message],
+                                        capture_output=True, text=True, env=env, timeout=60)
+                if commit.returncode != 0:
+                    raise MediaError(f"git commit-tree failed: {(commit.stderr or commit.stdout).strip()}")
+                # --no-thin: a thin pack deltas against what the remote has, which means reading the blob a
+                # replaced file had, and this clone has none (and must not fetch one).
+                done = self.git("push", "-q", "--no-thin", "origin",
+                                f"{commit.stdout.strip()}:refs/heads/{self.branch}", check=False)
+                if done.returncode == 0:
+                    self.tip = commit.stdout.strip()
+                    return self.tip
+                said = (done.stderr or done.stdout).strip()
+                if attempt == PUSH_ATTEMPTS or not PUSH_RETRYABLE.search(said):
+                    raise MediaError(f"upload of {', '.join(files)} failed: {said}")
+                time.sleep(0.5 * attempt + random.random())
+        raise AssertionError("unreachable")
 
 
-def existing_sha(repo: str, branch: str, path: str, runner=None, fresh: bool = False) -> str | None:
-    checkout = media_checkout(repo, branch)
-    if checkout is not None:
-        try:
-            return git_blob_sha(checkout, branch, path, fresh=fresh)
-        except GitUnanswered:
-            pass
-    # No clone git can answer from (a shallow CI checkout, a host without one), or git failed:
-    # the API read is the one git cannot replace, which is what the shim's escape is for.
-    found = gh_read([contents_path(repo, path, branch)], runner=runner, absent_ok=True,
-                    env={**os.environ, "GLAEDA_GH_ALLOW_API_SOURCE": "1"})
-    if found is None:
-        return None
-    sha = found.get("sha")
-    return sha if isinstance(sha, str) else None
+_BRANCHES: dict[tuple[str, str], MediaBranch] = {}
+
+
+def media_branch(repo: str, branch: str) -> MediaBranch:
+    """One MediaBranch per repository and branch in this process, so a run fetches the tip once."""
+    key = (repo, branch)
+    if key not in _BRANCHES:
+        _BRANCHES[key] = MediaBranch(repo, branch)
+    return _BRANCHES[key]
+
+
+def existing_sha(repo: str, branch: str, path: str, store: MediaBranch | None = None) -> str | None:
+    return (store or media_branch(repo, branch)).blob_sha(path)
+
+
+def put_files(repo: str, branch: str, files: dict[str, Path], message: str, checked: bool = False,
+              store: MediaBranch | None = None) -> str:
+    """Write FILES (path on the branch -> local file) to the branch in one commit.
+
+    Every file goes through the privacy check first unless the caller already checked them (`checked=True`,
+    as main() does for its whole batch). A refusal raises PrivacyError before anything is written and is
+    never retried. A push that lost a race to another uploader is built again on the new tip and retried a
+    bounded number of times."""
+    if not checked:
+        check_privacy(list(files.items()), repo)
+    return (store or media_branch(repo, branch)).put(files, message)
 
 
 def put_file(repo: str, branch: str, path: str, local: Path, message: str,
-             runner=None, checked: bool = False) -> None:
-    """Write one file to the branch through the contents API.
-
-    The file goes through the privacy check first unless the caller already
-    checked it (`checked=True`, as main() does for its whole batch). A refusal
-    raises PrivacyError before the first write and is never retried.
-
-    The body goes in on stdin: a base64 megabyte does not fit in an argument
-    list, and `gh api -f` would put it there.
-
-    A write that lost a race, or that GitHub failed with a 5xx, is retried with
-    a freshly read sha and a short backoff, a bounded number of times: many
-    sessions and gallery jobs upload to this branch at once, so losing twice
-    in a row is normal and the loser should not lose its clip.
-    """
-    if not checked:
-        check_privacy([(path, local)], repo)
-    content = base64.b64encode(local.read_bytes()).decode("ascii")
-    sha = existing_sha(repo, branch, path, runner=runner)
-    for attempt in range(1, PUT_ATTEMPTS + 1):
-        body: dict[str, str] = {"message": message, "branch": branch, "content": content}
-        if sha:
-            body["sha"] = sha
-        done = (runner or subprocess.run)(
-            ["gh", "api", "--method", "PUT", contents_path(repo, path), "--input", "-"],
-            input=json.dumps(body), capture_output=True, text=True,
-        )
-        if done.returncode == 0:
-            return
-        said = (done.stderr or done.stdout).strip()
-        if attempt < PUT_ATTEMPTS and (looks_like_a_conflict(said) or looks_like_a_server_error(said)):
-            time.sleep(0.5 * attempt + random.random())
-            sha = existing_sha(repo, branch, path, runner=runner, fresh=True)
-            continue
-        raise MediaError(f"upload of {path} failed: {said}")
+             runner=None, checked: bool = False, store: MediaBranch | None = None) -> None:
+    """One file, for the tools that import this (scripts/cmux-next/media/publish.py, reel.py)."""
+    put_files(repo, branch, {path: local}, message, checked=checked, store=store)
 
 
-def require_branch(repo: str, branch: str, runner=None) -> None:
-    if gh_read([f"repos/{repo}/branches/{urllib.parse.quote(branch, safe='')}"],
-               runner=runner, absent_ok=True) is None:
+def require_branch(repo: str, branch: str, store: MediaBranch | None = None) -> None:
+    if (store or media_branch(repo, branch)).ls_remote(f"refs/heads/{safe_branch(branch)}") is None:
         raise MediaError(
             f"no {branch} branch on {repo}. It holds PR media only; create it before uploading."
         )
 
 
-def require_pull_request(pr: int, repo: str, runner=None) -> None:
+def require_pull_request(pr: int, repo: str, branch: str = BRANCH, store: MediaBranch | None = None) -> None:
     """A folder named after a pull request that does not exist is litter."""
-    if gh_read([f"repos/{repo}/pulls/{pr}"], runner=runner, absent_ok=True) is None:
+    if (store or media_branch(repo, branch)).ls_remote(f"refs/pull/{pr}/head") is None:
         raise MediaError(f"no pull request {pr} on {repo}; check --pr and --repo")
 
 
@@ -625,7 +718,6 @@ def main(argv: list[str] | None = None, runner=None) -> int:
     if args.pr <= 0:
         print("pr-media: --pr must be a pull request number", file=sys.stderr)
         return 2
-    uploaded: list[Upload] = []
     uploads: list[Upload] = []
     warnings: list[str] = []
     try:
@@ -649,8 +741,8 @@ def main(argv: list[str] | None = None, runner=None) -> int:
             report(warnings)
             return 0
 
-        require_branch(args.repo, args.branch, runner=runner)
-        require_pull_request(args.pr, args.repo, runner=runner)
+        require_branch(args.repo, args.branch)
+        require_pull_request(args.pr, args.repo, args.branch)
         with tempfile.TemporaryDirectory(prefix="pr-media-") as scratch:
             # Convert and measure everything first. A file refused half way
             # through used to leave the earlier ones on the branch with no
@@ -668,7 +760,7 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                 target: sha
                 for upload, _ in ready
                 if (target := remote_path(args.pr, upload.name))
-                and (sha := existing_sha(args.repo, args.branch, target, runner=runner))
+                and (sha := existing_sha(args.repo, args.branch, target))
             }
             if replacing and not args.force:
                 listed = ", ".join(sorted(replacing))
@@ -677,14 +769,14 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                     "Rename the file, or pass --force to replace it."
                 )
 
-            for upload, path in ready:
-                target = remote_path(args.pr, upload.name)
-                if target in replacing:
-                    print(f"replacing {target} (blob {replacing[target]})")
-                put_file(args.repo, args.branch, target, path,
-                         f"PR {args.pr} media {upload.name}", runner=runner, checked=True)
-                uploaded.append(upload)
-                print(f"uploaded {target}")
+            for target, sha in sorted(replacing.items()):
+                print(f"replacing {target} (blob {sha})")
+            # One commit for the whole batch: every file lands, or none does.
+            names = ", ".join(upload.name for upload, _ in ready)
+            put_files(args.repo, args.branch, {remote_path(args.pr, upload.name): path for upload, path in ready},
+                      f"PR {args.pr} media {names}", checked=True)
+            for upload, _ in ready:
+                print(f"uploaded {remote_path(args.pr, upload.name)}")
 
         body = markdown(uploads, args.pr, args.repo, args.branch)
         # Printed before the comment is attempted: a refused comment must not
@@ -697,10 +789,6 @@ def main(argv: list[str] | None = None, runner=None) -> int:
         report(warnings)
     except (MediaError, OSError) as error:
         print(f"pr-media: {error}", file=sys.stderr)
-        if uploaded and len(uploaded) < len(uploads):
-            print()
-            print(f"partial upload; Markdown for what landed on {args.branch}:")
-            print(markdown(uploaded, args.pr, args.repo, args.branch), end="")
         report(warnings)
         return 1
     return 0
