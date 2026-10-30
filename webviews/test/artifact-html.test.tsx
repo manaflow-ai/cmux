@@ -101,6 +101,9 @@ test("full write inputs are detected without reading the file; malformed inputs 
     ["Write", "file_path"],
     ["write", "path"],
     ["write_file", "file_path"],
+    // OpenCode and Gemini name the written file differently (toolPaths.ts).
+    ["write", "filePath"],
+    ["write_file", "absolute_path"],
   ]) {
     const tool = {
       id: title!,
