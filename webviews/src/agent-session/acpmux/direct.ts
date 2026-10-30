@@ -5723,10 +5723,13 @@ export class AcpmuxDirectClient {
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
-  async archive(archived: boolean): Promise<void> {
+  /// Resolves to the chat it acted on (the shown one during a snapshot hold), which its caller's
+  /// completion is bound to.
+  async archive(archived: boolean): Promise<string> {
     const sessionId = this.actingSessionId;
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/archive", { sessionId, archived });
+    return sessionId;
   }
   /// Permanently removes the shown session from acpmux history. The caller closes the tab only
   /// after this authenticated, session-scoped purge succeeds.

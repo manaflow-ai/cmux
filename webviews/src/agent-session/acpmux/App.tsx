@@ -8934,16 +8934,15 @@ function AcpmuxPane() {
   };
   const archiveChat = async (archived: boolean) => {
     const client = await openClient();
-    // The chat the archive acts on is the client's own (direct.ts `archive`), not a rendered id.
-    const sessionId = client.selectedSession;
-    const selection = client.selectionToken;
-    await client.archive(archived);
+    // The chat the archive acts on is the client's own (direct.ts `archive`), not a rendered id:
+    // its completion is bound to that chat, even when a snapshot hold still showed it after a switch.
+    const sessionId = await client.archive(archived);
     // Quick Chat's panel has no tab to close.
     if (!archived || quick || directClient.current !== client) return;
     // Archiving hides the chat from the lists, so the client may already have left it for its
     // fallback (none, or the most recent chat): that is this archive's own completion. A chat the
     // person selected while the archive was out keeps the tab (header/archiveClose.ts).
-    if (archiveClosesTab(client, sessionId, selection)) await callNative("pane.action", { id: "closeTab" });
+    if (archiveClosesTab(client, sessionId)) await callNative("pane.action", { id: "closeTab" });
   };
   const deleteChat = async () => {
     const target = deleteConfirmSession;

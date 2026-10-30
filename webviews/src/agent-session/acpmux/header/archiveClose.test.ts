@@ -36,13 +36,13 @@ test("archiving A while the person switches to B keeps B's tab", async () => {
     // startSession selects the new chat; go back to A, the chat the archive acts on.
     const original = (await client.select(archived)) ?? archived;
     expect(client.selectedSession).toBe(original);
-    const selection = client.selectionToken;
     const pending = client.archive(true);
     // The person selects B before A's archive answers.
     await client.select(replacement!);
-    await pending;
+    const acted = await pending;
+    expect(acted).toBe(original);
     expect(client.selectedSession).toBe(replacement);
-    expect(archiveClosesTab(client, original, selection)).toBe(false);
+    expect(archiveClosesTab(client, acted)).toBe(false);
   } finally {
     client.close();
   }
@@ -51,10 +51,10 @@ test("archiving A while the person switches to B keeps B's tab", async () => {
 test("archiving the shown chat closes its tab", async () => {
   const client = await connected();
   try {
-    const archived = client.selectedSession!;
-    const selection = client.selectionToken;
-    await client.archive(true);
-    expect(archiveClosesTab(client, archived, selection)).toBe(true);
+    const shown = client.selectedSession!;
+    const acted = await client.archive(true);
+    expect(acted).toBe(shown);
+    expect(archiveClosesTab(client, acted)).toBe(true);
   } finally {
     client.close();
   }
@@ -62,15 +62,22 @@ test("archiving the shown chat closes its tab", async () => {
 
 test("the client's own fallback away from the archived chat is the archive's completion", () => {
   const fake = (selected: string | undefined, fellBack: string | undefined) => ({
-    selectionToken: 2,
     selectedSession: selected,
     fellBackFrom: (id: string | undefined) => id !== undefined && id === fellBack,
   });
   // The list dropped A and the client fell back to the most recent chat, or to none.
-  expect(archiveClosesTab(fake("B", "A"), "A", 1)).toBe(true);
-  expect(archiveClosesTab(fake(undefined, "A"), "A", 1)).toBe(true);
+  expect(archiveClosesTab(fake("B", "A"), "A")).toBe(true);
+  expect(archiveClosesTab(fake(undefined, "A"), "A")).toBe(true);
   // The person selected B (or the selection cleared) meanwhile: not this archive's to close.
-  expect(archiveClosesTab(fake("B", undefined), "A", 1)).toBe(false);
-  expect(archiveClosesTab(fake(undefined, undefined), "A", 1)).toBe(false);
-  expect(archiveClosesTab(fake("B", "A"), undefined, 1)).toBe(false);
+  expect(archiveClosesTab(fake("B", undefined), "A")).toBe(false);
+  expect(archiveClosesTab(fake(undefined, undefined), "A")).toBe(false);
+  expect(archiveClosesTab(fake("B", "A"), undefined)).toBe(false);
+});
+
+test("an archive of the held chat A after the client already selected B keeps B's tab", () => {
+  // The snapshot hold still drew A, so its menu archived A (the acting chat), while B is selected:
+  // nothing about B changed since, but A's completion is not B's to close.
+  const client = { selectedSession: "B", fellBackFrom: () => false };
+  expect(archiveClosesTab(client, "A")).toBe(false);
+  expect(archiveClosesTab(client, "B")).toBe(true);
 });
