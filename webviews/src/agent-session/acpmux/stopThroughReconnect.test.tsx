@@ -39,6 +39,19 @@ test("a kept Stop never stops another turn", () => {
   expect(keptStopStep(kept, { ...working, turnPrompt: "p2" }).step).toBe("drop");
   // One whose prompt the pane does not know is not taken for the stopped one either.
   expect(keptStopStep(kept, { ...working, turnPrompt: undefined }).step).toBe("drop");
+  // Nor does a Stop pressed on a turn the pane could not name go to whatever runs later
+  // (Codex re-review of #27804, P1).
+  const unnamed: KeptStop = { sessionId: "s1", awaitsDisconnect: false };
+  expect(keptStopStep(unnamed, { ...working, turnPrompt: undefined }).step).toBe("drop");
+});
+
+test("a snapshot emitted for an event reads as reachable (Codex re-review of #27804, P2)", () => {
+  const kept: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false };
+  // The client names each snapshot after what it emitted it for: an event's kind, history, ….
+  for (const connection of ["turn_started", "agent_message_chunk", "history", "attached"])
+    expect(keptStopStep(kept, { ...working, connection }).step).toBe("send");
+  for (const connection of ["disconnected", "reconnecting", "connecting", "connecting: refused"])
+    expect(keptStopStep(kept, { ...working, connection }).step).toBe("keep");
 });
 
 test("a Stop refused while the pane still read connected waits for the disconnect first", () => {
