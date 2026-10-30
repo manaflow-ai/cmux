@@ -170,9 +170,10 @@ function shellFixtures(sample) {
   const shim = join(dir, "bin/cmux");
   // With --remote-daemon the shell's cmux is the build under test on the daemon's host (its
   // app socket is there too, forwarded by the MCP server's ssh), not this Mac's --cli build:
-  // an agent that uses the CLI must meet the same build as its MCP tools.
+  // an agent that uses the CLI must meet the same build as its MCP tools. It runs as `cmux`
+  // (`exec -a`): the binary's name picks the curated `cmux` CLI over the `cmux-tui` grammar.
   const run = REMOTE
-    ? `exec ssh ${SSH_OPTS.map(shq).join(" ")} ${shq(REMOTE.host)} cd ${shq(shq(session.work))} '&&' env ${["CMUX_TUI_SOCKET", "CMUX_TUI_TERMINAL_ID", "CMUX_SOCKET_PATH", "CMUX_NEXT_CONFIG_FILE"].map((k) => shq(shq(`${k}=${session.env[k]}`))).join(" ")} ${shq(shq(REMOTE.cli))} \${@:+$(printf ' %q' "$@")}`
+    ? `exec ssh ${SSH_OPTS.map(shq).join(" ")} ${shq(REMOTE.host)} cd ${shq(shq(session.work))} '&&' export ${["CMUX_TUI_SOCKET", "CMUX_TUI_TERMINAL_ID", "CMUX_SOCKET_PATH", "CMUX_NEXT_CONFIG_FILE"].map((k) => shq(shq(`${k}=${session.env[k]}`))).join(" ")} '&&' exec -a cmux ${shq(shq(REMOTE.cli))} \${@:+$(printf ' %q' "$@")}`
     : `exec ${JSON.stringify(CLI)} "$@"`;
   writeFileSync(
     shim,
