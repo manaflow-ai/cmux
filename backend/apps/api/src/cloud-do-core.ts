@@ -74,6 +74,9 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
   }
 
+  /** Client session identities waiting for their provider delete (CloudDO, cloud-client-session.ts); a no-op here. */
+  protected async sweepClientIdentities(_now: number, _first?: ReadonlyArray<string>): Promise<void> {}
+
   /** The idle rules (cloud-do-idle.ts CloudIdle): idle pause from reports, the 24 h cost backstop and its backoff. */
   protected abstract considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void>
   protected abstract pauseSilent(now: number): Promise<void>
@@ -253,6 +256,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (limited) return limited
     if (fresh && committed) this.audit.record({ op: frame.op, machine: (frame.params as { machine?: unknown } | null)?.machine ?? null, ...who(principal), at: Date.now() })
     await this.drainRevokes(Date.now() + this.skewMs)
+    // A deleted machine's client session identities go with it (never blocks the answer on a failed delete).
+    if (frame.op === "cloud.machine.delete" && committed) await this.sweepClientIdentities(Date.now() + this.skewMs).catch(() => undefined)
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return result
@@ -353,16 +358,21 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         .filter(([, p]) => p.machine === machine)
         .map(([key, p]) => ({ p, r: engine.rows.get<LedgerRow>(TABLE_LEDGER, key) }))
         .filter((x) => x.r !== undefined)
+        // Builder and warm-up cleanup are independent: a backed-off delete must not starve its peer.
+        .filter((x) => x.r!.row.op !== "env_cleanup" || x.p.due_at <= Date.now() + this.skewMs)
         .sort((a, b) => (a.r!.n ?? 0) - (b.r!.n ?? 0))[0]
       if (!oldest) return
       const due = oldest.r!
       const row = due.row
       // N4: a request runs a call at once only for its first attempt; after a failure it waits for
       // the backoff like the alarm, so fast same-key retries cannot spend the attempts.
-      const dueLimit = dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
+      // A settled build creates cleanup during this pass, after the alarm's dueBy
+      // snapshot. Attempt that cleanup now while respecting its retry backoff.
+      const dueLimit = row.op === "env_cleanup" ? Date.now() + this.skewMs : dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
       if (oldest.p.due_at > dueLimit) return
       // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
-      const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
+      // Both cleanup rows are created in one revision; their results need distinct idempotency keys.
+      const commitKey = `driver:${due.n}:${row.op === "env_cleanup" ? `${row.provider_name}:` : ""}${row.cancel ? "c" : "a"}${row.attempts}`
       const tag = { team: engine.currentState.team ?? "", machine: row.machine }
       const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot" || row.op === "env_build") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
       const captureRecovery = row.op === "snapshot" && row.transport === "vm-api"
@@ -370,7 +380,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       let driver: GuardedCloudDriver | null = null
       let routingError: DriverError | undefined
       if ((!planDenied || captureRecovery) && !bindDenied) try {
-        driver = await this.driverFor(row, row.cancel || row.op === "delete" || row.op === "snapshot_delete" || row.op === "pause" || (planDenied && captureRecovery) ? "cleanup" : "operate", row.op === "create" && !row.cancel)
+        driver = await this.driverFor(row, row.cancel || row.op === "delete" || row.op === "env_cleanup" || row.op === "snapshot_delete" || row.op === "pause" || (planDenied && captureRecovery) ? "cleanup" : "operate", row.op === "create" && !row.cancel)
       } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
       // Tenant provisioning can await identity I/O. A delete committed meanwhile changes this to lookup-only work.
       if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
@@ -426,7 +436,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         return
       }
       this.submitSystem("cloud.driver_result", result, commitKey)
-      if (!result.ok) return
+      if (!result.ok && row.op !== "env_cleanup" && !(row.op === "env_build" && result.final)) return
       if (row.op === "start" && driver) await this.edge.started(driver, tag.team, row.machine, engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row, Date.now() + this.skewMs)
     }
   }
@@ -499,6 +509,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
+    await this.sweepClientIdentities(now).catch(() => undefined)
     await this.pauseSilent(now)
     const entity = this.boundEntity()
     if (entity) await wakeCloudApprovals(this.approvalHost(entity), realNow, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))
