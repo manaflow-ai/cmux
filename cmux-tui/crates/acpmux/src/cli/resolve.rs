@@ -196,26 +196,26 @@ mod tests {
     #[test]
     fn an_ambiguous_name_prints_the_exact_command_for_each_host() {
         let data = json!({"reason": "session_ambiguous", "session": "review", "choices": [
-            {"use": "big-red/review"}, {"use": "hb/0199aaaa-1111"},
+            {"use": "mac-a/review"}, {"use": "hb/0199aaaa-1111"},
         ]});
         let args: Vec<String> =
             ["/usr/local/bin/acpmux", "send", "review", "ship it"].map(String::from).into();
         assert_eq!(
             choice_commands(&args, &data),
-            ["acpmux send big-red/review 'ship it'", "acpmux send hb/0199aaaa-1111 'ship it'"]
+            ["acpmux send mac-a/review 'ship it'", "acpmux send hb/0199aaaa-1111 'ship it'"]
         );
         let other: Vec<String> = ["acpmux", "ls"].map(String::from).into();
         assert!(choice_commands(&other, &data).is_empty());
         // An option whose value is the key too keeps it.
         let from: Vec<String> =
             ["acpmux", "send", "--from", "review", "review", "hi"].map(String::from).into();
-        assert_eq!(choice_commands(&from, &data)[0], "acpmux send --from review big-red/review hi");
+        assert_eq!(choice_commands(&from, &data)[0], "acpmux send --from review mac-a/review hi");
     }
 
     /// `resolve`'s cards: a closed session counts only when no live one matches.
     #[test]
     fn resolve_cards_skip_closed_sessions_and_refuse_several_live_ones() {
-        let closed = json!({"name": "review", "host": "big-red", "status": "closed",
+        let closed = json!({"name": "review", "host": "mac-a", "status": "closed",
                             "qualifiedSessionId": "local/m1"});
         let live = json!({"name": "hb/review", "host": "hb", "status": "idle",
                           "qualifiedSessionId": "hb/m3"});
