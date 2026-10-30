@@ -110,6 +110,33 @@ import Testing
             != projection.bandGroupsNotListedHere(drag: Self.drag(room: Self.home)))
     }
 
+    /// A group nested under another space's group leaves with its parent: a window never draws a child group whose
+    /// parent it leaves out. Work's group `itm_gk` sits under the default space's group `itm_gp`.
+    @Test func aNestedGroupLeavesWithItsParentsSpace() {
+        let records = SidebarDocRecords(sections: [
+            Self.custom: SidebarDocSection(id: Self.custom, kind: .custom, title: "Work"),
+            Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
+        ], items: [
+            "itm_gp": Self.group("itm_gp", Self.custom, room: nil),
+            "itm_gk": SidebarDocItem(id: "itm_gk", section: Self.custom, parent: "itm_gp",
+                                     body: .group(name: "itm_gk", color: nil, icon: nil, collapsed: false), room: Self.work),
+            "itm_1": SidebarDocItem(id: "itm_1", section: Self.machine, body: .workspace(Self.ref("ws-1"))),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_gp", kind: "group", section: Self.custom, item: "itm_gp"),
+            SidebarDocRow(key: "itm_gk", kind: "group", section: Self.custom, parent: "itm_gp", depth: 1, item: "itm_gk"),
+            SidebarDocRow(key: "itm_1", kind: "item", section: Self.machine, item: "itm_1", ref: Self.ref("ws-1")),
+        ]
+        let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
+        let window = [SidebarSection(kind: .machine(Self.thisMac), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-1"), title: "ws-1"))])]
+        func groups(_ room: String) -> Set<String> {
+            let arranged = projection.arrange(window, drag: Self.drag(room: room))
+            return Set(arranged.flatMap(\.nodes).compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } })
+        }
+        #expect(groups(Self.work).isEmpty, "\(groups(Self.work))")
+        #expect(groups(Self.home) == ["itm_gp"], "\(groups(Self.home))")
+    }
+
     /// The wire: a group's space is its body's `profile`, another item's is `extra.room`.
     @Test func theSpaceIsReadFromTheWire() throws {
         let group = Data(#"{"id":"itm_g","section":"sec_custom","body":{"type":"group","name":"G","profile":"prof_work"}}"#.utf8)
