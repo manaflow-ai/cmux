@@ -511,6 +511,12 @@ impl V2Tool {
         let mut idempotency_key = None;
         let (mut offset, mut limit) = (None, None);
         for (name, value) in arguments {
+            // A record a tool returned, passed where its id goes (`tab_list({pane: n.pane})`
+            // after `pane_neighbor_get` answered `{pane: {id, ...}}`): its `id` is the
+            // argument (tests/tool-evals: 22 such calls from two models).
+            let record_id =
+                value.as_object().and_then(|record| record.get("id")).filter(|id| id.is_string());
+            let value = record_id.unwrap_or(value);
             let selector = selectors.is_some_and(|selectors| selectors.contains_key(name))
                 && self.selector_argument(name);
             let field = fields.and_then(|fields| fields.get(name));

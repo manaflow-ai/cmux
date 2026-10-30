@@ -121,9 +121,9 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              workspace}}, terminal_list, terminal_get: ids and names. Lists answer {{items: \
              [...]}}; a change answers {{value: {{...}}}} with the new ids (value.terminal_id, \
              value.pane_id, value.tab_id).\n\
-             - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers the pane on \
-             the person's right ({{pane: null}} when none); terminal_process_get {{terminal}} \
-             names the program running in a terminal.\n\
+             - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers {{pane: \
+             {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
+             terminal_process_get {{terminal}} names the program running in a terminal.\n\
              - To run a command for the person: tab_create_terminal {{name}} opens a shell \
              on the person's right (a tab in the column right of this chat, or a new column \
              when there is none), then terminal_input_write {{terminal: value.terminal_id, \

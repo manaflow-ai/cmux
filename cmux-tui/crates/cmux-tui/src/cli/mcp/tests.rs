@@ -1778,3 +1778,22 @@ fn a_tab_names_its_terminal_only_where_a_terminal_is_needed() {
         "terminal_list keeps its tab filter: {list}"
     );
 }
+
+/// A record a tool returned works where its id goes: models pass `n.pane` from
+/// `pane_neighbor_get` (`{pane: {id, ...}}`) to `tab_list` (tests/tool-evals, h7).
+#[test]
+fn a_record_works_where_its_id_goes() {
+    let mut server = Server::new(Fake::default(), None);
+    let answer = server
+        .call(&json!({"name": "tab_list",
+                       "arguments": {"pane": {"id": "pane_00000000000000000000000000000abc", "focused": false}}}))
+        .expect("a tool result");
+    assert_eq!(answer["isError"], false, "{answer}");
+    let sent = server.backend.sent.borrow();
+    let list =
+        sent.iter().find(|s| s["request"]["operation"] == "tab.list").expect("a tab.list request");
+    assert_eq!(
+        list["request"]["params"]["pane"], "pane_00000000000000000000000000000abc",
+        "{list}"
+    );
+}
