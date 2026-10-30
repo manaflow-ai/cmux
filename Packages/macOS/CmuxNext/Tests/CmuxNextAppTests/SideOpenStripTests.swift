@@ -181,9 +181,6 @@ import Testing
                 case .timeout:
                     try await Task.sleep(for: .seconds(2.1))
                     _ = Self.listed(pane)
-                    // The answer deadline exposes the tab; the eventual failed open cleans up
-                    // the bounded backstop entry as the other failure paths do.
-                    outbound.finish(moved: false)
                 }
                 let expected = showsFailedOpen ? [Self.home, Self.link] : [Self.home]
                 #expect(Self.listed(pane) == expected, "\(name): unexpected strip state after \(String(describing: event))")

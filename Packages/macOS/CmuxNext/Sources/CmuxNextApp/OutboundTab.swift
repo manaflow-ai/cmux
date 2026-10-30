@@ -64,11 +64,11 @@ final class OutboundTab {
         self.holdSelectionUntilLanded = holdSelectionUntilLanded
         known = Set(pane.pane.tabs.map(\.id))
         timer.schedule(after: Self.answerLimit) { @MainActor [weak self] in
-            // Not named yet (slow, refused or failed): the pane's new tabs show; a late answer still hides its own.
+            // Not named yet (slow, refused or failed): release the hold once the answer window closes.
+            // A late answer must not resurrect a stale source hold; the open's failure path still
+            // finishes its own token when it reports before this deadline.
             guard let self, self.answering else { return }
-            self.answering = false
-            self.pane?.syncStripFromStore()
-            self.timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
+            self.end()
         }
     }
 
