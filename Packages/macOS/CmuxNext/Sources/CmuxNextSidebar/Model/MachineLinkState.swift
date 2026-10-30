@@ -21,7 +21,7 @@ public nonisolated enum MachineLinkState: String, Hashable, Sendable {
         switch status {
         case .offline, .unreachable, .failed: true
         case .connected, .updateAvailable, .connecting, .reconnecting, .installing, .installRequired,
-             .authFailed, .updateRequired, .paused, .pausedIdle: false
+             .authFailed, .updateRequired, .paused, .pausedIdle, .pausing, .resuming, .deleting: false
         }
     }
 }
