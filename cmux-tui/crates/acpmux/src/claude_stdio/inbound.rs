@@ -356,7 +356,7 @@ impl Translator {
                         let mut steered = json!({"stopReason": "steered"});
                         // Read after the turn it was steered into ended: the next one's (`carry.rs`).
                         if let Some(seq) = self.carried_steer(&k).await {
-                            steered["_meta"] = json!({"claude": {"carried": seq}});
+                            steered.set("_meta", json!({"claude": {"carried": seq}}));
                         }
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                         out.push(Message::ok(id, steered));
@@ -523,8 +523,10 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
-                    // Anything else (hook_callback, mcp_message) is declined
-                    // with an error response, so claude does not wait on it.
+                    // A registered hook fired: answered with no decision (hook_callback.rs).
+                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    // Anything else (mcp_message) is declined with an error
+                    // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
             }
@@ -838,7 +840,7 @@ impl Translator {
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
                     if let Some(next) = &carried {
-                        claude["carried"] = next.clone();
+                        claude.set("carried", next.clone());
                     }
                     Ok(json!({"stopReason": stop, "_meta": {"claude": claude}}))
                 };
