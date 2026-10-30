@@ -64,6 +64,44 @@ import Testing
         #expect(installs.count == 0, "the click installed pulled build 300")
     }
 
+    /// Sparkle stages pulled build 400 while the click waits for the pulled list: the click judges
+    /// 400, not the 300 it began with, and never installs it.
+    @Test func aPulledBuildStagedWhileTheClickWaitsIsNotInstalled() async throws {
+        let (h, installs) = Click.make(newer: false)
+        let list = HeldList(pulled: ["400"])
+        defer { list.open() }
+        h.updater.pulledWatch.fetch = { _ in await list.fetch() }
+        h.updater.installClicked()
+        try #require(await eventually { h.feed.fetches == 1 && h.updater.lastProbe != nil }, "the click never read the feed")
+        h.sparkle.staged = "400"
+        list.open()
+        #expect(await eventually { h.sparkle.cancels == 1 }, "pulled build 400 was kept")
+        #expect(installs.count == 0, "the click installed pulled build 400")
+    }
+
+    /// Newer build 500 is on the appcast but no installer this app holds can be cancelled, and the
+    /// pulled list (listing staged 300) is slow: the click waits for the list instead of installing 300.
+    @Test func aNewerBuildWithNoCancellableInstallerStillWaitsForThePulledList() async throws {
+        let (h, installs) = Click.make(newer: true)
+        var sheets = 0
+        h.updater.presentUpdateUI = { sheets += 1 }
+        h.updater.stagedRefresh.cancellable = { false }
+        h.updater.cancelStaged = { false }
+        let list = HeldList(pulled: ["300"])
+        defer { list.open() }
+        h.updater.pulledWatch.fetch = { _ in await list.fetch() }
+        h.updater.installClicked()
+        try #require(await eventually { h.feed.fetches == 1 && h.updater.lastProbe != nil }, "the click never read the feed")
+        for _ in 0..<10 {
+            try await Task.sleep(for: .milliseconds(20))
+            h.clock.advance(by: .seconds(1))
+        }
+        #expect(installs.count == 0, "the deadline installed staged build 300 before the pulled list answered")
+        list.open()
+        #expect(await eventually { sheets == 1 }, "the click ended in silence")
+        #expect(installs.count == 0, "the click installed pulled build 300")
+    }
+
     /// A staged build known pulled that no installer this app holds can cancel: no card or footer
     /// pill offers it, and a quit with install on quit on cancels it instead of installing it.
     @Test func aPulledStagedBuildNoOneCanCancelIsNotOffered() async throws {
@@ -75,6 +113,10 @@ import Testing
         h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
         #expect(h.updater.card == nil, "pulled build 300 shows as Update Ready")
         #expect(h.updater.footerPill == nil, "pulled build 300 shows as Restart to Update")
+        #expect(h.updater.readyCard == nil, "pulled build 300 shows as Update Ready")
+        h.updater.checkForUpdates()
+        h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
+        #expect(h.updater.readyCard == nil, "a check the person asked for offers pulled build 300")
         h.updater.preferences.installOnQuit = true
         #expect(h.updater.prepareForQuit() == .cancelPendingInstall, "a quit installs pulled build 300")
         #expect(installs.count == 0)
