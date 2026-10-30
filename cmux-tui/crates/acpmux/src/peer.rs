@@ -1317,12 +1317,23 @@ impl Peer {
                         break Err(why);
                     }
                 }
-                // A step the peer refused (or that failed on this link) ends the link now with
-                // its error: the deadline below would only say the handshake timed out.
+                // A handshake that ended without making the link ready ends the link now, with
+                // why: a step the peer refused (or that failed on this link), a stale token, a
+                // link that dropped meanwhile, or a task that panicked. The deadline below would
+                // only say the handshake timed out.
                 ended = &mut handshake, if !handshake_ended => {
                     handshake_ended = true;
-                    if let Ok(Err(e)) = ended {
-                        break Err(format!("handshake failed: {}", e.message));
+                    match ended {
+                        Ok(Err(e)) => break Err(format!("handshake failed: {}", e.message)),
+                        Err(e) => break Err(format!("handshake failed: {e}")),
+                        Ok(Ok(())) if !self.link().is_ready() => {
+                            // The stale-token path sends its reason before it returns.
+                            if !stale_settled && let Ok(why) = stale_rx.try_recv() {
+                                break Err(why);
+                            }
+                            break Err("handshake ended before the link was ready".to_owned());
+                        }
+                        Ok(Ok(())) => {}
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
