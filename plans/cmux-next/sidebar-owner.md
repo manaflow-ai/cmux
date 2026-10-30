@@ -1,7 +1,7 @@
 # cmux-next sidebar: owner note
 
 - 2026-10-29: an unnamed workspace of another computer (SSH, Cloud) reads as that computer ("dev-vm"), never as its
-  account's home folder ("cmux" from `/home/cmux`) or `workspace-N`; a row titled by its computer drops the computer's
+  account's home folder ("cmux" from `/home/cmux`, only an idle shell's: a tab named that word keeps it) or `workspace-N`; a row titled by its computer drops the computer's
   name from its second line (`dev-vm · ~` reads `~`; a status such as Paused stays). Only the whole name drops: the label keeps name and
   status apart (`SidebarMachineLabel`), so `dev-vm` on a machine named `dev-vm · staging` keeps the name. Leo: "why is there all this
   weird stuff at the bottom of the sidebar". Regression: `SidebarRemoteHomeTitleTests`.

@@ -21,9 +21,12 @@ public struct SidebarMapping {
     }
 
     /// Whether `label` is only the last folder of an account's home (`/home/cmux` read "cmux"): what an idle
-    /// shell at another computer's home gives its workspace, the account's name, not the work.
-    static func namesHome(_ label: String?, cwd: String?) -> Bool {
-        guard let label, let cwd, abbreviateRemote(cwd) == "~" else { return false }
+    /// shell at another computer's home gives its workspace, the account's name, not the work. Only a shell's:
+    /// a tab the person named, a chat, or a terminal running an agent keeps a label that happens to be that word.
+    static func namesHome(_ label: String?, tab: TabModel?) -> Bool {
+        guard let label, let tab, let cwd = tab.cwd, abbreviateRemote(cwd) == "~",
+              tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
+              tab.agent == nil, tab.agentSession == nil else { return false }
         return label == URL(fileURLWithPath: cwd).lastPathComponent
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
@@ -158,7 +161,7 @@ public struct SidebarMapping {
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
         // Another computer's shell at its account's home names no work: the row is unnamed (`sections` names it).
-        let label = machine != .local && !machine.isLocalChief && Self.namesHome(page?.title, cwd: face?.cwd) ? nil : page?.title
+        let label = machine != .local && !machine.isLocalChief && Self.namesHome(page?.title, tab: face) ? nil : page?.title
         let title = Self.sidebarTitle(workspace, label: label)
         let rowAgent = agentMark(tabs, harnessIcons: harnessIcons)
         var row = SidebarWorkspace(
