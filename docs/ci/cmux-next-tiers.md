@@ -59,6 +59,24 @@ proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. An explicitly requested local gallery matrix can diff the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
+A web bundle source runs no swift test of its own. The bundles' inputs
+(`BUNDLE_INPUTS`: `webviews/src/`, the bundle build scripts, the schema and the
+other files the bundles import) still run the compiles that ship them (`native`),
+but swift test only for the test targets whose sources name the changed file
+(the target graph's `reads`). The four targets that ship a bundle take it as a
+`.copy` resource, or one processed `.js`, so no source edit can break their build,
+and no suite asserts on a built page: the agent pane, page and Activity suites
+load fixture pages (an `AgentPaneView` with a temporary `index.html`,
+`loadHTMLString`, a scratch page root), and the app suites that open a real page
+check only its native side. `BundleInputs` in `tests/test_cmux_next_route.py`
+keeps that true: a suite in a target that links a bundle target and runs page
+JavaScript must load its own document or be an opt-in bench. A test that reads a
+pattern of files names the pattern (`PageDevServerTests`:
+`"webviews/src/pages/*/main.tsx"`, the dev server's entries), and the graph
+records the pattern, so an edit inside a page no longer runs CmuxNextPagesTests
+for the whole of `webviews/src/pages/`. ci-web type-checks, lints, tests and
+builds the bundles on Linux for every webviews change, as before.
+
 A design note runs no Mac tier either. A test helper such as
 `planURL(_ name:)` builds `"plans/cmux-next/\(name)"`, so the target graph
 records the whole of `plans/cmux-next/` as a read. The router narrows that for
@@ -76,8 +94,8 @@ graph), a package one of its entries builds, an action its job uses, an input of
 every tier, or the tier's own registry (router output `fast_tier`). The job builds
 no web bundles and links CCmuxAppFFI as a pinned binary, so a change only to the
 bundles' sources, to the cmux-app-ffi crates, or to files only other test targets
-read keeps swift test and skips it (#28160, #28015: acpmux Rust with the pane's
-protocol types). A cmux-tui-only or app-host-only change keeps its daemon and
+read skips it (#28160, #28015: acpmux Rust with the pane's protocol types, which
+keep the daemon tier and the compiles). A cmux-tui-only or app-host-only change keeps its daemon and
 scheme tiers and skips it too; `fast-tier-cargo` still runs on Linux.
 
 The Swift canary is the pull-request gate for a small package-only Swift diff.
