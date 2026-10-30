@@ -106,7 +106,8 @@ function placement() {
   const rows = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((node) => ({
     id: node.dataset.rowId!,
     index: Number(node.getAttribute("aria-posinset")),
-    top: Number.parseFloat(node.style.top) - 16, // less the thread's top padding
+    // Less the thread's top padding.
+    top: Number.parseFloat(node.style.top) + (Number.parseFloat(node.style.marginTop) || 0) - 16,
   }));
   rows.sort((a, b) => a.index - b.index);
   const pairs = rows

@@ -114,7 +114,8 @@ test("a drawn reply gains its row when a steer follows it, in a paged transcript
 test("a reply with its row keeps the height the browser measured when it resizes", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const rowOf = (id: string) => dom.window.document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
-  const top = (id: string) => Number.parseFloat(rowOf(id).style.top);
+  const top = (id: string) =>
+    Number.parseFloat(rowOf(id).style.top) + (Number.parseFloat(rowOf(id).style.marginTop) || 0);
   try {
     await act(async () =>
       root.render(

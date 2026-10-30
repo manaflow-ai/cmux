@@ -127,6 +127,102 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
     }
   });
 
+  test("large transcript keeps adjacent row boxes at every 1/64 px measured height", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__debug" in window);
+      const seeded = (await page.evaluate(`window.__debug.seedRows(9000)`)) as { rows: number };
+      expect(seeded.rows).toBe(9_000);
+      await page.evaluate(() => (window as unknown as { __seedFoldStream(): void }).__seedFoldStream());
+      const card = page.locator('[data-row-id="gap-incoming"]');
+      await card.waitFor();
+      await card.evaluate((node) => node.scrollIntoView({ block: "center" }));
+
+      const result = await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const upper = () => scroller.querySelector<HTMLElement>('[data-row-id="synthetic-end-2996"]')!;
+        const lower = () => scroller.querySelector<HTMLElement>('[data-row-id="gap-incoming"]')!;
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        if (!upper() || !lower()) throw new Error("the adjacent 3k-turn rows did not mount");
+        const baseHeight = upper().getBoundingClientRect().height;
+        const absoluteTop = Number.parseFloat(upper().style.top);
+        const samples: Array<{
+          phase: string;
+          quantum: number;
+          height: number;
+          gap: number;
+          upperTop: string;
+          upperMarginTop: string;
+          lowerTop: string;
+          lowerMarginTop: string;
+          scrollTop: number;
+        }> = [];
+        const setHeightAndSample = async (quantum: number, phase: string) => {
+          await window.cmuxPaintFrame(() => {
+            const row = upper();
+            if (!row) throw new Error(`upper row unmounted at ${phase} ${quantum}`);
+            row.style.minHeight = `${baseHeight + quantum / 64}px`;
+          });
+          // Let ResizeObserver report the new measured height, React place rows, then read painted boxes.
+          await window.cmuxPaintFrame();
+          await window.cmuxPaintFrame();
+          const a = upper();
+          const b = lower();
+          if (!a || !b) throw new Error(`adjacent rows unmounted at ${phase} ${quantum}`);
+          const aBox = a.getBoundingClientRect();
+          const bBox = b.getBoundingClientRect();
+          samples.push({
+            phase,
+            quantum,
+            height: aBox.height,
+            gap: bBox.top - aBox.bottom,
+            upperTop: a.style.top,
+            upperMarginTop: a.style.marginTop,
+            lowerTop: b.style.top,
+            lowerMarginTop: b.style.marginTop,
+            scrollTop: scroller.scrollTop,
+          });
+        };
+
+        for (let quantum = 0; quantum < 32; quantum += 1) await setHeightAndSample(quantum, "folded");
+        const toggle = lower().querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!;
+        if (!toggle) throw new Error("real received-card fold toggle missing");
+        const beforeFold = toggle.getAttribute("aria-expanded");
+        await window.cmuxPaintFrame(() => {
+          toggle.click();
+          (window as unknown as { __stepFoldStream(): void }).__stepFoldStream();
+        });
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        const afterFold = lower()
+          .querySelector<HTMLButtonElement>(".cv-disclosure__toggle")
+          ?.getAttribute("aria-expanded");
+        for (let quantum = 31; quantum >= 0; quantum -= 1)
+          await setHeightAndSample(quantum, "expanded-streaming");
+        return { baseHeight, absoluteTop, beforeFold, afterFold, samples };
+      });
+      console.log(`transcript-css-top-precision: ${JSON.stringify(result)}`);
+      expect(result.absoluteTop).toBeGreaterThan(500_000);
+      expect(result.beforeFold).toBe("false");
+      expect(result.afterFold).toBe("true");
+      expect(result.samples).toHaveLength(64);
+      for (const sample of result.samples) {
+        // This guard makes the test fail if the min-height mutation or ResizeObserver never took effect.
+        expect(Math.abs(sample.height - (result.baseHeight + sample.quantum / 64))).toBeLessThanOrEqual(
+          1 / 128,
+        );
+        // Check overlap as well as a positive blank seam; both are structural placement errors.
+        expect(Math.abs(sample.gap)).toBeLessThanOrEqual(1 / 64);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   test.each(["top", "bottom"] as const)(
     "the painted oracle detects a blank band at the %s viewport edge",
     async (edge) => {

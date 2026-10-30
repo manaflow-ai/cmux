@@ -53,6 +53,7 @@ export async function traceUpwardAnchors({
       rowId: row?.dataset.rowId,
       rowY: row ? row.getBoundingClientRect().top - view.top : undefined,
       rowTop: row?.style.top,
+      rowMarginTop: row?.style.marginTop,
       threadY: thread ? thread.getBoundingClientRect().top - view.top : undefined,
       threadTop: thread?.style.top,
       origin: scroller.style.getPropertyValue("--acpmux-scroll-origin"),
