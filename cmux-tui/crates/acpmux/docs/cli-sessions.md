@@ -77,7 +77,8 @@ and with `--expect-revision REV` nothing once its revision (`lastSeq` in `acpmux
 stop happen under the lock that admits turns, so no turn starts in between. A refusal exits 6; with
 `--json` its `error.detail` is `busy` (`error.data.busyWith` says what: `turn`, `queued`,
 `permission`, `tool_call`, `subagent`, `process` (a background shell of its harness), `unstored` (a
-Claude conversation that was never stored), `starting`, `moving`) or `revision_moved`, and
+Claude conversation that was never stored), `unadopted_host` (an agent host this daemon could not
+adopt), `starting`, `moving`) or `revision_moved`, and
 `error.data.revision` is the current revision. It runs on the daemon that owns the session: it is
 refused with `--mesh` and for a peer's session (`stop_if_idle_remote`), and by a daemon that predates
 it (`stop_if_idle_unsupported`, exit 1).

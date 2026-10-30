@@ -25,8 +25,8 @@
 //!
 //! A refusal is JSON-RPC error [`NOT_IDLE_CODE`] with data `{"reason": "busy" | "revision_moved",
 //! "revision": N, "sessionId": ID}`, plus `busyWith` for `busy` (`turn`, `queued`, `permission`,
-//! `tool_call`, `subagent`, `process`, `unstored`, `starting`, `moving`). The CLI exits 6
-//! (`cli/errors.rs`).
+//! `tool_call`, `subagent`, `process`, `unstored`, `unadopted_host`, `starting`, `moving`). The
+//! CLI exits 6 (`cli/errors.rs`).
 
 use super::*;
 
@@ -152,11 +152,21 @@ impl Hub {
         let Ok(spawning) = session.spawn_lock.try_lock() else { return busy("starting") };
         // What the agent sent that the reader already queued (a turn Claude Code starts itself, a
         // permission request) is handled first and counts, as in the idle pass.
-        if session.child.lock().await.is_some() {
+        let has_child = session.child.lock().await.is_some();
+        if has_child {
             Self::drain_inbound(session).await;
         }
         if let Some(what) = self.busy_with(session) {
             return busy(what);
+        }
+        // An agent host this daemon has not adopted (it could not, or has not yet): what runs
+        // there is unknown to it, and a stop would end it (`kill` ends an unadopted host). The
+        // idle pass never touches such a session either: it ends only a child it holds.
+        if !has_child
+            && session.status() != SessionStatus::Closed
+            && Self::host_record_live(&session.id)
+        {
+            return busy("unadopted_host");
         }
         let revision = Self::revision(session);
         if let Some(expected) = expect

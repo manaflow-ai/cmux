@@ -26,6 +26,8 @@ mod restart_fence;
 mod restart_reattach;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
+#[path = "durable_agents/stop_if_idle_unadopted.rs"]
+mod stop_if_idle_unadopted;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
