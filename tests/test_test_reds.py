@@ -86,6 +86,41 @@ class KnownIssueSuiteCompletion(unittest.TestCase):
 
 
 class PerTest(unittest.TestCase):
+    def test_signal_exit_after_a_complete_summary_is_never_a_base_red(self):
+        whole = log("◇ Test run started.", failed("a()"),
+                    "✘ Test a() failed after 0.1 seconds with 1 issue.",
+                    "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.")
+        for code in (129, 130, 134, 137, 139, 141, 143, 192):
+            for prefix in ("##[error]", "::error::"):
+                with self.subTest(code=code, prefix=prefix):
+                    killed = whole + "\n" + log(f"{prefix}Process completed with exit code {code}.")
+                    # Even identical base output cannot excuse a signal-style termination.
+                    verdict = reds.classify(killed, killed, "cmux-next swift test")
+                    self.assertTrue(verdict.own, verdict.reasons)
+                    self.assertIn(f"crashed (signal {code - 128})", verdict.reasons[0])
+                    self.assertEqual(verdict.shared, ["a()"])
+
+    def test_signal_exit_after_passing_tests_does_not_fall_back_to_job_comparison(self):
+        killed = log(SUMMARY, "##[error]Process completed with exit code 143.")
+        verdict = reds.classify(killed, killed, "cmux-next swift test")
+        self.assertIsNotNone(verdict)
+        self.assertTrue(verdict.own)
+        self.assertIn("crashed (signal 15)", verdict.reasons[0])
+
+    def test_ordinary_exit_status_and_quoted_signal_status_keep_shared_failures(self):
+        for line in ("##[error]Process completed with exit code 1.",
+                     "##[error]Process completed with exit code 75.",
+                     "##[error]Process completed with exit code 128.",
+                     "##[error]Process completed with exit code 193.",
+                     "✔ Test diagnostic() passed: ##[error]Process completed with exit code 143.",
+                     "✘ Test a() recorded an issue at X.swift:1:2: ##[error]Process completed with exit code 143."):
+            with self.subTest(line=line):
+                shared = log(failed("a()"), SUMMARY, line)
+                verdict = reds.classify(shared, shared, "cmux-next swift test")
+                self.assertFalse(verdict.own, verdict.reasons)
+                self.assertEqual(reds.read(shared).crashes, [])
+
+
     def test_the_same_test_failing_on_both_sides_is_a_base_red(self):
         verdict = reds.classify(log(failed("a()"), SUMMARY), log(failed("a()"), failed("b()"), SUMMARY))
         self.assertFalse(verdict.own, verdict.reasons)
