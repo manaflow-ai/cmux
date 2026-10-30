@@ -79,7 +79,7 @@ import Testing
         let rig = try Rig(energy: EnergyPolicySource(EnergyPolicy(saverReason: .battery)))
         await rig.updater.check()
         let booked = try #require(rig.booked)
-        #expect(booked >= .seconds(240) && booked <= .seconds(241), "the saver's check waits four minutes: \(booked)")
+        #expect(booked == .seconds(240), "the saver's check waits four minutes: \(booked)")
         rig.updater.noteShown(false)
     }
 
@@ -95,14 +95,14 @@ import Testing
         // next read waits a whole interval.
         rig.updater.noteShown(true)
         let booked = try #require(rig.booked)
-        #expect(booked > .zero && booked <= .seconds(61))
+        #expect(booked > .zero && booked <= .seconds(60))
         rig.deadlines.advance(by: .seconds(60))
         rig.deadlines.fireAtNow()
         await rig.nextRead()
         try await rig.waitForBooking()
         #expect(rig.readCount.count == 2, "a show read the pointer more than once")
         let next = try #require(rig.booked)
-        #expect(next >= .seconds(60) && next <= .seconds(61), "the next read is not a whole interval away: \(next)")
+        #expect(next == .seconds(60), "the next read is not a whole interval away: \(next)")
         rig.deadlines.advance(by: .seconds(59))
         rig.deadlines.fireAtNow()
         #expect(rig.booked != nil)
@@ -138,7 +138,7 @@ import Testing
         try await rig.waitForBooking()
         #expect(rig.readCount.count == 1)
         let next = try #require(rig.booked)
-        #expect(next >= .seconds(60) && next <= .seconds(61), "the next read is not a whole interval away: \(next)")
+        #expect(next == .seconds(60), "the next read is not a whole interval away: \(next)")
         // A second start books nothing more.
         rig.updater.startChecks()
         #expect(rig.booked == next)

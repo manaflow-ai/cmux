@@ -27,6 +27,11 @@
 //!   waits (server/inline_write.rs), as Mojo's
 //!   `ChannelPosix::Write` does; the loop gets only the tail the socket did
 //!   not take, ahead of every queued item.
+//!   Each batch's write is a hang scope of the connection's request
+//!   watchdog (`mux-line-out:write-item`, the scope keeps the name of the
+//!   writer thread that once wrote it), so a write that stalls the loop is
+//!   one hang in `slow_requests.hangs` and the hang ledger, as the writer
+//!   thread's was; the wait for room is in none.
 //! - **Write timeout.** A write that makes no progress for the queue's write
 //!   timeout (2 s, the socket's `SO_SNDTIMEO` before) closes the connection
 //!   as the writer thread's timed-out write did; the loop's wait has a
@@ -77,7 +82,7 @@ use cmux_threads::sync::Mutex;
 use crate::thread_qos::ThreadType;
 
 use super::line_connection::{ConnectionBadMessage, ConnectionEnd, Inbound, cut_message};
-use super::{BatchPoll, BoundedOutbound, MessageWriter, OutboundItem};
+use super::{BatchPoll, BoundedOutbound, EchoWatch, MessageWriter, OutboundItem, WatchKind};
 use super::{count_sent, write_batch_nonblocking};
 use crate::diagnostics::IpcStats;
 use crate::panic_free::RecoverPoison;
@@ -169,6 +174,8 @@ pub(super) struct IoRegistration {
     pub(super) writer: MessageWriter,
     pub(super) ipc: Arc<IpcStats>,
     pub(super) inbound: Arc<dyn InboundSink>,
+    /// The connection's request watchdog: each batch write is one item.
+    pub(super) hangs: EchoWatch,
 }
 
 /// Where one connection's commands go: the loop it was registered on, or
@@ -343,7 +350,7 @@ impl MuxIo {
         if let Err(error) = set_nonblocking(fd) {
             return Err(RegisterError::Socket(error));
         }
-        let IoRegistration { stream, reader, outbound, writer, ipc, inbound } = registration;
+        let IoRegistration { stream, reader, outbound, writer, ipc, inbound, hangs } = registration;
         let write_signal = Arc::new(AtomicBool::new(false));
         let doorbell = {
             let route = handle.route.clone();
@@ -383,6 +390,7 @@ impl MuxIo {
             write_done: false,
             ipc,
             inbound,
+            hangs,
         };
         let Some(home) = handle.route.home.upgrade() else {
             return Err(RegisterError::Stopped);
@@ -543,6 +551,7 @@ struct Connection {
     write_done: bool,
     ipc: Arc<IpcStats>,
     inbound: Arc<dyn InboundSink>,
+    hangs: EchoWatch,
 }
 
 impl Connection {
@@ -647,12 +656,16 @@ impl Connection {
                 }
             }
             let before = self.written;
-            let result = write_batch_nonblocking(
-                &mut self.ipc.counted(&mut *self.stream),
-                self.rest.as_deref(),
-                &self.batch,
-                &mut self.written,
-            );
+            let result = {
+                // The write is one watched item; a full socket returns at once.
+                let _item = self.hangs.item(WatchKind::LineOut);
+                write_batch_nonblocking(
+                    &mut self.ipc.counted(&mut *self.stream),
+                    self.rest.as_deref(),
+                    &self.batch,
+                    &mut self.written,
+                )
+            };
             match result {
                 Ok(true) => {
                     self.batch.clear();

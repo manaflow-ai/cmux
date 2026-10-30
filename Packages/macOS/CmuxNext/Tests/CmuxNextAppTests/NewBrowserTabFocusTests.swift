@@ -11,6 +11,7 @@ import Testing
 /// page (or the old terminal), and keys typed after the creation hold (2 s) went there, not into the address bar.
 /// Focus is part of the action's own turn (plans/cmux-next/focus-invariant.md, zero-latency.md): the new tab's
 /// address bar has the keys, or is the focus the model waits for, before the action's turn ends.
+/// skip-owner: PL-cef-tab; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewBrowserTabFocusTests {
     @Test func newBrowserTabPutsTheKeysOnItsAddressBarInTheKeysTurn() async throws {

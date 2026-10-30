@@ -11,6 +11,7 @@ import Testing
 /// reconnects per thaw. Fails when frozen chats keep a connection or receive 1 frame/s or more, or a thaw
 /// takes other than one reconnect. Run: `scripts/measure/acpmux-overhead.sh bench=hidden [n=10]`
 /// (CMUX_ACPMUX_HIDDEN_BENCH=1, CMUX_ACPMUX_HIDDEN_CHATS=N). Output: ACPMUX-HIDDEN lines.
+/// skip-owner: PL-webui; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_ACPMUX_HIDDEN_BENCH"] == "1"))
 @MainActor
 struct AgentPaneFrozenChatsBench {
