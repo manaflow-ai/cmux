@@ -33,6 +33,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var zoom: Double?
     /// Whether the host closed the page.
     public private(set) var closed = false
+    /// Every visibility value requested by the host.
+    public private(set) var visibility: [Bool] = []
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -79,7 +81,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// Does nothing.
     public func setFocused(_ focused: Bool) {}
     /// Does nothing.
-    public func setVisible(_ visible: Bool) {}
+    public func setVisible(_ visible: Bool) { visibility.append(visible) }
 
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {

@@ -101,8 +101,8 @@ public final class PanePaintHold {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let outgoing { release?(outgoing) }
-        ended?()
         incoming?.alphaValue = 1
+        ended?()
         CATransaction.commit()
         #if DEBUG || CMUX_BENCH_HOOKS
         if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }

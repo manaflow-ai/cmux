@@ -81,6 +81,10 @@ struct AgentTabContent {
             guard let imageView else { return }
             paneView?.clearLaunchImage(ifShowing: imageView)
         }
+        view.page?.whenPainted { [weak paneView, weak imageView] in
+            guard let imageView else { return }
+            paneView?.clearLaunchImage(ifShowing: imageView)
+        }
     }
 
     /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place

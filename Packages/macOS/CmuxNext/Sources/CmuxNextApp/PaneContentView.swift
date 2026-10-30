@@ -83,6 +83,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
+    var launchImageSize: CGSize?
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
     /// Asked when the launch image's limit is up, before it goes: `false` keeps the frame, because
@@ -170,6 +171,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
+        if launchImageView != nil, let launchImageSize, launchImageSize != contentHost.bounds.size {
+            clearLaunchImage()
+        }
         // After the host frame: a strip pinned to a browser's band reads its
         // frame from constraints that depend on the host frame.
         super.layout()

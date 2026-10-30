@@ -30,6 +30,11 @@ extension InternalPageView: PaneFirstPaintGated {
 }
 
 extension PaneContentView {
+    private func setChromiumVisibility(in view: NSView, _ visible: Bool) {
+        if let page = view as? PageWebView { page.setChromiumVisibility(visible) }
+        for child in view.subviews { setChromiumVisibility(in: child, visible) }
+    }
+
     /// Whether `view` replacing `hosted` waits for its first frame.
     func holdsForFirstPaint(_ view: NSView?, replacing hosted: NSView?) -> Bool {
         PanePaintHold.holds(view, replacing: hosted)
@@ -39,6 +44,7 @@ extension PaneContentView {
     /// A strip that hides with this swap stays, and `outgoing` keeps its place under it: the pane changes in
     /// one frame, when the swap shows (cx-f6i7).
     func beginPaintHold(outgoing: NSView, incoming: NSView) {
+        setChromiumVisibility(in: incoming, false)
         if hidesStrip, !stripView.isHidden, !isBandActive, outgoing.frame.height > 0 {
             holdKeepsStrip = true
             // The host is not flipped: a fixed height on the strip's far side.
@@ -47,17 +53,22 @@ extension PaneContentView {
         paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, release: { [weak self] outgoing in
             guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
             retire(outgoing)
+            self.setChromiumVisibility(in: outgoing, false)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        }, ended: { [weak self] in
+        }, ended: { [weak self, weak incoming] in
             // The strip, ring and corners change with the swap, in its transaction.
             guard let self else { return }
             let keptStrip = holdKeepsStrip
             holdKeepsStrip = false
             refreshContentFrame()
+            if let incoming { self.setChromiumVisibility(in: incoming, true) }
             guard keptStrip else { return }
             needsLayout = true
             layoutSubtreeIfNeeded()
         })
+        // `begin` attaches the view before applying its alpha hold; update once more so a Chromium
+        // child window cannot remain visible from the attach callback.
+        setChromiumVisibility(in: incoming, false)
     }
 
     /// The strip's drawn height: while a hold keeps it after it hid, its
