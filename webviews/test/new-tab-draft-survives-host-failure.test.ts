@@ -16,8 +16,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { readWebThemeBootstrap } from "../dev-server/galleryHost";
 import { parseGhosttyTheme } from "../src/gallery/theme/ghostty";
 import { agentPaneTheme, themeTokens, webThemePayload } from "../src/gallery/theme/web";
+import { deriveAppTheme } from "../src/theme/appTheme";
 
 await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -50,6 +52,7 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
   /// A New Tab page whose first `ready` waits until `failHost` fails it; every later one answers.
   async function newTab(classic: boolean): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 }, deviceScaleFactor: 2 });
+    await page.addInitScript({ content: readWebThemeBootstrap() });
     await page.addInitScript((classic) => {
       const newTab = {
         kind: "agent",
@@ -97,7 +100,7 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
           (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(web);
           window.cmuxAcpmuxBridge!.applyTheme(agent);
         },
-        { web: webThemePayload(tokens), agent: agentPaneTheme(tokens, false) },
+        { web: webThemePayload(tokens, deriveAppTheme(theme)), agent: agentPaneTheme(tokens, false) },
       );
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
       const box = await page.locator(classic ? ".acpmux-newtab-field" : ".nt-box").boundingBox();
