@@ -16,6 +16,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import tarfile
 import tempfile
 import zipfile
 
@@ -137,7 +138,19 @@ def restore(receipt, root):
 
 
 def bundled_client_commit(root):
-    versions = list(root.glob("app/**/Contents/Resources/bin/cmux-tui.version"))
+    # The uploaded app artifact contains the precompressed unsigned tarball.
+    # Open it only after the authenticated ZIP extraction and reject traversal
+    # or links before deriving the client provenance used by the marker gate.
+    app_root = root / "app"
+    archives = list(app_root.glob("*.tar.gz"))
+    require(len(archives) == 1, "resumed unsigned app has no unique app archive")
+    with tarfile.open(archives[0], "r:gz") as archive:
+        for entry in archive.getmembers():
+            path = PurePosixPath(entry.name)
+            require(not path.is_absolute() and ".." not in path.parts and "\\" not in entry.name and
+                    not entry.issym() and not entry.islnk(), "unsafe unsigned app tar member")
+        archive.extractall(app_root)
+    versions = list(app_root.glob("**/Contents/Resources/bin/cmux-tui.version"))
     require(len(versions) == 1, "resumed unsigned app has no unique cmux-tui.version")
     fields = {}
     for line in versions[0].read_text().splitlines():
