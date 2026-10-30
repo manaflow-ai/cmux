@@ -109,9 +109,12 @@ test("a right-click opens the app's native menu with the rows, and its pick runs
 
 test("a native context menu marks its opener until dismissal", async () => {
   let resolveNative: ((reply: unknown) => void) | undefined;
-  installNativeMenu(() => new Promise((resolve) => {
-    resolveNative = resolve;
-  }));
+  installNativeMenu(
+    () =>
+      new Promise((resolve) => {
+        resolveNative = resolve;
+      }),
+  );
   const target = render(items([]));
   await rightClick(target);
   expect(target.getAttribute("data-popup-open")).toBe("");
@@ -141,7 +144,9 @@ test("a host that refuses the native menu leaves the page's own", async () => {
 test("a keyboard context-menu request marks the focused opener", async () => {
   const target = render(items([]));
   await act(async () => {
-    target.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }));
+    target.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }),
+    );
     await Promise.resolve();
   });
   expect(target.getAttribute("data-popup-open")).toBe("");
@@ -150,9 +155,12 @@ test("a keyboard context-menu request marks the focused opener", async () => {
 
 test("a newer context-menu request supersedes an older native reply", async () => {
   const resolveNative: Array<(reply: unknown) => void> = [];
-  installNativeMenu(() => new Promise((resolve) => {
-    resolveNative.push(resolve);
-  }));
+  installNativeMenu(
+    () =>
+      new Promise((resolve) => {
+        resolveNative.push(resolve);
+      }),
+  );
   const target = render(items([]));
   await rightClick(target);
   await rightClick(target);
@@ -166,9 +174,12 @@ test("a newer context-menu request supersedes an older native reply", async () =
 
 test("unmount clears an opener marker and ignores a stale native reply", async () => {
   let resolveNative: ((reply: unknown) => void) | undefined;
-  installNativeMenu(() => new Promise((resolve) => {
-    resolveNative = resolve;
-  }));
+  installNativeMenu(
+    () =>
+      new Promise((resolve) => {
+        resolveNative = resolve;
+      }),
+  );
   const target = render(items([]));
   await rightClick(target);
   expect(target.getAttribute("data-popup-open")).toBe("");
@@ -191,7 +202,11 @@ test("without a host the page draws its menu", async () => {
   await rightClick(target);
   expect(target.getAttribute("data-popup-open")).toBe("");
   expect(document.querySelector(".ui-context-menu")).not.toBeNull();
-  act(() => document.querySelector<HTMLElement>(".ui-context-menu-backdrop")?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+  act(() =>
+    document
+      .querySelector<HTMLElement>(".ui-context-menu-backdrop")
+      ?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })),
+  );
   expect(target.hasAttribute("data-popup-open")).toBe(false);
 });
 

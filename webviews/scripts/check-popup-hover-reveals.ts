@@ -47,12 +47,24 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/composerAttachments.css|.acpmux-attachment:hover .acpmux-attachment-remove",
     "remove affordance",
   ],
-  ["agent-session/acpmux/composerLook.css|.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots", "look affordance"],
+  [
+    "agent-session/acpmux/composerLook.css|.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots",
+    "look affordance",
+  ],
   ["agent-session/acpmux/composerLook.css|.acpmux-composer-under:hover .acpmux-look-dots", "look affordance"],
   ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :focus-within) .wn-card-close", "close affordance"],
-  ["agent-session/acpmux/needsYou/needsYou.css|.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools", "needs-you actions"],
-  ["agent-session/acpmux/conversation/conversation.css|.cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time)", "command status"],
-  ["agent-session/acpmux/conversation/AgentMessageRow.css|.cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok", "command status"],
+  [
+    "agent-session/acpmux/needsYou/needsYou.css|.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools",
+    "needs-you actions",
+  ],
+  [
+    "agent-session/acpmux/conversation/conversation.css|.cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time)",
+    "command status",
+  ],
+  [
+    "agent-session/acpmux/conversation/AgentMessageRow.css|.cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok",
+    "command status",
+  ],
   ["agent-session/acpmux/newtab/screen.css|.nt-all-row:hover .nt-all-glyph", "state glyph"],
   ["agent-session/acpmux/changes/changes.css|.acpmux-file-header:hover .acpmux-fh-chevron", "disclosure chevron"],
   ["agent-session/acpmux/chips/chips.css|.cv-media:hover .cv-media__actions", "media controls"],
@@ -64,7 +76,10 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ["pages/settings/styles.css|.backdrop-pending:hover .backdrop-thumb", "pending wallpaper brightness"],
   ["pages/settings/styles.css|.backdrop-own:hover .backdrop-remove:not(:disabled)", "remove affordance"],
   ["gallery/fixtures/VisualMediaBoard.css|.cmux-gallery-media-stage:hover img", "gallery preview brightness"],
-  ["gallery/fixtures/VisualMediaBoard.css|.cmux-gallery-media-stage:hover .cmux-gallery-media-stage-hint", "gallery preview hint"],
+  [
+    "gallery/fixtures/VisualMediaBoard.css|.cmux-gallery-media-stage:hover .cmux-gallery-media-stage-hint",
+    "gallery preview hint",
+  ],
   ["pages/keybindings/styles.css|.keys-row:hover .keys-icon-button", "keybinding controls"],
   ["pages/changelog/styles.css|.cl-group li:hover .cl-row-actions", "release links"],
   ["pages/changelog/styles.css|.cln-fixed li:hover .cl-row-actions", "release links"],
@@ -79,7 +94,10 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-section:hover > .acpmux-chat-inspector-section__handle",
     "drag handle",
   ],
-  ["agent-session/acpmux/subagents/DisclosureRow.css|.cv-disclosure__line:hover .cv-disclosure__open", "open affordance"],
+  [
+    "agent-session/acpmux/subagents/DisclosureRow.css|.cv-disclosure__line:hover .cv-disclosure__open",
+    "open affordance",
+  ],
 ]);
 
 function withoutComments(source: string): string {

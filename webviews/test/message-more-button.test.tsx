@@ -109,7 +109,11 @@ test("a stale native dismissal cannot clear a newer More menu", async () => {
 
 test("a host refusal clears the opener immediately", () => {
   removeReporter();
-  const remove = installMessageMenuReporter(doc, () => ({ postMessage: () => { throw new Error("unavailable"); } }));
+  const remove = installMessageMenuReporter(doc, () => ({
+    postMessage: () => {
+      throw new Error("unavailable");
+    },
+  }));
   const button = more(footer.id, ".cv-turn-actions")!;
   expect(openMessageMenu(answer.id, button)).toBe(false);
   expect(button.hasAttribute("data-popup-open")).toBe(false);

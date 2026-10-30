@@ -179,11 +179,10 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
           expect(await button.getAttribute("data-popup-open")).toBe("");
           expect(await page.locator(".cv-user__actions").evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
           await page.keyboard.press("Escape");
-          await page.waitForFunction(() => !document.querySelector('.cv-turn-retry-menu[data-popup-open]'));
+          await page.waitForFunction(() => !document.querySelector(".cv-turn-retry-menu[data-popup-open]"));
           expect(await button.getAttribute("data-popup-open")).toBeNull();
         } finally {
           await page.close();
         }
       });
-
 });

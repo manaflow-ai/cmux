@@ -119,11 +119,14 @@ export function ContextMenu({
     },
     [host],
   );
-  useEffect(() => () => {
-    nativeRequest.current += 1;
-    popupTarget.current?.removeAttribute("data-popup-open");
-    popupTarget.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      nativeRequest.current += 1;
+      popupTarget.current?.removeAttribute("data-popup-open");
+      popupTarget.current = null;
+    },
+    [],
+  );
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
   // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
   useEscapingPopup(
