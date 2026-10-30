@@ -613,3 +613,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Resize edge lights a themed band (2026-10-29)
 
 - Leo 2026-10-29, verbatim: "like the little draggy bars and whatever, I feel like, you know, when we're dragging them, you know, Claude Code has it so that, you know, it has this glowy bar thing, and I think, like, having that themed color band would be quite nice for our app as well." Before: the edge showed only a separator-colored hairline on hover and drag. Now `SidebarResizeHandle` also lights `DividerGlowBand` (dim on hover, full while dragging) on the edge; the resting look and the hit band are unchanged.
+
+## Squash commits logged for the Sidebar-Look sweep (2026-10-30)
+
+- [4367c16e12c](https://github.com/manaflow-ai/cmux/commit/4367c16e12c) (PR [#24073](https://github.com/manaflow-ai/cmux/pull/24073)), [6c1a5ab8bf3](https://github.com/manaflow-ai/cmux/commit/6c1a5ab8bf3) (PR [#24295](https://github.com/manaflow-ai/cmux/pull/24295)) and [eb8105b0747](https://github.com/manaflow-ai/cmux/commit/eb8105b0747) (PR [#27561](https://github.com/manaflow-ai/cmux/pull/27561)): the squash merges of branches whose commits are already logged above (the traffic-lights top clip, the profile menu on the menu grid, the trailing slots). The squash dropped the branch commits' records, so the sweep named the squash shas; same changes, no look beyond what those entries record.
