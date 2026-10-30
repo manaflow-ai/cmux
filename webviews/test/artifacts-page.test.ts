@@ -194,6 +194,9 @@ test("a revision's change keeps three lines of context and splits distant edits"
     { type: "del", text: "a", noNewline: true },
     { type: "add", text: "a" },
   ]);
+  // Text that looks like a marker is only text.
+  const literal = lineHunks("x\nfoo\u0000no-newline\n", "y\nfoo\u0000no-newline\n");
+  expect(literal[0]!.at(-1)).toEqual({ type: "context", text: "foo\u0000no-newline" });
   expect(lineHunks("", "a\nb\n")).toEqual([
     [
       { type: "add", text: "a" },
