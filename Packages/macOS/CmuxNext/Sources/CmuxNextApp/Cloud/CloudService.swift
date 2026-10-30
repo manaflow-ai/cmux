@@ -466,13 +466,7 @@ final class CloudService {
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                let wasLive = session.machine.status.isLive
-                session.machine = machine
-                if wasLive, !machine.status.isLive {
-                    session.suspend()
-                } else if !wasLive, machine.status.isLive {
-                    session.connect()
-                }
+                apply(machine, to: session)
             } else {
                 addSession(machine)
             }
@@ -487,6 +481,18 @@ final class CloudService {
             }
             creations.machineRemoved(session.machineID)
             machines.remove(session.machineID)?.disconnect()
+        }
+    }
+
+    /// A fresh record for `session` (a list refresh, or Machine Status reading one machine): a
+    /// machine that stopped being live suspends its link, and one that turned live connects.
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession) {
+        let wasLive = session.machine.status.isLive
+        session.machine = machine
+        if wasLive, !machine.status.isLive {
+            session.suspend()
+        } else if !wasLive, machine.status.isLive {
+            session.connect()
         }
     }
 
