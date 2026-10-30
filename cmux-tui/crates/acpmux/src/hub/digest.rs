@@ -379,7 +379,6 @@ impl Hub {
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
             return;
         }
-        let ids: Vec<String> = taken.iter().map(|q| q.prompt_id.clone()).collect();
         let order: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for (i, mut q) in taken.iter().cloned().enumerate() {

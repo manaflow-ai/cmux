@@ -981,7 +981,10 @@ async fn a_restart_gives_back_a_digests_messages_in_the_queues_order() {
     c.request("_acpmux/queue_edit", moved).await.unwrap();
     assert_eq!(queue_order(&mut c, &id).await, ["p-b", "p-a"]);
     c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    // The restart's continuation of the cut turn goes first (`restart_resume.rs`).
     let order = order_after_a_restart(hub, c, &dir, &id).await;
-    assert_eq!(order, ["p-b", "p-a"]);
+    let mine: Vec<&String> =
+        order.iter().filter(|p| p.starts_with("p-") && *p != "p-turn~resume-1").collect();
+    assert_eq!(mine, ["p-b", "p-a"], "{order:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
