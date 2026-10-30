@@ -38,6 +38,9 @@ import Testing
     static let linkMenu = #"""
     {"t":"rb.menu.show","token":3,"menu":{"kind":"context","anchor":{"x":40,"y":80,"width":0,"height":0},"surface":0,
      "selected":null,"multiple":false,"right_aligned":false,"items":[
+      {"id":33000,"type":"command","label":"&Back","enabled":false,"checked":false,"items":[]},
+      {"id":33002,"type":"command","label":"&Reload","enabled":true,"checked":false,"items":[]},
+      {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
       {"id":50100,"type":"command","label":"Open Link in New &Tab","enabled":true,"checked":false,"items":[]},
       {"id":50101,"type":"command","label":"Open Link in New &Window","enabled":true,"checked":false,"items":[]},
       {"id":50102,"type":"command","label":"Open Link in Inco&gnito Window","enabled":true,"checked":false,"items":[]},
@@ -51,9 +54,12 @@ import Testing
       {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
       {"id":50162,"type":"command","label":"I&nspect","enabled":true,"checked":false,"items":[]},
       {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
+      {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
+      {"id":50170,"type":"submenu","label":"Spelling","enabled":true,"checked":false,"items":[
+        {"id":50171,"type":"check","label":"Check Spelling While &Typing","enabled":true,"checked":true,"items":[]}]},
       {"id":100,"type":"submenu","label":"Speech","enabled":true,"checked":false,"items":[
-        {"id":50181,"type":"command","label":"Start Speaking","enabled":true,"checked":false,"items":[]},
-        {"id":50182,"type":"command","label":"Stop Speaking","enabled":false,"checked":false,"items":[]}]}]}}
+        {"id":101,"type":"command","label":"Start Speaking","enabled":true,"checked":false,"items":[]},
+        {"id":102,"type":"command","label":"Stop Speaking","enabled":false,"checked":false,"items":[]}]}]}}
     """#
 
     // MARK: New tabs
@@ -99,17 +105,21 @@ import Testing
         await host(sink, Self.linkMenu)
         let open = try #require(got.first ?? nil)
         #expect(open.token == 3 && model.contextMenu?.token == 3)
-        // Rows that act on the Mac itself (Incognito, Save, Copy, Print, Inspect, Speech) are
-        // left out with their separators; Chromium's `&` mnemonics are dropped (`&&` is `&`).
-        #expect(open.menu.phoneItems.map(\.label) == ["Open Link in New Tab", "Open Link in New Window", "-", "Search for \u{201C}R&D\u{201D}"]
-            .map { $0 == "-" ? "" : $0 })
-        model.choose(.command(50100), in: 3)
+        // Rows that act on the Mac itself (Incognito, Save, Copy, Print, Inspect, and Speech,
+        // whose ids CEF renumbers) and rows Chromium opens as a tab the host does not hand to
+        // viewers (Open Link in New Tab and Window, Search for) are left out with their
+        // separators; Chromium's `&` mnemonics are dropped (`&&` is `&`). Page rows stay.
+        let rows = open.menu.phoneItems
+        #expect(rows.map(\.label) == ["Back", "Reload", "", "Spelling"])
+        #expect(rows.last?.items.map(\.label) == ["Check Spelling While Typing"])
+        #expect(RemoteBrowserMenuItem.withoutMnemonic("&Search for \u{201C}R&&D\u{201D}") == "Search for \u{201C}R&D\u{201D}")
+        model.choose(.command(33002), in: 3)
         // The menu closing afterwards cancels this menu only: its pick already went.
         model.choose(.cancel, in: 3)
         let results = sent(stream, "rb.menu.result")
         #expect(results.count == 1)
         #expect((results[0]["choice"] as? [String: Any])?["choice"] as? String == "command")
-        #expect((results[0]["choice"] as? [String: Any])?["id"] as? Int == 50100)
+        #expect((results[0]["choice"] as? [String: Any])?["id"] as? Int == 33002)
         #expect(model.contextMenu == nil)
     }
 
