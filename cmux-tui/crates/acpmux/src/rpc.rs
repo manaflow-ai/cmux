@@ -291,6 +291,8 @@ pub mod method {
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
+    /// Sign a daemon-owned proof for the currently live turn.
+    pub const MUX_TURN_ATTESTATION: &str = "_acpmux/turn_attestation";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";

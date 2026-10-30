@@ -568,6 +568,8 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+    /// Daemon-owned key for live-turn attestations; public half is enrolled by the install.
+    pub turn_attestor: crate::turn_attestation::TurnAttestor,
 }
 
 impl Hub {
@@ -675,6 +677,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             workflow_index: Default::default(),
+            turn_attestor: crate::turn_attestation::TurnAttestor::generate(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
@@ -750,6 +753,30 @@ impl Hub {
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
         *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
+    }
+
+    /// Sign the existing journal sequence for the currently running turn.
+    pub fn issue_turn_attestation(
+        &self,
+        session_id: &str,
+        team_install: &str,
+        ttl_ms: u64,
+        now: u64,
+    ) -> Result<Value, RpcError> {
+        let session = self.resolve(session_id)?;
+        let summary = self.session_summary(&session);
+        let Some(turn) = summary.get("turn") else {
+            return Err(RpcError::new(-32000, "the session has no live turn"));
+        };
+        let turn_seq = turn
+            .get("turnSeq")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| RpcError::internal("live turn has no journal sequence"))?;
+        let proof = self
+            .turn_attestor
+            .issue(session_id, turn_seq, team_install, now, ttl_ms)
+            .map_err(RpcError::invalid_params)?;
+        serde_json::to_value(proof).map_err(|_| RpcError::internal("attestation encoding failed"))
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {

@@ -1651,6 +1651,11 @@ async fn dispatch_request(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
+        method::MUX_TURN_ATTESTATION => {
+            let (session, team_install, ttl_ms) = crate::turn_attestation::request_fields(&params)
+                .map_err(RpcError::invalid_params)?;
+            hub.issue_turn_attestation(session, team_install, ttl_ms, crate::store::now_ms())
+        }
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
             // After a restart the chat logs are read after the ready line; until
