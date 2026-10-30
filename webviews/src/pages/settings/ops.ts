@@ -333,6 +333,8 @@ export type ComputerUseState = {
   helper: string | null;
   /** Legacy Computer Use is off: its helper can't verify this cmux build (not team-signed). */
   host_unverified?: boolean;
+  /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
+  upstream_fallback?: boolean;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -389,9 +391,68 @@ export type AccountsCmux = {
   error: string | null;
 };
 
+/** An inline team name form (New Team, Rename Team); the field starts at `value`. */
+export type AccountsTeamForm = {
+  kind: "create" | "rename";
+  title: string;
+  help: string;
+  value: string;
+  placeholder: string;
+  maxLength: number;
+  submit: string;
+  cancel: string;
+  error: string | null;
+  busy: boolean;
+};
+
+/** The open team's details. Admins get `buttons` (`team.rename`, `team.delete`); members `readOnly`. */
+export type AccountsTeamDetails = {
+  loading: string | null;
+  error: string | null;
+  facts: Array<{ label: string; value: string }>;
+  membersTitle: string;
+  members: Array<{ id: string; name: string; detail: string | null; role: string; you: string | null }>;
+  /** Pending invitations; null unless the person is an admin. */
+  invitationsTitle: string | null;
+  invitations: Array<{ id: string; email: string; role: string; expires: string | null }> | null;
+  noInvitations: string | null;
+  buttons: AccountsButton[];
+  readOnly: string | null;
+  rename: AccountsTeamForm | null;
+  confirm: { text: string; confirm: string; cancel: string; error: string | null; busy: boolean } | null;
+};
+
+/** One team with the person's role; `toggle` runs `team.details`. */
+export type AccountsTeamRow = {
+  id: string;
+  name: string;
+  role: string;
+  roleKind: "admin" | "member" | "unknown";
+  active: string | null;
+  open: boolean;
+  toggle: AccountsButton;
+  detail: AccountsTeamDetails | null;
+};
+
+/**
+ * The account's teams with roles, the open team's details and the create, rename and delete forms.
+ * Gestures run as `team.<gesture>`: `details`, `new`, `create` (`name`), `rename`, `saveName`
+ * (`team`, `name`), `delete`, `confirmDelete`, `cancel`. Null when signed out.
+ */
+export type AccountsTeamList = {
+  title: string;
+  newTeam: AccountsButton;
+  rows: AccountsTeamRow[];
+  empty: string | null;
+  create: AccountsTeamForm | null;
+  notice: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+};
+
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
   teams: AccountsTeams | null;
+  /** Older hosts omit it. */
+  teamList?: AccountsTeamList | null;
   refresh: string;
   refreshing: boolean;
   /** cmux's own account: who is signed in, sign in, switch and sign out. */
@@ -400,8 +461,18 @@ export type AccountsState = {
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };
 
-/** One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam. */
-export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string; team?: string };
+/**
+ * One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam and
+ * the `team.*` gestures, `name` for a team create or rename.
+ */
+export type AccountsRun = {
+  action: string;
+  provider?: string;
+  account?: string;
+  secret?: string;
+  team?: string;
+  name?: string;
+};
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
 export type AgentHarnessRow = {
@@ -790,7 +861,7 @@ export type ChannelBuild = {
   /** GitHub's compare from the installed build's commit; null for that build or an unknown commit. */
   compare_url: string | null;
   health: "promoted" | "held" | "pulled" | "pending";
-  health_title: string;
+  health_title: string | null;
   pulled_reason: string | null;
   /** This Mac runs it ("You Are Here"). */
   installed: boolean;

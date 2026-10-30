@@ -10,9 +10,14 @@ import {
 import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
+/// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
+/// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
+/// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
+/// old shape (its text, then its attachments) has none.
 type DisplayPart = {
   kind: string;
   blockIndex: number;
+  placed?: true;
   name: string;
   mimeType?: string;
   size?: number;
@@ -33,6 +38,8 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       continue;
     }
     const a = run.attachment;
+    // Only an attachment the composer put in the text is placed; the strip's goes after it, unmarked.
+    const placed = run.strip ? {} : { placed: true as const };
     const kind = a.kind === "link" || a.kind === "text" ? "file" : a.kind;
     const text = a.kind === "text" ? promptText("", [a]) : a.kind === "pasted" ? a.text : undefined;
     const blocks: PromptBlock[] = text ? [{ type: "text", text }] : attachmentBlocks(a);
@@ -40,6 +47,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     display.push({
       kind,
       blockIndex,
+      ...placed,
       name: a.name,
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
       size: a.size,
@@ -53,6 +61,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         blockIndex,
         mimeType: a.mimeType,
         name: a.name,
+        ...placed,
         ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
       });
     else {
@@ -63,6 +72,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         name: a.name,
         mimeType: a.mimeType,
         size: a.size,
+        ...placed,
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
         ...("uri" in first ? { uri: first.uri } : {}),
@@ -71,8 +81,14 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     }
     if (a.kind === "image" && blocks[1]?.type === "resource_link") {
       const original = blocks[1];
-      parts.push({ kind: "file", name: original.name, uri: original.uri, companionOf: blockIndex });
-      display.push({ kind: "file", blockIndex: blockIndex + 1, name: original.name, companionOf: blockIndex });
+      parts.push({ kind: "file", name: original.name, uri: original.uri, companionOf: blockIndex, ...placed });
+      display.push({
+        kind: "file",
+        blockIndex: blockIndex + 1,
+        ...placed,
+        name: original.name,
+        companionOf: blockIndex,
+      });
     }
     blockIndex += blocks.length;
   }
@@ -82,9 +98,10 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
   const kind = raw.kind ?? raw.type;
+  const placed = raw.placed === true ? { placed: true as const } : {};
   if (kind === "text" && typeof raw.text === "string")
     return raw.pasted === true
-      ? { kind: "pasted", name: translate("composer.pastedText"), text: raw.text }
+      ? { kind: "pasted", name: translate("composer.pastedText"), text: raw.text, ...placed }
       : { kind: "text", text: raw.text };
   if (kind === "image" && typeof raw.mimeType === "string" && typeof raw.id === "string")
     return {
@@ -98,6 +115,9 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
         : {}),
       ...(typeof raw.width === "number" ? { width: raw.width } : {}),
       ...(typeof raw.height === "number" ? { height: raw.height } : {}),
+      // This pane's own row keeps its image's bytes until acpmux, which names it otherwise, echoes it.
+      ...(typeof raw.src === "string" && raw.src.startsWith("data:") ? { src: raw.src } : {}),
+      ...placed,
     };
   if (!["file", "document", "audio", "pasted", "resource_link"].includes(String(kind))) return undefined;
   return {
@@ -111,6 +131,7 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }
       : {}),
+    ...placed,
   } as PromptContentPart;
 }
 export function recordedPromptParts(msg: any, known?: readonly PromptContentPart[]): PromptContentPart[] | undefined {
@@ -121,6 +142,8 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
   });
   return parts.map((part, index) => {
     const old = known?.[index];
+    // This pane placed the prompt it sent; an acpmux from before the marker records none.
+    if (part.kind !== "text" && old?.kind === part.kind && old.placed && !part.placed) part = { ...part, placed: true };
     if (part.kind === "file") {
       const file = known?.find((candidate) => candidate.kind === "file" && candidate.uri === part.uri);
       const video = file?.kind === "file" ? parseVideoInfo(file.video) : undefined;
