@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { HostError, HostUnavailableLine } from "./HostError";
+import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
 
 type Props = {
   message: string;
@@ -13,14 +13,26 @@ type Props = {
   initialRetrying: boolean;
   withRetry: boolean;
   withRestart?: boolean;
+  /// The waiting line in place of the host line: how long the pane has waited for acpmux, in ms.
+  waitedMs?: number;
 };
 
-function GalleryHostError({ message, shown = true, harness, initialRetrying, withRetry, withRestart }: Props) {
+function GalleryHostError({
+  message,
+  shown = true,
+  harness,
+  initialRetrying,
+  withRetry,
+  withRestart,
+  waitedMs,
+}: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
   const [restarting, setRestarting] = useState(false);
   return (
     <div className="acpmux-shell" data-host-error-fixture>
-      {harness ? (
+      {waitedMs !== undefined ? (
+        <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
+      ) : harness ? (
         <HostError
           message={message}
           hint={harness.hint}
@@ -53,6 +65,13 @@ const restart: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Restarting acpmux…" }).getAttribute("disabled") !== null);
 };
 
+const restartService: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Restart agent service" });
+  await ctx.waitFor(
+    () => ctx.find({ role: "button", name: "Restarting agent service…" }).getAttribute("disabled") !== null,
+  );
+};
+
 const enable: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Enable Claude Code" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Enable Claude Code" }).getAttribute("disabled") !== null);
@@ -65,7 +84,11 @@ export default componentEntry<Props>({
   height: 210,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-host-error-fixture]" }],
-  covers: ["agent-session/acpmux/HostError.tsx#HostError", "agent-session/acpmux/HostError.tsx#HostUnavailableLine"],
+  covers: [
+    "agent-session/acpmux/HostError.tsx#HostError",
+    "agent-session/acpmux/HostError.tsx#HostUnavailableLine",
+    "agent-session/acpmux/HostError.tsx#HostWaitingLine",
+  ],
   styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]).then(() => undefined),
   load: async () => GalleryHostError,
   variants: {
@@ -129,6 +152,11 @@ export default componentEntry<Props>({
         withRestart: true,
       },
       note: "A refusal whose holder is no app bundle offers the same Restart acpmux.",
+    },
+    waiting: {
+      props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
+      play: restartService,
+      note: "acpmux is slow to answer (a loaded Mac): the app never restarts it by itself. After 25 s the line says how long the pane has waited, and the person may restart the agent service.",
     },
     enable: {
       props: {

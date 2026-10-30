@@ -101,6 +101,11 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         await local.restartAcpmux(owner: owner)
     }
 
+    /// Restart agent service stops this Mac's own daemon, never the Chief home's.
+    public func restartStuckAcpmux() async -> Bool {
+        await local.restartStuckAcpmux()
+    }
+
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
         try await host(for: sessionId).putFile(sessionId: sessionId, name: name, data: data)
     }

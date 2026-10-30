@@ -29,6 +29,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
     /// it stopped.
     func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
+    /// A person asked to restart this app's own acpmux while a pane waits for it (the pane's
+    /// "Restart agent service"): stops that daemon, keeping its sessions, so the next handshake
+    /// starts a new one. Only while a lookup waits on it. True when it stopped.
+    func restartStuckAcpmux() async -> Bool
     /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
     /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
     func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
@@ -49,6 +53,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
+
+    /// Hosts without a daemon have none to restart.
+    public func restartStuckAcpmux() async -> Bool { false }
 
     /// Hosts without a daemon answer nothing themselves.
     public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
@@ -150,6 +157,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// the handshake fails as ``AgentPaneHostError/chiefStarting`` and the page retries, instead
     /// of waiting for someone to open Home (#25570). Nil: nobody to ask.
     private let startOwner: (@Sendable () async -> Bool)?
+    /// Stops this app's own daemon when a person asks (``restartStuckAcpmux()``); one per host.
+    private let daemonStop = AcpmuxDaemonStop()
     /// Sends the Computer Use endpoint to the daemon (`AcpmuxComputerUse.enroll`; a recorder in tests).
     private let enrollComputerUse: @Sendable (AcpmuxEnvironment) async -> Void
 
@@ -278,6 +287,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached, owner.socketPath == environment.socketPath else { return false }
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner)
+    }
+
+    /// The person's "Restart agent service" while a pane waits for this host's daemon: only this
+    /// app's own daemon (never an attached one, never the Chief home's), and only while a lookup
+    /// waits on it, so the page cannot stop a daemon that answers. The lookup that waits ends when
+    /// the daemon exits, and the page's next handshake starts a new one.
+    public func restartStuckAcpmux() async -> Bool {
+        guard startsDaemons, !inFlight.isEmpty else { return false }
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment, !environment.isAttached else { return false }
+        return await daemonStop.restart(environment)
     }
 
     /// This host's own daemon, only when `socket` is its socket: the Chief home's host answers for

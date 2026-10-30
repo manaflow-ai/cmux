@@ -140,8 +140,9 @@ struct AcpmuxSlowDaemonTests {
 
         /// An `acpmux` that listens on this home's socket and reads, but never answers: `nc`
         /// copied (and signed ad hoc) to a file named `acpmux`, so it is this home's daemon by
-        /// every check the app makes before it signals one.
-        func silentDaemon() async throws -> Process {
+        /// every check the app makes before it signals one. `ended` gets the signal that ended it
+        /// (0: it exited), once Foundation reaped it.
+        func silentDaemon(ended: (@Sendable (Int32) -> Void)? = nil) async throws -> Process {
             let directory = root.appendingPathComponent("silent", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let executable = directory.appendingPathComponent("acpmux")
@@ -154,6 +155,11 @@ struct AcpmuxSlowDaemonTests {
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
+            if let ended {
+                process.terminationHandler = { process in
+                    ended(process.terminationReason == .uncaughtSignal ? process.terminationStatus : 0)
+                }
+            }
             try process.run()
             // A load-tolerant wait for the listener; it stops early if the daemon exited.
             let deadline = ContinuousClock.now + .seconds(60)
