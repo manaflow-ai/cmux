@@ -41,7 +41,7 @@ class PublishedInTests(unittest.TestCase):
             self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 0), "written")
             self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 0), "unchanged")
         self.assertEqual(module.pr_status.parse(comments[0]["body"]), {"review": "SHIP", "published": text})
-        self.assertEqual([method for method, _, _ in calls], ["PATCH", "GET"])
+        self.assertEqual([method for method, _, _ in calls], ["GET", "PATCH", "GET", "GET"])
 
     def test_legacy_migration_preserves_builds_and_other_sections(self):
         nightly = module.build_line("nightly-next 1", "https://x/n", "a" * 40)
@@ -91,11 +91,13 @@ class PublishedInTests(unittest.TestCase):
         calls = []
         def api(method, path, payload=None):
             calls.append((method, path, payload))
+            if method == "GET":
+                return comments
         with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
-        self.assertEqual(calls[0][0], "PATCH")
-        self.assertIn(old, calls[0][2]["body"])
-        self.assertIn(new, calls[0][2]["body"])
+        self.assertEqual(calls[1][0], "PATCH")
+        self.assertIn(old, calls[1][2]["body"])
+        self.assertIn(new, calls[1][2]["body"])
 
     def test_duplicate_legacy_is_deleted_when_status_already_has_line(self):
         line = module.build_line("v1", "https://x/v1", "a" * 40)
@@ -114,7 +116,7 @@ class PublishedInTests(unittest.TestCase):
                 comments.pop()
         with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, line, comments, 0), "written")
-        self.assertEqual(calls[0][0], "DELETE")
+        self.assertEqual(calls[1][0], "DELETE")
         self.assertNotIn("POST", [method for method, _, _ in calls])
         self.assertNotIn("PATCH", [method for method, _, _ in calls])
 

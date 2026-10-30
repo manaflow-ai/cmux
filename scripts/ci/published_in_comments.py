@@ -82,7 +82,10 @@ def status_api(method: str, path: str, payload: dict | None = None) -> object:
 
 def publish(repo: str, number: int, line: str, comments: list[dict], pause: float) -> str:
     """Write the shared section, retaining a standalone comment if it cannot fit losslessly."""
-    snapshot = comments
+    # The initial GraphQL batch avoids one discovery request per PR, but it
+    # may be stale by the time this PR is written. Re-read immediately before
+    # the first plan so another status writer's section is never overwritten.
+    snapshot = pr_status.list_comments(status_api, repo, number)
     did = "unchanged"
     text = ""
     for attempt in range(pr_status.ATTEMPTS):
