@@ -394,6 +394,62 @@
         }
       }
     },
+    "store.feature.compactDensity.name" : {
+      "comment" : "App Store Features card: built-in appearance density Compact.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Compact Density" } }
+      }
+    },
+    "store.feature.compactDensity.summary" : {
+      "comment" : "App Store Features card: what Compact appearance density does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Compact rows and spacing keep more of your work visible at once." } }
+      }
+    },
+    "store.feature.cozyDensity.name" : {
+      "comment" : "App Store Features card: built-in appearance density Cozy.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cozy Density" } }
+      }
+    },
+    "store.feature.cozyDensity.summary" : {
+      "comment" : "App Store Features card: what Cozy appearance density does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "A little more room around rows and controls without taking over the window." } }
+      }
+    },
+    "store.feature.comfortableDensity.name" : {
+      "comment" : "App Store Features card: built-in appearance density Comfortable.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Comfortable Density" } }
+      }
+    },
+    "store.feature.comfortableDensity.summary" : {
+      "comment" : "App Store Features card: what Comfortable appearance density does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Roomier rows and controls make longer sessions easier to read." } }
+      }
+    },
+    "store.feature.spaciousDensity.name" : {
+      "comment" : "App Store Features card: built-in appearance density Spacious.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Spacious Density" } }
+      }
+    },
+    "store.feature.spaciousDensity.summary" : {
+      "comment" : "App Store Features card: what Spacious appearance density does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Extra breathing room gives every pane and control a generous layout." } }
+      }
+    },
     "store.feature.ultraCompact.name" : {
       "extractionState" : "manual",
       "localizations" : {
