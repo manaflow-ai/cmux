@@ -16,7 +16,6 @@ import type { Subagent } from "../subagents/subagentFold";
 import type { RetryNote, RetryTarget } from "../subagents/retryState";
 import type { MessageBranch } from "./branches";
 import type { SlashCommand } from "../slashCommands";
-import type { RetryNote } from "../subagents/retryState";
 import type { RetryModel } from "./retryModelSections";
 import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
