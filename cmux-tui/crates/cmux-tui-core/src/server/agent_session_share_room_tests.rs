@@ -1,18 +1,20 @@
-//! The link share bridge against a fake room (cmux-platform's `ChatShareRoom` HTTP API):
-//! provisioning, its retry and give-up, a refusal, and revoke's `DELETE`.
+//! The link share bridge against a fake room that speaks `cmux.share/1` (cmux-platform's
+//! `ChatShareRoom`): provisioning, its retry and give-up, the host socket's `hello` → `guests`
+//! order, redeem, kicks resent until acknowledged, revoke's `end` and `DELETE`, and reconnects.
 use super::super::{MAX_SHARES, digest, hex};
 use super::*;
 use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with,
 };
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Condvar;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
+use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 
 const OWNER_TOKEN: &str = "owner-access-token";
 type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
@@ -20,7 +22,24 @@ type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
 /// What the fake room saw, in order.
 #[derive(Debug)]
 enum Seen {
-    Request { method: String, path: String, bearer: String, body: Value },
+    Request {
+        method: String,
+        path: String,
+        bearer: String,
+        body: Value,
+    },
+    Host {
+        conn: u64,
+        bearer: String,
+    },
+    Frame {
+        conn: u64,
+        frame: Value,
+    },
+    /// A host socket upgrade the room refused with `status`.
+    Refused {
+        status: u16,
+    },
 }
 
 #[derive(Default)]
@@ -40,6 +59,16 @@ struct Shared {
     delete_active: AtomicU64,
     delete_peak: AtomicU64,
     host_tokens: AtomicU64,
+    conns: AtomicU64,
+    /// The newest host socket's outbox: a frame, or `None` to close it.
+    to_host: Mutex<Option<Sender<Option<Value>>>>,
+    /// The status every host socket upgrade answers instead of opening, while set.
+    refuse_host: Mutex<Option<u16>>,
+    /// A `DELETE` closes the host socket first, as the room does: frames the daemon had not
+    /// sent by then are lost.
+    delete_closes_host: AtomicBool,
+    /// Host sockets neither read nor write while set, as a connection lost without a close.
+    silent: AtomicBool,
 }
 
 struct FakeRoom {
@@ -97,11 +126,28 @@ impl FakeRoom {
         }
     }
 
+    fn host(&self) -> (u64, String) {
+        match self.take("a host socket", |s| matches!(s, Seen::Host { .. })) {
+            Seen::Host { conn, bearer } => (conn, bearer),
+            _ => unreachable!(),
+        }
+    }
+
+    /// The next frame the daemon sent on host socket `conn`.
+    fn frame(&self, conn: u64) -> Value {
+        match self.take("a host frame", |s| matches!(s, Seen::Frame { conn: c, .. } if *c == conn))
+        {
+            Seen::Frame { frame, .. } => frame,
+            _ => unreachable!(),
+        }
+    }
+
     /// The next `method` request: its path, bearer and body.
     fn request(&self, method: &str) -> (String, String, Value) {
         let wanted = |s: &Seen| matches!(s, Seen::Request { method: m, .. } if m == method);
         match self.take(method, wanted) {
             Seen::Request { path, bearer, body, .. } => (path, bearer, body),
+            _ => unreachable!(),
         }
     }
 
@@ -120,9 +166,22 @@ impl FakeRoom {
     fn delete_peak(&self) -> u64 {
         self.shared.delete_peak.load(Ordering::SeqCst)
     }
+
+    fn send(&self, frame: Value) {
+        self.shared.to_host.lock().unwrap().as_ref().unwrap().send(Some(frame)).unwrap();
+    }
+
+    /// Closes the host socket the way a dropped connection does (no close code).
+    fn drop_host(&self) {
+        self.shared.to_host.lock().unwrap().take().unwrap().send(None).unwrap();
+    }
 }
 
 fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
+    let mut start = [0u8; 3];
+    if stream.peek(&mut start).is_ok_and(|n| n == 3) && &start == b"GET" {
+        return serve_host(stream, shared, seen);
+    }
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
@@ -147,6 +206,12 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
     reader.read_exact(&mut body).unwrap();
     let body = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let is_delete = method == "DELETE";
+    if is_delete
+        && shared.delete_closes_host.load(Ordering::SeqCst)
+        && let Some(host) = shared.to_host.lock().unwrap().take()
+    {
+        let _ = host.send(None);
+    }
     if is_delete {
         let active = shared.delete_active.fetch_add(1, Ordering::SeqCst) + 1;
         shared.delete_peak.fetch_max(active, Ordering::SeqCst);
@@ -203,12 +268,98 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
     );
 }
 
+// tungstenite's handshake callback type fixes its large error variant.
+#[allow(clippy::result_large_err)]
+fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
+    if let Some(status) = *shared.refuse_host.lock().unwrap() {
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                break;
+            }
+        }
+        let mut stream = stream;
+        let _ = write!(
+            stream,
+            "HTTP/1.1 {status} Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let _ = seen.send(Seen::Refused { status });
+        return;
+    }
+    let mut bearer = String::new();
+    let callback = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
+        let header = request.headers().get("authorization").and_then(|v| v.to_str().ok());
+        bearer = header.unwrap_or_default().trim_start_matches("Bearer ").to_owned();
+        Ok(response)
+    };
+    let Ok(mut socket) = tungstenite::accept_hdr(stream, callback) else { return };
+    let conn = shared.conns.fetch_add(1, Ordering::SeqCst) + 1;
+    let (outbox, frames) = channel();
+    *shared.to_host.lock().unwrap() = Some(outbox);
+    let _ = seen.send(Seen::Host { conn, bearer });
+    socket.get_mut().set_read_timeout(Some(Duration::from_millis(10))).unwrap();
+    let hello = json!({"v": 1, "t": "hello", "guests": []}).to_string();
+    let _ = socket.send(Message::text(hello));
+    loop {
+        if shared.silent.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        }
+        while let Ok(next) = frames.try_recv() {
+            let Some(frame) = next else {
+                // Only the frames that already arrived are read.
+                while let Ok(Message::Text(text)) = socket.read() {
+                    let frame = serde_json::from_str(text.as_str()).unwrap();
+                    let _ = seen.send(Seen::Frame { conn, frame });
+                }
+                let _ = socket.close(None);
+                let _ = socket.flush();
+                return;
+            };
+            // `{"ping": text}` pings, as a room or a load balancer does.
+            if let Some(text) = frame["ping"].as_str() {
+                let _ = socket.send(Message::Ping(text.as_bytes().to_vec().into()));
+                continue;
+            }
+            // `{"close": code}` closes the socket with that code, as the room does.
+            if let Some(code) = frame["close"].as_u64() {
+                let code = tungstenite::protocol::frame::coding::CloseCode::from(code as u16);
+                let _ = socket
+                    .close(Some(tungstenite::protocol::CloseFrame { code, reason: "".into() }));
+                let _ = socket.flush();
+                continue;
+            }
+            let _ = socket.send(Message::text(frame.to_string()));
+        }
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                let frame = serde_json::from_str(text.as_str()).unwrap();
+                let _ = seen.send(Seen::Frame { conn, frame });
+            }
+            Ok(Message::Pong(payload)) => {
+                let pong = String::from_utf8_lossy(&payload).into_owned();
+                let _ = seen.send(Seen::Frame { conn, frame: json!({"pong": pong}) });
+            }
+            Ok(Message::Close(_)) => return,
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return,
+        }
+    }
+}
+
 fn fast() -> Timing {
     Timing {
         request: Duration::from_secs(2),
         window: Duration::from_millis(400),
         backoff_min: Duration::from_millis(20),
         backoff_max: Duration::from_millis(100),
+        heartbeat: Duration::from_millis(200),
     }
 }
 
@@ -230,6 +381,103 @@ fn create(owner: &mut Client, surface: u64) -> Value {
 fn state(owner: &mut Client) -> Value {
     let reply = owner.request(json!({"cmd":"agent-session-share-list"}));
     reply["data"]["shares"][0].clone()
+}
+
+fn redeem(id: &str, attempt: &str, secret: &Value) -> Value {
+    json!({"v": 1, "t": "redeem", "request_id": id, "attempt_id": attempt, "secret": secret,
+        "name": "Theo"})
+}
+
+#[test]
+fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_daemon() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-redeem", &room);
+    let reply = create(&mut owner, surface);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let (id, secret) = (share["share_id"].as_str().unwrap(), share["secret"].as_str().unwrap());
+    assert_eq!(share["url"], format!("{}/g/{id}#{secret}", room.url));
+    // The host socket: the daemon's first frame after `hello` is its guest list.
+    let (conn, bearer) = room.host();
+    assert_eq!(bearer, "host-token-1");
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "guests", "active": []}));
+    room.send(redeem("r1", "attempt-1", &json!(secret)));
+    let redeemed = room.frame(conn);
+    assert_eq!(
+        (redeemed["t"].clone(), redeemed["request_id"].clone()),
+        (json!("redeemed"), json!("r1"))
+    );
+    let guest = redeemed["guest_id"].clone();
+    assert_eq!(guest.as_str().unwrap().len(), 11);
+    // A lost reply's retry gets the same guest; another attempt finds the one use spent.
+    room.send(redeem("r2", "attempt-1", &json!(secret)));
+    assert_eq!(room.frame(conn)["guest_id"], guest);
+    room.send(redeem("r3", "attempt-2", &json!(secret)));
+    assert_eq!(
+        room.frame(conn),
+        json!({"v": 1, "t": "redeemed", "request_id": "r3", "error": "share.used"})
+    );
+    room.send(redeem("r4", "attempt-3", &json!("AAAAAAAAAAAAAAAAAAAAAA")));
+    assert_eq!(room.frame(conn)["error"], "share.secret");
+    // A dropped socket reconnects, and the fresh `hello` gets the guest list first again.
+    room.drop_host();
+    let (again, bearer) = room.host();
+    assert_eq!(bearer, "host-token-1");
+    assert_eq!(room.frame(again), json!({"v": 1, "t": "guests", "active": [guest]}));
+}
+
+#[test]
+fn a_kick_is_resent_until_the_room_acknowledges_it_and_a_revoke_ends_and_deletes() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-kick", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["active"], json!([]));
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "name":"Theo",
+        "attempt_id":"attempt-1"}))["data"]["guest_id"]
+        .clone();
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"],
+        "guest_id":guest});
+    assert_eq!(owner.request(kick)["ok"], true);
+    let kicked = json!({"v": 1, "t": "kick", "guest_id": guest});
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "guests", "active": []}));
+    assert_eq!(room.frame(conn), kicked);
+    // Not acknowledged: the next connect sends it again, after the guest list.
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    assert_eq!(room.frame(conn), kicked);
+    room.send(json!({"v": 1, "t": "kicked", "guest_id": guest}));
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    // Acknowledged: not resent. A revoke sends `end`, closes, and deletes with the host token.
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "revoked"}));
+    let (path, bearer, _) = room.request("DELETE");
+    let id = share["share_id"].as_str().unwrap();
+    assert_eq!((path, bearer), (format!("/v1/chat-shares/{id}"), "host-token-1".to_owned()));
+    room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
+    assert_eq!(state(&mut owner)["state"], "revoked");
+}
+
+/// The room closes the host socket when it deletes a share: `end` goes out before the `DELETE`,
+/// so the room still has the reason the share ended.
+#[test]
+fn a_revoke_sends_end_before_the_delete_that_closes_the_socket() {
+    let room = FakeRoom::start(&[]);
+    room.shared.delete_closes_host.store(true, Ordering::SeqCst);
+    let (_fake, _mux, surface, mut owner) = bridged("room-end-first", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    room.request("DELETE");
+    // Read back from the frames the socket held when the DELETE closed it.
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "revoked"}));
 }
 
 #[test]
@@ -288,6 +536,7 @@ fn an_unreachable_room_is_retried_then_the_share_is_revoked_and_deleted() {
     assert_eq!(path, format!("/v1/chat-shares/{}", listed["share_id"].as_str().unwrap()));
     assert_eq!(bearer, OWNER_TOKEN);
     assert_eq!(state(&mut owner)["state"], "revoked");
+    room.none("a host socket", |s| matches!(s, Seen::Host { .. }));
 }
 
 #[test]
@@ -301,6 +550,7 @@ fn a_room_that_answers_after_create_failed_is_deleted_with_its_host_token() {
     let (_, bearer, _) = room.request("DELETE");
     assert_eq!(bearer, "host-token-1");
     assert_eq!(state(&mut owner)["state"], "revoked");
+    room.none("a host socket", |s| matches!(s, Seen::Host { .. }));
 }
 
 #[test]
@@ -314,7 +564,10 @@ fn a_create_without_sign_in_or_that_the_room_refuses_opens_nothing() {
     assert_code(&create(&mut owner, surface), "share.needs_sign_in");
     room.request("PUT");
     room.request("PUT");
-    room.none("a DELETE", |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"));
+    room.none("a DELETE or a host socket", |s| {
+        matches!(s, Seen::Host { .. })
+            || matches!(s, Seen::Request { method, .. } if method == "DELETE")
+    });
 }
 
 fn shares_of(mux: &Mux) -> &LinkShares {
@@ -699,6 +952,36 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
 }
 
 #[test]
+fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, _owner) = bridged("room-late-token-race", &room);
+    let shares = shares_of(&mux);
+    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let id = created["share_id"].as_str().unwrap().to_owned();
+    shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
+    assert!(view(&mux, &id).unwrap().delete, "the revoke queues the room's DELETE");
+    // A cleanup worker is in flight for the share and has read it with no credential (the
+    // revoke's own worker, if it ran, has ended: it had no credential either).
+    let deadline = Instant::now() + WAIT;
+    while !shares.claim_room_delete(&id) {
+        assert!(Instant::now() < deadline, "the revoke's worker ends");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The late PUT answers: the worker holds the claim, so the token goes to the record.
+    delete(&mux, &id, Some(Held::Host(room.url.clone(), Zeroizing::new("late-host".into()))));
+    room.none(
+        "a DELETE while the worker holds the claim",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+    assert_eq!(view(&mux, &id).unwrap().host_token.as_deref(), Some("late-host"));
+    // The worker ends for want of the credential it read before the write.
+    drop(DeleteGuard { mux: Arc::downgrade(&mux), share_id: id.clone(), tokenless: true });
+    let (path, bearer, _) = room.request("DELETE");
+    assert_eq!(path, format!("/v1/chat-shares/{id}"));
+    assert_eq!(bearer, "late-host", "the room is deleted now, not at the share's expiry");
+}
+
+#[test]
 fn room_responses_are_bounded_with_or_without_content_length() {
     // The response is small control-plane JSON, never an attachment or transcript.
     let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(64 * 1024));
@@ -749,4 +1032,323 @@ fn room_responses_are_bounded_with_or_without_content_length() {
         server.join().unwrap();
         assert!(response.is_none(), "oversized response accepted (chunked={chunked})");
     }
+}
+
+#[test]
+fn closing_the_chat_closes_its_share_its_guests_and_its_room() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-closed", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "name":"Theo",
+        "attempt_id":"attempt-1"}));
+    let mut link = Client::connect(&mux, "room-closed-guest");
+    let bound = link.request(json!({"cmd":"agent-session-proxy-bind", "link_guest":
+        {"share_id": share["share_id"], "guest_id": guest["data"]["guest_id"]}}));
+    assert_eq!(bound["ok"], true, "{bound}");
+    // acpmux says the chat was closed.
+    crate::server::close_chat_shares(&mux, SESSION);
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "host-token-1");
+    let deadline = Instant::now() + WAIT;
+    while !mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline, "the guest's connection is closed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(state(&mut owner)["state"], "closed");
+    room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
+}
+
+#[test]
+fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
+    let room = FakeRoom::start(&[]);
+    let root = std::env::temp_dir()
+        .join(format!("cmux-room-host-restart-{}", crate::workspace_registry::new_uuid_v4()));
+    let options = crate::SurfaceOptions::default();
+    let mux = Mux::open_persistent("host-restart", options.clone(), &root).unwrap();
+    let shares = shares_of(&mux);
+    let directory = mux.session_state_directory().unwrap();
+    let now = shares.now();
+    shares
+        .with(Some(&directory), |all, _| {
+            all.push(LinkShare {
+                share_id: "active-1".into(),
+                session: SESSION.into(),
+                surface: 1,
+                created_at: now,
+                expires_at: now.saturating_add(3_600_000),
+                uses_left: 1,
+                state: ShareState::Active,
+                secret_sha256: String::new(),
+                provision_key: None,
+                room: Some(json!({"url": room.url, "host_token": "kept-host-token"})),
+                pending_room_ops: Vec::new(),
+                guests: Vec::new(),
+            });
+            Ok(((), true))
+        })
+        .unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    let mux = Mux::open_persistent("host-restart", options, &root).unwrap();
+    start_link_share_bridge(&mux, Some(&room.url));
+    let (_, bearer) = room.host();
+    assert_eq!(bearer, "kept-host-token");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, _owner) = bridged("room-moot-kicks", &room);
+    let shares = shares_of(&mux);
+    let now = shares.now();
+    shares
+        .with(None, |all, _| {
+            all.extend((0..MAX_SHARES).map(|index| LinkShare {
+                share_id: format!("ended-{index}"),
+                session: SESSION.into(),
+                surface,
+                created_at: now,
+                expires_at: now.saturating_add(60_000),
+                uses_left: 0,
+                state: ShareState::Revoked,
+                secret_sha256: String::new(),
+                provision_key: None,
+                room: Some(json!({"url": room.url, "host_token": "t"})),
+                pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
+                guests: Vec::new(),
+            }));
+            Ok(((), false))
+        })
+        .unwrap();
+    assert!(shares.insert(None, SESSION.into(), surface, 60, 1, false).is_ok());
+    shares
+        .with(None, |all, _| {
+            all[0].pending_room_ops.push(json!({"op": "delete"}));
+            Ok(((), false))
+        })
+        .unwrap();
+    let id = shares.with(None, |all, _| Ok((all[0].share_id.clone(), false))).unwrap();
+    assert!(done(&mux, &id, &json!({"op": "delete"})));
+    let left = shares.with(None, |all, _| Ok((all[0].pending_room_ops.clone(), false))).unwrap();
+    assert!(left.is_empty(), "the DELETE's answer also drops the moot kick: {left:?}");
+}
+
+#[test]
+fn closing_the_chat_stands_when_its_write_fails() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-close-unsaved", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let shares = shares_of(&mux);
+    shares.refuse_writes.store(true, Ordering::Relaxed);
+    crate::server::close_chat_shares(&mux, SESSION);
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
+    room.request("DELETE");
+    let redeem = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "name":"Late",
+        "attempt_id":"attempt-late"}));
+    assert_code(&redeem, "share.closed");
+    shares.refuse_writes.store(false, Ordering::Relaxed);
+    assert_eq!(state(&mut owner)["state"], "closed");
+}
+
+#[test]
+fn a_share_the_room_ended_ends_here_and_is_not_reconnected() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-ended-there", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"close": 4001}));
+    let deadline = Instant::now() + WAIT;
+    while state(&mut owner)["state"] != "revoked" {
+        assert!(Instant::now() < deadline, "the share ends when its room ended it");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
+    room.none(
+        "a DELETE of a room already gone",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+}
+
+/// The room's expiry alarm may end a share before the daemon's own timer: the room's `end`
+/// reason keeps it expired here, not revoked.
+#[test]
+fn a_share_the_room_expired_is_expired_here() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-expired-there", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v": 1, "t": "end", "reason": "expired"}));
+    room.send(json!({"close": 4001}));
+    let deadline = Instant::now() + WAIT;
+    while state(&mut owner)["state"] != "expired" {
+        assert!(Instant::now() < deadline, "the share the room expired is expired here");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn only_guest_facing_redeem_refusals_reach_the_room() {
+    assert!(GUEST_REFUSALS.contains(&"share.used"));
+    for internal in ["share.unsaved", "share.unknown", "share.provisioning", "share.bad_request"] {
+        assert!(!GUEST_REFUSALS.contains(&internal), "{internal} stays in the daemon");
+    }
+}
+
+#[test]
+fn a_whole_chat_list_closes_the_shares_of_chats_it_left_out() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-unlisted", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let listed = std::iter::once(SESSION.to_owned()).collect();
+    let before = crate::server::open_chat_shares(&mux);
+    assert_eq!(before.len(), 1);
+    crate::server::close_unlisted_chat_shares(&mux, &listed, &before);
+    assert_eq!(state(&mut owner)["state"], "active", "a listed chat keeps its share");
+    // A share created after the list was asked for may be of a chat the list is too old to name.
+    crate::server::close_unlisted_chat_shares(&mux, &HashSet::new(), &HashSet::new());
+    assert_eq!(state(&mut owner)["state"], "active", "a share newer than the list stays");
+    // A closed page closes only shares older than the list.
+    crate::server::close_listed_chat_shares(&mux, SESSION, &HashSet::new());
+    assert_eq!(state(&mut owner)["state"], "active", "a share newer than a closed page stays");
+    crate::server::close_unlisted_chat_shares(&mux, &HashSet::new(), &before);
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
+    room.request("DELETE");
+    assert_eq!(state(&mut owner)["state"], "closed");
+}
+
+/// A host socket that goes quiet without a close (its connection lost, a NAT mapping gone) is
+/// pinged, dropped when nothing answers, and opened again.
+#[test]
+fn a_host_socket_lost_without_a_close_is_opened_again() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-silent", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.shared.silent.store(true, Ordering::SeqCst);
+    let (again, _) = room.host();
+    room.shared.silent.store(false, Ordering::SeqCst);
+    assert!(again > conn, "a fresh socket");
+    assert_eq!(room.frame(again)["t"], "guests");
+}
+
+/// A kick that races the share's end sends nothing after it: an ended share's socket sends only
+/// `end`.
+#[test]
+fn an_ended_share_reconciles_nothing() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-ended-kick", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let id = share["share_id"].as_str().unwrap().to_owned();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":id, "secret":share["secret"], "name":"Theo",
+        "attempt_id":"attempt-1"}))["data"]["guest_id"]
+        .clone();
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":id, "guest_id":guest});
+    assert_eq!(owner.request(kick)["ok"], true);
+    assert!(!reconcile(&mux, &id).is_empty(), "an active share sends its kicks");
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":id});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    assert_eq!(reconcile(&mux, &id), Vec::<Value>::new(), "an ended share sends no kick");
+}
+
+/// A room that refuses the host for good (401/403 at the upgrade, or close code 4003) leaves no
+/// share that looks usable: it is revoked here and its room `DELETE` runs.
+#[test]
+fn a_host_the_room_refuses_for_good_revokes_the_share() {
+    for refusal in ["403", "4003"] {
+        let room = FakeRoom::start(&[]);
+        let (_fake, _mux, surface, mut owner) = bridged(&format!("room-refused-{refusal}"), &room);
+        create(&mut owner, surface);
+        let (conn, _) = room.host();
+        assert_eq!(room.frame(conn)["t"], "guests");
+        if refusal == "403" {
+            *room.shared.refuse_host.lock().unwrap() = Some(403);
+            room.drop_host();
+            room.take("the refused upgrade", |s| matches!(s, Seen::Refused { status: 403 }));
+        } else {
+            room.send(json!({"close": 4003}));
+        }
+        let deadline = Instant::now() + WAIT;
+        while state(&mut owner)["state"] != "revoked" {
+            assert!(
+                Instant::now() < deadline,
+                "{refusal}: the share ends when its host is refused"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        room.request("DELETE");
+    }
+}
+
+#[test]
+fn the_host_socket_answers_a_ping() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-ping", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"ping": "keepalive"}));
+    assert_eq!(room.frame(conn), json!({"pong": "keepalive"}));
+}
+
+#[test]
+fn a_share_the_room_no_longer_has_ends_here() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-gone", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    *room.shared.refuse_host.lock().unwrap() = Some(404);
+    room.drop_host();
+    room.take("a refused upgrade", |s| matches!(s, Seen::Refused { status: 404 }));
+    let deadline = Instant::now() + WAIT;
+    while state(&mut owner)["state"] != "revoked" {
+        assert!(Instant::now() < deadline, "a share its room no longer has ends here");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    room.none(
+        "a DELETE of a room already gone",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+}
+
+#[test]
+fn a_room_end_stands_when_its_write_fails() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-ended-unsaved", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    shares_of(&mux).refuse_writes.store(true, Ordering::Relaxed);
+    room.send(json!({"close": 4001}));
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let redeem = owner.request(json!({"cmd":"agent-session-share-redeem",
+            "share_id":share["share_id"], "secret":share["secret"], "name":"Late",
+            "attempt_id":"attempt-late"}));
+        if redeem["error_code"] == "share.revoked" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the room's end stands unwritten: {redeem}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    shares_of(&mux).refuse_writes.store(false, Ordering::Relaxed);
 }
