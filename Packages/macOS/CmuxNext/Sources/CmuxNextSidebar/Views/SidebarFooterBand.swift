@@ -73,8 +73,9 @@ final class SidebarFooterBand {
     /// Whether an overfull pinned row needs the separate footer line reserved for Search.
     var needsDedicatedSearchRow: Bool {
         guard let host, let row = bandFirstRow else { return false }
-        let side = Self.searchButtonSide
-        return row.itemsMaxX + Metrics.space2 > host.bounds.maxX - side
+        return Self.searchPlacement(columnX: SidebarStyle.trailingColumnCenterX(sidebarWidth: host.bounds.width),
+                                    sidebarWidth: host.bounds.width, side: Self.searchButtonSide,
+                                    itemsMaxX: row.itemsMaxX).needsDedicatedRow
     }
 
     /// Puts the dots in their row at `top` (`height` > 0), after the footer
@@ -116,6 +117,17 @@ final class SidebarFooterBand {
     /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
     static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
 
+    /// Resolves Search's horizontal placement. An empty or fitting pinned row stays on the shared
+    /// trailing column; an overfull row gets the right-edge fallback and a dedicated footer line.
+    static func searchPlacement(columnX: CGFloat, sidebarWidth: CGFloat, side: CGFloat,
+                                itemsMaxX: CGFloat?) -> (x: CGFloat, needsDedicatedRow: Bool) {
+        let columnMinX = columnX - side / 2
+        guard let itemsMaxX else { return (columnMinX, false) }
+        let rightEdge = sidebarWidth - side
+        let requestedX = max(columnMinX, itemsMaxX + Metrics.space2)
+        return (min(requestedX, rightEdge), requestedX > rightEdge)
+    }
+
     /// The pinned footer section's padding under its last row. The footer is one line, the
     /// account control and the Search button centered on it, whose taller control ends on
     /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
@@ -156,21 +168,20 @@ final class SidebarFooterBand {
             // The search button shares the list rows' trailing column. Preserve the footer's
             // no-overlap guarantee for a customized row whose leading items are wider than the
             // normal avatar slot; ordinary rows keep the shared column exactly.
-            let columnMinX = columnX - side / 2
-            let rightEdge = host.bounds.maxX - side
-            let requestedX = max(columnMinX, row.itemsMaxX + Metrics.space2)
-            guard requestedX <= rightEdge else {
+            let placement = Self.searchPlacement(columnX: columnX, sidebarWidth: host.bounds.width,
+                                                 side: side, itemsMaxX: row.itemsMaxX)
+            guard !placement.needsDedicatedRow else {
                 // There is no horizontal slot in an overfull customized row. Keep Search
                 // reachable on its own footer line rather than hiding it or placing it outside.
                 let footer = host.footer.frame
                 let fallbackY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
                 let scale = host.window?.backingScaleFactor ?? 2
-                button.frame = NSRect(x: (rightEdge * scale).rounded() / scale,
+                button.frame = NSRect(x: (placement.x * scale).rounded() / scale,
                                       y: ((fallbackY - side / 2) * scale).rounded() / scale,
                                       width: side, height: side)
                 return button.frame.minX
             }
-            (x, midY) = (requestedX, row.frame.midY + searchLensDrop)
+            (x, midY) = (placement.x, row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
