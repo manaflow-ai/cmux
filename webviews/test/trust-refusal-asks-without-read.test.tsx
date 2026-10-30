@@ -268,6 +268,27 @@ test("a fresh chat's held trust retry is not sent in another fresh chat", async 
   expect(resent).toBe(0);
 });
 
+// Review at 74163885 (P2): a refusal in fresh chat B must not overwrite fresh chat A's held retry;
+// back in A, Trust still sends A's prompt.
+test("each fresh chat keeps its own held trust retry", async () => {
+  const { source } = slowPeer();
+  let liveVisit = "fresh-a";
+  const visit = () => liveVisit;
+  const render = () =>
+    act(async () => root.render(<Chat key="fresh-retries" trust={source} visit={visit} cwd={peerFolder} />));
+  await render();
+  const sent: string[] = [];
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => sent.push("a")));
+  liveVisit = "fresh-b";
+  await render();
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => sent.push("b")));
+  liveVisit = "fresh-a";
+  await render();
+  await act(async () => latest!.trust());
+  await render();
+  expect(sent).toEqual(["a"]);
+});
+
 test("a throwing trust retry shows the failed trust question instead of escaping React", async () => {
   const { source } = slowPeer();
   await open(source, "throwing-retry");
