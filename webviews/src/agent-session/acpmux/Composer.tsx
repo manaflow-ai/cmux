@@ -2053,7 +2053,7 @@ export function Composer({
                                   ? t("sidebar.sessions")
                                   : section === "tabs"
                                     ? (t as unknown as (key: string) => string)("newTab.openTabs")
-                                    : t("files.search"),
+                                    : t("sidebar.searchPlaceholder"),
                           choices: entries.map((entry): Choice => ({
                             id: entry.id,
                             name: entry.name,
