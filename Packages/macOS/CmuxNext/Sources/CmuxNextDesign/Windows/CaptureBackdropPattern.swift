@@ -3,7 +3,7 @@ import CmuxNextCompat
 
 /// What a capture backdrop (``CaptureBackdropPanel``) shows behind a window, so its translucency
 /// and the blur of its glass are visible in a capture: a uniform dark desktop shows neither.
-public enum CaptureBackdropPattern: Equatable, Sendable {
+public nonisolated enum CaptureBackdropPattern: Equatable, Sendable {
     /// Light and dark squares, ``cell`` points on a side.
     case checker
     /// Vertical bands of two saturated colors, ``cell`` points wide.
@@ -115,6 +115,12 @@ extension NSWindow {
         let panel = CaptureBackdropPanel(pattern: pattern, image: image, frame: (screen?.frame ?? frame).union(frame), target: self)
         panel.order(.below, relativeTo: windowNumber)
         return panel
+    }
+
+    /// The window numbers of every capture backdrop the app shows, which a snapshot never takes
+    /// as an overlay over its window (``floatingWindowsSnapshot()``).
+    static var captureBackdropNumbers: Set<Int> {
+        Set(NSApp.windows.compactMap { ($0 as? CaptureBackdropPanel).flatMap { $0.windowNumber > 0 ? $0.windowNumber : nil } })
     }
 
     /// The window number a snapshot of this window composites behind it: its capture backdrop's,

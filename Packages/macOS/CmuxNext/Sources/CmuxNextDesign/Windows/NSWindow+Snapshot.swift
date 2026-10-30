@@ -149,7 +149,10 @@ extension NSWindow {
         guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return nil }
         return FloatingWindowsCapturePlan(window: windowNumber, pid: getpid(),
                                           region: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY), layer: level.rawValue,
-                                          skipping: Set(visibleChildWindows.map(\.windowNumber)),
+                                          // Capture backdrops are never overlays: a snapshot composites only
+                                          // its own window's, behind it (another window's screen-sized
+                                          // backdrop in front would cover this window).
+                                          skipping: Set(visibleChildWindows.map(\.windowNumber)).union(Self.captureBackdropNumbers),
                                           ordinary: Self.ordinaryWindowTrees(besides: self))
     }
 
