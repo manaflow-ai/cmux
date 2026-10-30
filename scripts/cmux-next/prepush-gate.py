@@ -217,7 +217,8 @@ NUMBER = re.compile(r"\d+")
 # Lines a scanner prints that are not findings: summaries, backlogs and warning-tier annotations.
 INFO = re.compile(r"^(needs_review \(machine translated\)|\d+ tables, \d+ keys|::warning|.*ratchet debt|perf source guard: )")
 # A check that crashed instead of judging (both sides crash alike, so the diff alone would hide it).
-BROKEN = re.compile(r"Traceback \(most recent call last\)|No such file or directory|command not found|SyntaxError")
+BROKEN = re.compile(r"Traceback \(most recent call last\)|No such file or directory|command not found|SyntaxError|"
+                    r"failed with no finding")
 # The warning tiers CI gives the ratchets (cmux-next.yml, checks job).
 CI_ENV = {"L10N_STYLE_WARN_MAX": "100", "SCROLLBARS_WARN_MAX": "10", "GODFILES_WARN_SLACK": "20"}
 
@@ -674,15 +675,20 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
-    cache = tools_dir() / "swiftformat.cache"
     # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no
     # file:line, so the LOCATION filter dropped every finding and this layer never refused a push.
-    code, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), *present], tree)
-    found = [l for l in out.splitlines() if LOCATION.search(l)]
-    if code != 0 and not found:
-        # A failure with no located finding (a parse error, a bad config) is a broken check, not a pass.
+    # --cache ignore: the gate lints temporary trees by absolute path, so a shared cache never hits and only
+    # grows (hundreds of MB, tens of seconds a run), which could run past run()'s time limit.
+    code, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
+    lines = out.splitlines()
+    found = [l for l in lines if LOCATION.search(l)]
+    # A file SwiftFormat cannot read (a parse error) prints "error: ..." with no file:line; keep every such
+    # line, sorted (SwiftFormat prints them in no fixed order), so one new on the head is a new finding.
+    errors = sorted(l.strip() for l in lines if l.strip().startswith("error:") and not LOCATION.search(l))
+    if code != 0 and not found and not errors:
+        # Failed with nothing to show (a timeout, no output): a broken check, not a pass. BROKEN names it.
         return "swiftformat --lint failed with no finding: " + (out.strip().splitlines() or ["no output"])[-1]
-    return "\n".join(found)
+    return "\n".join(found + errors)
 
 
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
