@@ -57,7 +57,7 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { VirtualTranscript, FOLLOW_BOTTOM_DEADBAND_PX } = await import("../src/agent-session/acpmux/App");
 
 afterAll(() => {
   dom.window.close();
@@ -100,7 +100,8 @@ test("a stale queued latest frame reports the live parked state to its parent", 
       get: () => parseFloat(spacer.style.height),
     });
     const latest = scroller.scrollHeight - VIEWPORT;
-    const parked = latest - VIEWPORT;
+    // The scroller keeps whole pixels (jsdomScroller), as WebKit does.
+    const parked = Math.floor(latest - VIEWPORT);
     changes.length = 0;
     await act(async () => {
       // Queue bottom-follow, then a rail/native default moves the DOM before the queued RAF.
@@ -115,6 +116,68 @@ test("a stale queued latest frame reports the live parked state to its parent", 
     expect(scroller.scrollTop).toBe(parked);
     expect(changes.at(-1)).toBe(false);
   } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a parked reader's downward input does not double-apply a row above that shrank", async () => {
+  // Astra P2 on #26718: recent non-upward input (a click, a downward key or wheel) must not make the
+  // live offset, which the browser already moved up for a row above that shrank, the anchor base.
+  const long = `Answer 1.\n\n${"A long paragraph that later collapses. ".repeat(80)}`;
+  const tall = turns.map((r) => (r.id === "t1-answer" ? { ...r, text: long } : r));
+  const short = turns.map((r) => (r.id === "t1-answer" ? { ...r, text: "Answer 1.", version: 2 } : r));
+  const expanded = new Set<string>();
+  const heightOf = async (shown: AcpmuxRow[]) => {
+    const host = dom.window.document.createElement("div");
+    dom.window.document.body.append(host);
+    const probe = createRoot(host);
+    await act(async () =>
+      probe.render(
+        <VirtualTranscript rows={turnView(shown, expanded)} onToggleActivity={() => {}} expanded={expanded} />,
+      ),
+    );
+    const height = parseFloat(host.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+    await act(async () => probe.unmount());
+    host.remove();
+    return height;
+  };
+  const shrink = (await heightOf(tall)) - (await heightOf(short));
+  expect(shrink).toBeGreaterThan(FOLLOW_BOTTOM_DEADBAND_PX * 4);
+  const realNow = performance.now;
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const draw = (shown: AcpmuxRow[]) =>
+    root.render(<VirtualTranscript rows={turnView(shown, expanded)} onToggleActivity={() => {}} expanded={expanded} />);
+  try {
+    await act(async () => draw(tall));
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const parked = Math.round(scrollerEnd(scroller) / 2);
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120 }));
+      scroller.scrollTop = parked;
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
+      await nextFrame();
+    });
+    expect(scroller.scrollTop).toBe(parked);
+    const anchor = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find(
+      (el) => parseFloat(el.style.top) >= parked,
+    )!;
+    const id = anchor.dataset.rowId!;
+    const seen = parseFloat(anchor.style.top) - parked;
+    // Let the upward wheel's input window (1 s) lapse: the reader is parked and acknowledged.
+    performance.now = () => realNow.call(performance) + 1_100;
+    await act(async () => {
+      // A click (not upward movement), then the shrink above lands with the browser's own offset
+      // adjustment already applied before its scroll event.
+      scroller.dispatchEvent(new dom.window.Event("pointerdown"));
+      scroller.scrollTop = parked - shrink;
+      draw(short);
+    });
+    const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((el) => el.dataset.rowId === id)!;
+    // The scroller keeps whole pixels while the shrink is fractional: at most a pixel of rounding.
+    expect(Math.abs(parseFloat(row.style.top) - scroller.scrollTop - seen)).toBeLessThanOrEqual(1);
+  } finally {
+    performance.now = realNow;
     await act(async () => root.unmount());
   }
 });
