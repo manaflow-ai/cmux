@@ -1084,6 +1084,11 @@ impl Hub {
             self.restore_git_branch(session, branch);
         }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
+        // An unreadable log may hold a move that began here: fail closed and keep the chat
+        // frozen, never free it to run beside the copy that may be running on its target.
+        if scanned.is_err() && moving.is_none() {
+            moving = Some(transfer_out::LOG_UNREADABLE.to_owned());
+        }
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         // An inbox digest whose turn never started gives its messages back in its place.
         digests.finish(&mut waiting, &mut order, |id, order| {

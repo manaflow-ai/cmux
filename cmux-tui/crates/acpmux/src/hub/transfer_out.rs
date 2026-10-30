@@ -105,6 +105,11 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
 /// move has that id, so it is never committed, aborted or watched again.
 pub(super) const MOVED_AWAY: &str = "moved-away";
 
+/// The `moving` mark of a chat whose log could not be read at load (`queue.rs`
+/// `restore_queue`): whether a move of it began is unknown, so it stays frozen, as a move would
+/// keep it, until a later load reads its log. No move has that id.
+pub(super) const LOG_UNREADABLE: &str = "log-unreadable";
+
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
     let host = to["host"].as_str().map(|h| format!(" to {h}")).unwrap_or_default();
