@@ -752,7 +752,7 @@ mod tests {
                 let (seal_done_tx, seal_done_rx) = std::sync::mpsc::channel();
                 let seal = std::thread::spawn(move || {
                     seal_hub.seal_retry_replacement(&seal_session);
-                    seal_done_tx.send(()).unwrap();
+                    let _ = seal_done_tx.send(());
                 });
                 seal_handle_tx.send(seal).unwrap();
                 // An append-only fence can complete here, between the replaced check and
