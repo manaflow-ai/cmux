@@ -103,6 +103,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+log = "0.4" # DIAG: smoltcp event counts (HQ 5080), removed before landing
 tempfile = "3"
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
