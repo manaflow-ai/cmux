@@ -28,7 +28,10 @@ impl Hub {
                     }
                     true
                 }
-                "auto_resume_settled" | "auto_resume_skipped" | "auto_resume_exhausted" => {
+                "auto_resume_settled"
+                | "auto_resume_manual"
+                | "auto_resume_skipped"
+                | "auto_resume_exhausted" => {
                     // Stop can race between set_retry and appending its scheduled event.
                     // A decision for this turn wins even if that append came afterward.
                     settled = true;
@@ -47,6 +50,7 @@ impl Hub {
         let Some(control) = saved["control"].as_str().map(str::to_owned) else { return };
         let Some(gate) = saved["trustGate"].as_bool() else { return };
         let Some(error) = saved["error"].as_str().map(str::to_owned) else { return };
+        let not_before = saved["notBefore"].as_u64();
         let from = saved["from"].as_str().map(str::to_owned);
         let prompt = prompt.to_owned();
         let turn = turn.to_owned();
@@ -64,7 +68,7 @@ impl Hub {
             control: Control::from_recorded(Some(&control)),
             trust_gate: gate,
             error: &error,
-            not_before: None,
+            not_before,
         };
         hub.schedule_auto_resume_at(&session, &turn, Some(cut), at);
     }

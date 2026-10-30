@@ -425,6 +425,7 @@ impl Hub {
                 "error": error,
                 "control": control.as_str(),
                 "trustGate": trust_gate,
+                "notBefore": not_before,
                 "from": from.as_deref(),
             }),
         );
@@ -477,6 +478,7 @@ impl Hub {
             msg.set("error", json!(error));
             msg.set("control", json!(control.as_str()));
             msg.set("trustGate", json!(trust_gate));
+            msg.set("notBefore", json!(not_before));
             if let Some(from) = &from {
                 msg.set("from", json!(from));
             }
@@ -568,6 +570,9 @@ impl Hub {
             (Some(t), _) => pending.insert(id, Mark::Stopped(t)),
             (None, Some(t)) if fired => pending.insert(id, Mark::Stopping(t)),
             (None, Some(t)) => pending.insert(id, Mark::Stopped(t)),
+            (None, None) if unrestored.is_some() => {
+                pending.insert(id, Mark::Stopped(unrestored.clone().unwrap()));
+            }
             (None, None) => pending.remove(&id),
         };
         drop(pending);
