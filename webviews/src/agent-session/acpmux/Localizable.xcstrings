@@ -1,6 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "newTab.row.run": {"comment":"New Tab dropdown: a Commands palette action row's hint when the action has no shortcut","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Run"}},"ar":{"stringUnit":{"state":"translated","value":"تشغيل"}},"bs":{"stringUnit":{"state":"translated","value":"Pokreni"}},"da":{"stringUnit":{"state":"translated","value":"Kør"}},"de":{"stringUnit":{"state":"translated","value":"Ausführen"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutar"}},"fr":{"stringUnit":{"state":"translated","value":"Exécuter"}},"it":{"stringUnit":{"state":"translated","value":"Esegui"}},"ja":{"stringUnit":{"state":"translated","value":"実行"}},"km":{"stringUnit":{"state":"translated","value":"ដំណើរការ"}},"ko":{"stringUnit":{"state":"translated","value":"실행"}},"nb":{"stringUnit":{"state":"translated","value":"Kjør"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchom"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Executar"}},"ru":{"stringUnit":{"state":"translated","value":"Выполнить"}},"th":{"stringUnit":{"state":"translated","value":"เรียกใช้"}},"tr":{"stringUnit":{"state":"translated","value":"Çalıştır"}},"uk":{"stringUnit":{"state":"translated","value":"Виконати"}},"vi":{"stringUnit":{"state":"translated","value":"Chạy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"运行"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"執行"}}}},
     "chatMenu.forkTo": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fork to…"}},"ar":{"stringUnit":{"state":"translated","value":"إنشاء فرع في…"}},"de":{"stringUnit":{"state":"translated","value":"Verzweigen nach…"}},"fr":{"stringUnit":{"state":"translated","value":"Créer une branche dans…"}},"es":{"stringUnit":{"state":"translated","value":"Crear rama en…"}},"ja":{"stringUnit":{"state":"translated","value":"分岐先…"}},"ko":{"stringUnit":{"state":"translated","value":"다음 위치로 분기…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"分支到…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"分支至…"}},"bs":{"stringUnit":{"state":"translated","value":"Napravi granu u…"}},"da":{"stringUnit":{"state":"translated","value":"Forgren til…"}},"it":{"stringUnit":{"state":"translated","value":"Crea un ramo in…"}},"km":{"stringUnit":{"state":"translated","value":"បំបែកសាខាទៅ…"}},"nb":{"stringUnit":{"state":"translated","value":"Forgren til…"}},"pl":{"stringUnit":{"state":"translated","value":"Utwórz odgałęzienie w…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Criar ramificação em…"}},"ru":{"stringUnit":{"state":"translated","value":"Создать ветку в…"}},"th":{"stringUnit":{"state":"translated","value":"แยกสาขาไปยัง…"}},"tr":{"stringUnit":{"state":"translated","value":"Şuraya dallandır…"}},"uk":{"stringUnit":{"state":"translated","value":"Створити гілку в…"}},"vi":{"stringUnit":{"state":"translated","value":"Tạo nhánh tại…"}}}},
     "composer.connectPhone": {"comment":"Agent pane: the environment picker's row under New environment that opens the Mobile Pairing page, so cmux on iPhone reaches this Mac (EnvironmentPicker.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect Phone…"}},"ar":{"stringUnit":{"state":"translated","value":"ربط الهاتف…"}},"bs":{"stringUnit":{"state":"translated","value":"Poveži telefon…"}},"da":{"stringUnit":{"state":"translated","value":"Forbind telefon…"}},"de":{"stringUnit":{"state":"translated","value":"Telefon verbinden…"}},"es":{"stringUnit":{"state":"translated","value":"Conectar teléfono…"}},"fr":{"stringUnit":{"state":"translated","value":"Connecter un téléphone…"}},"it":{"stringUnit":{"state":"translated","value":"Collega telefono…"}},"ja":{"stringUnit":{"state":"translated","value":"電話を接続…"}},"km":{"stringUnit":{"state":"translated","value":"ភ្ជាប់ទូរសព្ទ…"}},"ko":{"stringUnit":{"state":"translated","value":"휴대폰 연결…"}},"nb":{"stringUnit":{"state":"translated","value":"Koble til telefon…"}},"pl":{"stringUnit":{"state":"translated","value":"Połącz telefon…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conectar celular…"}},"ru":{"stringUnit":{"state":"translated","value":"Подключить телефон…"}},"th":{"stringUnit":{"state":"translated","value":"เชื่อมต่อโทรศัพท์…"}},"tr":{"stringUnit":{"state":"translated","value":"Telefon Bağla…"}},"uk":{"stringUnit":{"state":"translated","value":"Підключити телефон…"}},"vi":{"stringUnit":{"state":"translated","value":"Kết nối điện thoại…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"连接手机…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"連接手機…"}}}},
     "picker.approvesAll": {"comment":"Agent pane: the mode chip of a chat whose permission policy approves every request (ComposerPickers.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Full access"}},"ar":{"stringUnit":{"state":"needs_review","value":"وصول كامل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Potpuni pristup"}},"da":{"stringUnit":{"state":"needs_review","value":"Fuld adgang"}},"de":{"stringUnit":{"state":"needs_review","value":"Vollzugriff"}},"es":{"stringUnit":{"state":"needs_review","value":"Acceso total"}},"fr":{"stringUnit":{"state":"needs_review","value":"Accès complet"}},"it":{"stringUnit":{"state":"needs_review","value":"Accesso completo"}},"ja":{"stringUnit":{"state":"needs_review","value":"フルアクセス"}},"km":{"stringUnit":{"state":"needs_review","value":"សិទ្ធិចូលប្រើពេញលេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"전체 액세스"}},"nb":{"stringUnit":{"state":"needs_review","value":"Full tilgang"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pełny dostęp"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Acesso total"}},"ru":{"stringUnit":{"state":"needs_review","value":"Полный доступ"}},"th":{"stringUnit":{"state":"needs_review","value":"สิทธิ์เข้าถึงเต็มรูปแบบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tam erişim"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повний доступ"}},"vi":{"stringUnit":{"state":"needs_review","value":"Toàn quyền truy cập"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"完全访问"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"完整存取"}}}},
@@ -53862,6 +53863,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "從此處分支"
+          }
+        }
+      }
+    },
+    "turn.nothingToContinue": {
+      "comment": "Agent pane: notice when Continue After Error (palette, CLI, MCP) runs but the chat's last turn did not fail",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء للمتابعة: الدور الأخير لم يفشل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema se šta nastaviti: posljednji potez nije pao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet at fortsætte: den sidste tur fejlede ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nichts fortzusetzen: Der letzte Durchgang ist nicht fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to continue: the last turn didn’t fail."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay nada que continuar: el último turno no falló."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien à poursuivre : le dernier tour n’a pas échoué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niente da continuare: l’ultimo turno non è fallito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "続行するものはありません：最後のターンは失敗していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីត្រូវបន្តទេ៖ វេនចុងក្រោយមិនបានបរាជ័យទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계속할 항목이 없습니다. 마지막 턴은 실패하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting å fortsette: den siste runden feilet ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie ma czego kontynuować: ostatnia tura nie zakończyła się błędem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada para continuar: o último turno não falhou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нечего продолжать: последний ход не завершился ошибкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีอะไรให้ดำเนินการต่อ: เทิร์นล่าสุดไม่ได้ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Devam edilecek bir şey yok: son tur başarısız olmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нічого продовжувати: останній хід не завершився помилкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có gì để tiếp tục: lượt cuối không bị lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可继续的内容：上一轮没有失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可繼續的內容：上一輪沒有失敗。"
           }
         }
       }
