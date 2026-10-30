@@ -26,7 +26,7 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
-mod cancel;
+pub(crate) mod cancel;
 mod catalog_reload;
 mod complete;
 pub mod composers;
@@ -135,6 +135,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod key_route;
 pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
