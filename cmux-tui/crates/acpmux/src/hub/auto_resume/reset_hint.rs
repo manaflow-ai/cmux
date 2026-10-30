@@ -101,11 +101,11 @@ fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
     if let Ok(named) = zone.parse::<Tz>() {
         let utc = Utc.timestamp_millis_opt(now_ms as i64).single()?;
         let local_now = utc.with_timezone(&named);
-        let mut deadline = named_deadline_ms(named, local_now.date(), hour, minute)?;
+        let mut deadline = named_deadline_ms(named, local_now.date_naive(), hour, minute)?;
         if deadline <= now_ms {
             deadline = named_deadline_ms(
                 named,
-                local_now.date() + chrono::Duration::days(1),
+                local_now.date_naive() + chrono::Duration::days(1),
                 hour,
                 minute,
             )?;
