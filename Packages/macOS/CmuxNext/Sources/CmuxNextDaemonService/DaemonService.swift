@@ -4,7 +4,7 @@ import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 import Network
 public import Observation
 public import os
@@ -69,6 +69,8 @@ public final class DaemonService {
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
+    /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
+    @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
@@ -128,6 +130,14 @@ public final class DaemonService {
     @ObservationIgnored public private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+
+    /// Starts a fresh daemon connection attempt. This is deliberately synchronous: callers
+    /// stamp their transport attempt and clear its failure before waking the asynchronous loop.
+    public func beginAttempt() {
+        startup = .connecting
+        lastStartupError = nil
+        armStartupDeadline()
+    }
     /// How the connections reach this app's daemon (the page relay opens its own with it).
     @ObservationIgnored public private(set) var endpointProvider: DaemonConnection.EndpointProvider?
     /// A remote machine's route (`start(remote:)`), for a second connection to its daemon (an

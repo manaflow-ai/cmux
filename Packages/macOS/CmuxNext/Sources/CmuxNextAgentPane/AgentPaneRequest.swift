@@ -69,6 +69,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
+    /// `readAloud.speak` / `readAloud.stop`: the speaker under a message (``AgentPaneReadAloud``).
+    case readAloud(AgentPaneReadAloud.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -116,6 +118,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setAgentAvatar(String)
     /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
     case removeAgentAvatar(String)
+    /// `chief.face {chief}`: the name and avatar Chief `chief` (a participant id, `agent_mux` or
+    /// `agent_…`) shows in the sidebar and Home, for a message it sent this chat (acpmux
+    /// `fromChief`, manaflow-ai/cmux#27914): `name`, and `src` (a small data URL) or `text`.
+    case chiefFace(String)
     /// `harness.symbol {name}`: a custom harness's SF Symbol icon as a template PNG `data:` URL
     /// (``HarnessSymbolImages``); a name this Mac cannot draw answers nothing.
     case harnessSymbol(String)
@@ -194,6 +200,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
+    /// `pane.commandAvailability`: the page commands the native palette may run in this chat now
+    /// (``AgentPageCommand``); the palette greys out the others.
+    case commandAvailability([String])
     /// `pane.painted`: the document drew its first frame after the handshake
     /// (once per document). `fromKeptTail` is the page's own account of what it
     /// drew there: a chat it took from a kept tail (tailCache.ts), which is
@@ -203,6 +212,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
+    /// machine the chat runs on (``AgentPaneDictationUpload``).
+    case dictationRecordingUpload(path: String)
+    /// `dictation.recording.cancel {path}`: the chip's ×; the upload of `path` running now stops.
+    case dictationRecordingCancel(path: String)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)

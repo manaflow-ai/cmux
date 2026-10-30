@@ -129,6 +129,7 @@ mod tests {
                 swap_mb: Some(2048),
                 tasks_max: Some(8192),
                 sessions_tasks_max: Some(131_072),
+                cpu_class: Some(crate::cpu_class::CpuClass::Normal),
             },
             SessionResourceConfig::default(),
         ] {

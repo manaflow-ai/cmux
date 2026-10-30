@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_web_ota_publication_contract.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "linux-guard"
 
@@ -342,6 +346,10 @@ path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_owned_mini_caches.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_acpmux_job_home.py"
 lane = "linux-guard"
 
@@ -579,6 +587,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_sim_runtime.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_ffi_cache.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1971,6 +1983,10 @@ path = "tests/test_pr_perf_section_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_design_spec_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_capture_check_paths.py"
 lane = "linux-guard"
 
@@ -2149,6 +2165,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
