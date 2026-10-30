@@ -42,10 +42,8 @@ NO_CAPTURE = re.compile(r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?No capture(?:\*\*)?(
 TEST_PATH = re.compile(r"(?:^|/)Tests?/|(?:^|/)tests?/|_test\.|(?:^|/)\w+Tests\.swift$|\.(?:test|spec)\.[jt]sx?$")
 # A fenced block, or an unclosed fence to the end of the body.
 FENCE = re.compile(r"^\s{0,3}(```|~~~).*?(?:^\s{0,3}\1|\Z)", re.DOTALL | re.MULTILINE)
-# Markdown indented code blocks are code too, even without fence markers.  Strip each
-# indented line before looking for evidence so a copied template cannot satisfy the check.
-INDENTED_CODE = re.compile(r"(?m)^(?: {4}|\t)[^\n]*(?:\n|$)")
-COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# Treat an unterminated comment as hidden through the end of the body too.
+COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
 COMMAND = "cmux-ci capture {sha} --state tour:{tour} --pr {pr}"
 VIEWED_AFTER = re.compile(
@@ -84,27 +82,37 @@ def evidence(body: str, labels: set[str], pr: str = "") -> tuple[str, str | None
     return "", None
 
 
+def visible_markdown(body: str) -> str:
+    """Remove HTML comments and Markdown code blocks before matching proof lines."""
+    text = COMMENT.sub("", body or "")
+    visible: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines(keepends=True):
+        # Normalize any depth of blockquote prefix, so nested quoted examples are
+        # handled just like top-level fenced or indented code.
+        content = line.rstrip("\n")
+        while quote := re.match(r"^ {0,3}>[ \t]?", content):
+            content = content[quote.end():]
+        stripped = content.lstrip(" \t")
+        if fence is not None:
+            if stripped.startswith(fence):
+                fence = None
+            continue
+        if stripped.startswith("```"):
+            fence = "```"
+            continue
+        if stripped.startswith("~~~"):
+            fence = "~~~"
+            continue
+        if content.startswith("    ") or content.startswith("\t"):
+            continue
+        visible.append(line)
+    return "".join(visible)
+
+
 def visual_judgment(body: str) -> bool:
     """Whether the body records that its after image was viewed and judged."""
-    # Remove comments before indented code: otherwise an indented `-->` can be
-    # deleted first and leave hidden proof text looking like ordinary Markdown.
-    text = COMMENT.sub("", body or "")
-    text = FENCE.sub("", text)
-    # A fenced example inside a blockquote is still code.  Strip quoted fences
-    # line-by-line because the ordinary fence regex does not see the `>` prefix.
-    quoted_fence: str | None = None
-    visible_lines: list[str] = []
-    for line in text.splitlines(keepends=True):
-        marker = re.match(r"^\s{0,3}>\s{0,3}(```|~~~)", line)
-        if quoted_fence:
-            if marker and marker.group(1) == quoted_fence:
-                quoted_fence = None
-            continue
-        if marker:
-            quoted_fence = marker.group(1)
-            continue
-        visible_lines.append(line)
-    text = INDENTED_CODE.sub("", "".join(visible_lines))
+    text = visible_markdown(body)
     verdict = VISUAL_VERDICT.search(text)
     if not VIEWED_AFTER.search(text) or not verdict:
         return False
