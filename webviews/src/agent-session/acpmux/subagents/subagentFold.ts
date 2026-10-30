@@ -222,13 +222,7 @@ export class SubagentFold {
       this.changed.add(group);
     }
     if (phantomGroup) this.changed.add(phantomGroup);
-    for (const [parent, entries] of this.own) {
-      const kept = entries.filter((entry) => entry.spawned !== id);
-      if (kept.length !== entries.length) {
-        this.own.set(parent, kept);
-        this.bump(parent);
-      }
-    }
+    for (const parent of this.own.keys()) this.dropSpawn(parent, id);
     const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
     if (promoted.length === 0) return;
     const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at: phantom.startedAt, version: 0, ids: [] };
@@ -881,14 +875,7 @@ export class SubagentFold {
         this.changed.add(group);
       }
     } else {
-      const entries = this.own.get(oldParent);
-      if (entries) {
-        const kept = entries.filter((entry) => entry.spawned !== agent.id);
-        if (kept.length !== entries.length) {
-          this.own.set(oldParent, kept);
-          this.bump(oldParent);
-        }
-      }
+      this.dropSpawn(oldParent, agent.id);
     }
     agent.parent = parent;
     if (parent === null) {
@@ -897,6 +884,20 @@ export class SubagentFold {
       this.groupOf.set(agent.id, this.open);
       this.changed.add(this.open);
     } else this.record(parent, { event, spawned: agent.id });
+  }
+
+  /// Takes `child`'s spawn out of `parent`'s view. The drawn view folds its entries append-only
+  /// (``ChildRowView``), so one that lost an entry is drawn again from the start: its cached group
+  /// would still show the child, and its cursor would skip what the parent records next.
+  private dropSpawn(parent: string, child: string): void {
+    const entries = this.own.get(parent);
+    if (!entries) return;
+    const kept = entries.filter((entry) => entry.spawned !== child);
+    if (kept.length === entries.length) return;
+    this.own.set(parent, kept);
+    this.drawn.delete(parent);
+    this.bumpViewRevision(parent);
+    this.bump(parent);
   }
 
   private bump(id: string): void {

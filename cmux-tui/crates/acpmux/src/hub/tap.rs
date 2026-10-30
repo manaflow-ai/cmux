@@ -276,20 +276,17 @@ impl Hub {
                 && let Some(params) = value.get_mut("params")
             {
                 // The chat's own thread is never one of its subagents. Seed the
-                // native root before handling updates so echoed root activity cannot
+                // native roots (the current one and the earlier ones a daemon restart
+                // forgot) before handling updates so echoed root activity cannot
                 // create a phantom child; replay keeps live/background semantics.
-                let own = tap_session
-                    .meta
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .agent_session_id
-                    .clone();
+                let (own, retired) = {
+                    let meta = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    (meta.agent_session_id.clone(), meta.retired_agent_session_ids.clone())
+                };
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
                 let before = tree.background_running();
-                if let Some(root) = own.as_deref() {
-                    tree.set_root(root);
-                }
+                tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
             }

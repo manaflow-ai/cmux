@@ -84,6 +84,14 @@ impl SubagentTree {
         self.remember_root(id);
     }
 
+    /// Seeds every native root the chat had: its current id and its earlier ones
+    /// (`SessionMeta::retired_agent_session_ids`), which replayed or persisted records still name.
+    pub fn set_roots<'a>(&mut self, roots: impl IntoIterator<Item = &'a str>) {
+        for root in roots {
+            self.remember_root(root);
+        }
+    }
+
     /// Whether `session_id` is one of this session's subagents.
     pub fn owns(&self, session_id: &str) -> bool {
         self.own.as_deref() != Some(session_id) && self.parents.contains_key(session_id)
