@@ -235,6 +235,12 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
+test("a trust question closes an open destination picker before it can cover the ask", async () => {
+  await mount(true, { closeOnTrustAsk: true });
+  await openPicker();
+  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+});
+
 // A fresh home must offer setup without enabling the environments preview. The same
 // plain Computer menu is usable from an existing local chat; its machine stays fixed.
 for (const started of [false, true]) {
