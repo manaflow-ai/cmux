@@ -112,6 +112,7 @@ test("disconnect cancels an older-page backoff while the mounted session waits t
         () => true,
         () => true,
       ),
+      // fixed-wait: give the cancelled request a bounded chance to settle before asserting.
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
     ]);
     expect(settled).toBe(true);
