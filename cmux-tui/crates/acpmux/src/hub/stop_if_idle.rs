@@ -3,12 +3,12 @@
 //!
 //! A reconciler that reads a session, decides it is idle and then stops it races every turn
 //! admitted between the read and the stop: a plain stop ends that turn mid-way. This stop checks
-//! and stops under the leases a turn is admitted under (`turn_lock`, as `queue.rs` `queue_slot`
-//! takes it for each prompt), the ones an agent start or a mode change holds (`harness_use`,
-//! `spawn_lock`), as the idle pass does (`idle.rs`). So no turn begins between the check and the
-//! stop: one that already holds the lease makes the stop refuse, and one that comes later waits
-//! for the stop to finish (it is then refused as stopped before its prompt, or starts the closed
-//! session again, as after any stop).
+//! under the lease a turn is admitted under (`turn_lock`, as `queue.rs` `queue_slot` takes it for
+//! each prompt) and the ones an agent start or a mode change holds (`harness_use`, `spawn_lock`),
+//! as the idle pass does (`idle.rs`), and stops with the turn lock still held. So no turn begins
+//! between the check and the stop: one that already holds the lease makes the stop refuse, and one
+//! that comes later waits for the stop to finish (it is then refused as stopped before its prompt,
+//! or starts the closed session again, as after any stop).
 //!
 //! The session's revision is its log's last sequence (`lastSeq` in `acpmux ls --json`,
 //! `session info --json`, and each record's `seq` in `session tail`). It is stored, so it only
@@ -154,10 +154,11 @@ impl Hub {
         {
             return Err(refusal(session, REVISION_MOVED, None, revision));
         }
-        // `kill` takes no spawn lock; the turn lock and the exclusive `harness_use` stay held
-        // through it, so no turn, start or mode change begins until the session is closed.
+        // The turn lock stays held through the stop, so no turn begins until the session is
+        // closed. The other leases go back to what a plain stop holds: `harness_use` shared (no
+        // writer gets in between), the spawn lock not at all.
         drop(spawning);
-        self.kill_held(session, purge, using).await
+        self.kill_held(session, purge, using.downgrade()).await
     }
 
     /// What keeps the session from being idle, if anything.
