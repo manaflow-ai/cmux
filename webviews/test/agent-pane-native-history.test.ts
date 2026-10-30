@@ -146,24 +146,14 @@ function fakeDaemon({ serves = true, unknown = false, refused = "", restoreBefor
     return socket as WebSocket;
   };
   const restoredQueue = () => {
-    for (const [method, params] of [
-      [
-        "_acpmux/event",
-        {
-          sessionId: CHAT,
-          seq: lastSeq + 1,
-          at: START + 100_000,
-          dir: "mux",
-          kind: "queue_order",
-          msg: { order: ["held"] },
-        },
-      ],
-      [
-        "_acpmux/session_changed",
-        {
+    socket.onmessage?.({
+      data: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/session_changed",
+        params: {
           sessionId: CHAT,
           kind: "queue",
-          recordKind: "queue_order",
+          recordKind: "queue_restored",
           seq: lastSeq + 1,
           session: {
             ...session,
@@ -172,9 +162,8 @@ function fakeDaemon({ serves = true, unknown = false, refused = "", restoreBefor
             queuePaused: true,
           },
         },
-      ],
-    ])
-      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
+      }),
+    });
   };
   return { open, nativeReads, nativeMarks, attaches, restoredQueue };
 }

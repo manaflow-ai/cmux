@@ -125,25 +125,25 @@ fn restoring_a_queue_publishes_one_snapshot_for_an_early_attach() {
     let mut events = hub.subscribe();
     hub.restore_queue(&session);
     let event = events.try_recv().expect("restore publishes the queue snapshot");
-    assert_eq!(event.record.kind, "queue_order");
+    assert_eq!(event.record.kind, "queue_restored");
     assert!(event.record.seq > before_restore);
-    assert_eq!(event.record.msg["order"], json!(["p1"]));
+    assert!(event.record.msg.get("order").is_none(), "a notice must not replay stale order");
     assert_eq!(hub.session_summary(&session)["queued"], 1);
     assert_eq!(hub.session_summary(&session)["queue"][0]["promptId"], "p1");
     assert!(session.queue()[0].held, "the restored held prompt remains held");
     let mut snapshots = Vec::new();
     hub.store
-        .scan_kinds(&session.id, &["queue_order"], &mut |event| {
+        .scan_kinds(&session.id, &["queue_restored"], &mut |event| {
             snapshots.push(event.msg);
             true
         })
         .unwrap();
     assert_eq!(snapshots.len(), 1);
-    assert_eq!(snapshots[0]["order"], json!(["p1"]));
+    assert!(snapshots[0].get("order").is_none());
     hub.restore_queue(&session);
     let mut count = 0;
     hub.store
-        .scan_kinds(&session.id, &["queue_order"], &mut |_| {
+        .scan_kinds(&session.id, &["queue_restored"], &mut |_| {
             count += 1;
             true
         })

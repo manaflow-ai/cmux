@@ -1621,6 +1621,7 @@ impl Hub {
                 | "dequeued"
                 | "queue_removed"
                 | "queue_order"
+                | "queue_restored"
                 | "queue_paused"
                 | "queue_resumed"
                 | "created"

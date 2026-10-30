@@ -1193,19 +1193,17 @@ impl Hub {
             session.queued.fetch_add(1, Ordering::SeqCst);
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
         }
-        let order = restored_any.then(|| {
-            queue.iter().map(|prompt| Value::String(prompt.prompt_id.clone())).collect::<Vec<_>>()
-        });
         let restored_count = queue.len();
         drop(restored);
         drop(ledger);
         drop(queue);
         // A visible attach may have answered before this background log restore. Publish one
-        // durable queue snapshot so its event stream and session_changed summary learn the rows
-        // that were rebuilt after the attach page. This is idempotent: a second restore adds no
-        // prompt and emits no snapshot.
-        if let Some(order) = order {
-            self.append(session, "mux", "queue_order", json!({"order": order}));
+        // durable change notice so session_changed publishes the current queue summary. It must
+        // not persist an order captured before dropping the lock: a concurrent enqueue may have
+        // already written a newer order. This notice has no replay effect. A second restore adds
+        // no prompt and emits nothing.
+        if restored_any {
+            self.append(session, "mux", "queue_restored", json!({}));
         }
         tracing::info!(session = %session.id, queued = restored_count, "restored queued prompts");
     }
