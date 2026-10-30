@@ -221,7 +221,7 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertFalse(any(c[0] == "ffi" for c in self.calls()))
         cache_calls = [c for c in self.calls() if c[0] == "cache"]
         self.assertEqual([c[1] for c in cache_calls[:2]], ["key", "restore"])
-        self.assertEqual(cache_calls[1][2], "b" * 64)
+        self.assertEqual(cache_calls[1][3], "b" * 64)
         self.assertIn("- FFI: ", (self.out / "SUMMARY.md").read_text())
 
     def test_release_build_cache_miss_rebuilds_and_probes(self):
