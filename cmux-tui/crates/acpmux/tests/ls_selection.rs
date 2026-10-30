@@ -213,9 +213,9 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     let (all, _) = run(&root, &["ls", "--all"]);
     let all = String::from_utf8_lossy(&all.stdout);
     assert_eq!(all.lines().count(), 3_001, "a header and every session");
-    // Live rows first, closed after.
-    assert!(all.lines().nth(2_700).unwrap().starts_with("lane-1 "), "{all}");
-    assert!(all.lines().nth(2_701).unwrap().starts_with("lane-2990 "), "{all}");
+    // The daemon's order, newest first, closed rows in place.
+    assert!(all.lines().nth(1).unwrap().starts_with("lane-2999 "), "{all}");
+    assert!(all.lines().nth(10).unwrap().starts_with("lane-2990 "), "{all}");
 }
 
 /// hq#4897 failure 4: `acpmux ls` on a home no daemon serves started an empty daemon there and

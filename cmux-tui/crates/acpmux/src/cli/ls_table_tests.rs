@@ -164,3 +164,16 @@ fn a_filter_that_matches_nothing_still_names_the_down_peers() {
     assert!(out.starts_with("no sessions match these filters\n"), "{out}");
     assert!(out.contains("UNKNOWN air-blue: peer offline;"), "{out}");
 }
+
+#[test]
+fn every_view_keeps_the_daemons_order() {
+    let closed = with(lane("old"), json!({"status": "closed", "state": "closed"}));
+    let rows = [lane("newest"), closed, lane("oldest")];
+    let order = |out: &str| -> Vec<String> {
+        out.lines().skip(1).map(|l| l.split_whitespace().next().unwrap().to_owned()).collect()
+    };
+    let all = render(&rows, Some(&[]), View { all: true, wide: false }, false, NOW);
+    assert_eq!(order(&all), ["newest", "old", "oldest"], "{all}");
+    let filtered = render(&rows, Some(&[]), View::default(), true, NOW);
+    assert_eq!(order(&filtered), ["newest", "old", "oldest"], "{filtered}");
+}

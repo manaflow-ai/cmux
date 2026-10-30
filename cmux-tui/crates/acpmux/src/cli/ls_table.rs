@@ -205,12 +205,9 @@ pub fn render(
     now: u64,
 ) -> String {
     let mut hidden_counts = [0usize; HIDDEN_ORDER.len()];
-    // Live rows before closed ones, each newest first as the daemon sent them.
-    let closed = |row: &&Value| text(row, "status") == "closed";
+    // The daemon's order (newest first) in every view: `--limit`, `--since` and `--tag` read it.
     let shown: Vec<&Value> = sessions
         .iter()
-        .filter(|row| !closed(row))
-        .chain(sessions.iter().filter(closed))
         .filter(|row| match hidden(row) {
             Some(why) if !view.all && !filtered => {
                 let i = HIDDEN_ORDER.iter().position(|(h, _)| *h == why).unwrap_or(0);
