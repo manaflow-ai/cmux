@@ -36,6 +36,8 @@ public struct EternalTerminalCommandBuilder: Sendable {
         public let remoteBootstrapInstallFailed: String
         /// Warns that an explicit SSH retry may run the remote command again.
         public let startupRecoveryPrompt: String
+        /// Printed when the remote command is longer than ET can type into the remote shell.
+        public let commandTooLong: String
 
         /// Creates the fallback explanations.
         ///
@@ -46,13 +48,15 @@ public struct EternalTerminalCommandBuilder: Sendable {
         ///   - serverUnreachable: The remote `etserver` port refused or timed out.
         ///   - remoteBootstrapInstallFailed: Bootstrap staging failed.
         ///   - startupRecoveryPrompt: Interactive recovery warning after an ET error.
+        ///   - commandTooLong: The remote command exceeds what ET can deliver.
         public init(
             localMissing: String,
             remoteMissing: String,
             remoteProbeFailed: String,
             serverUnreachable: String,
             remoteBootstrapInstallFailed: String,
-            startupRecoveryPrompt: String
+            startupRecoveryPrompt: String,
+            commandTooLong: String
         ) {
             self.localMissing = localMissing
             self.remoteMissing = remoteMissing
@@ -60,6 +64,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
             self.serverUnreachable = serverUnreachable
             self.remoteBootstrapInstallFailed = remoteBootstrapInstallFailed
             self.startupRecoveryPrompt = startupRecoveryPrompt
+            self.commandTooLong = commandTooLong
         }
     }
 
@@ -168,6 +173,15 @@ public struct EternalTerminalCommandBuilder: Sendable {
         return "exec " + remoteCommandArguments.map(\.remoteCommandShellQuoted).joined(separator: " ")
     }
 
+    /// The longest `--command` ET reliably delivers, in UTF-8 bytes.
+    ///
+    /// ET types `--command` into the remote login shell as one line, and a
+    /// canonical-mode tty line holds at most about 1024 bytes. Delivery was
+    /// measured to stop between 953 and 1016 bytes on ET 6.2.11 and 7.0.0
+    /// (https://github.com/manaflow-ai/cmux/pull/8721); a longer line never
+    /// runs and the pane sits idle, so longer commands continue over SSH.
+    static let maxDeliverableCommandBytes = 928
+
     /// The `et` argv after the executable, with the configured terminal path.
     public var clientArguments: [String] {
         clientArguments(terminalPathArguments: options.terminalPath.map { ["--terminal-path", $0] } ?? [])
@@ -189,7 +203,10 @@ public struct EternalTerminalCommandBuilder: Sendable {
             // the user keeps the login shell instead of losing the pane.
             arguments += ["--command", remoteShellCommand, "--noexit"]
         }
-        arguments.append(destination)
+        // `--` keeps a destination that begins with `-` from parsing as an
+        // ET option. Never pass `-x`/`--kill-other-sessions`: it ends every
+        // ET session the user has on that host.
+        arguments += ["--", destination]
         return arguments
     }
 
@@ -216,6 +233,10 @@ public struct EternalTerminalCommandBuilder: Sendable {
             .map { resolver.agentSocketPath(forForwardAgentValue: $0) == nil } ?? false
         if overridesRoute || disablesAgent {
             let script = "printf '%s\\n' \(messages.remoteProbeFailed.remoteCommandShellQuoted) >&2; exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted)"
+            return "/bin/sh -c \(script.remoteCommandShellQuoted)"
+        }
+        if let remoteShellCommand, remoteShellCommand.utf8.count > Self.maxDeliverableCommandBytes {
+            let script = "printf '%s\\n' \(messages.commandTooLong.remoteCommandShellQuoted) >&2; exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted)"
             return "/bin/sh -c \(script.remoteCommandShellQuoted)"
         }
         let localResolver = RemoteExecutableCommandBuilder(

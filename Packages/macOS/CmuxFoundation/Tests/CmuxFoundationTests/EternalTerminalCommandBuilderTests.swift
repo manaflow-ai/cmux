@@ -255,9 +255,36 @@ struct EternalTerminalCommandBuilderTests {
                 "--ssh-option", "Port=2222",
                 "--command", "exec 'command' 'space arg' 'quote'\\''arg'",
                 "--noexit",
-                "user@example.com",
+                "--", "user@example.com",
             ])
+            #expect(!result.stderr.contains("too long"))
         }
+    }
+
+    @Test("continues over SSH when the command exceeds ET's remote line limit")
+    func overlongCommandFallsBack() throws {
+        try withFakeCommands { directory, environment in
+            let fits = String(repeating: "a", count: EternalTerminalCommandBuilder.maxDeliverableCommandBytes - "exec ''".utf8.count)
+            _ = try run(builder(remoteCommandArguments: [fits]), environment: environment)
+            #expect(try lines(directory, "et.args").contains("exec '\(fits)'"))
+
+            try FileManager.default.removeItem(at: directory.appendingPathComponent("et.args"))
+            let result = try run(
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'", remoteCommandArguments: [fits + "a"]),
+                environment: environment
+            )
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote command too long\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("ends ET options before the destination and never kills other ET sessions")
+    func destinationFollowsOptionTerminator() throws {
+        let arguments = builder().clientArguments
+        #expect(Array(arguments.suffix(2)) == ["--", "user@example.com"])
+        #expect(!arguments.contains("-x"))
+        #expect(!arguments.contains("--kill-other-sessions"))
     }
 
     @Test("opens a plain login shell without --command")
@@ -450,7 +477,8 @@ struct EternalTerminalCommandBuilderTests {
                 remoteProbeFailed: "remote probe failed",
                 serverUnreachable: "etserver unreachable",
                 remoteBootstrapInstallFailed: "remote bootstrap install failed",
-                startupRecoveryPrompt: "The remote command may already be running; type ssh to retry."
+                startupRecoveryPrompt: "The remote command may already be running; type ssh to retry.",
+                commandTooLong: "remote command too long"
             )
         )
     }

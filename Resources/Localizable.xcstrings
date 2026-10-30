@@ -674293,6 +674293,131 @@
         }
       }
     },
+    "cli.ssh.et.commandTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] The remote command is too long for Eternal Terminal to deliver; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] الأمر البعيد أطول من أن يرسله Eternal Terminal؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Der Remote-Befehl ist zu lang für Eternal Terminal; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] El comando remoto es demasiado largo para que Eternal Terminal lo envíe; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La commande distante est trop longue pour être transmise par Eternal Terminal ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートコマンドが長すぎて Eternal Terminal で送信できません。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 명령이 너무 길어 Eternal Terminal로 전달할 수 없습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 远程命令过长，Eternal Terminal 无法传送；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 遠端命令過長，Eternal Terminal 無法傳送；改以 SSH 繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Udaljena komanda je predugačka da bi je Eternal Terminal isporučio; nastavlja se putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Fjernkommandoen er for lang til, at Eternal Terminal kan levere den; fortsætter via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Il comando remoto è troppo lungo per essere inviato da Eternal Terminal; continuazione tramite SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ពាក្យបញ្ជាពីចម្ងាយវែងពេកសម្រាប់ Eternal Terminal បញ្ជូន; បន្តតាម SSH។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Den eksterne kommandoen er for lang til at Eternal Terminal kan levere den; fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Zdalne polecenie jest zbyt długie, aby Eternal Terminal mógł je dostarczyć; kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] O comando remoto é longo demais para o Eternal Terminal entregar; continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Удалённая команда слишком длинная для передачи через Eternal Terminal; продолжаем через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] คำสั่งระยะไกลยาวเกินกว่าที่ Eternal Terminal จะส่งได้; ดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak komut, Eternal Terminal'in iletebileceğinden uzun; SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Віддалена команда задовга для передавання через Eternal Terminal; продовжуємо через SSH."
+          }
+        }
+      }
+    },
     "cli.ssh.et.localMissing": {
       "extractionState": "manual",
       "localizations": {
