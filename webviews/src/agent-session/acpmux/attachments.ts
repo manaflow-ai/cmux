@@ -618,7 +618,7 @@ export function audioAttachment(
 /// A finished session's recording for the composer. One that fits a prompt goes as an audio
 /// block; a longer one, the WAV the host wrote on this Mac, goes as a saved original the chat's
 /// agent opens (`local`). Undefined for a chat on another computer, which cannot open that file:
-/// its prompt gets the transcript (`recordingLeftOutNotice("elsewhere")`).
+/// the host sends it there (`remoteRecordingAttachment`).
 export function recordingAttachment(
   audio: DictationRecording,
   name: string,
@@ -627,6 +627,27 @@ export function recordingAttachment(
   if (audio.path)
     return local ? { ...savedAttachment(audio.path, `${name}.wav`), size: audio.byteCount ?? 0 } : undefined;
   return audio.data ? audioAttachment({ mimeType: audio.mimeType, data: audio.data }, name) : undefined;
+}
+
+/// A long recording for a chat on another computer (an ssh peer's, a Cloud chat's): the host sends
+/// the WAV it wrote, from its own disk, to that chat's machine (`dictation.recording.upload`, which
+/// takes only a recording the host itself gave this page), and the chip links the copy there, so
+/// the chat's agent opens it. The page never reads the bytes. Undefined when the host could not send
+/// it (an older host, an upload that failed): the composer's pending chip for it (Composer.tsx
+/// `attachLater`) then fails with Retry, and a prompt sent meanwhile gets the transcript.
+export async function remoteRecordingAttachment(
+  audio: DictationRecording,
+  name: string,
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): Promise<ComposerAttachment | undefined> {
+  if (!audio.path) return undefined;
+  try {
+    const path = ((await call("dictation.recording.upload", { path: audio.path })) as { path?: unknown } | null)?.path;
+    if (typeof path !== "string" || !path.startsWith("/")) return undefined;
+    return { ...savedAttachment(path, `${name}.wav`), size: audio.byteCount ?? 0 };
+  } catch {
+    return undefined;
+  }
 }
 
 /// The notice for a recording that goes no further than its transcript: the host left it out
