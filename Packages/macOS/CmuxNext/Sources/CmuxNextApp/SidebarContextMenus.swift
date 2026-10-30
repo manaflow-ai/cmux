@@ -45,7 +45,7 @@ enum SidebarContextMenus {
             // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
             let title = model.workspace(first)?.title ?? owner?.store.workspace(id: first.rawValue)?.displayName ?? ""
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : title,
-                                       rename: "renameWorkspace", machineID: owner?.machineID)
+                                       rename: "renameWorkspace")
             if !trailing.isEmpty {
                 menu.addItem(.separator())
                 for item in trailing { menu.addItem(item) }

@@ -23,18 +23,12 @@ enum MenuIdentityHeader {
     /// the row whose state is on. `noColor`: the group has no color (`GroupTint.none`), so No Color
     /// is ringed; a workspace menu rings it when no color row is on. A menu with neither is left as it is.
     static func install(in menu: NSMenu, registry: ActionRegistry, target: ActionTargetRef, name: String?, rename: ActionID,
-                        current: GroupColor? = nil, noColor: Bool = false, machineID: String? = nil) {
+                        current: GroupColor? = nil, noColor: Bool = false) {
         // A rename that can't run on this target (no daemon support yet) keeps its disabled row, not a dead field.
         // The field always sends a name, so ask whether a rename with this name can run: a pinned
         // workspace's tile has no list row for the inline rename, yet renames by name.
         let named = name.map { ["name": ActionValue.string($0)] } ?? [:]
-        // A remote object's field renames it on its own machine, as the menu's rows run (`scopeMenuTargets`).
-        func invocation(_ arguments: [String: ActionValue]) -> ActionInvocation {
-            var invocation = ActionInvocation(target: target, arguments: arguments)
-            invocation.targetMachineID = machineID
-            return invocation
-        }
-        let renames = ActionTargetReasons.canPerform(rename, invocation: invocation(named), in: registry)
+        let renames = ActionTargetReasons.canPerform(rename, invocation: ActionInvocation(target: target, arguments: named), in: registry)
         let renameIndex = name == nil || !renames ? nil : menu.items.firstIndex { ActionRegistry.menuRun(of: $0)?.id == rename }
         let colorIndex = menu.items.firstIndex { item in
             (item.submenu?.items.filter { color(of: $0) != nil }.count ?? 0) >= 2
@@ -51,7 +45,7 @@ enum MenuIdentityHeader {
         let field = renameIndex.map { _ in
             MenuNameField(name: name ?? "", placeholder: placeholder(for: rename, registry: registry)) { newName in
                 // With a name the rename only sends it; it opens no field of its own.
-                registry.perform(rename, invocation: invocation(["name": .string(newName)]))
+                registry.perform(rename, invocation: ActionInvocation(target: target, arguments: ["name": .string(newName)]))
             }
         }
         // The group menu names its color (none for a custom `#RRGGBB` one); the workspace rows carry it as their state.
