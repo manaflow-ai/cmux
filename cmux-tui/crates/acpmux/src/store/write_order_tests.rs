@@ -83,6 +83,44 @@ fn background_writes_go_on_while_requests_keep_arriving() {
     );
 }
 
+/// The bench's shape (review of 69d858ce9764, finding 1): the same chats stream AND are waited for
+/// on every cycle, beside a chat that only streams. A chat written in a batch kept its entry in the
+/// background turn's list, and its next line added another, so the list grew by about the batch
+/// size each cycle and the streaming chat waited behind entries that write nothing.
+#[test]
+fn chats_waited_for_on_every_cycle_never_starve_a_streaming_chat() {
+    let waited = ["r0", "r1", "r2", "r3"];
+    let mut state = queued(&["background"]);
+    let mut since_background = 0;
+    let mut longest_gap = 0;
+    for cycle in 0..50u64 {
+        for id in waited {
+            state.queue(id, b"{}\n", cycle + 2);
+            state.wait_first(id);
+        }
+        // The streaming chat always has a line queued.
+        state.queue("background", b"{}\n", cycle + 2);
+        for _ in 0..=waited.len() {
+            match write(&mut state).as_deref() {
+                Some("background") => since_background = 0,
+                Some(_) => since_background += 1,
+                None => {}
+            }
+            longest_gap = longest_gap.max(since_background);
+        }
+        assert!(
+            state.order.len() <= waited.len() + 1,
+            "cycle {cycle}: the background turn lists {} entries for {} chats",
+            state.order.len(),
+            waited.len() + 1
+        );
+    }
+    assert!(
+        longest_gap <= 2 * (waited.len() + 1),
+        "the streaming chat waited {longest_gap} writes for its turn"
+    );
+}
+
 #[test]
 fn a_waiter_whose_lines_are_being_written_and_who_queued_more_waits_for_the_next_batch() {
     let mut state = queued(&["s0", "s1"]);

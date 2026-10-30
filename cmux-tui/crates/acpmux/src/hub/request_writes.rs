@@ -216,8 +216,9 @@ impl Hub {
         for id in writes.logs.keys() {
             self.store.expedite(id);
         }
-        // The writer runs at this request's QoS until the wait ends (priority inheritance).
-        let boost = self.store.write_boost();
+        // The writer runs at this request's QoS until the wait ends (priority inheritance); a
+        // request that wrote nothing waits for nothing and raises nothing.
+        let boost = if writes.logs.is_empty() { None } else { self.store.write_boost() };
         let _raise = boost.as_deref().map(cmux_threads::OwnerBoost::wait);
         let mut saved = true;
         for (id, seq) in writes.logs {
