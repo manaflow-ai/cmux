@@ -189,10 +189,11 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let mut running = listeners.len();
     for listener in listeners {
         let host = Arc::clone(&host);
-        let done = done.clone();
+        // Sent when the thread ends, a panic included: a listener that is gone always counts.
+        let stopped = ListenerStopped(done.clone());
         std::thread::spawn(move || {
+            let _stopped = stopped;
             accept_loop(&host, &listener);
-            let _ = done.send(None);
         });
     }
     drop(done);
@@ -210,6 +211,15 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     Err(anyhow!("every listener stopped"))
 }
 
+/// Tells `run` that a listener stopped, when its thread ends for any reason.
+struct ListenerStopped(std::sync::mpsc::Sender<Option<super::service::AgentExit>>);
+
+impl Drop for ListenerStopped {
+    fn drop(&mut self) {
+        let _ = self.0.send(None);
+    }
+}
+
 fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
     for stream in listener.incoming() {
         match stream {
@@ -220,11 +230,15 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
                     continue;
                 };
                 let host = Arc::clone(host);
-                std::thread::spawn(move || {
+                // A thread the OS refuses drops this connection, never the listener.
+                let spawned = std::thread::Builder::new().spawn(move || {
                     if let Err(e) = serve_one(&host, stream, peer, pending) {
                         eprintln!("cmux host: {peer}: {e:#}");
                     }
                 });
+                if let Err(e) = spawned {
+                    eprintln!("cmux host: refused {peer}: cannot start its thread: {e}");
+                }
             }
             Err(e) => eprintln!("cmux host: accept failed: {e}"),
         }
@@ -503,5 +517,23 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
         to.write_all(&buf[..n])?;
         to.flush()?;
         total += n as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ListenerStopped;
+
+    #[test]
+    fn a_listener_that_panics_still_counts_as_stopped() {
+        let (done, events) = std::sync::mpsc::channel();
+        let stopped = ListenerStopped(done.clone());
+        let thread = std::thread::spawn(move || {
+            let _stopped = stopped;
+            panic!("the OS refused a thread");
+        });
+        assert!(thread.join().is_err());
+        assert_eq!(events.try_recv(), Ok(None));
+        drop(done);
     }
 }
