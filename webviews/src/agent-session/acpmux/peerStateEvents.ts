@@ -16,8 +16,15 @@ const same = (a: Link | undefined, b: Link) => a?.state === b.state && a.lastSee
 export class PeerStateEvents {
   supported = false;
   authoritative = false;
-  revision = 0;
-  private reads = 0;
+  /// One clock for notes and for the start of every read, status and snapshot alike: an entry keeps
+  /// the tick it was written at, and a read that lands is ordered against the others by the tick it
+  /// started at, so neither kind of read brings back or erases what a newer one said.
+  private clock = 0;
+  /// The newest snapshot read started; only that one may land.
+  private latestRead = 0;
+  /// The start of the newest status read and of the newest snapshot that landed.
+  private statusLanded = 0;
+  private snapshotLanded = 0;
   private links = new Map<string, VersionedLink>();
 
   configure(initialized: unknown): void {
@@ -25,9 +32,16 @@ export class PeerStateEvents {
     this.supported =
       acpmux.origin === "local" && Array.isArray(acpmux.features) && acpmux.features.includes("peerStateEvents");
     this.authoritative = false;
-    this.revision = 0;
     this.links.clear();
-    this.reads += 1;
+    // The clock never goes back, so no read from before reads as one from this connection.
+    this.latestRead = 0;
+    this.statusLanded = this.clock;
+    this.snapshotLanded = this.clock;
+  }
+
+  /// Whether anything here overlays a status read.
+  get observed(): boolean {
+    return this.authoritative || this.links.size > 0;
   }
 
   changed(value: unknown): boolean {
@@ -44,36 +58,49 @@ export class PeerStateEvents {
       return false;
     const previous = this.links.get(note.peer)?.link;
     // Even a repeated note fences an in-flight stale read, without redrawing identical content.
-    this.links.set(note.peer, { link, revision: ++this.revision });
+    this.links.set(note.peer, { link, revision: ++this.clock });
     return !same(previous, link);
   }
 
+  /// A `_acpmux/peers` read starts: its tick, which `snapshot` takes when it lands.
   readStarted(): number {
-    return ++this.reads;
+    this.latestRead = ++this.clock;
+    return this.latestRead;
   }
 
-  snapshot(value: unknown, since: number, read = this.reads): boolean {
+  /// A `_acpmux/status` read starts: its tick, which `statusRead` takes when it lands.
+  statusStarted(): number {
+    return ++this.clock;
+  }
+
+  /// The snapshot read started at `start` landed. A newer snapshot read, or a status read that
+  /// started later and already landed, says more than it does: it is dropped. Entries written after
+  /// it started (a note, a newer status read's) stay.
+  snapshot(value: unknown, start = this.latestRead): boolean {
     const peers = object(value).peers;
-    if (!this.supported || read !== this.reads || !Array.isArray(peers)) return false;
+    if (!this.supported || start !== this.latestRead || start < this.statusLanded || !Array.isArray(peers))
+      return false;
     const next = new Map<string, VersionedLink>();
     for (const value of peers) {
       const peer = object(value);
       const link = observation(peer);
-      if (typeof peer.name === "string" && peer.name && link) next.set(peer.name, { link, revision: since });
+      if (typeof peer.name === "string" && peer.name && link) next.set(peer.name, { link, revision: start });
     }
-    for (const [name, entry] of this.links) if (entry.revision > since) next.set(name, entry);
+    for (const [name, entry] of this.links) if (entry.revision > start) next.set(name, entry);
     this.links = next;
+    this.snapshotLanded = start;
     this.authoritative = true;
     return true;
   }
 
-  /// A `_acpmux/status` read that started at revision `since` landed: it is newer than every entry
-  /// no note has updated since, so those entries are dropped and the status read speaks for them. A
-  /// failed restart goes restarting -> reconnecting, both `reconnecting` on the wire, so the daemon
-  /// sends no note and only a status read says so.
-  statusRead(since: number): void {
-    for (const [name, entry] of this.links) if (entry.revision <= since) this.links.delete(name);
-    this.authoritative = false;
+  /// The status read started at `start` landed: it is newer than every entry written before it
+  /// started, so those are dropped and the status read speaks for them. A failed restart goes
+  /// restarting -> reconnecting, both `reconnecting` on the wire, so the daemon sends no note and
+  /// only a status read says so. A snapshot that started after it stays the authority.
+  statusRead(start: number): void {
+    this.statusLanded = Math.max(this.statusLanded, start);
+    for (const [name, entry] of this.links) if (entry.revision < start) this.links.delete(name);
+    if (start > this.snapshotLanded) this.authoritative = false;
   }
 
   *entries(): IterableIterator<[string, Link]> {

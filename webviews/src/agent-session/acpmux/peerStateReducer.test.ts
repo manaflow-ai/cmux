@@ -36,10 +36,9 @@ test("nullable and absent metadata clear a prior observation when the consumer o
 test("duplicate replay does not redraw but still fences an in-flight stale snapshot", () => {
   const events = fixture();
   expect(events.changed(note("offline", { error: "removed" }))).toBe(true);
-  const since = events.revision;
   const read = events.readStarted();
   expect(events.changed(note("offline", { error: "removed", at: 20 }))).toBe(false);
-  events.snapshot({ peers: [{ name: "studio-mac", state: "connected" }] }, since, read);
+  events.snapshot({ peers: [{ name: "studio-mac", state: "connected" }] }, read);
   expect(peer(events)).toMatchObject({ state: "offline", error: "removed" });
   expect(events.changed(note("offline", { error: "different" }))).toBe(true);
   expect(events.changed(note("offline", { error: "different", lastSeen: 5 }))).toBe(true);
@@ -49,11 +48,11 @@ test("a reconnect and a later read both invalidate the older read", () => {
   const events = fixture();
   const old = events.readStarted();
   events.configure(initialized());
-  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "offline" }] }, 0, old)).toBe(false);
+  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "offline" }] }, old)).toBe(false);
   const first = events.readStarted();
   const second = events.readStarted();
-  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "connected" }] }, 0, second)).toBe(true);
-  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "offline" }] }, 0, first)).toBe(false);
+  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "connected" }] }, second)).toBe(true);
+  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "offline" }] }, first)).toBe(false);
   expect(peer(events)?.state).toBe("connected");
 });
 
@@ -79,9 +78,8 @@ test("invalid notes cannot replace the last daemon observation", () => {
 test("a complete empty snapshot removes stale state without inventing an offline transition", () => {
   const events = fixture();
   events.changed(note("connected"));
-  const since = events.revision;
   const read = events.readStarted();
-  expect(events.snapshot({ peers: [] }, since, read)).toBe(true);
+  expect(events.snapshot({ peers: [] }, read)).toBe(true);
   expect([...events.entries()]).toEqual([]);
   expect(events.authoritative).toBe(true);
 });
@@ -91,7 +89,7 @@ test("a new connection has no inherited capability while initialize is pending",
   const read = events.readStarted();
   events.configure(undefined);
   expect(events.changed(note("offline"))).toBe(false);
-  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "offline" }] }, 0, read)).toBe(false);
+  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "offline" }] }, read)).toBe(false);
   expect(events.supported).toBe(false);
   expect([...events.entries()]).toEqual([]);
 });
@@ -101,10 +99,7 @@ test("a snapshot keeps a restarting peer marked restarting and not connected", (
   // the other end restarts; dropping the row would leave the picker no state and read it as ready.
   const events = fixture();
   events.changed(note("connected"));
-  const since = events.revision;
   const read = events.readStarted();
-  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "restarting", lastSeen: 7 }] }, since, read)).toBe(
-    true,
-  );
+  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "restarting", lastSeen: 7 }] }, read)).toBe(true);
   expect(peer(events)).toMatchObject({ state: "restarting", connected: false, lastSeen: 7 });
 });
