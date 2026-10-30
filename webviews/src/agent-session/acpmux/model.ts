@@ -161,6 +161,9 @@ export type QueuedPrompt = {
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
   heldByStop?: true;
+  /// Its `prompt` is acpmux's listed preview cut at 200 characters (direct.ts `mergeQueue`), not its
+  /// whole text: two prompts can share it.
+  preview?: true;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
@@ -258,8 +261,15 @@ export type AcpmuxRow = {
   /// now already (acpmux marks it `next`; it runs right after the turn).
   /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`); the group says so
   /// (PendingMessagesCard.tsx). `twins`: the queue entries of the same message the group folded
-  /// into this one (pendingMessages.ts), which Dismiss and Send now take back with it.
-  queuedMessage?: { promptId: string; next?: boolean; heldByStop?: boolean; twins?: readonly string[] };
+  /// into this one (pendingMessages.ts), which Dismiss and Send now take back with it. `preview`: its
+  /// text is acpmux's cut preview (QueuedPrompt `preview`), so it is never folded by its words.
+  queuedMessage?: {
+    promptId: string;
+    next?: boolean;
+    heldByStop?: boolean;
+    preview?: boolean;
+    twins?: readonly string[];
+  };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;

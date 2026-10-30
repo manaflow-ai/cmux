@@ -11,7 +11,8 @@
 // sent them, in the order each session first wrote; each is its own received line (its ⋯ menu kept).
 // Once the agent reads a message it leaves the group and draws where it was read.
 // The same message is shown once (Leo: "nx-sidebar #27128 own red fixed..." twice): by its prompt
-// id, else by its sender and text (a relay retried under a new id) when it carries no images. The
+// id, else by its sender and whole text (a relay retried under a new id) when it carries no images
+// and its text is not acpmux's cut preview (two messages can share a preview's head). The
 // copy that shows carries the hidden copies' queue entries (`queuedMessage.twins`), so its Dismiss
 // takes back every copy and none comes back after it.
 //
@@ -29,10 +30,13 @@ export const isWaitingMessage = (row: AcpmuxRow) =>
 /// A waiting message's prompt id: the queue entry's, or the steer's.
 const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerPromptId;
 
-/// The key a sender's message is the same under: its sender and its words. A message with images
-/// has none: two "See attached" with different images are two messages, only one prompt id is one.
+/// The key a sender's message is the same under: its sender and its whole words. A message with
+/// images has none: two "See attached" with different images are two messages, only one prompt id is
+/// one. Nor has one whose words are acpmux's cut preview (a reload's queue list, direct.ts
+/// `mergeQueue`): two messages can share their first 200 characters, and folding them would hide one
+/// and let Dismiss or Send now on the other take it back too.
 function contentKey(row: AcpmuxRow): string | undefined {
-  if (row.incoming?.kind !== "message" || row.images?.length) return undefined;
+  if (row.incoming?.kind !== "message" || row.images?.length || row.queuedMessage?.preview) return undefined;
   const { name, sessionId, text } = row.incoming.message;
   return `${sessionId ?? name}\u0000${text.trim()}`;
 }

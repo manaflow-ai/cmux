@@ -691,7 +691,7 @@ export function mergeQueue(
         : authors?.has(id)
           ? (authors.get(id) ?? undefined)
           : had?.author;
-    const merged = queuedEntry(
+    const made = queuedEntry(
       id,
       whole ? had.prompt : preview,
       had?.next === true,
@@ -701,6 +701,11 @@ export function mergeQueue(
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
     );
+    // Its text is acpmux's cut (short_text ends one with "…"), now or as the pane had it from an
+    // earlier list: only its head, which another prompt can share, so the waiting group never takes
+    // it for the same message as another (pendingMessages.ts).
+    const cut = whole ? had.preview === true : preview.endsWith("…");
+    const merged: QueuedPrompt = cut ? { ...made, preview: true } : made;
     // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
     // let go. A list without the field (an older acpmux) keeps what the records said.
     if (entry?.heldByStop === true && entry?.held !== false) return { ...merged, heldByStop: true };

@@ -45,3 +45,9 @@ test("a relay retried under a new id with its whole, uncut words still shows onc
     ["p1", ["p2"]],
   ]);
 });
+
+test("a cut preview listed again stays a preview", () => {
+  const first = mergeQueue([], [{ promptId: "p1", prompt: preview, fromAgent: "nx-sidebar" }]);
+  const again = mergeQueue(first, [{ promptId: "p1", prompt: preview, fromAgent: "nx-sidebar" }]);
+  expect(again[0]?.preview).toBe(true);
+});
