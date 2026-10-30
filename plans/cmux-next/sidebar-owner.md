@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29: an unnamed workspace of another computer (SSH, Cloud) reads as that computer ("dev-vm"), never as its
+  account's home folder ("cmux" from `/home/cmux`) or `workspace-N`; a row titled by its computer drops the computer's
+  name from its second line (`dev-vm · ~` reads `~`; a status such as Paused stays). Leo: "why is there all this
+  weird stuff at the bottom of the sidebar". Regression: `SidebarRemoteHomeTitleTests`.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
