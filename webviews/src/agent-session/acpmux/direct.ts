@@ -1694,6 +1694,9 @@ export class AcpmuxDirectClient {
       this.readEarlier();
       return () => {
         this.earlierListeners.delete(listener);
+        // The rail went away: stop reading and drop the index. A later subscriber reads again from
+        // `earlierFrom`.
+        if (this.earlierListeners.size === 0) this.earlierPrompts.stop();
       };
     },
     get: () => this.earlierPrompts.shown(this.turnOpener?.seq ?? this.firstSeq),

@@ -232,10 +232,40 @@ test("a pane with no rail listening reads no earlier prompts", async () => {
   expect(pane.reads.some(indexRead)).toBe(false);
   expect(pane.client.earlier.get()).toEqual([]);
   // The rail mounts later: it reads from where the transcript starts.
-  pane.client.earlier.subscribe(() => {});
+  const off = pane.client.earlier.subscribe(() => {});
   await settle(120);
   expect(pane.reads.some(indexRead)).toBe(true);
   expect(pane.client.earlier.get().length).toBeGreaterThan(0);
+  // The rail unmounts: reading stops and the index is dropped.
+  off();
+  const reads = pane.reads.filter(indexRead).length;
+  await settle(120);
+  expect(pane.reads.filter(indexRead).length).toBe(reads);
+  expect(pane.client.earlier.get()).toEqual([]);
+  // It mounts again: the index is read again from the same place.
+  pane.client.earlier.subscribe(() => {});
+  await settle(120);
+  expect(pane.client.earlier.get().length).toBeGreaterThan(0);
+});
+
+test("the last rail unsubscribing mid-read stops further index pages", async () => {
+  const history = records(
+    CHAT,
+    Array.from(
+      { length: 2400 },
+      (_, index) => ["mux", "user_message", { text: `Question ${index + 1}`, promptId: `p-${index + 1}` }] as Step,
+    ),
+  );
+  const pane = await fakeClient(history, { page: 40 });
+  const indexRead = (params: Record<string, any>) => Array.isArray(params.kinds) && params.kinds.includes("queue_order");
+  const off = pane.client.earlier.subscribe(() => {});
+  for (let n = 0; n < 200 && !pane.reads.some(indexRead); n++) await settle(1);
+  expect(pane.reads.some(indexRead)).toBe(true);
+  off();
+  const reads = pane.reads.filter(indexRead).length;
+  await settle(200);
+  expect(pane.reads.filter(indexRead).length).toBe(reads);
+  expect(pane.client.earlier.get()).toEqual([]);
 });
 
 test("loadThrough materializes an indexed prompt through history paging", async () => {
