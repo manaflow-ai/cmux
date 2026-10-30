@@ -174,16 +174,17 @@ async fn a_retry_that_refreshes_a_row_then_fails_starts_a_new_outage() {
     assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "unreachable");
 }
 
-#[tokio::test]
-async fn outages_of_replaced_or_removed_peers_are_pruned() {
+#[tokio::test(start_paused = true)]
+async fn an_ended_outage_belongs_to_its_peer_instance() {
+    // Past its deadline an outage is the instance's own state, so removing or
+    // replacing the peer leaves nothing behind in the notice loop.
     let (hub, peer, _) = fixture();
-    let mut drops = super::peer_grace::Outages::new();
-    drops.insert((peer.name.clone(), peer.generation), None);
-    drops.insert(("removed".into(), peer.generation + 1000), None);
-    hub.prune_outages(&mut drops);
-    assert_eq!(drops.len(), 1, "the registered instance's outage stays");
+    send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
+    tokio::time::advance(Duration::from_secs(11)).await;
+    tokio::task::yield_now().await;
+    assert!(peer.outage_ended.load(std::sync::atomic::Ordering::SeqCst));
     let replacement = Peer::new("remote", "ws://127.0.0.1:1", None, None, hub.peer_notices.clone());
-    hub.peers.lock().unwrap().insert(peer.name.clone(), replacement);
-    hub.prune_outages(&mut drops);
-    assert!(drops.is_empty(), "an ended outage of a replaced instance never stays");
+    assert!(!replacement.outage_ended.load(std::sync::atomic::Ordering::SeqCst));
+    send(&hub, &peer, PeerNotice::Connected).await;
+    assert!(!peer.outage_ended.load(std::sync::atomic::Ordering::SeqCst), "a ready link ends it");
 }

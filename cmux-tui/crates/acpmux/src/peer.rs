@@ -194,6 +194,9 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// This instance's outage outlived its grace and its rows went unreachable
+    /// (`hub/peer_grace.rs`). Kept here, not in the notice loop, so it goes with the instance.
+    pub(crate) outage_ended: AtomicBool,
     /// The sessions this instance's link purged before its list (`hub/purge_tombstones.rs`).
     pub(crate) purge_tombstones: crate::hub::purge_tombstones::PurgeTombstones,
     /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
@@ -262,6 +265,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            outage_ended: AtomicBool::new(false),
             purge_tombstones: Default::default(),
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
