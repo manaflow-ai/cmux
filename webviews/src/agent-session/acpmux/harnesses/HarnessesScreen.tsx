@@ -237,14 +237,13 @@ export function HarnessesScreen({
     // Keep the original login command. A health refresh can make the row ready before this button
     // is clicked; routing through act(row) then starts a chat instead of retrying the login.
     mark(row.harness, { kind: "waiting" });
-    void callNative("tab.open", { kind: "terminal", text: login, ...inFolder, run: true, keep: true }).catch(
-      (error) =>
-        mark(row.harness, {
-          kind: "failed",
-          reason: error instanceof Error ? error.message : String(error),
-          retrySignIn: true,
-          login,
-        }),
+    void callNative("tab.open", { kind: "terminal", text: login, ...inFolder, run: true, keep: true }).catch((error) =>
+      mark(row.harness, {
+        kind: "failed",
+        reason: error instanceof Error ? error.message : String(error),
+        retrySignIn: true,
+        login,
+      }),
     );
   };
   const act = (row: HarnessRow) => {
@@ -311,7 +310,8 @@ export function HarnessesScreen({
                   ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
                   : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
               : undefined;
-          const label = doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
+          const label =
+            doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
           // acpmux's reason can run to several lines: the row shows the first, the tooltip all.
           const status =
             doing?.kind === "installing"
