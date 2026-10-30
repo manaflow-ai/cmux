@@ -180,12 +180,15 @@ class VerdictDurabilityTests(unittest.TestCase):
         for outcome in ("skipped", "cancelled"):
             self.assertNotIn("verdict=", self.record(outcome), outcome)
 
-    def artifact(self, tools: dict[str, str], length: str = "5") -> tuple[str, str]:
+    def artifact(self, tools: dict[str, str], length: str = "5", runner_temp: str = "") -> tuple[str, str]:
         """Run "Check Gatekeeper and the notary tickets" against stub Apple tools
         (name -> bash body; a missing name is a tool that is not installed) and
         a 5-byte DMG, then feed its outcome to the recorder. Returns the
-        artifact step's outcome and the recorder's GITHUB_OUTPUT."""
-        with tempfile.TemporaryDirectory() as tmp:
+        artifact step's outcome and the recorder's GITHUB_OUTPUT. RUNNER_TEMP
+        names a directory under the temporary one when given."""
+        with tempfile.TemporaryDirectory() as root:
+            tmp = str(Path(root) / runner_temp) if runner_temp else root
+            Path(tmp).mkdir(parents=True, exist_ok=True)
             bin_dir = Path(tmp) / "bin"
             bin_dir.mkdir()
             (Path(tmp) / "canary.dmg").write_bytes(b"12345")
@@ -223,8 +226,8 @@ class VerdictDurabilityTests(unittest.TestCase):
         # No verdict: the verdict job (dispatch and checked marker) never runs.
         self.assertIn("needs.canary.outputs.verdict != ''", self.jobs["verdict"]["if"])
 
-    def assert_fail(self, tools: dict[str, str], why: str, length: str = "5") -> None:
-        outcome, output = self.artifact(tools, length)
+    def assert_fail(self, tools: dict[str, str], why: str, length: str = "5", runner_temp: str = "") -> None:
+        outcome, output = self.artifact(tools, length, runner_temp)
         self.assertEqual(outcome, "failure", why)
         self.assertIn("verdict=fail", output, why)
 
@@ -255,6 +258,12 @@ class VerdictDurabilityTests(unittest.TestCase):
         self.assert_fail({"xcrun": "exit 0", "hdiutil": self.ATTACH,
                           "spctl": 'echo "${@: -1}: rejected" >&2; echo "source=Unnotarized Developer ID" >&2; exit 3'},
                          "Gatekeeper rejected the app")
+        # The runner's own paths are in the tools' output; a word in them is not an unreachable service.
+        self.assert_fail({"xcrun": "exit 0", "hdiutil": self.ATTACH,
+                          "spctl": 'echo "${@: -1}: rejected" >&2; echo "source=Unnotarized Developer ID" >&2; exit 3'},
+                         "Gatekeeper rejected the app on a runner whose path names a server", runner_temp="build-server/network/_temp")
+        self.assert_fail({"xcrun": 'echo "${@: -1} does not have a ticket stapled to it." >&2; exit 65'},
+                         "no stapled ticket on a runner whose path names a server", runner_temp="build-server/_temp")
         self.assert_fail({"xcrun": "exit 0"}, "a length mismatch", length="6")
         self.assert_fail({"xcrun": "exit 0", "hdiutil": "exit 0"}, "no app in the DMG")
         self.assert_fail({"python3": self.artifact_check(
