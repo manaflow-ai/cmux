@@ -140,8 +140,7 @@ extension NewTabPage {
         // A page beside a lone chat, the main pane: the pick takes the page's place, then the chat docks left and the
         // pick's pane is the column on its right, as for a link (Leo 2026-10-30: "not to fucking open it up in the
         // main fucking pane").
-        let docksChat = !keep && MainPaneLayout.isOn(services: services)
-            && ChatColumnPlacement.resolve(from: pane, services: services, ignoringPages: true) == .dockChat
+        let docksChat = !keep && Self.docksChat(pane)
         let close: @MainActor (SurfaceID) -> Void = { [weak pane] surface in
             guard !keep else { return }
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
@@ -150,6 +149,9 @@ extension NewTabPage {
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
         // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
+        // A page in the chat dock, the main pane: the pick opens in the strip beside it, whatever else the dock
+        // holds (Leo 2026-10-30: "not to fucking open it up in the main fucking pane").
+        if !keep, let strip = ChatColumnPlacement.pagePick(from: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane, in: strip) }
         if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         switch request.kind {
@@ -182,23 +184,19 @@ extension NewTabPage {
     /// with another tab (a lone page has nothing to keep in view, so it is replaced in place), and it is no split's (a split's page, which lists Open
     /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
     /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
-    /// A page in the chat dock (the main pane, ``ChatColumnPlacement/keepsNewTabPage(in:)``) opens a terminal
-    /// or browser beside the chat whatever the toggle says: nothing but agent tabs opens in the main pane (Leo
-    /// 2026-10-30: "I'm obviously saying not to fucking open it up in the main fucking pane").
     static func opensBeside(_ key: String, in pane: PaneController, mainPane: Bool = true) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        let fromDock = mainPane && ChatColumnPlacement.keepsNewTabPage(in: pane)
-        guard AgentPaneTunables.newTabPicksFollowLinks.value || fromDock, tabs.newTabPages[page]?.page.openTabs == nil,
-              pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
         return pane.services.linkOpener.target(from: pane, mainPane: mainPane) != .pane(pane.layoutPaneID)
     }
 
-    /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens through
+    /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens in `strip`, else through
     /// ``LinkOpener`` (the pane on the right, else a new split), then the page closes.
-    private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController) {
+    private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController,
+                                   in strip: PaneController? = nil) {
         let services = pane.services
         let closePage = closingPage(key, in: pane)
-        services.linkOpener.open(from: pane) { target, placed in
+        let make: LinkOpener.Make = { target, placed in
             let landed: @MainActor (SurfaceID) -> Void = { surface in
                 placed?(surface)
                 closePage()
@@ -220,7 +218,23 @@ extension NewTabPage {
                 return false
             }
         }
+        if let strip {
+            _ = make(strip, nil)
+        } else {
+            services.linkOpener.open(from: pane, make)
+        }
     }
+
+    /// Whether a pick on a page beside a lone chat (the main pane) docks the chat left once it lands, so the
+    /// pick's pane is the column on its right, as for a link from the chat.
+    static func docksChat(_ pane: PaneController) -> Bool {
+        MainPaneLayout.isOn(services: pane.services)
+            && ChatColumnPlacement.resolve(from: pane, services: pane.services, ignoringPages: true) == .dockChat
+    }
+
+    /// Whether a pick of `kind` on a New Tab page in the main pane goes beside the chat: a terminal or browser
+    /// does, a chat stays (the chat dock holds chats).
+    nonisolated static func picksBeside(_ kind: AgentPaneTabKind) -> Bool { kind != .agent }
 
     /// The address a browser pick of the page goes to: a search, a cmux/Chromium page, or the typed
     /// destination (typos fixed).
@@ -319,11 +333,19 @@ extension NewTabPage {
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
     /// browser opens an address or searches; an agent's text goes through `newTab.submit` (a prompt, or a
     /// URL or `!command` typed there).
-    private static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in pane: PaneController) {
+    private static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A terminal or browser picked in the main pane opens beside the chat, as on the web page (``replace``):
+        // in the strip beside the chat dock, or it takes the page's place beside a lone chat, which then docks left.
+        let strip = picksBeside(kind) ? ChatColumnPlacement.pagePick(from: page) : nil
+        let pane = strip ?? page
+        let docks = picksBeside(kind) && strip == nil && docksChat(page)
+        let landed: (@MainActor (SurfaceID) -> Void)? = !docks ? nil : { [weak page] surface in
+            if let page { MainPaneLayout.dockChat(of: page, keeping: surface, focus: true, services: page.services) }
+        }
         switch (kind, trimmed.isEmpty) {
-        case (.terminal, _): pane.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil)
-        case (.browser, true): _ = pane.newBrowserTab()
+        case (.terminal, _): pane.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil, then: landed)
+        case (.browser, true): _ = pane.newBrowserTab(then: landed)
         case (.agent, true): _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
             // A browser's words are searched; an agent's go out as a prompt.

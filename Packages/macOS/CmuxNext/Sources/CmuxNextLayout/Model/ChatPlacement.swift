@@ -46,6 +46,18 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
         return dock.role == .agentChat && !dock.isPinned
     }
 
+    /// Where a terminal or browser picked on a New Tab page in `pane` opens: for a page in the chat dock
+    /// (``keepsNewTabPage(from:columns:)``), the strip pane its new tabs go to (the one used last, else the
+    /// first), whatever else the dock holds, the page alone included. Nil anywhere else (the pick takes the
+    /// page's place), and on a zoomed screen or a dock with no strip beside it.
+    public nonisolated static func pagePick(from pane: PaneID, columns: [LayoutColumn], recent: [PaneID] = [],
+                                            zoomed: Bool = false) -> PaneID? {
+        guard keepsNewTabPage(from: pane, columns: columns),
+              case .tab(let strip) = resolve(from: pane, columns: columns, recent: recent, zoomed: zoomed, isLoneChat: { _ in false })
+        else { return nil }
+        return strip
+    }
+
     /// `screen`'s columns in strip order. A screen stored as one split tree
     /// is one implicit column.
     public nonisolated static func columns(of screen: LayoutScreen, containing pane: PaneID) -> [LayoutColumn] {

@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextLayout
 @testable import CmuxNextApp
 import Testing
@@ -39,5 +40,28 @@ struct ChatLinkReusesRightPaneTests {
         #expect(!ChatColumnPlacement.keepsNewTabPage(from: "chat", columns: [LayoutColumn(id: "chat", root: .leaf("chat"))]))
         let plain = [LayoutColumn(id: "dock", root: .leaf("files"), dock: DockColumn(edge: .left)), LayoutColumn(id: "right", root: .leaf("page"))]
         #expect(!ChatColumnPlacement.keepsNewTabPage(from: "files", columns: plain))
+    }
+
+    /// "not to fucking open it up in the main fucking pane": a terminal or browser picked on a page in the chat dock
+    /// opens in the strip beside it, the pane used last first. The rule reads the layout, not the dock's tabs, so a
+    /// page left alone in the dock (its chat closed) still sends its pick to the strip (review of #28544 at a6f8b21a).
+    @Test func aPickOnAPageInTheChatDockOpensInTheStrip() {
+        let columns = [LayoutColumn(id: "dock", root: .leaf("chat"), dock: Self.chatDock),
+                       LayoutColumn(id: "right", root: .leaf("page")), LayoutColumn(id: "more", root: .leaf("other"))]
+        #expect(ChatColumnPlacement.pagePick(from: "chat", columns: columns) == "page")
+        #expect(ChatColumnPlacement.pagePick(from: "chat", columns: columns, recent: ["chat", "other"]) == "other")
+        #expect(ChatColumnPlacement.pagePick(from: "chat", columns: columns, zoomed: true) == nil, "a zoomed screen shows the dock alone")
+        #expect(ChatColumnPlacement.pagePick(from: "page", columns: columns) == nil, "a page in the strip is replaced in place")
+        let home = [LayoutColumn(id: "dock", root: .leaf("home"), dock: DockColumn(edge: .left, role: .agentChat, isPinned: true)),
+                    LayoutColumn(id: "right", root: .leaf("page"))]
+        #expect(ChatColumnPlacement.pagePick(from: "home", columns: home) == nil)
+    }
+
+    /// The native New Tab page (`tabs.nativeNewTabPage`) sends its picks the same way: a terminal or browser goes
+    /// beside the chat, a chat stays in the dock (review of #28544 at a6f8b21a: its picks opened in the main pane).
+    @Test func theNativePagesToolPicksGoBesideTheChat() {
+        #expect(NewTabPage.picksBeside(.terminal))
+        #expect(NewTabPage.picksBeside(.browser))
+        #expect(!NewTabPage.picksBeside(.agent))
     }
 }

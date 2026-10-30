@@ -30,6 +30,19 @@ extension ChatColumnPlacement {
         return keepsNewTabPage(from: controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID))
     }
 
+    /// The strip pane a terminal or browser picked on a New Tab page in `controller`'s pane opens in
+    /// (``pagePick(from:columns:recent:zoomed:)``), nil when the pick takes the page's place.
+    @MainActor static func pagePick(from controller: PaneController) -> PaneController? {
+        guard let content = controller.workspace, let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return nil }
+        let zoomed = content.workspace.screens.contains { screen in
+            screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane }
+        }
+        let columns = columns(of: screen, containing: controller.layoutPaneID)
+        guard let id = pagePick(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed),
+              let strip = content.panes[id], strip !== controller else { return nil }
+        return strip
+    }
+
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
     /// Reads `tab` itself: finding it again by id walks every workspace's tabs, once per
     /// tab of a pane whose tab bar is drawn (cx-6so.21).
