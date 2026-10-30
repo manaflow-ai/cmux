@@ -214,13 +214,24 @@ nonisolated enum AcpmuxStatusClient {
         return prompt
     }
 
+    /// The unix endpoint for `socketPath`, or ``Failure/unreachable(_:)`` for a path no socket can
+    /// have: empty, or past the Unix socket limit (``AcpmuxEnvironment/maxSocketPathBytes``).
+    /// `NWEndpoint.unix` traps on such a path (SIGTRAP inside Network.framework); a caller such as
+    /// the page's native `_acpmux/status` read takes the connection's path as given.
+    static func unixEndpoint(_ socketPath: String) throws -> NWEndpoint {
+        guard !socketPath.isEmpty, socketPath.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes else {
+            throw Failure.unreachable("socket path is empty or longer than \(AcpmuxEnvironment.maxSocketPathBytes) bytes: \(socketPath)")
+        }
+        return .unix(path: socketPath)
+    }
+
     /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
     /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
     /// With `requiredFeature`, no operation is sent before that connection advertises it.
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                      deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20,
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
-        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+        let connection = NWConnection(to: try unixEndpoint(socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
