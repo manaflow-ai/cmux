@@ -202,8 +202,9 @@ export const slotIn = (sql: Sql, id: string, state: NonNullable<UploadSlot["stat
 /**
  * When an open slot of `mode` stops being usable. A direct slot's parts go to R2 on URLs signed
  * until its expiry, and a PUT started before then may finish after it; its key and upload are
- * kept until the expiry grace (DUE), so its completion is taken until then. New part URLs still
- * stop at the expiry (leaseDirect).
+ * kept until the expiry grace (DUE), so its next part URL (leaseDirect, which renews the lease),
+ * its completion and its verification steps are taken until then: a part slower than the idle
+ * lease never strands the upload.
  */
 const usableUntil = (s: UploadSlot): number => (s.mode === "direct" ? s.expires_at + UPLOADING_GRACE_MS : s.expires_at)
 
@@ -300,7 +301,7 @@ export const reopenMultipart = (sql: Sql, id: string): boolean => {
 /** Open direct slot `id` still taking parts (not joined yet): renews its idle lease for the next part URL. */
 export const leaseDirect = (sql: Sql, id: string): UploadSlot | null => {
   const slot = slotIn(sql, id, "open")
-  if (!slot || slot.mode !== "direct" || slot.multipart_hash || slot.expires_at <= Date.now()) return null
+  if (!slot || slot.mode !== "direct" || slot.multipart_hash || usableUntil(slot) <= Date.now()) return null
   const expires_at = Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs
   sql.exec(`UPDATE ${SLOTS} SET expires_at = ? WHERE id = ?`, expires_at, id)
   return { ...slot, expires_at }
