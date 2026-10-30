@@ -110,10 +110,18 @@ struct AgentPaneStateFileTests {
         let release = Self.holdQueue(b)
         b.write { Data("b".utf8) }
         let seen = Mutex<Data?>(nil)
+        let reading = DispatchSemaphore(value: 0)
+        let read = DispatchSemaphore(value: 0)
         a.write {
+            reading.signal()
             seen.withLock { $0 = b.read() }
+            read.signal()
             return Data("a".utf8)
         }
+        // concurrency-allow: test only; A's save has reached its read of B
+        _ = reading.wait(timeout: .now() + 10)
+        // concurrency-allow: test only; while B is held the read must not finish (it did, at once, with one key on every queue)
+        #expect(read.wait(timeout: .now() + 0.3) == .timedOut, "read B while its queue was still busy")
         release.signal()
         #expect(a.read() == Data("a".utf8))
         #expect(seen.withLock { $0 } == Data("b".utf8), "read b directly instead of after its queued save")
