@@ -152,7 +152,7 @@ struct PlacementDocumentWriteOrderTests {
             windows.registry.apply { $0.openWindow(id: controller.state.id, workspaceIDs: Self.original); return WindowRegistry.Changes() }
             document.show(live: Self.live)
             controller.sidebar.sameTurn.syncNow(rows: true)
-            try #require(controller.sidebar.model.docDrag != nil)
+            let cachedDocumentDrag = try #require(controller.sidebar.model.docDrag)
             try #require(!controller.sidebar.model.ungroupedFirst,
                          "the active document owns mixed order even without the legacy mixed-order capability")
             try #require(controller.sidebar.model.selectableWorkspaces.map(\.id.rawValue) == Self.original)
@@ -192,12 +192,28 @@ struct PlacementDocumentWriteOrderTests {
             // Regression: the document can go inactive while the bridge still has its last
             // document drag cached. Resync must leave normal personal-order drop targeting active;
             // using `model.docDrag == nil` here misses the disconnect and keeps document mode.
-            controller.sidebar.model.docDrag = SidebarDocDrag(
-                item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in })
+            controller.sidebar.model.docDrag = cachedDocumentDrag
             SidebarDocStore.current = nil
             controller.sidebar.resync()
             #expect(controller.sidebar.model.ungroupedFirst,
                     "inactive document resync must restore legacy ungrouped-first targeting even with cached docDrag")
+            // A loose workspace dropped below the group must clamp before the group on
+            // the legacy path; document/mixed ordering would instead accept the trailing slot.
+            let moving = SidebarWorkspace(id: WorkspaceID("moving"), title: "Moving")
+            let loose = SidebarWorkspace(id: WorkspaceID("loose"), title: "Loose")
+            let member = SidebarWorkspace(id: WorkspaceID("member"), title: "Member")
+            let section = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+                .workspace(moving), .workspace(loose),
+                .group(SidebarGroup(id: GroupID("group"), name: "Group", workspaces: [member])),
+            ])
+            var options = SidebarLayoutOptions()
+            options.excludedWorkspaces = [moving.id]
+            let layout = SidebarLayout.make(sections: [section], metrics: .standard, options: options)
+            let target = DropResolver.resolve(y: layout.totalHeight + 40, payload: .workspaces([moving.id]),
+                                              base: layout, sections: [section],
+                                              ungroupedFirst: controller.sidebar.model.ungroupedFirst)
+            #expect(target == .position(DropPosition(section: .machine(.local), index: 1)),
+                    "the inactive document must not retain the mixed-order trailing drop slot")
             await connection.close()
         } catch {
             await connection.close()
