@@ -123,8 +123,9 @@ final class PendingWorkspaceRows {
 
     /// `sections` with each pending row the window does not list yet, at
     /// its slot (`NewWorkspaceDefaultSlot`), in press order. `home` is the
-    /// home workspace's id.
-    static func adding(_ rows: [Row], to sections: [SidebarRowSection], home: String?) -> [SidebarRowSection] {
+    /// home workspace's id. `catchingUp`: the window's `sections` are a projection behind the sidebar document
+    /// (`SidebarRows.layoutCatchingUp`).
+    static func adding(_ rows: [Row], to sections: [SidebarRowSection], home: String?, catchingUp: Bool) -> [SidebarRowSection] {
         guard !rows.isEmpty else { return sections }
         var sections = sections
         let listed = Set(sections.flatMap(\.workspaces).map(\.id.rawValue))
@@ -137,9 +138,9 @@ final class PendingWorkspaceRows {
             if let explicit = row.slot {
                 slot = explicit
             } else if let byDefault = row.byDefault {
-                if let resolved = byDefault.slot(for: row.id, section: section, in: sections, home: home) {
+                if let resolved = byDefault.slot(for: row.id, section: section, in: sections, home: home, catchingUp: catchingUp) {
                     slot = resolved
-                } else if byDefault.awaitsCurrentAnchor(section: section, in: sections, home: home) {
+                } else if byDefault.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) {
                     continue
                 } else {
                     slot = .bottom(anchor: nil)

@@ -64,6 +64,23 @@ import Testing
         }
     }
 
+    /// Rows built from the document's current projection that still omit the current row left it out on purpose:
+    /// the stand-in draws at the fallback slot.
+    @Test func rowsBuiltFromTheCurrentProjectionDrawTheStandInAtTheFallback() async throws {
+        _ = NSApplication.shared
+        try await Self.withDocument(shown: true) { store in
+            let model = SidebarModel()
+            let rows = SidebarRows(model: model)
+            let stale = [SidebarRowSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("m"), name: "This Mac", kind: .local)), nodes: [])]
+            let probe = Self.probe(window: "w", current: "current", machine: "m")
+            rows.show(stale, creating: ([probe], nil))
+            #expect(model.sections.flatMap(\.workspaces).isEmpty)
+            rows.show(stale, shownAt: store.shownChanges, creating: ([probe], nil), unlessShown: true)
+            #expect(!rows.layoutCatchingUp)
+            #expect(model.sections.flatMap(\.workspaces).map(\.id.rawValue) == ["probe"])
+        }
+    }
+
     /// The window's current workspace moved to another window: this one will never list it, so the cold wait
     /// resolves at once by the fallback and runs `then`.
     @Test func aCurrentWorkspaceAnotherWindowOwnsDoesNotHoldThePlacement() async throws {
@@ -88,6 +105,34 @@ import Testing
                                           then: { _, _ in ran.value = true }, windows: windows)
             #expect(windows.pendingPlacements["k2"] == nil, "the placement waits for a row another window lists")
             #expect(ran.value)
+        }
+    }
+
+    /// A current row the window could list (no window owns it yet) that never comes: the wait ends at its limit,
+    /// with no rows pass to retry it, and the placement resolves by the fallback.
+    @Test func aCurrentRowThatNeverComesStopsWaitingAtTheLimit() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.machines.local.store
+        let identity = try PlacementStaleRowsTests.identity(mixedOrder: false)
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: PlacementStaleRowsTests.tree(["k1", "k2"], personal: ["k1", "k2"]))
+        let windows = services.windows
+        windows.ordersWindowsIn = false
+        let controller = try #require(windows.openWindow(workspaces: ["k2"]))
+        defer { controller.teardown(); controller.window?.close() }
+        controller.sidebar.resync()
+        let machine = try #require(services.machines.daemon(forWorkspace: "k1")?.machineID)
+        try await Self.withDocument(shown: false) { _ in
+            let ran = Ran()
+            NewWorkspacePlacements.expect("k2", in: controller.state.id, byDefault: NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "k1", currentMachine: machine),
+                                          then: { _, _ in ran.value = true }, windows: windows)
+            #expect(windows.pendingPlacements["k2"] != nil, "a row the window may still list is waited for")
+            #expect(!ran.value)
+            await RapidWorkspaceCreateTests.wait(within: NewWorkspacePlacements.anchorWaitLimit + .seconds(10)) { ran.value }
+            #expect(ran.value, "the placement waited past its limit")
+            #expect(windows.pendingPlacements.isEmpty)
         }
     }
 }

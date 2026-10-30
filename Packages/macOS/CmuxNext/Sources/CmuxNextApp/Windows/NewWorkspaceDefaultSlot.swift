@@ -42,12 +42,11 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// The current row is expected in this machine section but is not in the
     /// stale layout yet. Returning true keeps Cmd-N pending until the row is
     /// realized, instead of resolving the slot against an empty layout. Only
-    /// while the sidebar document's drawn projection is behind its version
-    /// (`layoutCatchingUp`): once it has caught up, a row still missing was
+    /// while the window's rows are a projection behind the sidebar document
+    /// (`catchingUp`, `layoutCatchingUp(rowsAt:)`): once they have caught up, a row still missing was
     /// left out on purpose (a filter, another space, a close) and the slot
     /// falls back as documented.
-    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil,
-                             catchingUp: Bool = Self.layoutCatchingUp()) -> Bool {
+    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil, catchingUp: Bool) -> Bool {
         guard catchingUp, placement == .afterCurrent, let current, let currentMachine,
               current != home,
               case let .machine(machine) = section, machine.rawValue == currentMachine,
@@ -55,16 +54,18 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
         return true
     }
 
-    /// Whether the sidebar document's drawn projection is behind its version (a cold or updated
-    /// layout a hop before its rows show).
-    static func layoutCatchingUp() -> Bool {
+    /// Whether a window's rows built at `rowsAt` (the document's `shownChanges` then; nil: not built from its
+    /// projection) are behind the sidebar document: its drawn projection is behind its version, or the window's
+    /// rows pass has not run since the projection changed (a cold or updated layout a hop before its rows show).
+    static func layoutCatchingUp(rowsAt: UInt64? = nil) -> Bool {
         guard let store = SidebarDocStore.current, store.isActive else { return false }
-        return store.shown == nil || store.shownVersion != store.version
+        return store.shown == nil || store.shownVersion != store.version || rowsAt != store.shownChanges
     }
 
     /// The slot for new workspace `id` in `section` of a window's `sections`;
-    /// nil keeps the daemon's place. `home` is the home workspace's id.
-    func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
+    /// nil keeps the daemon's place. `home` is the home workspace's id. `catchingUp`: the window's rows are a
+    /// projection behind (`awaitsCurrentAnchor`).
+    func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         switch placement {
         case .bottom:
             if let current, current != id, current != home,
@@ -73,7 +74,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return nil
         case .afterCurrent:
-            if awaitsCurrentAnchor(section: section, in: sections, home: home) { return nil }
+            if awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) { return nil }
             if let current, current != id, current != home,
                WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
                 return .below(current)
@@ -89,13 +90,13 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     }
 
     /// The move the app sends once the daemon reports new workspace `id`, or nil when the daemon's
-    /// create already put it at ``slot(for:section:in:home:)``: the daemon places every new workspace
+    /// create already put it at ``slot(for:section:in:home:catchingUp:)``: the daemon places every new workspace
     /// by `workspaces.newPlacement` in the commit that creates it (first below Home under `top`,
     /// last under `bottom`), so a second write would be a second state change and a second render
     /// for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon does
     /// not know is moved to: inside the current workspace's group, after the window's current one.
-    func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
-        guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
+    func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
+        guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
         if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }
@@ -158,6 +159,19 @@ enum NewWorkspacePlacements {
         guard let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: id) else { return false }
         return layout.sections.contains { $0.isVisible(inRoom: room) && $0.items.contains { $0.ref == ref } }
     }
+
+    /// Whether window `windowID` lists workspace `id` once its rows catch up: no other window owns it and the
+    /// window's space shows it. A cold Cmd-N waits only for such a row.
+    static func lists(_ id: String, in windowID: String, windows: WindowManager) -> Bool {
+        if let owner = windows.registry.value.owner(of: id), owner != windowID { return false }
+        guard let profile = windows.controller(for: windowID)?.state.profileID else { return true }
+        let machines = windows.services.machines
+        return WindowProfiles.shows(id, profile: profile, machines: machines, membership: WindowProfiles.membership(machines))
+    }
+
+    /// How long a placement waits for the window's current row (`awaitsCurrentAnchor`) before it resolves by the
+    /// fallback: a cold layout shows its rows well within it; a row that never comes cannot hold the placement.
+    static let anchorWaitLimit: Duration = .seconds(3)
 
     /// Places workspace `id` at `slot`, else by `byDefault`, in window
     /// `windowID` (nil: the window that lists it): now when it is mirrored,

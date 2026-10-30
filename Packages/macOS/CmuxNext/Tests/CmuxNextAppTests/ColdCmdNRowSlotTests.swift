@@ -90,13 +90,15 @@ struct ColdCmdNRowSlotTests {
             // The document's drawn projection is a hop behind, as on a cold launch.
             let document = try #require(SidebarDocStore.current)
             document.shownVersion = document.version &- 1
-            let coldFrame = PendingWorkspaceRows.adding([probe], to: staleSections, home: nil)
+            let catchingUp = NewWorkspaceDefaultSlot.layoutCatchingUp(rowsAt: document.shownChanges)
+            #expect(catchingUp)
+            let coldFrame = PendingWorkspaceRows.adding([probe], to: staleSections, home: nil, catchingUp: catchingUp)
             #expect(coldFrame.flatMap(\.workspaces).isEmpty, "a stale cold layout must not draw a top or bottom frame")
             let settledSections = [SidebarRowSection(
                 kind: .machine(SidebarMachine(id: MachineID(machine), name: "This Mac", kind: .local)),
                 nodes: [.workspace(SidebarWorkspace(id: WorkspaceID(current.id), machineID: MachineID(machine), title: "current"))]
             )]
-            let settledFrame = PendingWorkspaceRows.adding([probe], to: settledSections, home: nil)
+            let settledFrame = PendingWorkspaceRows.adding([probe], to: settledSections, home: nil, catchingUp: catchingUp)
             #expect(settledFrame.flatMap(\.workspaces).map(\.id.rawValue) == [current.id, "cold-probe"])
             #expect(!probeRule.awaitsCurrentAnchor(section: .machine(MachineID(machine)), in: staleSections, catchingUp: false),
                     "once the layout caught up, a current row left out on purpose (filter, space, close) uses the normal fallback")
@@ -105,7 +107,7 @@ struct ColdCmdNRowSlotTests {
                 id: "bottom-probe", window: window, machine: MachineID(machine),
                 face: SidebarMapping.shared.creatingRow(id: "bottom-probe", machine: MachineID(machine), name: "bottom-probe", opensPage: true),
                 slot: nil, byDefault: bottomRule)
-            let bottomFrame = PendingWorkspaceRows.adding([bottom], to: staleSections, home: nil)
+            let bottomFrame = PendingWorkspaceRows.adding([bottom], to: staleSections, home: nil, catchingUp: catchingUp)
             #expect(bottomFrame.flatMap(\.workspaces).map(\.id.rawValue) == ["bottom-probe"],
                     "bottom placement keeps its immediate loose-row stand-in")
 

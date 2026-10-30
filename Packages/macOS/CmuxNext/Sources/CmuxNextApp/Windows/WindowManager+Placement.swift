@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 /// A new workspace's sidebar slot, kept until the daemon reports it.
 struct PendingPlacement {
@@ -14,6 +15,9 @@ struct PendingPlacement {
     /// The action run that asked for the placement: `then` runs later,
     /// outside its task, and keeps its view-change permission.
     var run: ActionRunScope? = ActionRunScope.current
+    /// When the placement first waited for the window's current row (`awaitsCurrentAnchor`): it waits at most
+    /// `NewWorkspacePlacements.anchorWaitLimit`, then resolves by the fallback.
+    var anchorWaitSince: ContinuousClock.Instant?
 }
 
 // Placing new workspaces (New Workspace Above/Below/at Top/Like This, a
@@ -29,6 +33,12 @@ extension WindowManager {
     func retryDeferredPlacements() {
         guard !pendingPlacements.isEmpty else { return }
         applyPendingPlacements(live: Set(pendingPlacements.keys))
+    }
+
+    /// One retry once a deferred placement's wait runs out, so it resolves even when no rows pass comes
+    /// (`anchorRetry`, a one-shot deadline; a pass that finds one still waiting sets the next).
+    private func retryDeferredPlacements(after delay: Duration) {
+        anchorRetry.scheduleIfIdle(after: delay) { @MainActor [weak self] in self?.retryDeferredPlacements() }
     }
 
     func applyPendingPlacements(live: Set<String>) {
@@ -58,22 +68,30 @@ extension WindowManager {
             let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
-            // Waits for a current row a cold layout omits. One closed or pinned since the press (it shows in the
-            // band, not the list) has no row to wait for: the rule resolves as if it never had one.
+            let catchingUp = bridge.rows.layoutCatchingUp
+            // Waits for a current row this window's cold rows omit. One closed or pinned since the press (it shows in
+            // the band, not the list), or one this window does not list (another window's, another space's), has no
+            // row to wait for: the rule resolves as if it never had one. So does a wait past its limit.
             var byDefault = pending.byDefault
-            if byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true, let current = byDefault?.current {
+            if byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
+                let since = pending.anchorWaitSince ?? .now
                 if services.machines.workspace(id: current) != nil,
                    !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
-                                                       legacy: services.sidebarLayout.unavailableReason != nil, machines: services.machines) {
-                    pendingPlacements[id] = pending
+                                                       legacy: services.sidebarLayout.unavailableReason != nil, machines: services.machines),
+                   NewWorkspacePlacements.lists(current, in: window, windows: self),
+                   ContinuousClock.now < since + NewWorkspacePlacements.anchorWaitLimit {
+                    var waiting = pending
+                    waiting.anchorWaitSince = since
+                    pendingPlacements[id] = waiting
+                    retryDeferredPlacements(after: since + NewWorkspacePlacements.anchorWaitLimit - .now)
                     continue
                 }
                 byDefault?.currentMachine = nil
             }
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.
-            let slot = pending.slot ?? (daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home)
-                : byDefault?.slot(for: id, section: section, in: sections, home: home))
+            let slot = pending.slot ?? (daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
+                : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp))
             if let position = slot?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
