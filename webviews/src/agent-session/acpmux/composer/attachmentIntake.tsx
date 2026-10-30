@@ -858,8 +858,11 @@ function AttachmentChip({
       t("media.play"),
     );
   }
+  // A file sent as its path opens from its menu, through the host's path open (the deny list and the
+  // outside-folders confirmation apply there), so what is about to go can be checked first.
+  const openFile = attachment.path ? () => void callChipHost("link.openPath", { path: attachment.path }) : undefined;
   return menu(
-    undefined,
+    openFile,
     <div
       className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
       data-saved={attachment.saved || undefined}
