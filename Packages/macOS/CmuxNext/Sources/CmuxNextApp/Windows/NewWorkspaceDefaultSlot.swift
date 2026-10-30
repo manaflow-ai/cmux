@@ -41,13 +41,25 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 
     /// The current row is expected in this machine section but is not in the
     /// stale layout yet. Returning true keeps Cmd-N pending until the row is
-    /// realized, instead of resolving the slot against an empty layout.
-    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil) -> Bool {
-        guard placement == .afterCurrent, let current, let currentMachine,
+    /// realized, instead of resolving the slot against an empty layout. Only
+    /// while the sidebar document's drawn projection is behind its version
+    /// (`layoutCatchingUp`): once it has caught up, a row still missing was
+    /// left out on purpose (a filter, another space, a close) and the slot
+    /// falls back as documented.
+    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil,
+                             catchingUp: Bool = Self.layoutCatchingUp()) -> Bool {
+        guard catchingUp, placement == .afterCurrent, let current, let currentMachine,
               current != home,
               case let .machine(machine) = section, machine.rawValue == currentMachine,
               !sections.flatMap(\.workspaces).contains(where: { $0.id.rawValue == current }) else { return false }
         return true
+    }
+
+    /// Whether the sidebar document's drawn projection is behind its version (a cold or updated
+    /// layout a hop before its rows show).
+    static func layoutCatchingUp() -> Bool {
+        guard let store = SidebarDocStore.current, store.isActive else { return false }
+        return store.shown == nil || store.shownVersion != store.version
     }
 
     /// The slot for new workspace `id` in `section` of a window's `sections`;
