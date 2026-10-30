@@ -242581,7 +242581,403 @@
     "retry.menu": {"comment":"Agent pane: the name and tooltip of the more-actions button on a failed subagent's line (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Subagent actions"}},"ar":{"stringUnit":{"state":"needs_review","value":"إجراءات الوكيل الفرعي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Radnje podagenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Underagenthandlinger"}},"de":{"stringUnit":{"state":"needs_review","value":"Subagent-Aktionen"}},"es":{"stringUnit":{"state":"needs_review","value":"Acciones del subagente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Actions du sous-agent"}},"it":{"stringUnit":{"state":"needs_review","value":"Azioni del subagente"}},"ja":{"stringUnit":{"state":"needs_review","value":"サブエージェントの操作"}},"km":{"stringUnit":{"state":"needs_review","value":"សកម្មភាពភ្នាក់ងាររង"}},"ko":{"stringUnit":{"state":"needs_review","value":"하위 에이전트 작업"}},"nb":{"stringUnit":{"state":"needs_review","value":"Underagenthandlinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akcje podagenta"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ações do subagente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Действия субагента"}},"th":{"stringUnit":{"state":"needs_review","value":"การทำงานของเอเจนต์ย่อย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Alt ajan eylemleri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Дії субагента"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thao tác tác tử con"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"子代理操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"子代理程式動作"}}}},
     "chatMenu.pauseMachine": {"comment":"Agent pane chat menu: pause the Cloud machine this chat runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pause Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"إيقاف الجهاز مؤقتًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pauziraj mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Sæt maskine på pause"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine pausieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Pausar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mettre la machine en pause"}},"it":{"stringUnit":{"state":"needs_review","value":"Metti in pausa la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを一時停止"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្អាកម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 일시 정지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sett maskinen på pause"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstrzymaj maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pausar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Приостановить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดเครื่องชั่วคราว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi duraklat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Призупинити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tạm dừng máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"暂停机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"暫停機器"}}}},
     "chatMenu.stopAndPauseMachine": {"comment":"Agent pane chat menu: stop the chat's running turn, then pause the Cloud machine it runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Stop and Pause Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"إيقاف الدور ثم إيقاف الجهاز مؤقتًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zaustavi i pauziraj mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Stop og sæt maskine på pause"}},"de":{"stringUnit":{"state":"needs_review","value":"Stoppen und Maschine pausieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Detener y pausar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Arrêter et mettre la machine en pause"}},"it":{"stringUnit":{"state":"needs_review","value":"Interrompi e metti in pausa la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"停止してマシンを一時停止"}},"km":{"stringUnit":{"state":"needs_review","value":"បញ្ឈប់ ហើយផ្អាកម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"중지하고 머신 일시 정지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Stopp og sett maskinen på pause"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatrzymaj i wstrzymaj maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Parar e pausar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остановить и приостановить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดและหยุดเครื่องชั่วคราว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Durdur ve makineyi duraklat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зупинити й призупинити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dừng và tạm dừng máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"停止并暂停机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"停止並暫停機器"}}}},
-    "chatMenu.resumeMachine": {"comment":"Agent pane chat menu: resume the paused Cloud machine this chat runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Resume Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"استئناف الجهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Genoptag maskine"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine fortsetzen"}},"es":{"stringUnit":{"state":"needs_review","value":"Reanudar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reprendre la machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprendi la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを再開"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្តម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjenoppta maskinen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wznów maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Retomar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Возобновить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานเครื่องต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi sürdür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відновити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"恢复机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"恢復機器"}}}}
+    "chatMenu.resumeMachine": {"comment":"Agent pane chat menu: resume the paused Cloud machine this chat runs on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Resume Machine"}},"ar":{"stringUnit":{"state":"needs_review","value":"استئناف الجهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nastavi mašinu"}},"da":{"stringUnit":{"state":"needs_review","value":"Genoptag maskine"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine fortsetzen"}},"es":{"stringUnit":{"state":"needs_review","value":"Reanudar máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reprendre la machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprendi la macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを再開"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្តម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjenoppta maskinen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wznów maszynę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Retomar máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Возобновить машину"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานเครื่องต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi sürdür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відновити машину"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp tục máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"恢复机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"恢復機器"}}}},
+    "question.outcome.none": {
+      "comment": "Agent pane: agent question card, the grey line under an ask that ended without an answer",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تتم الإجابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez odgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke besvaret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht beantwortet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not answered"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin responder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sans réponse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Senza risposta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未回答"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានឆ្លើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답변 안 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke besvart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez odpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não respondida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без ответа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıtlanmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без відповіді"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa trả lời"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未回答"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未回答"
+          }
+        }
+      }
+    },
+    "question.outcome.skipped": {
+      "comment": "Agent pane: agent question card, the grey line under an ask that ended without an answer",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم التخطي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preskočeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprunget over"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Übersprungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omitida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ignorée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saltata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スキップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានរំលង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "건너뜀"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoppet over"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pominięto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ignorada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропущено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้ามแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропущено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã bỏ qua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已跳过"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已略過"
+          }
+        }
+      }
+    },
+    "question.outcome.stopped": {
+      "comment": "Agent pane: agent question card, the grey line under an ask that ended without an answer",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقف قبل الإجابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavljeno prije odgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppet før et svar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vor einer Antwort gestoppt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped before an answer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detenida antes de responder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêtée avant une réponse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrotta prima di una risposta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回答前に停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបញ្ឈប់មុនពេលឆ្លើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답변 전에 중지됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppet før et svar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatrzymano przed odpowiedzią"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompida antes de uma resposta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остановлено до ответа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดก่อนได้คำตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıttan önce durduruldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зупинено до відповіді"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã dừng trước khi trả lời"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回答前已停止"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回答前已停止"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
