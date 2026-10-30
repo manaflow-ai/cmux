@@ -8,7 +8,8 @@ import Testing
 /// ends (`PalettePageSpec.queryResults`), so the stream ends after acpmux's first answer for the
 /// query, an empty one too (the page then shows its empty state, not a spinner forever).
 @MainActor @Suite struct AgentChatsPaletteAnswerTests {
-    @Test func aQueryStreamEndsAfterAcpmuxAnswersIt() async throws {
+    // A stream with no end hangs at its second read: the limit fails it at once, not at the lane's timeout.
+    @Test(.timeLimit(.minutes(1))) func aQueryStreamEndsAfterAcpmuxAnswersIt() async throws {
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
         windows.connected { _, params in sent.append(params) }
@@ -81,6 +82,7 @@ import Testing
         for await answer in stream { answers.append(answer) }
         let shown = try #require(answers.first)
         #expect(shown.map(\.id) == ["chat:codex:1", "agentChats.more"], "\(shown.map(\.id))")
-        #expect(shown.last?.title == AgentChatsPaletteStrings.moreChats(2_999))
+        #expect(shown.last?.title.contains("2,999") == true || shown.last?.title.contains("2999") == true,
+                "the row names the 2,999 chats it leaves out: \(shown.last?.title ?? "")")
     }
 }

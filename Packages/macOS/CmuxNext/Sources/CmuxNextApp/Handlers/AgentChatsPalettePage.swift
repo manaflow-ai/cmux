@@ -116,10 +116,14 @@ struct AgentChatsPaletteStrings {
     static var placeholder: String { String(localized: "handlers.agentChats.placeholder", defaultValue: "Search chats", table: "MiscHandlers", bundle: .module) }
     static var open: String { String(localized: "handlers.agentChats.open", defaultValue: "Open Chat", table: "MiscHandlers", bundle: .module) }
     static var untitled: String { String(localized: "handlers.agentChats.untitled", defaultValue: "New chat", table: "MiscHandlers", bundle: .module) }
-    /// The row under the empty query's page when `more` chats are not shown.
-    static func moreChats(_ more: Int) -> String {
+    /// The bundle of this module's catalog, so a test can read one language's table (`fr.lproj`).
+    static var bundle: Bundle { .module }
+
+    /// The row under the empty query's page when `more` chats are not shown. `bundle` and `locale`
+    /// default to this module's catalog in the user's language; a test passes one language's table.
+    static func moreChats(_ more: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
         String(format: String(localized: "handlers.agentChats.moreChats", defaultValue: "%lld more chats. Type to search.",
-                              table: "MiscHandlers", bundle: .module), Int64(more))
+                              table: "MiscHandlers", bundle: bundle, locale: locale), Int64(more))
     }
 
     /// The row under a page that shows only the best `shown` of `total` matching chats.
