@@ -255,27 +255,13 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// when one is queued or running, it writes the cut-off marker and returns true. It never calls the
     /// Keychain (a hung securityd must not hold the process's end): the next launch clears the seal
     /// (``distrustIfCutOff()``).
-    public func markCutOffIfSaving() -> Bool {
-        guard isSaving else { return false }
-        try? Data().blockingWrite(to: cutOffMarker, options: .atomic)
-        return true
-    }
+    public func markCutOffIfSaving() -> Bool { false }
 
     /// On the file's queue, first: when the last quit cut off a save, no stored list counts in this run,
     /// and the seal is cleared, so after it the stored list no longer matches its seal and every phone
     /// pairs again (the digest rule of ``load(userID:)``). A Keychain that refuses the clear keeps the
     /// list refused for this run and the marker for the next launch (a fault).
-    private func distrustIfCutOff() {
-        guard FileManager.checked.fileExists(atPath: cutOffMarker.path) else { return }
-        inForce.withLock { $0 = Data() }
-        guard seal.clearDigest() || seal.clearDigest() else {
-            Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and the Keychain refuses to clear the seal; no phone is trusted in this run")
-            return
-        }
-        try? FileManager.checked.removeItem(at: cutOffMarker)
-        clearedForCutOff.withLock { $0 = true }
-        Self.logger.error("iPhone pairing: the last quit cut off a paired-phones save; the seal is cleared, every phone pairs again")
-    }
+    private func distrustIfCutOff() {}
 
     /// Whether this launch cleared the seal for a save the last quit cut off (its notice says so).
     public func sealClearedForCutOff() async -> Bool {
