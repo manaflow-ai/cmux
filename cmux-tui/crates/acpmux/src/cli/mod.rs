@@ -5,6 +5,7 @@
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
 pub mod beads;
+pub(crate) mod bounded_child;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;
