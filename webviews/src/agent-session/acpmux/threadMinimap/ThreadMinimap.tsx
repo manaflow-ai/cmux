@@ -1,6 +1,6 @@
 // The thread minimap, as the Codex desktop app's prompt rail: one 10 px row per user prompt, pinned
 // to the pane's left edge with a spacing-token inset. Hovering magnifies the rows near the pointer
-// like the Dock and, on the same hover (model.ts RAIL_CARD_DELAY), opens a preview card (the prompt, its bookmark and
+// like the Dock and, on the same frame (CARD_DELAY), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
 // as a dot past the tick, and the row's right spot toggles one. Geometry comes from the
@@ -35,6 +35,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
+  CARD_DELAY,
   cardOffset,
   JUMP_CURVE,
   jumpDuration,
@@ -42,7 +43,6 @@ import {
   MIN_PROMPTS,
   minimapTurns,
   railFade,
-  RAIL_CARD_DELAY,
   railFades,
   railHeight,
   ROW_WIDTH,
@@ -213,9 +213,9 @@ export function ThreadMinimap({
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
   const [cardRow, setCardRow] = useState<number | undefined>(undefined);
-  // The card's hover intent (ui/hoverIntent.ts): it opens on the hover (RAIL_CARD_DELAY), follows the
-  // pointer from row to row at once, and goes as the pointer leaves. Keyboard focus shows it at once.
-  const preview = useHoverIntent<"rail">({ delay: RAIL_CARD_DELAY });
+  // The card's hover intent (ui/hoverIntent.ts) with no dwell (CARD_DELAY): the card shows on the
+  // frame the pointer reaches a row and follows it from row to row. Keyboard focus shows it at once.
+  const preview = useHoverIntent<"rail">({ delay: CARD_DELAY });
   const cardOpen = preview.shown !== null;
   const intend = preview.hover;
   useEffect(() => {
@@ -412,8 +412,11 @@ export function ThreadMinimap({
     };
   }, [scroller, sessionId]);
 
-  /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
-  /// at once when it is not (or under Reduce Motion, or while scrubbing). It lands the top of the
+  /// Scrolls the transcript to turn `index`. A click or a scrub lands at once, in the frame of the
+  /// input (Leo, 2026-10-29: "faster scrttoll"; a jump the reader asked for by pointing needs no
+  /// travel to read, and the 200-400 ms glide was the slowest step of a rail click). A Previous or
+  /// Next Turn step and a bookmark jump glide on the measured curve when the row is mounted. Any jump
+  /// lands at once when its row is not drawn, or under Reduce Motion. It lands the top of the
   /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
@@ -442,7 +445,7 @@ export function ThreadMinimap({
         },
         SETTLE_FRAMES,
       );
-    if (how === "scrub" || !row || reducedMotion()) {
+    if (how === "scrub" || how === "click" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();

@@ -73,9 +73,9 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 
-// The session rail's turn preview opens on the hover itself (Leo, 2026-10-29: "faster scrttoll/hover
-// over"; model.ts RAIL_CARD_DELAY), then follows the pointer from row to row, and goes as it leaves.
-test("the minimap's turn preview opens on the hover, follows the pointer and goes as it leaves", async () => {
+// The minimap's turn preview opens on the frame the pointer reaches a row, with no dwell (Leo,
+// 2026-10-29: "giving it faster scrttoll/hover over"); it was Codex's 250 ms, the app's other cards 450.
+test("the minimap's turn preview opens at once and follows the pointer from row to row", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   jest.useFakeTimers();
   try {
@@ -108,7 +108,7 @@ test("the minimap's turn preview opens on the hover, follows the pointer and goe
         if (under !== undefined) pointer("pointerout", tick(under), null);
         under = undefined;
       });
-    // Shown in the commit of the hover, with no timer run.
+    // Shown as soon as the pointer comes, with no timer to run.
     const opensAtOnce = async (index: number) => {
       await move(index);
       expect(visible()).toBe(true);
@@ -118,7 +118,7 @@ test("the minimap's turn preview opens on the hover, follows the pointer and goe
     // The next tick's preview at once.
     await move(3);
     expect(visible()).toBe(true);
-    // Off the rail it goes; a cold rail opens at once too.
+    // Off the rail, and back after the warm time: at once again.
     await leave();
     expect(visible()).toBe(false);
     await wait(600);

@@ -1,6 +1,6 @@
 // The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from four
 // prompts at any pane width (a narrow one: thread-minimap-narrow.test.tsx); hover magnifies like
-// the Dock and opens a preview card on Codex's timing; every row is a tab stop whose focus opens
+// the Dock and opens a preview card at once; every row is a tab stop whose focus opens
 // the card at once; a click or Return jumps; a drag scrubs; bookmarks show as a dot past the tick,
 // toggle from the dot, the card and the prompt's own row, and the Previous and Next Bookmarked
 // Prompt actions step through them. Scroll motion and the landing highlight run under Reduce
@@ -201,11 +201,11 @@ test("rows are 10 px tab stops; every prompt on screen is current; hover magnifi
   }
 });
 
-test("the card opens on the hover, follows the pointer at once, and goes as the pointer leaves", async () => {
+test("the card opens with the hover, follows the pointer at once, and goes as the pointer leaves", async () => {
   const view = await mount(8);
   jest.useFakeTimers();
   try {
-    // In the hover's own commit: no dwell (model.ts RAIL_CARD_DELAY).
+    // No dwell (Leo, 2026-10-29: "faster scrttoll/hover over"): the card is there on the pointer's commit.
     await enter(3);
     expect(card()).not.toBeNull();
     expect(card()!.textContent).toContain("Question 3");
@@ -216,7 +216,7 @@ test("the card opens on the hover, follows the pointer at once, and goes as the 
     // Leaving the rail (not for the card): the card goes at once.
     await leave(4);
     expect(card()).toBeNull();
-    // Back while the rail is warm: at once.
+    // Back: at once.
     await advance(300);
     await enter(2);
     expect(card()!.textContent).toContain("Question 2");
