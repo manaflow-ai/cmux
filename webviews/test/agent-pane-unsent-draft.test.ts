@@ -5,6 +5,8 @@
 // - Such a chat hands its typed text to the host (`chat.unsentDraft`), which keeps it with the tab
 //   across a relaunch (AgentUnsentDrafts); a relaunch hands it back as the handshake's `draft`.
 // - The text it shows from that draft goes back to the host too, so it is kept again.
+// - Start Agent's panel (`surface: "quick"`) hands its new chat's text over the same way: it has no
+//   tab, and before, an update's relaunch took what was typed there.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -44,10 +46,10 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
 
   /// A new chat whose host hands it `draft` (a relaunch's kept text), recording what the page
   /// hands back with `chat.unsentDraft`.
-  async function newChat(draft?: string): Promise<Page> {
+  async function newChat(draft?: string, surface?: "quick"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await page.addInitScript(
-      ({ draft }) => {
+      ({ draft, surface }) => {
         const unsent: string[] = [];
         Object.assign(window, {
           unsentDrafts: unsent,
@@ -67,11 +69,12 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
               transport: "mock",
               newSession: true,
               ...(draft ? { draft } : {}),
+              ...(surface ? { surface } : {}),
             }),
           },
         });
       },
-      { draft },
+      { draft, surface },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
@@ -99,6 +102,19 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       await page.keyboard.type("compare the two retry policies");
       expect(await lastUnsent(page, "compare the two retry policies")).toBe("compare the two retry policies");
       await page.close();
+    });
+
+    // Leo (10-28): "when I updated, it removed my draft in one of the composer things".
+    test("Start Agent's panel hands its typed text to the host, and gets it back after an update", async () => {
+      const page = await newChat(undefined, "quick");
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("compare the two retry policies");
+      expect(await lastUnsent(page, "compare the two retry policies")).toBe("compare the two retry policies");
+      await page.close();
+
+      const relaunched = await newChat("compare the two retry policies", "quick");
+      await relaunched.getByText("compare the two retry policies").waitFor();
+      await relaunched.close();
     });
 
     test("a relaunched new chat shows its kept draft and keeps what is typed after it", async () => {
