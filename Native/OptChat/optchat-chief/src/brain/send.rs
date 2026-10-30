@@ -43,6 +43,11 @@ impl Brain {
                 urls.push(item.clone());
                 continue;
             }
+            if call.delay_seconds.is_some() {
+                return Err(
+                    "send: a message sent later carries text and URLs; send files now".into(),
+                );
+            }
             let path = media::local_path(item, home.as_deref()).ok_or_else(|| {
                 format!("send: attachment {item:?} is not an absolute path, ~/path, file:// or http(s) URL")
             })?;
@@ -120,6 +125,9 @@ impl Brain {
         if let Some(id) = call.reply_to {
             fingerprint.push_str(&format!("\u{0}reply_to={id}"));
         }
+        if let Some(seconds) = call.delay_seconds {
+            fingerprint.push_str(&format!("\u{0}delay={seconds}"));
+        }
         let key = format!(
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
@@ -180,6 +188,9 @@ impl Brain {
             });
             *thread_root = Some(root.clone());
         }
+        if let Some(seconds) = call.delay_seconds {
+            return self.send_later(entry, key, seconds);
+        }
         self.sent_keys.insert(key);
         let entry = self.reply_with_media(entry, files.clone());
         self.state.outbox.push(entry);
@@ -194,5 +205,37 @@ impl Brain {
             (None, Some(id)) => format!("outcome: done. sent{what} in the thread of message {id}"),
             (None, None) => format!("outcome: done. sent{what}"),
         })
+    }
+
+    /// `send` with `delay_seconds`: the conversation owner holds the message
+    /// and posts it as the Chief then (`conversation-scheduled-v1`), whether
+    /// or not the Chief runs; the user sees it waiting and can change it.
+    fn send_later(
+        &mut self,
+        entry: crate::state::OutboxEntry,
+        key: String,
+        seconds: u64,
+    ) -> Result<String, String> {
+        let send_at_ms = super::now_ms().saturating_add(seconds.saturating_mul(1_000));
+        let daemon = self
+            .daemon
+            .as_mut()
+            .ok_or("send: the conversation is not connected yet; try again")?;
+        let id = match daemon.schedule(&entry.conversation, &entry.op, send_at_ms) {
+            Ok(id) => id,
+            // The same message under its key is already queued (a replay
+            // returns it) or already sent: never queue it a second time.
+            Err(crate::daemon::OpError::Rejected(reason))
+                if reason.contains("idempotency_conflict") =>
+            {
+                self.sent_keys.insert(key);
+                return Ok("outcome: noop. this message is already scheduled or sent".to_owned());
+            }
+            Err(error) => return Err(format!("send: not scheduled: {error}")),
+        };
+        self.sent_keys.insert(key);
+        Ok(format!(
+            "outcome: done. scheduled {id} to send in {seconds} s"
+        ))
     }
 }

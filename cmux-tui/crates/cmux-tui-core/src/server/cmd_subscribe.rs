@@ -128,6 +128,9 @@ pub(super) fn subscribe_command(
                     if matches!(
                         event.as_ref(),
                         crate::conversation_store::ConversationEvent::Inbox { participant, .. }
+                            | crate::conversation_store::ConversationEvent::Scheduled {
+                                participant, ..
+                            }
                             if *participant != event_mux.conversation_principal(client)
                     ) =>
                 {

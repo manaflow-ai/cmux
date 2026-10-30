@@ -575,6 +575,20 @@ body,
 :dir(rtl) .hc-send .hc-icon {
   transform: scaleX(-1);
 }
+/* Send Later as a segment on Send (SendLater.tsx `split`): one button in two halves. */
+.hc-send.hc-send-split.ui-toolbar-button {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+.hc-send.hc-send-later.ui-toolbar-button {
+  width: 20px;
+  margin-inline-start: 1px;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+:dir(rtl) .hc-send.hc-send-later .hc-icon {
+  transform: none;
+}
 .hc-composer.hc-edit {
   margin: 4px 0;
   background: var(--cmux-surface-solid, Canvas);
@@ -671,6 +685,80 @@ body,
 }
 .hc-link.ui-popover {
   padding: 8px;
+}
+/* Send Later's time picker. */
+.hc-later.ui-popover {
+  width: 280px;
+  padding: 4px;
+}
+.hc-later-title {
+  padding: 8px 8px 4px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.hc-later-row {
+  justify-content: space-between;
+}
+.hc-later-when {
+  color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.hc-later-custom {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px 4px;
+  border-top: 1px solid var(--page-separator);
+  margin-top: 4px;
+}
+.hc-later-custom .hc-link-field {
+  flex: 1;
+  min-width: 0;
+}
+/* My scheduled messages above the composer (ScheduledStrip.tsx). */
+.hc-scheduled {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0 0 8px;
+  padding: 4px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  list-style: none;
+}
+.hc-scheduled-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  color: var(--page-text-2);
+}
+.hc-scheduled-row:hover,
+.hc-scheduled-row:focus-within {
+  background: var(--page-hover);
+}
+.hc-scheduled-when {
+  flex: none;
+  color: var(--page-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hc-scheduled-row.failed .hc-scheduled-when {
+  color: var(--hc-danger);
+}
+.hc-scheduled-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-scheduled-row .hc-text-button {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
 }
 .hc-link form {
   display: flex;

@@ -31,6 +31,7 @@ import {
   type HomeResolvedLink,
   type HomeRun,
   type HomeRunStep,
+  type HomeScheduled,
   type HomeThreadObject,
   type HomeThreadStats,
 } from "./types";
@@ -46,6 +47,9 @@ const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
 /** `home-inbox`: the owner derives the list rows (kind, name, unread, preview, a Chief's state, my
  * pins and marks) once for every view; the page shows them instead of projecting summaries. */
 const HOME_INBOX_CAPABILITY = "home-inbox-v1";
+/** Send Later on the local owner: `conversation-scheduled-list`, `conversation-scheduled-op` and
+ * `conversation-scheduled-changed` (only my own messages, local conversations only). */
+const SCHEDULED_CAPABILITY = "conversation-scheduled-v1";
 /** Attachment uploads, reads and download links on this WebSocket (local conversations). */
 const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 /** The same three attachment commands for cloud conversations, through the daemon's lease. */
@@ -506,6 +510,27 @@ function chiefNames(params: Json): HomeChiefNames {
   return { name: text("name", 100), role: text("role", 200) };
 }
 
+/** The owner's scheduled message (`conversation-scheduled-v1`) as the page shows it. */
+function scheduledMessage(value: Json): HomeScheduled {
+  const op = (value.op ?? {}) as Json;
+  const parts = (op.parts as Json[] | undefined) ?? [];
+  const text = parts
+    .filter((part) => part.type === "text")
+    .map((part) => String(part.text ?? ""))
+    .join("\n");
+  const scheduled: HomeScheduled = {
+    id: String(value.id),
+    conversation: String(value.conversation),
+    text,
+    sendAt: num(value.send_at_ms),
+    state: value.state === "failed" ? "failed" : "waiting",
+    attachments: parts.filter((part) => part.type !== "text").length,
+  };
+  if (typeof value.failure === "string") scheduled.failure = value.failure;
+  if (typeof op.thread_root === "string") scheduled.threadRoot = op.thread_root;
+  return scheduled;
+}
+
 function str(params: Json, field: string, max = 256): string {
   const value = params[field];
   if (typeof value !== "string" || !value || value.length > max) throw pageError("cmux.page.invalid_params", field);
@@ -954,7 +979,21 @@ export class DaemonHomeClient implements PageClient {
         return this.createGroup(params, options);
       case HomeOps.capabilities:
         // New messages and invites are the local owner's (`conversation-create`, `participants.add`).
-        return { start: true, invite: true, chiefs: await this.people.managesChiefs() };
+        return {
+          start: true,
+          invite: true,
+          chiefs: await this.people.managesChiefs(),
+          sendLater: await this.capable(SCHEDULED_CAPABILITY, this.local),
+        };
+      case HomeOps.scheduled: {
+        const id = str(params, "conversation");
+        // Only the local owner keeps a Send Later queue; an older one has none.
+        if (this.cloud.owns(id) || !(await this.capable(SCHEDULED_CAPABILITY, this.local))) return { scheduled: [] };
+        const list = await this.local.request<Json>("conversation-scheduled-list", { conversation: id });
+        return { scheduled: ((list.scheduled as Json[] | undefined) ?? []).map(scheduledMessage) };
+      }
+      case HomeOps.schedule:
+        return this.scheduleOp(params, options);
       case HomeOps.directory:
         return { people: await this.people.directory(participant) };
       case HomeOps.startConversation: {
@@ -1035,6 +1074,63 @@ export class DaemonHomeClient implements PageClient {
 
   /** My own list state of one conversation, on its owner: the local owner keeps it beside the
    * conversation, a Cloud owner in my UserDO inbox (through the daemon). */
+  /** One change of my Send Later queue (`HomeScheduleChange`) on the local owner. */
+  private async scheduleOp(params: Json, options: PageCallOptions | undefined): Promise<unknown> {
+    if (!(await this.capable(SCHEDULED_CAPABILITY, this.local)))
+      throw pageError("cmux.page.unavailable", "this cmux instance has no Send Later");
+    const sendAt = (field: string): number => {
+      const value = params[field];
+      if (typeof value !== "number" || !Number.isFinite(value)) throw pageError("cmux.page.invalid_params", field);
+      return Math.round(value);
+    };
+    let op: Json;
+    switch (params.kind) {
+      case "create": {
+        const conversation = str(params, "conversation");
+        if (this.cloud.owns(conversation))
+          throw pageError("cmux.page.unavailable", "Send Later is for conversations on this Mac");
+        const text = String(params.text ?? "").trim();
+        const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
+        if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
+        if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+        const send: Json = {
+          kind: "message.send",
+          client_msg_id: this.key(params, options),
+          parts: [...(text ? [{ type: "text", text }] : []), ...files],
+        };
+        if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
+        if (typeof params.replyTo === "string" && params.replyTo)
+          send.reply_to = { message_id: params.replyTo, part_index: 0 };
+        op = { kind: "scheduled.create", conversation, send_at_ms: sendAt("sendAt"), send };
+        break;
+      }
+      case "update": {
+        op = { kind: "scheduled.update", id: str(params, "id") };
+        if (params.sendAt !== undefined) op.send_at_ms = sendAt("sendAt");
+        if (typeof params.text === "string") {
+          const text = params.text.trim();
+          if (!text || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+          // New text replaces the text only: the message keeps its files.
+          const list = await this.local.request<Json>("conversation-scheduled-list", {});
+          const held = ((list.scheduled as Json[] | undefined) ?? []).find((entry) => entry.id === op.id);
+          const parts = ((held?.op as Json | undefined)?.parts as Json[] | undefined) ?? [];
+          op.parts = [{ type: "text", text }, ...parts.filter((part) => part.type !== "text")];
+        }
+        break;
+      }
+      case "cancel":
+        op = { kind: "scheduled.cancel", id: str(params, "id") };
+        break;
+      case "sendNow":
+        op = { kind: "scheduled.send_now", id: str(params, "id") };
+        break;
+      default:
+        throw pageError("cmux.page.invalid_params", "kind");
+    }
+    const reply = await this.local.request<Json>("conversation-scheduled-op", { op });
+    return reply.scheduled ? { scheduled: scheduledMessage(reply.scheduled as Json) } : {};
+  }
+
   private async inboxOp(conversationId: string, key: string, op: Json): Promise<unknown> {
     const owner = this.cloud.owns(conversationId) ? this.daemon : this.local;
     if (!(await this.capable(INBOX_STATE_CAPABILITY, owner)))
@@ -1288,6 +1384,9 @@ export class DaemonHomeClient implements PageClient {
         } else {
           deliver((batch) => (batch.inboxStale = true));
         }
+      } else if (event.event === "conversation-scheduled-changed") {
+        // My own Send Later queue changed (the daemon sends only mine): the page reads it again.
+        deliver((batch) => (batch.scheduled ??= []).push(String(event.conversation)));
       } else if (event.event === "conversation-inbox-changed") {
         // My own pin or mark (the daemon sends only mine).
         deliver((batch) => {

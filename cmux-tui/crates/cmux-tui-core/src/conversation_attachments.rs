@@ -452,10 +452,14 @@ fn load_record(
     }))
 }
 
+/// Whether a sent message here references `hash`. A Send Later message's
+/// references (`sch_` ids, conversation_scheduled.rs) keep the bytes from the
+/// sweep but share nothing: until it is sent, only its author may use them.
 fn referenced(connection: &Connection, conversation: &str, hash: &str) -> anyhow::Result<bool> {
     Ok(connection
         .query_row(
-            "SELECT 1 FROM attachment_ref WHERE conversation = ?1 AND hash = ?2 LIMIT 1",
+            "SELECT 1 FROM attachment_ref WHERE conversation = ?1 AND hash = ?2
+               AND message_id NOT LIKE 'sch\\_%' ESCAPE '\\' LIMIT 1",
             params![conversation, hash],
             |_| Ok(()),
         )

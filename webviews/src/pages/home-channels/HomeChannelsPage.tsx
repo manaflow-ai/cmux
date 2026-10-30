@@ -8,6 +8,9 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { ScheduledStrip } from "./ScheduledStrip";
+import { useScheduled } from "./scheduled";
+import type { SendLaterStyle } from "./SendLater";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
@@ -55,11 +58,14 @@ export function HomeChannelsPage({
   store,
   strings,
   pane: fixedPane,
+  sendLaterStyle = "clock",
 }: {
   store: HomeChannelsStore;
   strings: Strings;
   /** The pane a narrow page shows, instead of the hash's (the gallery, whose hash is its own). */
   pane?: Pane;
+  /** Where the composer puts Send Later (the gallery shows both). */
+  sendLaterStyle?: SendLaterStyle;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
@@ -75,6 +81,7 @@ export function HomeChannelsPage({
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
+  const scheduled = useScheduled(store.scheduled, snap.selected);
   // New Chief and Edit Chief are a page on the right side, in place of the conversation (u2586).
   const chiefPage = sheetState.route?.kind === "newChief" || sheetState.route?.kind === "editChief";
   const [palette, setPalette] = useState(false);
@@ -671,6 +678,12 @@ export function HomeChannelsPage({
                           onOpen={runs.onOpen}
                         />
                         <div className="lg-main-compose">
+                          <ScheduledStrip
+                            entries={scheduled}
+                            book={store.scheduled}
+                            strings={strings}
+                            disabled={!online}
+                          />
                           <Composer
                             key={open.id}
                             strings={strings}
@@ -689,6 +702,14 @@ export function HomeChannelsPage({
                             attachments={uploads}
                             dropZone={column}
                             onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                            sendLater={
+                              caps.sendLater && open.owner === "local"
+                                ? {
+                                    style: sendLaterStyle,
+                                    onSchedule: (text, files, at) => store.scheduled.create(open.id, text, at, files),
+                                  }
+                                : undefined
+                            }
                           />
                         </div>
                         {snap.thread && (

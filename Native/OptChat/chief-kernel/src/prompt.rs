@@ -962,6 +962,9 @@ pub const TRANSCRIPT_DESCRIPTION: &str = "Read your conversation exactly as the 
 /// The `send` tool's description.
 pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply.";
 
+/// The host `send`'s Send Later sentence (the Cloud Chief has no `delay_seconds`).
+pub const SEND_LATER_DESCRIPTION: &str = " delay_seconds sends it later (a reminder, a check-in at a time the user named) instead of now.";
+
 /// The `stop` tool's description.
 pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY. Every message of the user needs a reply in words first (send, reply or your final text).";
 

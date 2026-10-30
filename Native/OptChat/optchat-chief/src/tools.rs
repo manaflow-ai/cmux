@@ -6,8 +6,9 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SEND_DELAY_MAX_SECONDS,
+    SEND_DELAY_MIN_SECONDS, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS,
+    WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -210,6 +211,9 @@ pub struct SendCall {
     pub attachments: Vec<String>,
     /// The view line id of the user message whose thread it goes into.
     pub reply_to: Option<u64>,
+    /// Send Later: post it this many seconds from now instead of now (the
+    /// conversation owner holds it, so it goes out even if no turn runs).
+    pub delay_seconds: Option<u64>,
 }
 
 impl SendCall {
@@ -251,10 +255,26 @@ impl SendCall {
                     .ok_or("send: `reply_to` must be a message's line id")?,
             ),
         };
+        let delay_seconds = match args.get("delay_seconds") {
+            None | Some(Value::Null) => None,
+            Some(v) => {
+                let seconds = v
+                    .as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("send: `delay_seconds` must be a whole number of seconds")?;
+                if !(SEND_DELAY_MIN_SECONDS..=SEND_DELAY_MAX_SECONDS).contains(&seconds) {
+                    return Err(format!(
+                        "send: `delay_seconds` is {SEND_DELAY_MIN_SECONDS} to {SEND_DELAY_MAX_SECONDS} (one year)"
+                    ));
+                }
+                Some(seconds)
+            }
+        };
         Ok(SendCall {
             text,
             attachments,
             reply_to,
+            delay_seconds,
         })
     }
 
@@ -268,6 +288,9 @@ impl SendCall {
         }
         if let Some(id) = self.reply_to {
             v["reply_to"] = json!(id);
+        }
+        if let Some(seconds) = self.delay_seconds {
+            v["delay_seconds"] = json!(seconds);
         }
         v
     }

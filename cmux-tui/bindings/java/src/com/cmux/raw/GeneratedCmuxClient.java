@@ -418,6 +418,16 @@ public abstract class GeneratedCmuxClient {
         return ConversationRunsResult.fromWire(result);
     }
 
+    public final ConversationScheduledListResult conversationScheduledList(ConversationScheduledListRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SCHEDULED_LIST, request.toWire());
+        return ConversationScheduledListResult.fromWire(result);
+    }
+
+    public final ConversationScheduledOpResult conversationScheduledOp(ConversationScheduledOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SCHEDULED_OP, request.toWire());
+        return ConversationScheduledOpResult.fromWire(result);
+    }
+
     public final ConversationSearchResult conversationSearch(ConversationSearchRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_SEARCH, request.toWire());
         return ConversationSearchResult.fromWire(result);

@@ -12,6 +12,7 @@ import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./mode
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
 import { RunBook } from "./runs";
+import { ScheduledBook } from "./scheduled";
 import { HomeSheets } from "./sheets";
 import {
   HomeOps,
@@ -148,6 +149,8 @@ export class HomeChannelsStore {
   readonly runs = new RunBook();
   /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
   readonly live = new LiveBook();
+  /** My Send Later messages in the open conversation (`conversation-scheduled-v1`). */
+  readonly scheduled: ScheduledBook;
   /** Runs whose steps are being read now (one read at a time per run). */
   private readonly loadingRuns = new Set<string>();
   /** Serialize historical step reads, including reads requested by mounted run cards. */
@@ -176,6 +179,7 @@ export class HomeChannelsStore {
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
     this.avatars = client ? new AvatarService(client) : undefined;
+    this.scheduled = new ScheduledBook(client, (error) => this.set({ error: describe(error) }));
     this.sheets = new HomeSheets(client, host, {
       open: async (conversation) => {
         await this.reloadInbox();
@@ -448,6 +452,7 @@ export class HomeChannelsStore {
       draft: this.drafts.draft(id),
       highlight: undefined,
     });
+    this.scheduled.watch(id);
     this.syncViewing();
     await this.reloadPage(id);
   }
@@ -952,6 +957,9 @@ export class HomeChannelsStore {
     for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
     for (const message of batch.messages ?? []) this.drafts.posted(message);
     if (batch.runs?.length) this.runs.apply(batch.runs);
+    if (batch.scheduled?.length) this.scheduled.changed(batch.scheduled);
+    // A reconnect may have missed the queue's events: read it again.
+    if (batch.connection === "online") this.scheduled.changed();
     if (batch.avatars?.length) this.avatars?.changed(batch.avatars);
     if (batch.messages?.length) this.runs.noteMessages(batch.messages);
     this.applyLive(batch);

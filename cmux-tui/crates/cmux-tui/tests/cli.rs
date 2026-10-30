@@ -3726,6 +3726,9 @@ mod conversation_person_credentials;
 #[path = "cli/conversation_runs.rs"]
 mod conversation_runs;
 #[cfg(unix)]
+#[path = "cli/conversation_scheduled.rs"]
+mod conversation_scheduled;
+#[cfg(unix)]
 #[path = "cli/conversation_thread_objects.rs"]
 mod conversation_thread_objects;
 #[cfg(unix)]

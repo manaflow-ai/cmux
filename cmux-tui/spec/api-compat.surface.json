@@ -901,6 +901,29 @@
         "ty": "json"
       }
     },
+    "event:conversation-scheduled-changed": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"conversation-scheduled-changed\""
+        ]
+      },
+      "/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/removed": {
+        "ty": "json"
+      },
+      "/scheduled": {
+        "ty": "json"
+      }
+    },
     "event:conversation-typing": {
       "/conversation": {
         "ty": "string",
@@ -8211,6 +8234,19 @@
         "ty": "string"
       }
     },
+    "request:conversation-scheduled-list": {
+      "/conversation": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:conversation-scheduled-op": {
+      "/op": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
     "request:conversation-search": {
       "/limit": {
         "ty": "uint32",
@@ -14690,6 +14726,33 @@
       },
       "/data/runs/*": {
         "ty": "json"
+      }
+    },
+    "response:conversation-scheduled-list": {
+      "/data/scheduled": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/scheduled/*": {
+        "ty": "json"
+      }
+    },
+    "response:conversation-scheduled-op": {
+      "/data/change": {
+        "ty": "json"
+      },
+      "/data/removed": {
+        "ty": "json"
+      },
+      "/data/replayed": {
+        "ty": "boolean"
+      },
+      "/data/rev": {
+        "ty": "uint64"
+      },
+      "/data/scheduled": {
+        "ty": "json",
+        "nullable": true
       }
     },
     "response:conversation-search": {

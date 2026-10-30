@@ -13,8 +13,8 @@ use cmux::raw::{
     ConversationAttachmentUploadResult, ConversationBindRequest, ConversationCreateRequest,
     ConversationDraftRequest, ConversationHistoryRequest, ConversationListRequest,
     ConversationLivePublishRequest, ConversationOpRequest, ConversationRunAppendRequest,
-    ConversationSnapshotRequest, ConversationTypingRequest, Error as SdkError, Event, Nullable,
-    Optional, SubscribeRequest, SubscribeRequestTreeEvents,
+    ConversationScheduledOpRequest, ConversationSnapshotRequest, ConversationTypingRequest,
+    Error as SdkError, Event, Nullable, Optional, SubscribeRequest, SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -135,6 +135,19 @@ pub trait ConversationPort: Send {
     fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
         let _ = (conversation, seq);
         Err(OpError::Rejected("mux_unsupported".into()))
+    }
+
+    /// Send Later (`conversation-scheduled-v1`): the owner holds the
+    /// `message.send` `op` and commits it as this agent at `send_at_ms`;
+    /// answers the scheduled message's id. Only the local owner has it.
+    fn schedule(
+        &mut self,
+        conversation: &str,
+        op: &Op,
+        send_at_ms: u64,
+    ) -> Result<String, OpError> {
+        let _ = (conversation, op, send_at_ms);
+        Err(OpError::Rejected("schedule_unsupported".into()))
     }
 
     /// Whether the owner advertised `capability` at connect (`identify`).
@@ -561,6 +574,35 @@ impl ConversationPort for SdkConversations {
             })
             .map_err(sdk_error)?;
         Ok(rewire(&data.change, "op change").ok())
+    }
+
+    fn schedule(
+        &mut self,
+        conversation: &str,
+        op: &Op,
+        send_at_ms: u64,
+    ) -> Result<String, OpError> {
+        let send = serde_json::to_value(op).map_err(|e| OpError::Transport(e.to_string()))?;
+        let data = self
+            .client
+            .conversation_scheduled_op(ConversationScheduledOpRequest {
+                op: Nullable::value(serde_json::json!({
+                    "kind": "scheduled.create",
+                    "conversation": conversation,
+                    "send_at_ms": send_at_ms,
+                    "send": send,
+                })),
+            })
+            .map_err(sdk_error)?;
+        let scheduled = match data.scheduled {
+            Optional::Value(value) => value,
+            _ => return Err(OpError::Transport("schedule: no scheduled message".into())),
+        };
+        scheduled
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| OpError::Transport("schedule: the reply names no message".into()))
     }
 
     fn attachment(

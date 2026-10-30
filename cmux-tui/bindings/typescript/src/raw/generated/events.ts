@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3. */
+/* cmux-tui mux protocol 12, IR 444b1b06891f3f44f38edc8e947db197608a79fdc469e619c9ff935f20469817. */
 
 
 import type * as T from "./types.js";
@@ -266,6 +266,14 @@ export type ConversationRunChangedEvent = { event: "conversation-run-changed" } 
   "conversation": string;
   "run": (T.JsonValue) | null;
   "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationScheduledChangedEvent = { event: "conversation-scheduled-changed" } & {
+  "conversation": string;
+  "participant": string;
+  "removed"?: T.JsonValue;
+  "scheduled"?: T.JsonValue;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -756,6 +764,7 @@ export type KnownCmuxEvent =
   | ConversationInboxChangedEvent
   | ConversationLiveEvent
   | ConversationRunChangedEvent
+  | ConversationScheduledChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -845,6 +854,7 @@ export type KnownSubscribeEvent =
   | ConversationInboxChangedEvent
   | ConversationLiveEvent
   | ConversationRunChangedEvent
+  | ConversationScheduledChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent

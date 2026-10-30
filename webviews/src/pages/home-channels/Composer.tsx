@@ -3,7 +3,9 @@
 // emoji, @ mention, attach and Send. Every control does something real: the formats are Markdown
 // marks in the sent text, the emoji and the mention are inserted text, and files (the attach
 // button, a drop on the composer or its drop zone, a paste) upload at once with their progress in
-// the tray above the field; Send waits until they are stored. There is no voice or scheduled send.
+// the tray above the field; Send waits until they are stored. Send Later (when the owner keeps a
+// queue) opens a time picker (SendLater.tsx) from a clock among the tools or a segment on Send and
+// queues the message, files and all, for that time. There is no voice send.
 // In an empty composer, Up edits my last message. The text clears only when the owner took the
 // message; the owner's event shows it. A right-click in the field opens the composer's own menu
 // (POLISH.md right-click contract): Cut, Copy, Paste, Paste as Plain Text, Attach Files… and
@@ -24,6 +26,7 @@ import { attachmentClass, attachmentType, refusal, type AttachmentService } from
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
+import { SendLaterPicker, type SendLaterStyle } from "./SendLater";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
 import type { HomeAttachment, HomeParticipant } from "./types";
 
@@ -48,6 +51,11 @@ export interface ComposerProps {
   onCancel?(): void;
   /** Take the keyboard focus when it opens (an inline edit started from the keyboard). */
   focusOnOpen?: boolean;
+  /** Send Later: queues the message for `at` (ms); resolves true when the owner took it. */
+  sendLater?: {
+    style: SendLaterStyle;
+    onSchedule(text: string, attachments: readonly HomeAttachment[] | undefined, at: number): Promise<boolean>;
+  };
   className?: string;
 }
 
@@ -69,7 +77,7 @@ const FORMAT_GROUPS: ReadonlyArray<ReadonlyArray<{ format: MarkdownFormat; icon:
   ],
 ];
 
-type Pop = { kind: "emoji" | "mention" | "link"; anchor: Element };
+type Pop = { kind: "emoji" | "mention" | "link" | "later"; anchor: Element };
 
 const formatKey = (formats: Set<MarkdownFormat>) => [...formats].sort().join(" ");
 
@@ -87,6 +95,7 @@ export function Composer({
   className,
   attachments,
   dropZone,
+  sendLater,
 }: ComposerProps) {
   const { t } = strings;
   const [value, setValue] = useState(initialValue);
@@ -198,10 +207,15 @@ export function Composer({
     const formats = editor.current?.formats();
     if (formats) setActive(formatKey(formats));
   };
-  const submit = (markdown: string) => {
+  /** Sends now, or with `at` queues it for then (Send Later). */
+  const submit = (markdown: string, at?: number) => {
     if (disabled || uploading || (!markdown.trim() && ready.length === 0)) return;
+    // A picked time never sends now, even when Send Later went away meanwhile.
+    if (at !== undefined && !sendLater) return;
     const sending = ready;
-    void onSend(markdown, sending.length ? sending : undefined).then((sent) => {
+    const files = sending.length ? sending : undefined;
+    const taken = at !== undefined && sendLater ? sendLater.onSchedule(markdown, files, at) : onSend(markdown, files);
+    void taken.then((sent) => {
       if (!sent) return;
       setValue((current) => (current === markdown ? "" : current));
       if (sending.length) setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
@@ -460,17 +474,56 @@ export function Composer({
             </button>
           </>
         ) : (
-          <ToolbarButton
-            label={t("composer.send")}
-            tooltip={false}
-            className={`hc-send${empty || disabled || uploading ? "" : " ready"}`}
-            disabled={empty || disabled || uploading}
-            onPress={() => submit(editor.current?.value() ?? value)}
-          >
-            <HomeIcon name="send" />
-          </ToolbarButton>
+          <>
+            {sendLater?.style === "clock" && (
+              <ToolbarButton
+                label={t("sendLater.open")}
+                className="hc-tool"
+                disabled={empty || disabled || uploading}
+                keepsFocus
+                onPress={() => setPop({ kind: "later", anchor: glyph('[data-bar="later"]') })}
+              >
+                <span data-bar="later" className="hc-tool-glyph">
+                  <HomeIcon name="clock" />
+                </span>
+              </ToolbarButton>
+            )}
+            <ToolbarButton
+              label={t("composer.send")}
+              tooltip={false}
+              className={`hc-send${empty || disabled || uploading ? "" : " ready"}${sendLater?.style === "split" ? " hc-send-split" : ""}`}
+              disabled={empty || disabled || uploading}
+              onPress={() => submit(editor.current?.value() ?? value)}
+            >
+              <HomeIcon name="send" />
+            </ToolbarButton>
+            {sendLater?.style === "split" && (
+              <ToolbarButton
+                label={t("sendLater.open")}
+                className={`hc-send hc-send-later${empty || disabled || uploading ? "" : " ready"}`}
+                disabled={empty || disabled || uploading}
+                keepsFocus
+                onPress={() => setPop({ kind: "later", anchor: glyph('[data-bar="later"]') })}
+              >
+                <span data-bar="later" className="hc-tool-glyph">
+                  <HomeIcon name="chevronDown" />
+                </span>
+              </ToolbarButton>
+            )}
+          </>
         )}
       </Toolbar>
+      {pop?.kind === "later" && (
+        <SendLaterPicker
+          anchor={pop.anchor}
+          strings={strings}
+          onClose={closePop}
+          onPick={(at) => {
+            setPop(undefined);
+            submit(editor.current?.value() ?? value, at);
+          }}
+        />
+      )}
       {pop?.kind === "emoji" && (
         <EmojiPicker anchor={pop.anchor} emoji={emoji} strings={strings} onPick={insert} onClose={closePop} />
       )}

@@ -152,6 +152,7 @@ fn send(text: &str) -> SendCall {
         text: Some(text.to_owned()),
         attachments: Vec::new(),
         reply_to: None,
+        delay_seconds: None,
     }
 }
 
@@ -172,6 +173,76 @@ fn turn_tools_send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();
+}
+
+/// cmux#25634: `send` with `delay_seconds` posts nothing now; the owner
+/// holds the message as the Chief's own `message.send` for that time
+/// (`conversation-scheduled-v1`), a repeat is a noop, and a local file (whose
+/// upload belongs to a live send) is refused before anything is queued.
+#[test]
+fn turn_tools_send_with_a_delay_queues_it_on_the_owner_and_posts_nothing_now() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "remind me about the standup in an hour");
+    h.settle_posts();
+    let before = sends(&h).len();
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let call = || SendCall {
+        delay_seconds: Some(3_600),
+        ..send("Standup starts now.")
+    };
+    let sp = spawner(&h);
+    let first = call();
+    let answer = run(&mut h, move || sp.send(first)).expect("send answers");
+    assert!(answer.contains("scheduled sch_1"), "{answer}");
+    let scheduled = h.owner.lock().unwrap().scheduled.clone();
+    assert_eq!(scheduled.len(), 1, "{scheduled:?}");
+    let (conversation, op, send_at_ms) = &scheduled[0];
+    assert!(
+        h.owner.lock().unwrap().is_main(conversation),
+        "{conversation}"
+    );
+    let Op::MessageSend {
+        client_msg_id,
+        parts,
+        ..
+    } = op
+    else {
+        panic!("a message.send: {op:?}");
+    };
+    assert!(!client_msg_id.is_empty());
+    assert_eq!(texts(parts), "Standup starts now.");
+    assert!(
+        (started + 3_600_000..started + 3_660_000).contains(send_at_ms),
+        "an hour from now: {send_at_ms} vs {started}"
+    );
+    assert_eq!(sends(&h).len(), before, "nothing posted now");
+
+    let sp = spawner(&h);
+    let again = call();
+    let repeat = run(&mut h, move || sp.send(again)).expect("send answers");
+    assert!(repeat.starts_with("outcome: noop"), "{repeat}");
+    assert_eq!(h.owner.lock().unwrap().scheduled.len(), 1);
+
+    let report = h.dir.path().join("REPORT.pdf");
+    std::fs::write(&report, b"%PDF-1.4 fake").unwrap();
+    let sp = spawner(&h);
+    let refused = run(&mut h, move || {
+        sp.send(SendCall {
+            attachments: vec![report.display().to_string()],
+            delay_seconds: Some(600),
+            ..send("the report, later")
+        })
+    });
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(h.owner.lock().unwrap().scheduled.len(), 1, "nothing queued");
+    assert!(
+        Call::parse("send", &json!({"text": "soon", "delay_seconds": 5})).is_err(),
+        "under a minute is refused"
+    );
 }
 
 #[test]

@@ -18,6 +18,7 @@ use crate::conversation_search::ConversationSearchRejected;
 use crate::conversation_store::attachments::AttachmentRejected;
 use crate::conversation_store::inbox::InboxOp;
 use crate::conversation_store::runs::RunRejected;
+use crate::conversation_store::scheduled::ScheduleRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
 };
@@ -244,6 +245,7 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         })
         .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
         .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
+        .or_else(|| error.downcast_ref::<ScheduleRejected>().map(|r| r.0.to_string()))
 }
 
 /// The `error_details` of a conversation reject that has them: the keyed
@@ -264,6 +266,9 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     if error.downcast_ref::<RunRejected>().is_some() {
         return Some(RunRejected::CODE.to_string());
     }
+    if error.downcast_ref::<ScheduleRejected>().is_some() {
+        return Some(ScheduleRejected::CODE.to_string());
+    }
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
@@ -278,7 +283,7 @@ fn require_unix(mux: &Mux, client: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+pub(super) fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
         mux.control_clients.is_owner_client(client),
         "local conversations require a trusted local connection"
