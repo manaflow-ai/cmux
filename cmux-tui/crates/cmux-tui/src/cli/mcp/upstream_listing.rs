@@ -34,13 +34,27 @@ pub(super) fn default_dir() -> Option<PathBuf> {
     Some(Path::new(&home).join(".cache").join("cmux").join("mcp-upstreams"))
 }
 
+/// A file’s identity for a key: its real path, size and modification time.
+fn stamp(path: &Path) -> Option<Value> {
+    let real = path.canonicalize().ok()?;
+    let meta = std::fs::metadata(&real).ok()?;
+    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some(json!([real, meta.len(), modified.to_string()]))
+}
+
 /// The entry name for `spec`, or None when its command cannot be read (it
 /// then starts to be listed, as before). It names the file `PATH` resolves
-/// the command to, so another `PATH` is another entry.
+/// the command to, so another `PATH` is another entry, and every arg that
+/// names a file (a script an interpreter runs), so editing it is a new entry.
 pub(super) fn key(spec: &Spec) -> Option<String> {
-    let program = resolve(spec)?.canonicalize().ok()?;
-    let meta = std::fs::metadata(&program).ok()?;
-    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    let program = stamp(&resolve(spec)?)?;
+    let files: Vec<Value> = spec
+        .args
+        .iter()
+        .map(Path::new)
+        .filter(|arg| arg.components().count() > 1 && arg.is_file())
+        .filter_map(stamp)
+        .collect();
     let mut env: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
     env.sort_unstable();
     env.dedup();
@@ -49,9 +63,8 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
         "command": spec.command,
         "program": program,
         "args": spec.args,
+        "files": files,
         "env": env,
-        "len": meta.len(),
-        "modified": modified.to_string(),
         "cmux": env!("CARGO_PKG_VERSION"),
     });
     let digest = Sha256::digest(what.to_string().as_bytes());
@@ -64,7 +77,7 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
 fn resolve(spec: &Spec) -> Option<PathBuf> {
     let command = &spec.command;
     if command.components().count() > 1 {
-        return Some(command.clone());
+        return executable(command).then(|| command.clone());
     }
     let path = match spec.env.iter().rev().find(|(k, _)| k == "PATH") {
         Some((_, value)) => std::ffi::OsString::from(value),
@@ -190,6 +203,17 @@ mod tests {
         let mut named = spec(Path::new("srv"), "t");
         named.env.push(("PATH".into(), path));
         assert_eq!(resolve(&named), Some(late.join("srv")));
+        // A path that names a file nobody may run is no program.
+        assert_eq!(resolve(&spec(&early.join("srv"), "t")), None);
+        // A script an interpreter runs is part of the key: editing it is a new key.
+        let script = home.path().join("server.py");
+        std::fs::write(&script, "v1").unwrap();
+        let mut by_script = spec(&late.join("srv"), "t");
+        by_script.args = vec![script.to_string_lossy().into_owned()];
+        let before = key(&by_script).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&script, "version two").unwrap();
+        assert_ne!(key(&by_script).unwrap(), before);
         assert!(key(&named).is_some());
         // Without the servers own PATH entry, this processs PATH (no `srv`) finds nothing.
         assert_eq!(resolve(&spec(Path::new("srv-not-on-any-path"), "t")), None);
