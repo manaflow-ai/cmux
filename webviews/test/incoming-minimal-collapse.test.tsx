@@ -76,8 +76,8 @@ async function line(id: string) {
       />,
     ),
   );
-  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-received__toggle")!;
-  return { opened, toggle, chip: host.querySelector<HTMLButtonElement>("button.cv-received__name")! };
+  const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
+  return { opened, toggle, open: host.querySelector<HTMLButtonElement>("button.cv-disclosure__open")! };
 }
 
 test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
@@ -133,13 +133,13 @@ test("in Minimal Mode the message is one line: the chip, then its first line, wh
 test("turning Minimal Mode off keeps a closed message collapsed", async () => {
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   await line("minimal-2");
-  expect(host.querySelector(".cv-received__body")).toBeNull();
+  expect(host.querySelector(".cv-received__text")).toBeNull();
   await act(async () => setChatDisplay({}));
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
   expect(host.querySelector(".cv-received__body")).toBeNull();
 });
 
-test("the line opens with no fade-in, its height alone moving; closing fades out", async () => {
+test("the reader's toggle plays the fold: the panel's height grows on open and closing fades out", async () => {
   const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
   const motion = { ...foldMotion };
   const proto = dom.window.HTMLElement.prototype as unknown as { animate?: unknown };
@@ -150,10 +150,10 @@ test("the line opens with no fade-in, its height alone moving; closing fades out
   };
   Object.assign(foldMotion, { duration: () => 180, reducedMotion: () => false });
   try {
-    setChatDisplay({ [MINIMAL_MODE_KEY]: true });
-    const { toggle } = await line("minimal-3");
+    const { toggle } = await line("fold-1");
     await act(async () => toggle().click());
-    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 1]);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.at(-1)!.some((frame) => frame.height !== undefined)).toBe(true);
     await act(async () => toggle().click());
     expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
   } finally {
@@ -162,7 +162,7 @@ test("the line opens with no fade-in, its height alone moving; closing fades out
   }
 });
 
-test("in Minimal Mode a closed message estimates as its line; one opened in this chat as its whole card", async () => {
+test("a closed message estimates as its line in either mode; one opened in this chat as its whole panel", async () => {
   const { layoutConversation } = await import("../src/agent-session/acpmux/model");
   const { setMessageOpened } = await import("../src/agent-session/acpmux/conversation/incomingOpened");
   const long = Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the landing report.`).join("\n");
@@ -182,10 +182,9 @@ test("in Minimal Mode a closed message estimates as its line; one opened in this
     const closed = height("chat-a");
     expect(closed).toBe(normal);
     setMessageOpened("chat-a", "estimate-1", true);
-    // Opened: the whole card, longer than normal mode's eight-line cut; another chat's row of the
-    // same id stays closed.
-    expect(height("chat-a")).toBeGreaterThan(normal);
-    expect(height("chat-b")).toBe(closed);
+    // Opened: the whole text, its fourteen lines; another chat's row of the same id stays closed.
+    expect(height("chat-a")).toBeGreaterThan(normal + 13 * 16);
+    expect(height("chat-b")).toBe(normal);
   } finally {
     setMessageOpened("chat-a", "estimate-1", false);
   }

@@ -121,7 +121,13 @@ import Testing
             for level in 2...6 {
                 let x = try #require(headerX[level]?.first), above = try #require(headerX[level - 1]?.first)
                 #expect(headerX[level]?.count == 1)
-                #expect(x - above == list.indent.step, "\(density.rawValue): level \(level) header at \(x), level \(level - 1) at \(above)")
+                // A top-level header keeps the edge padding (`groupEdgePadding`, b5400e7e342), so level 2 can sit
+                // less than one step right of it; from level 3 on each header is exactly one step in.
+                if level == 2 {
+                    #expect(x > above, "\(density.rawValue): level 2 header at \(x), level 1 at \(above)")
+                } else {
+                    #expect(x - above == list.indent.step, "\(density.rawValue): level \(level) header at \(x), level \(level - 1) at \(above)")
+                }
             }
         }
     }

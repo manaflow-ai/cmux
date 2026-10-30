@@ -36,6 +36,16 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
   };
+  /// The received messages' toggles: each message is its own disclosure line (IncomingMessageCard.tsx).
+  const toggle = () => page.locator(".cv-received .cv-disclosure__toggle");
+  /// Resolves once nothing in the first received message is moving.
+  const folded = () =>
+    page
+      .locator(".cv-received")
+      .first()
+      .evaluate((row) =>
+        Promise.all(row.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined))),
+      );
   // Check actual rendered glyph and chip boxes, not an assumed line-height grid.
   const intact = (selector: string) =>
     page.locator(selector).evaluate((box) => {
@@ -113,22 +123,23 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
   });
   test("one-line variant keeps its ellipsis and opens the full message", async () => {
     await open("one-line");
-    expect(await page.locator(".cv-received__body").count()).toBe(0);
+    expect(await page.locator(".cv-received__text").count()).toBe(0);
     expect(
       await page
         .locator(".cv-received__preview")
         .first()
         .evaluate((box) => getComputedStyle(box).textOverflow),
     ).toBe("ellipsis");
-    await page.locator(".cv-received__toggle").first().click();
-    await page.locator(".cv-received__body").waitFor();
+    await toggle().first().click();
+    await page.locator(".cv-received__text").waitFor();
+    await folded();
     expect(await intact(".cv-received__text")).toEqual({ mask: "none", split: 0, visible: true });
   });
   for (const direction of ["received", "sent"] as const) {
     test(`Tab reaches ${direction} code controls without clipping them`, async () => {
       await open("code-first");
       const row = page.locator(direction === "received" ? ".cv-received" : ".cv-message");
-      const toggle = row.locator(direction === "received" ? ".cv-received__toggle" : ".cv-agentmsg__toggle");
+      const toggle = row.locator(direction === "received" ? ".cv-disclosure__toggle" : ".cv-agentmsg__toggle");
       const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
       await toggle.click();
       await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });

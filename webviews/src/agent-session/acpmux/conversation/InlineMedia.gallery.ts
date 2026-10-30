@@ -6,7 +6,7 @@
 // the same frame.
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { LOGIN_TESTS_MP4 } from "../../../gallery/fixtures/toolImages";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
@@ -19,10 +19,36 @@ const PR_BEFORE = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/2
 const PR_AFTER = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24546/tray-after-dark.png";
 const WEB_IMAGE = "https://images.example.test/gallery/chart.png";
 const VIDEO = `${ROOT}/out/login-tests.mp4`;
+const AUDIO = `${ROOT}/out/notification.wav`;
 const REEL = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193/reel.mp4";
 const MP4 = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
 
 const svg = (markup: string) => `data:image/svg+xml;base64,${btoa(markup)}`;
+
+// One second of silent mono PCM, made locally for the gallery; no external media dependency.
+function silentWav(): string {
+  const samples = 8000;
+  const bytes = new Uint8Array(44 + samples);
+  const view = new DataView(bytes.buffer);
+  const tag = (offset: number, text: string) => {
+    for (let index = 0; index < text.length; index++) bytes[offset + index] = text.charCodeAt(index);
+  };
+  tag(0, "RIFF");
+  view.setUint32(4, bytes.length - 8, true);
+  tag(8, "WAVE");
+  tag(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, samples, true);
+  view.setUint32(28, samples, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  tag(36, "data");
+  view.setUint32(40, samples, true);
+  bytes.fill(128, 44);
+  return `data:audio/wav;base64,${btoa(String.fromCharCode(...bytes))}`;
+}
 
 const HOST: ChipHostFixture = {
   paths: {
@@ -30,6 +56,7 @@ const HOST: ChipHostFixture = {
     [AFTER]: { place: "root", folder: false },
     [SIDEBAR]: { place: "root", folder: false },
     [VIDEO]: { place: "root", folder: false },
+    [AUDIO]: { place: "root", folder: false },
   },
   images: {
     [BEFORE]: svg(sampleChart()),
@@ -40,7 +67,7 @@ const HOST: ChipHostFixture = {
     [PR_AFTER]: svg(sampleGradient()),
     [WEB_IMAGE]: svg(sampleDiagram()),
   },
-  media: { [VIDEO]: MP4, [REEL]: MP4 },
+  media: { [VIDEO]: MP4, [REEL]: MP4, [AUDIO]: silentWav() },
   // As the host answers it: raw.githubusercontent.com loads without a click (AgentPaneSafeFetch.clickFreeImageHosts).
   policy: {
     outsideRoots: "confirm",
@@ -87,9 +114,33 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage",
     "agent-session/acpmux/chips/ReplyMedia.tsx#VideoThumbnail",
+    "agent-session/acpmux/toolImages.ts",
     "agent-session/acpmux/conversation/icons.tsx#OpenTab",
   ],
   variants: {
+    "tool-audio": {
+      note: "A completed tool prints an audio path: the file plays inline through the host, with controls and no autoplay.",
+      chipHost: HOST,
+      snapshot: chat([
+        user("Generate a notification sound", 4),
+        activity(
+          [
+            tool("render-audio", "execute", "completed", {
+              command: "render-audio",
+              output: `Saved ${AUDIO}\n`,
+              exitCode: 0,
+            }),
+          ],
+          3.8,
+        ),
+        assistant("The sound is ready to preview.", 3.6),
+        summary(3.6, { status: "completed", toolCount: 1 }),
+      ]),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-worked.is-toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-tool"));
+      },
+    },
     "before-after": {
       note: "Two Markdown images on one line: side by side, captioned by their alt text; each opens the viewer.",
       chipHost: HOST,

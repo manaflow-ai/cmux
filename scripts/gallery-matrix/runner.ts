@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
+import { collectGeometry, type GeometrySelection } from "./geometry-collector";
 
 export type Scalar = string | number | boolean;
 export type MatrixCase = {
@@ -261,10 +262,14 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
+    const geometrySelections: GeometrySelection[] | undefined = process.env.CMUX_GEOMETRY_SELECTORS
+      ? JSON.parse(readFileSync(process.env.CMUX_GEOMETRY_SELECTORS, "utf8"))[item.id] : undefined;
+    if (geometrySelections) await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
     const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
+    if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);
@@ -421,6 +426,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
     const failures: string[] = [];
     await Promise.allSettled(vms.map(async ({ vm, shard }) => {
       await vm.fs.writeTextFile(`${remoteRoot}/runner.ts`, source, { mode: 0o644 });
+      for (const module of ["geometry-collector.ts", "geometry.ts"]) await vm.fs.writeTextFile(`${remoteRoot}/${module}`, await readFile(join(import.meta.dir, module), "utf8"), { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/package.json`, packageJson, { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/manifest.json`, manifest, { mode: 0o644 });
       for (const file of galleryFiles) {

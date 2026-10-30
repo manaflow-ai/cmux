@@ -35,6 +35,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STEER,
     method::MUX_BRIEFS,
     method::MUX_REPORT,
+    // A GitHub action is for this daemon's own caller session (`github_broker.rs`).
+    method::MUX_GITHUB_ACTION,
+    // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
+    method::MUX_GITHUB_APP_LEASE,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -45,6 +49,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
+    // Mesh enqueue borrows only this daemon's identity, after its local-socket check.
+    method::MUX_MESH_CONTROL,
+    // Forwarded by its own handler, which answers for a peer that is down (`session_auth.rs`).
+    method::MUX_SESSION_AUTH,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
     method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
@@ -77,13 +85,23 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
 /// proof (`mark_forwarded` drops the provenance), so without it the peer records the agent's
 /// report as the person's (claude-sr2, 2026-10-24: every remote lane's report a plain bubble), and
 /// a keyed prompt could replace another sender's (`hub/supersede.rs`). The person names no one.
+/// That session's id and harness go too (`fromSessionId`, `fromHarness`), this daemon's word on
+/// its proven caller; whatever a client wrote there is dropped first, and only a prompt that came
+/// over a peer link itself keeps what that link said (`prompt_provenance::FROM_SESSION_ID`).
 fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
+    if conn.origin != Origin::Peer {
+        crate::prompt_provenance::drop_sender_fields(p);
+    }
     if conn.is_person() {
         return;
     }
     let Some(caller) = conn.caller() else { return };
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
         crate::hub::merge_mux_meta(p, json!({"fromAgent": hub.session_name(caller)}));
+    }
+    if let Ok(from) = hub.resolve(caller) {
+        let sender = crate::prompt_provenance::BoundSender::of_session(&from.id, &from.meta());
+        crate::hub::merge_mux_meta(p, sender.mux_fields());
     }
 }
 
@@ -104,7 +122,11 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    forward_inner(hub, conn, m, params).await.transpose()
+    let reply = forward_inner(hub, conn, m, params).await.transpose();
+    if conn.origin == Origin::Peer {
+        return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
+    }
+    reply
 }
 
 async fn forward_inner(
@@ -366,8 +388,11 @@ async fn forward_inner(
         return Ok(Some(result));
     }
     // `PEER/name` for a peer that is down and lists no such session: say
-    // the peer is unreachable, not that the session does not exist.
+    // the peer is unreachable, not that the session does not exist. A peer daemon's
+    // connection never learns this host's peers or their state (`redact::hide_peers_from_peer`):
+    // it gets the answer a name no peer has gets.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && conn.origin != Origin::Peer
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
         && let Some(e) = hub.peer_down_for(key)

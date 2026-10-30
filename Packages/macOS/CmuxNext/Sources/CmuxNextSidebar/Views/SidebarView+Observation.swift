@@ -124,12 +124,14 @@ extension SidebarViewComponents {
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
+        // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
+        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
+            || lastState?.preferences.controlsOnHover != state.preferences.controlsOnHover {
             setChromeRevealed(isChromeRevealed)
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
         // before any reload below, so a block it configures draws the new selection.
-        if lastState?.selected != state.selected { showActiveTopItem() }
+        if lastState?.selected != state.selected || lastState?.selection != state.selection { showActiveTopItem() }
         // A document change (a drop) moves the list's rows and its blocks together: the blocks update now, not at
         // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
         // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).

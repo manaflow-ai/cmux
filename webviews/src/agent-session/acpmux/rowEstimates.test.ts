@@ -5,7 +5,7 @@
 //   - a reply right over its turn's footer (`.acpmux-row--before-footer`), or over the running turn's
 //     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
-//   - another agent's message: its line, then its glass card cut to RECEIVED_LINES lines;
+//   - another agent's message: its one disclosure line, however long the message;
 //   - a turn's footer: its 24px line and the 16px turn gap, including the chat's last one
 //     (`.acpmux-row--last-footer`), so the composer uses the same rhythm as the transcript.
 //

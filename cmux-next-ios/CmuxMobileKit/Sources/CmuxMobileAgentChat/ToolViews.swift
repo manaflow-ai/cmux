@@ -230,10 +230,14 @@ struct ThoughtRow: View {
             .buttonStyle(.plain)
             .padding(.vertical, -6)
             if expanded {
-                Text(text)
+                // Opened by the person: all of it. Opened because it is live: its newest
+                // lines (a line limit alone keeps the first three, which stop changing).
+                Text(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(choice.chosen == true ? nil : 3)
+                    // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
+                    .truncationMode(.head)
                     .padding(.leading, 26)
                     .transition(.opacity)
             }

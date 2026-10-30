@@ -34,6 +34,7 @@ pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
+pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
     BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
@@ -48,14 +49,22 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Oldest and newest host protocol this build speaks.
 pub const PROTOCOL_MIN: u16 = 1;
-pub const PROTOCOL_MAX: u16 = 2;
+pub const PROTOCOL_MAX: u16 = 3;
 /// The protocol from which a `line` may ask for a receipt (`WRITTEN_METHOD`).
 pub const RECEIPT_VERSION: u16 = 2;
+/// The protocol from which a host logs each line that asks for a receipt (`QUEUED_METHOD`), so
+/// a next daemon can tell from the log which of them its harness may not have yet.
+pub const QUEUED_VERSION: u16 = 3;
 /// The receipt for a `line` (protocol 2): a `tap` entry (`dir = out`) carrying this
 /// notification, `{receipt, written}`, once its lines are written to the harness (`written:
 /// true`) or can never be (its stdin closed: `false`). An entry, not a frame of its own, so it
 /// is retained until acknowledged, replayed to the next controller, and known to every build.
 pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
+/// A `line` that asks for a receipt, as its host took it (protocol 3): a `tap` entry (`dir =
+/// out`) carrying this notification, `{receipt}`, before any line of it is queued for the
+/// harness. A log that has it and no `WRITTEN_METHOD` for the same receipt can not prove the
+/// harness has that line: the next daemon holds it again (`link::adopt_receipt`).
+pub const QUEUED_METHOD: &str = "_acpmux/host_queued";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
 /// Largest frame either side accepts.
@@ -489,9 +498,15 @@ pub enum Liveness {
 /// to this incarnation even when the PID has been reused.
 #[cfg(unix)]
 pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
+    liveness_of(&live_path(dir, session_id, start_nonce))
+}
+
+/// [`liveness`] of any lock file a process holds for its life (a background task's runner,
+/// `bg_run.rs`).
+#[cfg(unix)]
+pub fn liveness_of(path: &Path) -> Liveness {
     use std::os::fd::AsRawFd;
-    let path = live_path(dir, session_id, start_nonce);
-    let file = match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+    let file = match std::fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Liveness::Dead,
         Err(_) => return Liveness::Unknown,

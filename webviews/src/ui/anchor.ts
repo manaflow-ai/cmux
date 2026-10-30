@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type CSSProperties, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 
 /** The gap used by every anchored menu and popover. Keep this in one place. */
 export const UI_ANCHOR_GAP = 6;
@@ -155,6 +155,31 @@ function scaleFor(container: HTMLElement | null): { x: number; y: number } {
   };
 }
 
+/** Computed max-height can still be a min()/calc() expression. Let layout resolve its units. */
+function cssMaxHeight(node: HTMLElement): number {
+  const value = (node.ownerDocument.defaultView ?? window).getComputedStyle(node).maxHeight;
+  if (!value || value === "none") return Number.POSITIVE_INFINITY;
+  if (/^[\d.]+px$/.test(value)) return Number.parseFloat(value);
+  const parent = node.parentElement;
+  if (!parent) return Number.POSITIVE_INFINITY;
+  const probe = node.ownerDocument.createElement("div");
+  Object.assign(probe.style, {
+    position: "absolute",
+    visibility: "hidden",
+    pointerEvents: "none",
+    width: "0",
+    height: value,
+    padding: "0",
+    border: "0",
+  });
+  if (!probe.style.height) return Number.POSITIVE_INFINITY;
+  parent.appendChild(probe);
+  const scale = scaleFor(probe.offsetParent instanceof HTMLElement ? probe.offsetParent : null);
+  const height = probe.getBoundingClientRect().height / scale.y;
+  probe.remove();
+  return height;
+}
+
 /**
  * Position a local (non-portal) overlay against its trigger. The conversion
  * through the offset parent accounts for transformed/zoomed webview roots and
@@ -168,6 +193,7 @@ export function useUiAnchor(
 ): CSSProperties {
   const { align, boundary, direction: requestedDirection, gap, margin, minHeight, side } = options;
   const [style, setStyle] = useState<CSSProperties>(HIDDEN_ANCHOR_STYLE);
+  const heightOwner = useRef<{ node: HTMLElement; caller: boolean } | null>(null);
   useLayoutEffect(() => {
     if (!open) {
       setStyle(HIDDEN_ANCHOR_STYLE);
@@ -177,6 +203,16 @@ export function useUiAnchor(
       const anchorNode = anchor.current;
       const overlayNode = overlay.current;
       if (!anchorNode || !overlayNode) return;
+      // A caller such as ModelPicker owns its numeric height bounds. Ordinary menus use their
+      // stylesheet cap; remove our prior inline bound before reading it again on resize.
+      if (heightOwner.current?.node !== overlayNode)
+        heightOwner.current = { node: overlayNode, caller: overlayNode.style.maxHeight !== "" };
+      const callerHeight = heightOwner.current.caller;
+      if (!callerHeight) {
+        overlayNode.style.visibility = "hidden";
+        overlayNode.style.maxHeight = "";
+      }
+      const cssCap = callerHeight ? Number.POSITIVE_INFINITY : cssMaxHeight(overlayNode);
       const a = anchorNode.getBoundingClientRect();
       const o = overlayNode.getBoundingClientRect();
       const direction =
@@ -198,24 +234,44 @@ export function useUiAnchor(
         { width: box.right - box.left, height: box.bottom - box.top },
         { align, direction, gap, margin, minHeight, side },
       );
-      const position = { ...inBox, left: inBox.left + box.left, top: inBox.top + box.top };
       const parent = overlayNode.offsetParent instanceof HTMLElement ? overlayNode.offsetParent : null;
       const parentRect = parent?.getBoundingClientRect() ?? { left: 0, top: 0 };
       const scale = scaleFor(parent);
+      const maxHeight = Math.min(inBox.maxHeight / scale.y, cssCap);
+      // Constraining the height can change an above-menu's top. Measure that final box before
+      // revealing it, rather than asking ResizeObserver to correct the next visible frame.
+      if (!callerHeight) overlayNode.style.maxHeight = `${maxHeight}px`;
+      const sized = callerHeight ? o : overlayNode.getBoundingClientRect();
+      const placed = resolveUiOverlayPosition(
+        { left: a.left - box.left, top: a.top - box.top, right: a.right - box.left, bottom: a.bottom - box.top },
+        { width: sized.width, height: sized.height },
+        { width: box.right - box.left, height: box.bottom - box.top },
+        { align, direction, gap, margin, minHeight, side: inBox.side },
+      );
+      const position = { ...placed, left: placed.left + box.left, top: placed.top + box.top };
       const left = (position.left - parentRect.left) / scale.x + (parent?.scrollLeft ?? 0);
       const top = (position.top - parentRect.top) / scale.y + (parent?.scrollTop ?? 0);
       // With a boundary, the width the overlay may take: the box less its margin on both sides.
       const room = Math.max(0, box.right - box.left - 2 * (margin ?? 8)) / scale.x;
-      setStyle({
+      const nextStyle = {
         position: "absolute",
         left,
         top,
         right: "auto",
         bottom: "auto",
-        maxHeight: position.maxHeight / scale.y,
+        maxHeight,
         visibility: "visible",
         ...(bound ? { "--available-width": `${room}px` } : {}),
-      } as CSSProperties);
+      } as CSSProperties;
+      if (!callerHeight) {
+        Object.assign(overlayNode.style, {
+          left: `${left}px`,
+          top: `${top}px`,
+          maxHeight: `${maxHeight}px`,
+          visibility: "visible",
+        });
+      }
+      setStyle(nextStyle);
     };
     update();
     window.addEventListener("resize", update);

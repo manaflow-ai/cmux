@@ -11,9 +11,9 @@
 // page does, so scrolling it out of the virtualized transcript keeps it. A sub-session family's
 // sender reads with who it is to this chat: "Parent · coordinator". Reply, at the line's end,
 // answers in place: the answer goes to the sending chat in the message's thread
-// (AcpmuxDirectClient.reply), from an editor under the card. An open reply and its draft last
-// while the page does too; closing the message closes the reply and keeps the draft.
-// The card is cleaner (Leo 2026-10-21: "just... idk make it all look nicer"): the sender's signature
+// (AcpmuxDirectClient.reply), from an editor in the panel. An open reply and its draft last while
+// the page does; closing the message closes the reply and keeps the draft.
+// The text is cleaner (Leo 2026-10-21: "just... idk make it all look nicer"): the sender's signature
 // ("[lane] …") is dropped, a pull request written twice in a row shows once (messageRefs.ts), a
 // commit SHA reads as quiet monospace, and a message from another machine names that machine's
 // files, which draw with its name and a lock (chips/messageScope.ts).
@@ -34,6 +34,7 @@ import { Markdown } from "./Markdown";
 import { AgentMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { useAgentAvatar } from "../agentAvatar";
+import { DisclosureRow } from "../subagents/DisclosureRow";
 import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
@@ -92,20 +93,16 @@ export function IncomingMessageLine({
     setMessageOpened(session, id, next);
     setOpen(next);
   };
-  const toggleButton = useRef<HTMLButtonElement>(null);
-  const bodyId = useId();
   const rawId = useId();
-  // The prompt as the agent got it (cmux's envelope around the message) waits behind Details.
-  const [details, setDetails] = useState(false);
+  // The prompt as the agent got it (cmux's envelope around the message) waits behind Details, open
+  // or closed per chat and row, so scrolling it out of the virtualized transcript keeps it.
+  const [details, setDetails] = useTranscriptDisclosure(`message-details:${id}`);
   // Only the reader's own clicks play the motion; Find opening a message for its match does not.
   const played = useRef(false);
-  // cmux's Minimal Mode, which the chat follows (chatDisplay.ts).
-  const { minimal } = useChatDisplay();
-  // Out of Minimal Mode, Details folds its envelope in and out; in it, Details shows it at once (#25002).
   const envelope = useAnchoredCollapse({
     open: details,
     onOpenChange: setDetails,
-    animates: () => played.current && !minimal,
+    animates: () => played.current,
   });
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
   // only in the envelope (Find searches the whole prompt) opens Details too.
@@ -157,9 +154,6 @@ export function IncomingMessageLine({
     : t("subagents.open", { name: message.name });
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
-  const label = folded
-    ? t("message.collapsedLabel", { from, preview: preview || t("message.noText") })
-    : t("message.label", { from, to: t("message.self") });
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
   const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
@@ -180,24 +174,17 @@ export function IncomingMessageLine({
   };
   const editing = reply === "open" || reply === "failed";
   // Reply opens the message too, so the editor sits under what it answers.
-  // It opens without holding the line: the reader asked to type, so the view follows the editor
-  // rather than keeping the line, which left a long message's editor below the view.
   const startReply = () => {
-    byReader();
+    played.current = true;
     setFocusEditor(true);
     show(true);
     setReply("open");
   };
-  // Closing the message closes its reply too, draft kept; the focus goes to the chevron, so it
-  // is not lost with the editor.
-  const toggle = () => {
-    byReader();
-    if (open && editing) {
-      setReply("closed");
-      requestAnimationFrame(() => toggleButton.current?.focus());
-    }
-    // The line stays where it is drawn while the card opens or closes under it.
-    collapse.setOpen(!open);
+  // The reader's toggle plays the fold; closing the message closes its reply too, draft kept.
+  const toggled = (next: boolean) => {
+    played.current = true;
+    if (!next && editing) setReply("closed");
+    show(next);
   };
   // Full, selectable Markdown under the sender line, without a second bubble around it.
   const card = (
@@ -350,11 +337,8 @@ export function IncomingMessageLine({
           {reply === "failed" && <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>}
         </div>
       )}
-      {!folded && reply === "sent" && (
-        <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>
-      )}
-      {!folded && images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
-    </div>
+      {reply === "sent" && <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>}
+    </DisclosureRow>
   );
 }
 

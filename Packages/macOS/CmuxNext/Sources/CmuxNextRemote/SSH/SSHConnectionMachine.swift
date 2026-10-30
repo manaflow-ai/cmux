@@ -66,6 +66,9 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public private(set) var status: Status = .offline
     private var blocked = true
+    /// Only Reconnect (a `.user` wake) may unblock: the session is in use, which
+    /// no network change, wake from sleep or activation changes.
+    private var onlyUserUnblocks = false
 
     public init() {}
 
@@ -79,6 +82,7 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public mutating func handle(_ event: Event) {
         if status == .offline, event != .connect { return }
+        if case .wake = event {} else { onlyUserUnblocks = false }
         switch event {
         case .connect:
             status = .connecting
@@ -106,6 +110,10 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             case .remoteFailed(let text):
                 status = .failed(text)
                 blocked = false
+            case .sessionInUse(let text):
+                status = .failed(text)
+                blocked = true
+                onlyUserUnblocks = true
             }
         case .linkUp:
             status = .connected
@@ -115,7 +123,7 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case .linkLost:
             if status == .connected || status == .reconnecting { status = .connecting }
         case .wake(let wake):
-            guard blocked else { return }
+            guard blocked, !onlyUserUnblocks || wake == .user else { return }
             if Self.unblocks(status, wake) { blocked = false }
         case .installStarted:
             status = .installing

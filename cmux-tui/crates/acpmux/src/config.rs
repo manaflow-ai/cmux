@@ -341,10 +341,17 @@ pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
 #[cfg(unix)]
 pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
+    socket_path_for(&home(), configured.as_deref())
+}
+
+/// Resolve a daemon socket using the same short-path rules as [`socket_path`],
+/// for a home and optional configured path supplied by a managed unit.
+#[cfg(unix)]
+pub(crate) fn socket_path_for(home: &Path, configured: Option<&str>) -> PathBuf {
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     let cwd = std::env::current_dir().ok();
-    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
+    let (configured, home) = socket_inputs(configured, home, cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
         &home,
@@ -456,9 +463,8 @@ pub enum HarnessKind {
     Acp,
     /// Claude Code's own `-p --input-format stream-json` protocol.
     ClaudeStdio,
-    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file):
-    /// listed, but run in a terminal tab (`cmux harness run`), never as an
-    /// acpmux session.
+    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file): listed, but run in a
+    /// terminal tab (`cmux harness run`), never as an acpmux session.
     Terminal,
 }
 
@@ -814,6 +820,51 @@ pub struct TitlesConfig {
     pub model: Option<String>,
 }
 
+/// Host-wide limits applied to every Linux session scope. These are daemon
+/// settings, rather than spawn environment, so a CLI can set them without
+/// crossing the app-only spawn-env gate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResourceConfig {
+    /// Per-session memory ceiling in MiB. Unset uses half of host memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u64>,
+    /// Per-session swap ceiling in MiB. Unset uses one quarter of host swap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swap_mb: Option<u64>,
+    /// `tasksMax`: each session scope's cap on processes and threads
+    /// together; 0 is no cap. Wins over `ACPMUX_SESSION_TASKS_MAX`. Unset:
+    /// that env, else 4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks_max: Option<u64>,
+    /// `sessionsTasksMax`: the cap on processes and threads of all sessions
+    /// together (`acpmuxsessions.slice`); 0 is no cap. Wins over
+    /// `ACPMUX_SESSIONS_TASKS_MAX`. Unset: that env, else a quarter of the
+    /// kernel's `threads-max`, between 16384 and 262144.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions_tasks_max: Option<u64>,
+}
+
+impl SessionResourceConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// Experimental transports. Labs switches are deliberately opt-in and keep
+/// the normal peer route unchanged until a caller explicitly enables them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TransportConfig {
+    /// Enable the userspace WireGuard transport. Disabled by default: when
+    /// false no UDP socket is bound by acpmux.
+    #[serde(default)]
+    pub wireguard: bool,
+    /// Static Labs mesh interface; ignored while wireguard is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wireguard_static: Option<crate::wireguard::StaticConfig>,
+}
+
 impl TitlesConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
@@ -828,6 +879,10 @@ pub struct Config {
     pub harnesses: BTreeMap<String, HarnessProfile>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub peers: BTreeMap<String, PeerConfig>,
+    /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
+    /// the normal peer route and send behavior unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_wake: Option<MachineWakeConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
     /// More login-shell variables agents get, beyond the allow-list
@@ -839,6 +894,9 @@ pub struct Config {
     /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
+    /// Host-wide resource limits for new Linux session scopes.
+    #[serde(default, skip_serializing_if = "SessionResourceConfig::is_default")]
+    pub session: SessionResourceConfig,
     /// Named bundles for `-p NAME`: `{"deepseek": {"harness": "opencode",
     /// "model": "opencode-go/deepseek-v4-pro", "effort": "low"}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -901,8 +959,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
+    /// length is how many attempts run, a chain of daemon restarts included. Default
+    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,
@@ -920,23 +979,25 @@ pub struct Config {
     /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
-    /// `vmHost`: kept and shown (`_acpmux/vm_host` `configured`), never
-    /// trusted. The agent can write this file, so `true` no longer runs a
-    /// remote chain's Claude Code without the sandbox (`hub/vm_host.rs`);
-    /// `_acpmux/vm_host {on: false}` writes `false`.
+    /// `vmHost`: `false` refuses a caller's VM boundary here, so every remote
+    /// chain's Claude Code runs in the sandbox (`hub/vm_host.rs`,
+    /// `hub/vm_boundary.rs`). It never turns the boundary on: the agent can
+    /// write this file, so `true` means the same as absent.
+    /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
-    /// `pool`: hidden pre-created sessions that make a harness switch
-    /// instant (`hub/pool/`).
+    /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
     /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
     #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
     pub btw: BtwConfig,
-    /// `titles`: short titles for chats their harness never titles
-    /// (`hub/titles.rs`).
+    /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// Labs-only transport switches (`transport.wireguard`).
+    #[serde(default)]
+    pub transport: TransportConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -950,13 +1011,17 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<crate::cli::send_relay::SendRelay>,
+    /// `meshRelay`: `{"url", "tokenCommand", "controlFrom"}`, the team hub this daemon heartbeats its sessions to,
+    /// takes messages for them from, and sends a message to a name nobody here resolves through
+    /// (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the default): no relay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
     pub path: Option<PathBuf>,
-    /// Profiles that came from PATH discovery, not the file. `save` leaves
-    /// them out so the file keeps only what the user wrote and discovery
-    /// stays live.
+    /// Profiles that came from PATH discovery, not the file. `save` leaves them out so the file
+    /// keeps only what the user wrote and discovery stays live.
     #[serde(skip)]
     pub discovered: std::collections::BTreeSet<String>,
     /// `(profile, fallback)` set by discovery, stripped on save.
@@ -965,6 +1030,9 @@ pub struct Config {
     /// `defaultHarness` was filled in at load, not written by the user.
     #[serde(skip)]
     pub auto_default: bool,
+    /// No config.json was there at load (`hub/policy_source.rs`: absence proves nothing).
+    #[serde(skip)]
+    pub file_missing: bool,
     /// The `defaults.claude.prefer` list discovery filled in, not the user.
     /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
@@ -973,8 +1041,7 @@ pub struct Config {
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
     pub web_unbound: bool,
-    /// Loopback page dev server origins from `--allow-dev-origin` (this run
-    /// only, never saved).
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run only, never saved).
     #[serde(skip)]
     pub dev_origins: Vec<String>,
     /// The listener's token for this run when `--token` gave one: the
@@ -1007,7 +1074,57 @@ pub struct Config {
     pub profile_sources: ProfileSources,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineWakeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
 impl Config {
+    /// Set a host-wide session resource setting from the CLI. `default`,
+    /// `none`, and `clear` remove an override and restore the computed default.
+    pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
+        let key = key.trim().replace('-', "_").to_ascii_lowercase();
+        let slot = match key.as_str() {
+            "session.memory_mb" | "session.memorymb" | "memory_mb" | "memorymb" => {
+                &mut self.session.memory_mb
+            }
+            "session.swap_mb" | "session.swapmb" | "swap_mb" | "swapmb" => {
+                &mut self.session.swap_mb
+            }
+            "session.tasks_max" | "session.tasksmax" | "tasks_max" | "tasksmax" => {
+                &mut self.session.tasks_max
+            }
+            "session.sessions_tasks_max"
+            | "session.sessionstasksmax"
+            | "sessions_tasks_max"
+            | "sessionstasksmax" => &mut self.session.sessions_tasks_max,
+            _ => anyhow::bail!(
+                "unknown session resource setting `{key}` (use session.memory_mb, \
+                 session.swap_mb, session.tasks_max or session.sessions_tasks_max)"
+            ),
+        };
+        let tasks = key.contains("tasks");
+        let value = value.trim();
+        *slot = match value.to_ascii_lowercase().as_str() {
+            "" | "default" | "none" | "clear" => None,
+            // A task cap of 0 is no cap; `infinity` says the same.
+            "infinity" if tasks => Some(0),
+            _ => Some(value.parse::<u64>().with_context(|| {
+                if tasks {
+                    format!("{key} must be a non-negative integer count, `infinity` or `default`")
+                } else {
+                    format!("{key} must be a non-negative integer MiB or `default`")
+                }
+            })?),
+        };
+        Ok(())
+    }
+
     /// `agentStartTimeoutMs`, or its 90 s default.
     pub fn agent_start_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
@@ -1157,7 +1274,9 @@ impl Config {
                 serde_json::from_str::<Config>(&text)
                     .with_context(|| format!("parse {}", path.display()))?
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Config { file_missing: true, ..Config::default() }
+            }
             Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));
@@ -1270,6 +1389,20 @@ impl Config {
                 cfg.auto_prefer = Some(entry.prefer.clone());
             }
         }
+        // Without a CodeRouter route, Claude falls back to the cmux router on DeepSeek V4 Flash
+        // (its profile default). The free tier serves it to a signed-out attested Mac, and a
+        // signed-in account pays under its plan (paid-plan.md §2). Only when no route took the slot.
+        let claude_has_no_fallback = cfg
+            .harnesses
+            .get("claude")
+            .is_some_and(|c| c.kind == HarnessKind::ClaudeStdio && c.fallback.is_none());
+        if cfg.discovered.contains(discover::CMUX_ROUTER_PROFILE)
+            && claude_has_no_fallback
+            && let Some(c) = cfg.harnesses.get_mut("claude")
+        {
+            c.fallback = Some(discover::CMUX_ROUTER_PROFILE.into());
+            cfg.auto_fallback = Some(("claude".into(), discover::CMUX_ROUTER_PROFILE.into()));
+        }
     }
 
     /// Where preset directories live (`presets/` next to config.json); None
@@ -1280,6 +1413,15 @@ impl Config {
 
     /// Write back to the file this config came from. No-op for in-code configs.
     pub fn save(&self) -> Result<()> {
+        self.save_with_writer(write_atomic)
+    }
+
+    /// Preserve discovered/shadowed profile filtering when a caller needs a
+    /// stronger durability contract than ordinary config writes.
+    pub(crate) fn save_with_writer(
+        &self,
+        write: impl FnOnce(&Path, &[u8]) -> Result<()>,
+    ) -> Result<()> {
         let Some(path) = &self.path else {
             tracing::debug!("config has no file; not saved");
             return Ok(());
@@ -1312,7 +1454,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        write(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
@@ -1403,8 +1545,10 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_coderouter_route,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+    CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE, CODEROUTER_CLAUDE_PROFILE,
+    CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_cmux_router, add_cmux_router_with,
+    add_coderouter_route, cmux_router_model_setting, coderouter_claude_route, discover_harnesses,
+    discover_harnesses_from,
 };
 mod peer;
 pub use peer::PeerConfig;

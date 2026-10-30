@@ -175,14 +175,14 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await page.waitForFunction(() => "__showRows" in window);
     return page;
   };
-  const LINE = '[data-row-id="msg"] .cv-received__toggle';
+  const LINE = '[data-row-id="msg"] .cv-disclosure__toggle';
   const DETAILS = '[data-row-id="msg"] .cv-received__more';
   const BODY = '[data-row-id="msg"] .cv-received__body';
   /// Puts the message's line `y` px down the view, away from the transcript's end.
   const lineAt = (page: Page, y: number) =>
     page.evaluate((down) => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const line = document.querySelector<HTMLElement>('[data-row-id="msg"] .cv-received__toggle')!;
+      const line = document.querySelector<HTMLElement>('[data-row-id="msg"] .cv-disclosure__toggle')!;
       scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - down;
     }, y);
 

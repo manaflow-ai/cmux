@@ -840,65 +840,65 @@ wire_errors! {
 }
 
 wire_op! {
-    /// How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token.
-    CloudMachineConnectInfoOp {
-        name: "cloud.machine.connect_info",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: CloudMachineConnectInfoParams,
-        result: CloudConnectInfo,
-        error: CloudMachineConnectInfoError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineConnectInfoParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<MachineId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host: Option<HostId>,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.connect_info declares.
-    CloudMachineConnectInfoError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotBound = "cloud.machine.not_bound",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
-    CloudMachineCreateOp {
-        name: "cloud.machine.create",
+    /// Create a machine in the environment (the plan checks of cloud.machine.create). boot snapshot: it boots the environment's ready snapshot and runs nothing. boot cold (no build yet, or a stale one): it boots the deployment's image and starts the setup on the machine in the background (~/.cmux/environment-build.log; ~/.cmux/environment.json when it finished). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudEnvironmentBootOp {
+        name: "cloud.environment.boot",
         class: Mutation,
         idempotency: Required,
         owner: "cloud:CloudDO",
         risk: "money",
         principals: [Session, Install],
-        params: CloudMachineCreateParams,
-        result: CloudMachineCreateResult,
-        error: CloudMachineCreateError,
+        params: CloudEnvironmentBootParams,
+        result: CloudEnvironmentBootResult,
+        error: CloudEnvironmentBootError,
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineCreateParams {
+pub struct CloudEnvironmentBootParams {
+    pub environment: EnvironmentId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub size: CloudMachineSize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub from_snapshot: Option<SnapshotId>,
+}
+
+wire_enum! {
+    CloudEnvironmentBootResultBoot {
+        Snapshot = "snapshot",
+        Cold = "cold",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBootResult {
+    pub machine: CloudMachine,
+    pub boot: CloudEnvironmentBootResultBoot,
+}
+
+wire_errors! {
+    /// The error codes cloud.environment.boot declares.
+    CloudEnvironmentBootError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudEnvironmentNotFound = "cloud.environment.not_found",
+        CloudEnvironmentSecretsUnavailable = "cloud.environment.secrets_unavailable",
+        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSizeLocked = "cloud.size.locked",
+        CloudSnapshotNotFound = "cloud.snapshot.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
 }

@@ -15,9 +15,9 @@
 // - Off (the `sessions.promptSuggestions` setting off, no Debug tunable, no experiment) nothing
 //   draws; suggested tasks on (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
 // - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`
-//   in an adopted chat's history) draws as a message card from that agent, toggle or not; Claude
+//   in an adopted chat's history) draws as one disclosure line from that agent, toggle or not; Claude
 //   Code's task notifications and reminders there draw no raw XML.
-// - Reply on such a card sends the typed answer as this chat's cmux agent message to the sending
+// - Reply on such a line sends the typed answer as this chat's cmux agent message to the sending
 //   chat: one `_acpmux/app_reply` naming this chat, that chat, the message's thread and the message
 //   it answers, which the host sends on (AgentPaneAgentReply.swift); never a prompt to either
 //   chat. A Claude Code envelope has no chat to answer: no Reply.
@@ -579,15 +579,15 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       // message id and note) waits behind Details.
       await card.getByRole("button", { name: /Message from Grid fix/ }).click();
       await card
-        .locator(".cv-received__body")
+        .locator(".cv-received__text")
         .getByText("The grid fix is on cmux/grid-fix; tests pass.")
         .waitFor({ timeout: 5_000 });
       expect(await card.innerText()).not.toContain("[cmux agent message]");
       expect(await card.innerText()).not.toContain("Message id:");
       await card.getByRole("button", { name: "Details" }).click();
       await card.locator("pre").getByText("[cmux agent message] from Grid fix").waitFor({ timeout: 5_000 });
-      // The sender is a chat here: its name opens it by its session id, not its address.
-      await card.getByRole("button", { name: "Open Grid fix" }).click();
+      // The sender is a chat here: Open chat opens it by its session id, not its address.
+      await card.getByRole("button", { name: "Open chat" }).click();
       await waitUntil(() => calls.some((c) => c.params.sessionId === "child-3"));
       expect(calls.some((c) => c.params.sessionId === "acp:child-3")).toBe(false);
       await page.close();
@@ -653,7 +653,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           .click();
       expect(await incoming(page).first().innerText()).toContain("Build is green.");
       expect(await incoming(page).nth(1).innerText()).toContain("Ship it.");
-      expect(await page.getByRole("button", { name: /^Open / }).count()).toBe(0);
+      expect(await page.locator(".cv-disclosure__open").count()).toBe(0);
       await page.close();
     });
 
@@ -675,14 +675,14 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(await card.locator(".cv-received__name").innerText()).toBe("leoli-fb");
+      expect(await card.locator(".cv-received__from").innerText()).toBe("leoli-fb");
       const body = await page.locator("body").innerText();
       expect(body).not.toContain("<cross-session-message");
       expect(body).not.toContain("This came from another Claude session");
       expect(await page.locator(".cv-user__bubble").count()).toBe(1);
       // Opened, the line shows the message; Details shows the prompt as the agent got it.
       await card.getByRole("button", { name: /Message from leoli-fb/ }).click();
-      expect(await card.locator(".cv-received__body").innerText()).toContain("Please review #123 & report back.");
+      expect(await card.locator(".cv-received__text").innerText()).toContain("Please review #123 & report back.");
       expect(await card.innerText()).not.toContain("from-mode=");
       await card.getByRole("button", { name: "Details" }).click();
       await card.locator("pre").getByText("from-mode=").first().waitFor({ timeout: 5_000 });
@@ -806,9 +806,12 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await card.getByRole("button", { name: /^Reply/ }).click();
       const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
       await field.waitFor({ timeout: 5_000 });
-      await card
-        .locator(".cv-received__text")
-        .evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
+      // The fold is over (a reflow may restart it, so wait until none runs).
+      await card.evaluate(async (el) => {
+        for (let round = 0; round < 5 && el.getAnimations({ subtree: true }).length; round++)
+          await Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined)));
+        await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+      });
       // The editor has the focus and is on screen, inside the transcript's view.
       const inView = await field.evaluate((el) => {
         const scroller = el.closest<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
@@ -836,7 +839,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       // Closed with the message, nothing sent, and the focus on the chevron rather than lost.
       await field.waitFor({ state: "detached", timeout: 5_000 });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-      await page.waitForFunction(() => document.activeElement?.classList.contains("cv-received__toggle"), undefined, {
+      await page.waitForFunction(() => document.activeElement?.classList.contains("cv-disclosure__toggle"), undefined, {
         timeout: 5_000,
       });
       expect(sentReply()).toBe(false);
