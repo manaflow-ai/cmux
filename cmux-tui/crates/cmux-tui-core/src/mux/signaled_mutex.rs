@@ -218,8 +218,9 @@ pub(crate) struct StateMutex {
 
 /// A held mux state lock.
 pub(crate) struct StateGuard<'a> {
-    /// `None` only inside `drop`, after the release is recorded.
-    guard: Option<MutexGuard<'a, State>>,
+    /// Dropped after `Drop::drop` records the release (fields drop after
+    /// the body), so the release is recorded while the lock is held.
+    guard: MutexGuard<'a, State>,
     stats: &'a crate::diagnostics::LockStats,
     site: crate::diagnostics::LockSite,
     waited: std::time::Duration,
@@ -247,7 +248,7 @@ impl<'a> StateGuard<'a> {
         let waited = waited_from.elapsed();
         stats.acquired(site, waited, blocker);
         StateGuard {
-            guard: Some(guard),
+            guard,
             stats,
             site,
             waited,
@@ -264,7 +265,6 @@ impl Drop for StateGuard<'_> {
         // Record the release while the lock is still held, so the next
         // holder's record is never erased by this older unlock.
         self.stats.released(self.site, self.acquired_at.elapsed(), self.waited);
-        drop(self.guard.take());
         crate::workspace_registry::registry_connection::note_state_lock(false);
     }
 }
@@ -273,13 +273,13 @@ impl Deref for StateGuard<'_> {
     type Target = State;
 
     fn deref(&self) -> &State {
-        self.guard.as_deref().expect("state guard has a value")
+        &self.guard
     }
 }
 
 impl DerefMut for StateGuard<'_> {
     fn deref_mut(&mut self) -> &mut State {
-        self.guard.as_deref_mut().expect("state guard has a value")
+        &mut self.guard
     }
 }
 
