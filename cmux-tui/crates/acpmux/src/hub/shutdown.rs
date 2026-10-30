@@ -42,7 +42,7 @@ impl Hub {
     /// that turn was cut too, and the next daemon continues it as this one would have.
     pub(super) fn hands_off(&self, session: &Session) -> bool {
         let plan = self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        plan.started && !(plan.end_agents && !plan.keep.contains(&session.id))
+        plan.started && (!plan.end_agents || plan.keep.contains(&session.id))
     }
 
     pub(crate) fn shutting_down(&self) -> bool {

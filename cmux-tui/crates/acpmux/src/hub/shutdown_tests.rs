@@ -129,6 +129,10 @@ async fn a_turn_answered_after_the_shutdown_writes_nothing_and_is_continued() {
     let _ = release.send(());
     let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
     assert!(answer.is_ok(), "{answer:?}");
+    let late = records(&hub, &s, "turn_result");
+    assert!(late.is_empty(), "the old daemon wrote after its shutdown: {late:?}");
+    let started = records(&hub, &s, "turn_started");
+    let cut = started.last().expect("the turn started")["turnId"].clone();
     let id = s.id.clone();
     drop(s);
     drop(hub);
@@ -136,13 +140,15 @@ async fn a_turn_answered_after_the_shutdown_writes_nothing_and_is_continued() {
     let hub = hub_in(&dir);
     let s = hub.resolve(&id).unwrap();
     hub.session_log(&s).await;
-    let late = records(&hub, &s, "turn_result");
-    assert!(late.is_empty(), "the old daemon wrote after its shutdown: {late:?}");
     let queued = records(&hub, &s, "queued");
     assert!(
         queued.iter().any(|m| m["promptId"] == "p-late~resume-1"),
         "the cut turn's continuation was not queued: {queued:?}"
     );
+    // The next daemon settles the cut turn as of unknown outcome; nothing says it completed.
+    let ends = records(&hub, &s, "turn_result");
+    let completed = ends.iter().filter(|m| m["turnId"] == cut && m["status"] == "completed");
+    assert_eq!(completed.count(), 0, "the cut turn reads completed: {ends:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
