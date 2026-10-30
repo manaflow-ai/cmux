@@ -145,7 +145,8 @@ export function UserBubble({
       <div className="cv-user__body">
         {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
             bubble under them read as a lost message; Leo 2026-10-21). */}
-        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim() || (row.delivery && !row.steer && row.delivery.state === "sending")) && (
+        {((row.delivery && !row.steer && row.delivery.state === "sending") ||
+          (strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim())) && (
           <div className={`cv-user__bubble-wrap${text.trim() ? "" : " is-empty"}`}>
             {strip ? shownParts!.some(readsAsText) ? (
               <div className="ui-glass cv-user__bubble selectable">
