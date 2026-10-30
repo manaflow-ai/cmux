@@ -954,4 +954,34 @@ describe("Home attachments: a multipart intent that failed before any upload liv
     expect(await slots(id)).toEqual([])
     expect(await usage(alice.user)).toEqual([])
   })
+
+  it("the refund failed: the slot stays as its record, and its expiry refunds the bytes", async () => {
+    const alice = await signIn("att-intent-refund-fails")
+    const { id } = await group(alice)
+    const gc = await import("../src/home-attachment-gc.ts")
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const failing = new Proxy(bucket, {
+      get(t, p) {
+        if (p === "createMultipartUpload") return async () => { throw new Error("createMultipartUpload: We encountered an internal error. Please try again. (10001)") }
+        const v = Reflect.get(t, p)
+        return typeof v === "function" ? v.bind(t) : v
+      }
+    })
+    const ns = testEnv.USER_DO
+    const users = {
+      idFromName: (n: string) => ns.idFromName(n),
+      get: (uid: DurableObjectId) => {
+        const stub = ns.get(uid)
+        return new Proxy(stub, { get: (t, p) => (p === "refundAttachmentQuota" ? async () => { throw new Error("user owner unreachable") } : (...args: Array<unknown>) => (t as any)[p](...args)) })
+      }
+    } as unknown as TestEnv["USER_DO"]
+    await expect(intentWith(alice, id, { ...testEnv, HOME_ATTACHMENTS: failing, USER_DO: users }, 13)).rejects.toThrow()
+    expect(await slots(id)).toHaveLength(1)
+    expect(await usage(alice.user)).toHaveLength(1)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000))
+    await runInDurableObject(stub, async (inst: any) => gc.runAttachmentWake(inst.gc, undefined, Date.now()))
+    expect(await slots(id)).toEqual([])
+    expect(await usage(alice.user)).toEqual([])
+  })
 })
