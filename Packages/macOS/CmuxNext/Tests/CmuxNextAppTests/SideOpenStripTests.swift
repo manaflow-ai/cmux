@@ -121,7 +121,7 @@ import Testing
         services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
         #expect(OutboundTab.hidden(in: pane).contains(Self.link))
         outbound.finish(moved: true)
-        #expect(OutboundTab.hidden(in: pane).contains(Self.link))
+        #expect(!OutboundTab.hidden(in: pane).contains(Self.link), "a landed tab is released once it is no longer in transit")
     }
 
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
