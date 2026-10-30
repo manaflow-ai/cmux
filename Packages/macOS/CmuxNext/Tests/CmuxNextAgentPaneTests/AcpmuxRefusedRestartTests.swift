@@ -48,6 +48,28 @@ struct AcpmuxRefusedRestartTests {
         }
     }
 
+    /// A daemon's start or restart ends without the person, so the page shows nothing while it
+    /// lasts; acpmux missing and another build's daemon do not, and are said at once.
+    @Test func onlyARecoveryIsAReconnectingHandshake() async throws {
+        let recovering: [AgentPaneHostError] = [
+            .daemonRestarting, .timedOut, .daemonStopped, .chiefStopped, .chiefStarting,
+            .daemonFailed(logPath: "/l", cause: .exited),
+            .daemonRefused(holder: nil, socketPath: "/s", reason: "the socket's peer process is unknown"),
+        ]
+        let refused: [AgentPaneHostError] = [
+            .acpmuxNotFound,
+            .daemonRefused(holder: "cmux NIGHTLY", socketPath: "/s", reason: "another build"),
+            .daemonFailed(logPath: "/l", cause: .refused("a temporary folder")),
+        ]
+        for cause in recovering + refused {
+            let model = AgentPaneModel(host: RefusingHost(cause))
+            let reply = await model.respond(to: .reconnect)
+            let error = try #require(reply["error"] as? [String: Any])
+            let details = error["details"] as? [String: Any]
+            #expect((details?["reconnecting"] as? Bool == true) == recovering.contains(cause), "\(cause)")
+        }
+    }
+
     /// Without a refusal that offered it, or without the person's click, the page cannot stop a daemon.
     @Test func restartAcpmuxNeedsAnOfferAndAGesture() async {
         let model = AgentPaneModel(host: NoHost())

@@ -24,6 +24,7 @@
 use serde_json::{Value, json};
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 
 /// Where a request carries its author.
 pub const POINTER: &str = "/_meta/acpmux/author";
@@ -51,10 +52,10 @@ impl Author {
     pub fn provenance(&self) -> Value {
         let mut p = json!({"kind": PERSON_MESSAGE, "from": self.id, "fromName": self.name});
         if let Some(login) = &self.login {
-            p["login"] = json!(login);
+            p.set("login", json!(login));
         }
         if let Some(node) = &self.node {
-            p["node"] = json!(node);
+            p.set("node", json!(node));
         }
         p
     }
@@ -204,8 +205,8 @@ pub fn restored_supersede(queued: &Value) -> Option<&str> {
 pub fn answered_by(device: Option<Value>, author: Option<&Author>) -> Option<Value> {
     let Some(author) = author else { return device };
     let mut by = device.filter(Value::is_object).unwrap_or_else(|| json!({}));
-    by["id"] = json!(author.id);
-    by["name"] = json!(author.name);
+    by.set("id", json!(author.id));
+    by.set("name", json!(author.name));
     Some(by)
 }
 

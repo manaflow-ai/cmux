@@ -7,9 +7,10 @@ import Foundation
 /// the moment the feed's newest build changes, and starts the updater's own quiet check then.
 ///
 /// Only for the app's own feed, when it is one the Worker serves (``feeds``); any other feed
-/// (stable, RC, Intel, a test feed) connects nothing. ``UpdaterService`` runs it only while found
-/// updates download and install by themselves (`updates.downloadAutomatically`, the #25283
-/// opt-in) and `updates.checkAutomatically` is on; this type never reads a setting.
+/// (stable, RC, Intel, a test feed) connects nothing. ``UpdaterService`` runs it while
+/// `updates.checkAutomatically` is on, with or without the automatic-install opt-in
+/// (`updates.downloadAutomatically`; without it the pushed build's check asks first); this type
+/// never reads a setting.
 ///
 /// A frame acts only when its build is higher than the running build and than the last build it
 /// acted on, so a reconnect's first frame (the same build again) or a duplicate starts nothing.
@@ -21,7 +22,7 @@ import Foundation
 /// (``UpdaterService`` does on every way the push stops, quit included).
 ///
 /// Stop condition and cleanup: one connection task (``task``) runs while a feed is set
-/// (``refresh(feedURL:)``). ``stop()`` (the opt-in or automatic checks off, the updater disabled,
+/// (``refresh(feedURL:)``). ``stop()`` (automatic checks off, the updater disabled,
 /// the feed no longer served, and the app quitting) cancels the task, which ends the reconnect
 /// sleep and the ping loop, and closes the socket with "going away". The ping loop lives only
 /// while one socket is open and ends with it; a socket that leaves a ping unanswered for a whole
@@ -35,6 +36,9 @@ final class ReleasePushListener {
     static let feeds: [String: String] = [
         "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml": "nightly-next",
         "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml": "tip",
+        // cmux NIGHTLY (com.cmuxterm.app.nightly) reads the old feed, where
+        // publish-nightly-identity-legacy republishes each NEXT build under the NIGHTLY identity.
+        "https://files-next.cmux.com/nightly-next/appcast-arm64.xml": "nightly-next-legacy",
     ]
     nonisolated static let pingInterval: Duration = .seconds(60)
     nonisolated static let minimumBackoff: TimeInterval = 1

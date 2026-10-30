@@ -621,6 +621,9 @@ mod unix {
                 command.env(key, value);
             }
         }
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+            command.env_remove(*key);
+        }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }

@@ -94,10 +94,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
+        // The + stays a plain default-tab action, with hold/right-click for the type menu.
+        // Its adjacent chevron exposes that same menu without changing what a plus click does.
+        view.stripView.opensNewTabMenuOnPress = false
+        view.stripView.showsNewTabMenuButton = true
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
-        view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
+
         view.onResize = { [weak services, weak paneView = view] in
             services?.surfaceInvariant.noteChange()
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
@@ -214,7 +218,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // The column kind decides (`pinned-dock-v1`), never the tab's title or page.
         let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
         let pinned = dock?.isPinned == true
-        let tabs = pane.tabs.filter { !hidden.contains($0.id) }
+        // Read the preview setting in the pane's observed structure, so every
+        // mounted pane swaps away from a disabled page without a daemon event.
+        let previews = services.settings?.snapshot.previewFeatures == true
+        let tabs = pane.tabs.filter {
+            !hidden.contains($0.id) && (previews || !InternalPageTabStore.isPreviewPage($0.page)
+                && $0.appTab?.app != "cmux/app-store")
+        }
         // The Home Chief pane (a pinned dock) shows no tab bar while it holds only Home (Lawrence
         // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
         // is there (plans/cmux-next/home-chief-pane.md H1).

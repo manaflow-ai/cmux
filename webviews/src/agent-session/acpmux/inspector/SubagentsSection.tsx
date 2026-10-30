@@ -15,6 +15,9 @@ import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
+const ROW_ICON = rowIconSize(12);
+
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { nestAgents } from "../subagents/AgentsPill";
@@ -26,6 +29,8 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { InspectorFold } from "./InspectorSection";
+import { AgentMark } from "../../shared/AgentMark";
+import { TonedIcon } from "../subagents/TonedIcon";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -81,6 +86,8 @@ type Line = {
   /// Its whole task, for the hover card.
   task?: string;
   icon: string;
+  /// The harness whose mark it draws (the agent's own, else the chat's for its own subagents).
+  mark?: string;
   depth: number;
   /// When it ended (or, for a chat, was made): the ended list's order.
   at: number;
@@ -104,7 +111,15 @@ const EndedAvatars = memo(
               <Avatar agent={item.agent} />
             ) : (
               <span className="cv-subagent-avatar" data-state={item.status}>
-                <Icon name={item.icon} size={14} />
+                {item.mark ? (
+                  <AgentMark
+                    agent={item.mark}
+                    size={14}
+                    fallback={<TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />}
+                  />
+                ) : (
+                  <TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />
+                )}
               </span>
             )}
           </span>
@@ -123,6 +138,7 @@ const EndedAvatars = memo(
         item.status === next.status &&
         item.working === next.working &&
         item.icon === next.icon &&
+        item.mark === next.mark &&
         item.agent?.state === next.agent?.state &&
         item.agent?.harness === next.agent?.harness
       );
@@ -135,6 +151,7 @@ export function SubagentsSection({
   onOpen,
   sessions = NO_SESSIONS,
   onOpenSession,
+  harness,
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
@@ -143,6 +160,9 @@ export function SubagentsSection({
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
   onOpenSession?: OpenSubagent;
+  /// The chat's harness: its own subagents (Claude's Agent calls) draw its mark (Leo, 2026-10-29:
+  /// "surely you can just at least say, you know, one of these is Codex, one of these is Claude").
+  harness?: string;
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
@@ -162,6 +182,7 @@ export function SubagentsSection({
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
       icon: "agent.session",
+      mark: agent.harness ?? harness,
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && ((event) => onOpen(agent.id, event)),
@@ -174,6 +195,7 @@ export function SubagentsSection({
     status: sessionStatus(child),
     ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
     icon: "agent.chat",
+    mark: child.harness,
     depth: 0,
     at: child.createdAt ?? 0,
     open: onOpenSession && ((event) => onOpenSession(child.sessionId, event)),
@@ -210,6 +232,8 @@ export function SubagentsSection({
         working={item.working}
         time={item.time}
         icon={item.icon}
+        mark={item.mark}
+        tone={agentTone(item.identity)}
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
@@ -251,7 +275,7 @@ export function SubagentsSection({
           >
             <EndedAvatars items={endedLines.slice(0, 4)} count={endedLines.length} />
             <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
-            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
           {endedOpen && (
             <ul className="acpmux-summary-list acpmux-chat-inspector-scroll acpmux-chat-inspector-subagents__list">

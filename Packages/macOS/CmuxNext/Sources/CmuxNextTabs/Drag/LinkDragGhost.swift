@@ -35,8 +35,10 @@ package final class LinkDragGhost {
         glass.samplesBehindWindow = true
         glass.frame = NSRect(origin: .zero, size: size)
         glass.autoresizingMask = [.width, .height]
-        label.frame = NSRect(x: Metrics.space2 * 1.5, y: (height - label.intrinsicContentSize.height) / 2,
-                             width: width - Metrics.space2 * 3, height: label.intrinsicContentSize.height)
+        // The text box sits `1.5 × space2` in from each side; the frame adds the label's padding
+        // around it (a frame the size of the text alone truncated every title in the middle).
+        label.frame = label.frame(forAlignmentRect: NSRect(x: Metrics.space2 * 1.5, y: (height - label.intrinsicContentSize.height) / 2,
+                                                           width: width - Metrics.space2 * 3, height: label.intrinsicContentSize.height))
         let root = NSView(frame: NSRect(origin: .zero, size: size))
         root.addSubview(glass)
         root.addSubview(label)

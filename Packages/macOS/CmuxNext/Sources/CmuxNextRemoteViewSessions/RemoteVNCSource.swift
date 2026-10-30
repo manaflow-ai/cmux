@@ -3,6 +3,10 @@ public import CmuxNextRemoteView
 public import CmuxVNC
 import CoreVideo
 import Foundation
+import os
+
+/// Why a VNC session ended, logged (an RFB error names a protocol step, never a secret).
+nonisolated private let vncLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-view.vnc")
 
 #if DEBUG
 /// An RFB (VNC) compatibility host as a `remote_view` stream source
@@ -21,21 +25,29 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
         var server: VNCServerInfo?
         /// Counts sessions; a late event from an older one is dropped.
         var generation = 0
+        /// Told how the current session ended (a Cloud desktop reconnects after a lost path).
+        var onEnd: (@Sendable (RemoteSessionEnd) -> Void)?
     }
 
     private let state = Mutex(State())
 
     public init() {}
 
+    /// `handler` hears how each current session ends.
+    public func onEnded(_ handler: @escaping @Sendable (RemoteSessionEnd) -> Void) {
+        state.withLock { $0.onEnd = handler }
+    }
+
     /// The running session's client (input goes here).
     public var client: VNCClient? { state.withLock { $0.client } }
     /// What the server said at the last handshake.
     public var serverInfo: VNCServerInfo? { state.withLock { $0.server } }
 
-    /// Starts a new session to `endpoint`, ending any current one.
-    /// `onConnected` runs once the server accepted the credentials.
-    public func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, onConnected: (@Sendable () -> Void)? = nil) {
-        let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials))
+    /// Starts a new session to `endpoint`, ending any current one, over `transport` (TCP to
+    /// `endpoint` when nil). `onConnected` runs once the server accepted the credentials.
+    public func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, transport: (any RFBTransport)? = nil,
+                        onConnected: (@Sendable () -> Void)? = nil) {
+        let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials), transport: transport)
         let (previous, generation) = state.withLock { state -> (VNCClient?, Int) in
             defer { state.client = client }
             for pump in state.pumps { pump.cancel() }
@@ -54,8 +66,11 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
                     self?.setStatus(RemoteViewStatus(path: .compatibility, state: .streaming), generation: generation)
                     onConnected?()
                 case let .disconnected(error):
-                    self?.setStatus(RemoteViewStatus(path: .compatibility, state: .ended(Self.end(for: error, hadCredentials: hadCredentials))),
-                                    generation: generation)
+                    let end = Self.end(for: error, hadCredentials: hadCredentials)
+                    if let error { vncLogger.error("VNC session ended: \(String(describing: error), privacy: .public)") }
+                    self?.setStatus(RemoteViewStatus(path: .compatibility, state: .ended(end)), generation: generation)
+                    let handler = self?.state.withLock { $0.generation == generation ? $0.onEnd : nil }
+                    handler?(end)
                 case .cursor, .screens, .bell, .clipboard:
                     break
                 }

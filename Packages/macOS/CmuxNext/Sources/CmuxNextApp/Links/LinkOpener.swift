@@ -80,10 +80,16 @@ final class LinkOpener {
             case .here, .besideDock: break
             }
         }
-        let takesTabs = source.stripModel.showsNewTabButton
-        let right = source.workspace.flatMap { content -> LayoutPaneID? in
+        return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: source.stripModel.showsNewTabButton,
+                                                              right: paneRight(of: source))
+    }
+
+    /// The pane on `source`'s right that takes tabs: by the layout's column order when `source` takes
+    /// none, else its right neighbor; nil when there is none.
+    func paneRight(of source: PaneController) -> LayoutPaneID? {
+        source.workspace.flatMap { content -> LayoutPaneID? in
             let takes: (LayoutPaneID) -> Bool = { content.panes[$0]?.stripModel.showsNewTabButton == true }
-            if !takesTabs, let screen = content.layoutModel.screen(containing: source.layoutPaneID),
+            if !source.stripModel.showsNewTabButton, let screen = content.layoutModel.screen(containing: source.layoutPaneID),
                let found = LinkOpenPlacement<LayoutPaneID>.paneRight(of: source.layoutPaneID,
                                                                      columns: screen.layout.visualColumns.map(\.root.panes),
                                                                      takesTabs: takes, recency: content.recentPanes) {
@@ -91,7 +97,6 @@ final class LinkOpener {
             }
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
         }
-        return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.

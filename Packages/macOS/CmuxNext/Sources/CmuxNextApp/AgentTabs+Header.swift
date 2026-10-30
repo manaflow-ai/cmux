@@ -36,6 +36,7 @@ extension AgentTabStore {
             watch.read()
         }, openSide: { [weak self] _, fork in
             _ = self?.openChildBeside(fork, beside: provisional)
+        }, openRight: { [weak self] session in guard let self else { return false }; return openRight?(resolve(provisional), session) ?? false
         }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)
@@ -176,16 +177,11 @@ extension AppServices {
         locateTab(chat).flatMap { paneController(for: $0.1) } ?? paneController(showingTab: chat)
     }
 
-    /// Same column order and right-neighbor fallback used by links, including split layouts.
+    /// The pane a link from the chat lands in on its right (``LinkOpener/paneRight(of:)``, after the
+    /// main pane layout's side), ignoring the same-pane link setting: a subagent never replaces its chat.
     @MainActor func subagentSidePane(of chat: String) -> PaneController? {
         guard let source = subagentSourcePane(of: chat), let content = source.workspace else { return nil }
         if case .tab(let id) = MainPaneLayout.side(from: source, services: self) { return content.panes[id] }
-        let takes: (LayoutPaneID) -> Bool = { content.panes[$0]?.stripModel.showsNewTabButton == true }
-        if !source.stripModel.showsNewTabButton, let screen = content.layoutModel.screen(containing: source.layoutPaneID),
-           let id = LinkOpenPlacement<LayoutPaneID>.paneRight(of: source.layoutPaneID,
-               columns: screen.layout.visualColumns.map(\.root.panes), takesTabs: takes, recency: content.recentPanes) {
-            return content.panes[id]
-        }
-        return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? content.panes[$0] : nil }
+        return linkOpener.paneRight(of: source).flatMap { content.panes[$0] }
     }
 }

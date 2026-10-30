@@ -18,14 +18,17 @@ import Foundation
 /// asked for once: a download that fails waits for a newer build or Sparkle's own schedule, so a
 /// broken build never downloads every interval.
 ///
-/// Only where found updates download by themselves (the person's `updates.downloadAutomatically`,
-/// their metered-network choice and the managed channel); elsewhere Sparkle's own schedule offers
-/// the update. Never with the updater disabled, never while the update sheet is open (its details
-/// stay as they are), and the person's interval setting is not changed.
+/// With or without the automatic-install opt-in (`updates.downloadAutomatically`): without it, or
+/// while downloads wait for a metered link, the check ends on the update-found step (the
+/// sidebar footer's Update Available, which asks before anything downloads). Reads go on while that step
+/// waits, shown or hidden: a newer build ends the waiting prompt (Sparkle's dismiss, which skips
+/// nothing) and is checked for, so the step always offers the newest build. Never before the
+/// settings load, never off the organization's channel, never with the updater disabled, never
+/// while the update sheet is open (its details stay as they are), and the person's interval
+/// setting is not changed.
 ///
 /// Stop condition and cleanup: the one-shot ``timer`` is armed only while every condition above
-/// holds, and is cancelled when the phase moves on (checking, downloading, found, staged,
-/// installing), when automatic checks go off, when downloads stop being automatic, and at a
+/// holds, and is cancelled when the phase moves on (checking, downloading, staged, installing), when automatic checks go off, when the managed channel moves, and at a
 /// deadline that finds the updater disabled or the sheet open (``UpdaterService/applyDownloadPolicy()``,
 /// run on every download and managed policy change, and ``UpdaterService/updateSheetClosed()`` arm
 /// it again). One probe runs at a time and the next waits a whole interval. The timer cancels its
@@ -49,8 +52,6 @@ final class TipUpdateCheck {
     }
     /// Starts the check that downloads the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
     var startCheck: (() -> Void)?
-    /// Whether found updates download by themselves; nil reads the driver (``UpdateController/downloadsUpdatesInBackground``).
-    var downloadsInBackground: (() -> Bool)?
     /// `updates.checkAutomatically` (``reschedule(automatic:updater:)``).
     private(set) var automatic = true
     /// The probe in flight, if any.
@@ -96,17 +97,17 @@ final class TipUpdateCheck {
     }
 
     private func mayCheck(_ updater: UpdaterService) -> Bool {
-        guard Self.interval(for: updater.identity) != nil, automatic, updater.isStarted, updater.disabledReason == nil,
-              !updater.flow.installRequested, !updater.isSheetPresented(), downloads(updater) else { return false }
+        guard Self.interval(for: updater.identity) != nil, automatic, updater.isStarted, updater.settingsApplied, updater.disabledReason == nil,
+              !updater.flow.installRequested, !updater.isSheetPresented(), !updater.isOffManagedChannel else { return false }
         switch updater.flow.phase {
         case .hidden, .note: return true
-        case .checking, .downloading, .available, .ready, .installing: return false
+        // A found update waiting on its ask reads on, unless it is the person's own check's card
+        // on screen right now (hidden by its Hide, it reads on like any other).
+        case .available:
+            if case .available? = updater.card { return false }
+            return true
+        case .checking, .downloading, .ready, .installing: return false
         }
-    }
-
-    func downloads(_ updater: UpdaterService) -> Bool {
-        if let downloadsInBackground { return downloadsInBackground() }
-        return updater.controller?.downloadsUpdatesInBackground ?? false
     }
 
     private func run(_ updater: UpdaterService) {
@@ -127,6 +128,12 @@ final class TipUpdateCheck {
         if let skip = updater.defaults.string(forKey: UpdaterService.skipsBuildsThroughKey),
            !AppcastSelector.isOlder(skip, than: item.version) { return }
         if let asked, !AppcastSelector.isOlder(asked, than: item.version) { return }
+        if case .available = updater.flow.phase {
+            // The waiting prompt offers this build or a newer one: nothing to replace.
+            guard let waiting = updater.availableBuild(), AppcastSelector.isOlder(waiting, than: item.version) else { return }
+            updater.log.append("fast check: build \(item.version) is newer than found build \(waiting): offering it instead")
+            updater.dismissAvailable()
+        }
         asked = item.version
         updater.log.append("fast check: build \(item.version) is newer than build \(updater.identity.build): checking")
         if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextPages
 
 /// Set Up GitHub on This Machine (`cmux cloud setup-github --target machine:<id>`), over
 /// ``CloudHandlers``' machine resolution, runs and results (its own type: CloudHandlers is at the
@@ -55,9 +56,9 @@ enum CloudGitHubHandlers {
         return CloudStrings.gitHubConfirmBody(name: identity.name ?? "—", email: identity.email ?? "—")
     }
 
-    /// GitHub's device page (a constant, never a URL the machine printed), in the default browser.
+    /// GitHub's device page (a constant, never a URL the machine printed), in a cmux tab (`browser.openSignInPagesInCmux`).
     private static func openVerificationPage() {
         guard let url = URL(string: CloudGitHubSetup.verificationURI) else { return }
-        NSWorkspace.shared.openInBackground(url)
+        LinkRouter.shared.open(url)
     }
 }

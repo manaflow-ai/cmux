@@ -32,8 +32,14 @@ export function shouldBlurComposerOnPress(target: Node | null, active: Element |
   // Do not use `instanceof Element`: a pointer can come from an embedded document, and tests
   // create nodes in their own DOM realm. The DOM node type is stable across those boundaries.
   const targetElement = target.nodeType === 1 ? (target as Element) : target.parentElement;
-  return targetElement?.closest(".acpmux-composer-box") == null;
+  return targetElement?.closest(COMPOSER_CHROME) == null;
 }
+
+/// The composer's own rows: the box, the location strip above it, and the quiet row (mode, model,
+/// context ring) and look radios under it. Those sit outside the box since Claude Code's split
+/// (#22285), and a press on one of their chips must leave the prompt focused, so the chip's menu
+/// hands the keyboard back to the prompt after a pick.
+const COMPOSER_CHROME = ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-composer-under";
 
 function blurActiveComposer(): void {
   const active = document.activeElement;

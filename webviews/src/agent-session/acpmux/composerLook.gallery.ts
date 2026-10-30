@@ -11,15 +11,29 @@ import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 
-/// A started Claude Code chat in a project: the transcript over the composer.
-const startedChat = () =>
-  chat([
+/// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
+/// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
+const startedChat = () => {
+  const snapshot = chat([
     user("Add retries to the fetch helper, with a backoff.", 12),
     assistant(
       "Added `withRetry` to `fetchJson`: three tries with jittered backoff, and only for network errors and 5xx answers. The tests cover a 503 that recovers and a 404 that does not retry.",
       11,
     ),
   ]);
+  snapshot.summary = {
+    ...snapshot.summary!,
+    modes: {
+      currentModeId: "default",
+      availableModes: [
+        { id: "default", name: "Ask before edits", description: "Review changes before they run" },
+        { id: "acceptEdits", name: "Edit automatically", description: "Make edits without asking" },
+        { id: "plan", name: "Plan", description: "Plan before making changes" },
+      ],
+    },
+  };
+  return snapshot;
+};
 
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
