@@ -135,7 +135,7 @@ extension JoinConsentModel {
                 last = on
                 guard on, let folder = MachineConsentChanges.folder else { continue }
                 watch = Task { [weak self] in
-                    for await _ in MachineConsentChanges(folder: folder).events() {
+                    for await _ in await MachineConsentChanges(folder: folder).events() {
                         guard let self, !Task.isCancelled else { return }
                         await refresh()
                     }
@@ -214,12 +214,12 @@ nonisolated struct MachineConsentChanges: Sendable {
 
     /// - Parameter armed: Runs once both watches are armed, before the first element and before the watch
     ///   loop starts (the handshake a caller can make a change in).
-    func events(armed: () -> Void = {}) -> AsyncStream<Void> {
+    func events(armed: () -> Void = {}) async -> AsyncStream<Void> {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let folder = folder
         // Armed here, in this order: the folder (FolderChanges arms in events(), not in its loop), then the
         // files, then one element, so nothing made or replaced while they armed is missed.
-        let folderChanges = FolderChanges(folders: [folder]).events()
+        let folderChanges = await FolderChanges(folders: [folder]).events()
         let first = Self.watchFiles(in: folder, continuation)
         armed()
         continuation.yield()
