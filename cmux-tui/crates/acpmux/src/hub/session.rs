@@ -37,6 +37,10 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// Message projection ids, loaded once from the journal on first use; only
+    /// message acceptance/recovery touches this, never streamed tokens.
+    /// Dedupe key is message id plus the target session for sender copies.
+    pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
@@ -159,6 +163,31 @@ pub struct Session {
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
     pub(super) cancel_forced_result_turn: StdMutex<Option<String>>,
+    /// The turn a Stop is stopping and has not ended yet (`cancel.rs`): the row reads
+    /// `stopping` until it ends, never ended while its agent still works on it.
+    pub(super) stopping: StdMutex<Option<String>>,
+    /// The turn whose agent acpmux ended because it went on working after Stop (`cancel.rs`):
+    /// that turn's prompt, failing as its process ends, answers as the forced cancel.
+    pub(super) stop_restart: StdMutex<Option<String>>,
+    /// The generation of the agent a Stop ended that way: what it still had in flight is
+    /// not the next turn's (`permissions.rs` inbound loop). 0: none.
+    pub(super) stopped_agent: AtomicU64,
+    /// Start the agent again, on the same conversation, as the turn a Stop ended that way ends
+    /// (`turns.rs`), before the next turn can start.
+    /// The Stop count (`cancels`) plus one when it was set; 0: none.
+    pub(super) stop_respawn: AtomicU64,
+    /// How many taps `Hub::session_tap` made for it; each tap knows its number.
+    pub(super) taps: AtomicU64,
+    /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
+    /// still log is no sign of work (no `heard`, no unstick, no tool state).
+    pub(super) muted_taps: AtomicU64,
+    /// A person's Stop holds other agents' queued messages until the person's next turn
+    /// completes or the queue is resumed (`cancel.rs` `hold_agent_messages`).
+    /// The person's Stop's hold, by its number (`Hub::stop_hold_number`); 0: none.
+    pub(super) stop_hold: AtomicU64,
+    /// `stop_hold` when the running turn started: only a turn started under the hold ends it
+    /// (`turns.rs` `finish_turn`), never one that was ending as the Stop came.
+    pub(super) turn_hold: AtomicU64,
     /// Claude Code reported that its active turn is compacting. This is kept
     /// on the session as hosted agents have their translator in the host.
     pub(super) compacting: AtomicBool,
@@ -216,6 +245,8 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`).
+    pub(super) inbox: StdMutex<super::inbox::Inbox>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
