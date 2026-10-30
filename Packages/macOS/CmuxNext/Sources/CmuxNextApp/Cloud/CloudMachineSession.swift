@@ -277,14 +277,24 @@ final class CloudMachineSession {
     /// one that stopped being live suspends the session, one that turned live
     /// connects it. `connectsAtRead` is ``connects`` when the read began: a
     /// connect since then (a click's, which starts a paused machine) is newer
-    /// than the answer, so a paused record does not suspend it.
+    /// than the answer, so a record that is not live neither suspends it nor
+    /// models it paused: the session keeps its live status, pause reason and
+    /// running start, and takes the record's other fields.
     func listed(_ record: CloudMachine, connectsAtRead: Int) {
         let wasLive = machine.status.isLive
-        machine = record
         if wasLive, !record.status.isLive {
-            guard connects == connectsAtRead else { return }
+            guard connects == connectsAtRead else {
+                var kept = record
+                (kept.status, kept.pauseReason, kept.runningSince) = (machine.status, machine.pauseReason, machine.runningSince)
+                machine = kept
+                return
+            }
+            machine = record
             suspend()
-        } else if !wasLive, record.status.isLive {
+            return
+        }
+        machine = record
+        if !wasLive, record.status.isLive {
             connect()
         }
     }
