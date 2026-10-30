@@ -165,7 +165,7 @@ extension WorkspaceContentController {
                 return nil // the person closed the new pane first
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure(label, error)
+                return .create(label, error)
             }
         }
         pendingCreate = work

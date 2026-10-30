@@ -166,7 +166,7 @@ enum PaneHandlers {
             } catch {
                 if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
-                return "split: \(error)"
+                return .create("split", error)
             }
         }
         if intended != nil { content?.pendingCreate = work }

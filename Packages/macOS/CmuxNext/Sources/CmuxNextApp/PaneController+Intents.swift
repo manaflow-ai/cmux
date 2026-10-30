@@ -194,7 +194,7 @@ extension PaneController {
                 return nil // the person closed the stand-in first
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new-tab", error)
+                return .create("new-tab", error)
             }
         }
         self.workspace?.pendingCreate = work
