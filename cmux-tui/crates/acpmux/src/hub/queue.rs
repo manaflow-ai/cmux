@@ -1213,6 +1213,7 @@ impl Hub {
     /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
         for session in sessions {
+            self.restore_auto_resume(session);
             // What the restored inbox holds new goes in as it may (`inbox.rs`).
             {
                 let (hub, session) = (self.clone(), session.clone());
