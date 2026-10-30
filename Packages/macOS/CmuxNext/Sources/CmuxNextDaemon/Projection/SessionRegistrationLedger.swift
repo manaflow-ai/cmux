@@ -108,7 +108,9 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
 
     /// The refusal of `session` counts as not shown: its notice was dropped before the person saw
     /// it, or taken back, so the same refusal shows again.
-    public mutating func forgetShownRefusal(session: String) {}
+    public mutating func forgetShownRefusal(session: String) {
+        shownRefusals[session] = nil
+    }
 
     /// Forgets every session not in `sessions` (gone from the machine list): a session that comes back
     /// is sent once again. The refusals already shown are kept, so the same one is not shown twice.

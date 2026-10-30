@@ -45,9 +45,12 @@ final class WindowManager {
     private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines, notice: { [weak self] session, message in
         guard let window = self?.active?.window ?? NSApp.mainWindow else { return false }
         // Until closed or taken back: it is the person's only sign that this machine will not be restored.
+        let older = self?.notSavedToasts[session]
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", message: message,
                                                            duration: CmuxToast.untilClosed), in: window)
         self?.notSavedToasts[session] = handle
+        // A toast with the same id replaces the older one only in the same window.
+        if older !== handle { older?.dismiss() }
         return true
     }, withdraw: { [weak self] session in
         self?.notSavedToasts.removeValue(forKey: session)?.dismiss()

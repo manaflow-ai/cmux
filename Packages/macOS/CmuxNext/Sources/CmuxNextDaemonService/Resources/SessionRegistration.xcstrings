@@ -299,7 +299,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no respondió (los detalles están en el registro)"
+            "value": "cmux no respondió (los detalles están en el log)"
           }
         },
         "fr": {
@@ -430,7 +430,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux rechazó su registro (los detalles están en el registro)"
+            "value": "cmux rechazó su registro (los detalles están en el log)"
           }
         },
         "fr": {

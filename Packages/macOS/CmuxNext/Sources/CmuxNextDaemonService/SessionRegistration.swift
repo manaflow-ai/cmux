@@ -51,8 +51,9 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         guard !stopped else { return nil }
         let link = SessionRegistrationConnection(generation: UInt64(truncatingIfNeeded: epoch))
         let token = ledger.begin(session: session, record: record, connection: link)
-        // A new send replaces the older record's answer: its pending notice no longer holds.
-        if token != nil { pendingNotices[session] = nil }
+        // A new send replaces the older record's answer: its pending notice no longer holds. The
+        // person never saw it, so the same refusal on this send is shown.
+        if token != nil, pendingNotices.removeValue(forKey: session) != nil { ledger.forgetShownRefusal(session: session) }
         showPendingNotices()
         guard let token else { return nil }
         // task-owner: one put-session; its answer goes to the ledger on the main actor
@@ -68,6 +69,11 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
 
     /// Forgets the sessions not in `sessions` (gone from the machine list) and their pending retries.
     public func retain(sessions: Set<String>) {
+        // A gone session's notice is taken back or dropped, so it is owed again if the session
+        // comes back (SSH forget and undo, server sign-out and sign-in) and is refused again.
+        for session in Set(pendingNotices.keys).union(shownNotices) where !sessions.contains(session) {
+            ledger.forgetShownRefusal(session: session)
+        }
         ledger.retain(sessions: sessions)
         pendingNotices = pendingNotices.filter { sessions.contains($0.key) }
         for session in shownNotices where !sessions.contains(session) { takeBack(session) }
