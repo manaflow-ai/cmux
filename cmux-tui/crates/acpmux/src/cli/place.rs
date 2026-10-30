@@ -5,6 +5,7 @@
 use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, bail};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// The work `--host` names: `auto` an agent lane, `auto-build` a build; any
@@ -97,7 +98,7 @@ pub async fn resolve(
     }
     let mut params = json!({"work": work});
     if off_interactive {
-        params["offInteractive"] = json!(true);
+        params.set("offInteractive", json!(true));
     }
     let v = client.request("_acpmux/place", params).await?;
     let (Some(pick), Some(placed)) =

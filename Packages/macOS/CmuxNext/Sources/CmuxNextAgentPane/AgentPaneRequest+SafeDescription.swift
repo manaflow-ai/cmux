@@ -52,8 +52,11 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .agentAvatar: "agentAvatar"
         case .setAgentAvatar: "setAgentAvatar"
         case .removeAgentAvatar: "removeAgentAvatar"
+        case .chiefFace: "chiefFace"
         case .harnessSymbol: "harnessSymbol"
         case .nowPlaying: "nowPlaying"
+        case .readAloud(.speak): "readAloudSpeak"
+        case .readAloud(.stop): "readAloudStop"
         case .openChat: "openChat"
         case .openChatInTerminal: "openChatInTerminal"
         case .watchChat: "watchChat"
@@ -67,6 +70,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"
         case .tabRowTools: "tabRowTools"
+        case .tabRowToolsSet: "tabRowToolsSet"
         case .btwInline: "btwInline"
         case .sideChat: "sideChat"
         case .chatTab: "chatTab"
@@ -113,6 +117,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .computerUsePreview: "computerUsePreview"
         case .upload: "upload"
         case .uploadStage: "uploadStage"
+        case .dictationRecordingUpload: "dictationRecordingUpload"
+        case .dictationRecordingCancel: "dictationRecordingCancel"
         case .unsupported: "unsupported"
         }
     }
