@@ -1298,13 +1298,25 @@ class SideLanes(unittest.TestCase):
         self.assertIn("overflowing the queued side jobs", summary)
         self.assertIn("attempt 2 re-admits through fast checks, a free owned Mac, then Blacksmith macOS", summary)
 
-        # A non-cmux-next side lane keeps the historical sibling protection.
+    def test_cmux_next_rescues_queued_job_even_when_sibling_failed(self):
+        # A failed checks sibling may be a base red. It must not suppress the
+        # queue rescue: the next attempt re-admits the queued Mac job through
+        # placement and its Blacksmith fallback.
+        def jobs(seconds):
+            failed = job("cmux-next checks (god files, concurrency, crash safety, l10n)",
+                         status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"])
+            failed.update(conclusion="failure", completed_at=stamp(1))
+            queued = job("cmux-next fast tier", labels=[SIDE], created=0)
+            return [failed, queued]
+
         clock = Clock()
-        api = FakeAPI(clock, cmux_next(done_at=None))
-        code, summary = run_main(api, clock, payload=side_event())
+        api = FakeAPI(clock, jobs, marker=True, settles_after=1)
+        code, summary = run_main(api, clock, payload=side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH),
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
-        self.assertNotIn("cancel", api.calls)
-        self.assertIn("watch limit reached", summary)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun", api.calls)
+        self.assertIn("re-admits through fast checks", summary)
 
     def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
         running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
