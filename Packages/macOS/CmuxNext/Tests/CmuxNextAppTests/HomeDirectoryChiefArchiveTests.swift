@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextHostedChief
 import Foundation
 import Testing
 
@@ -47,7 +48,7 @@ import Testing
     }
 
     func directory(_ account: FakeAccount) -> HomeDirectory {
-        HomeDirectory(call: { try await account.call($0, $1) }, me: { nil }, archiveStore: HomeChiefArchiveStore(defaults: defaults))
+        HomeDirectory(call: { try await account.call($0, $1) }, me: { nil }, chiefArchive: HomeChiefArchive(store: .init(defaults: defaults)))
     }
 
     /// The Hosted Chief (the default one) leaves the list and stays gone, also after a relaunch and a
@@ -86,7 +87,7 @@ import Testing
         #expect(account.chiefs["agent_side"]?.archived == true)
         #expect(directory.archivedChiefs.contains("agent_side"))
         await directory.refreshChiefs()
-        #expect(directory.archivedHere.isEmpty)
+        #expect(directory.chiefArchive.hidden.isEmpty)
     }
 
     /// Back online, the cloud fails the archive (busy, an expired session): the Chief stays hidden
@@ -119,7 +120,7 @@ import Testing
         #expect(await directory.archiveChief("agent_typo") == .hiddenHere)
         account.offline = false
         await directory.refreshChiefs()
-        #expect(directory.archivedHere.isEmpty)
+        #expect(directory.chiefArchive.hidden.isEmpty)
     }
 
     /// A reachable archive lands in the cloud and needs nothing kept on this Mac.
@@ -134,7 +135,7 @@ import Testing
         #expect(directory.archivedChiefs.contains("agent_side"))
         await directory.refreshChiefs()
         #expect(directory.archivedChiefs.contains("agent_side"))
-        #expect(directory.archivedHere.isEmpty)
+        #expect(directory.chiefArchive.hidden.isEmpty)
     }
 
     /// Any other refusal brings the row back and says why, instead of nothing happening.
