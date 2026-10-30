@@ -2290,6 +2290,11 @@ pre.cv-math-source {
 .cv-step > .cv-tool > .cv-tool__icon {
   display: none;
 }
+/* Every child names row 1: the meta comes before the chevron in the markup, and sparse
+   auto-placement would otherwise move the chevron to a second row. */
+.cv-step > .cv-tool > * {
+  grid-row: 1;
+}
 .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
   grid-column: 1;
 }

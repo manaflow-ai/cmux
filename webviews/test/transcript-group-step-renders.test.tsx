@@ -5,7 +5,7 @@
 // (direct.ts), and each step row is memoized on it. Counted through the real ToolRows path.
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, type ComponentProps, type ReactNode } from "react";
+import { act, createElement, type ComponentProps } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 
@@ -19,12 +19,13 @@ let host: HTMLElement;
 const drawn: string[] = [];
 const COMMAND_ROW = "../src/agent-session/acpmux/conversation/CommandRow";
 const real = await import(COMMAND_ROW);
-const RealCommandRow = real.CommandRow as (props: ComponentProps<typeof real.CommandRow>) => ReactNode;
+const RealCommandRow = real.CommandRow;
 void mock.module(COMMAND_ROW, () => ({
   ...real,
   CommandRow: (props: ComponentProps<typeof real.CommandRow>) => {
     drawn.push(props.item.tool!.command!);
-    return RealCommandRow(props);
+    // CommandRow is memoized (an object, not a function), so draw it as an element.
+    return createElement(RealCommandRow, props);
   },
 }));
 
