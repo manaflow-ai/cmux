@@ -113,7 +113,7 @@ extension PaneController {
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
         // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
-        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
+        guard let connection = daemon.connection else { return }
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
@@ -123,8 +123,8 @@ extension PaneController {
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
+        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
         let workspace = services.workspaceKey(of: pane)
-        guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
