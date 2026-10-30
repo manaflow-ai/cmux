@@ -4220,7 +4220,7 @@
         },
         {
           "command": "cmux tab new-mac-screen",
-          "title": "New Mac Screen Tab",
+          "title": "Screen Sharing",
           "id": "macScreen.open",
           "mcp": true,
           "mcpTool": "app_tab_new_mac_screen"
