@@ -74,7 +74,7 @@ os.makedirs(opts.out, exist_ok=True)
 T0 = time.time()
 LOCK = threading.Lock()
 STOP = threading.Event()
-SERIES = {"samples": [], "server_stats": [], "person_cli": [], "app_control": [], "closes": [], "waves": [],
+SERIES = {"samples": [], "server_stats": [], "holders": [], "person_cli": [], "app_control": [], "closes": [], "waves": [],
           "acpmux_pids": [], "notes": []}
 
 
@@ -284,6 +284,35 @@ def open_fds(pid):
     return sum(1 for line in out.splitlines()[1:] if re.match(r"^\S+\s+\d+\s+\S+\s+\d+", line))
 
 
+def connection_holders(rows):
+    """Who holds or waits for the daemon's connections now: the daemon's own client list (`list-clients`:
+    each connection's name, kind, transport and age) by name and kind, and the live client processes on the
+    host by role (hook helpers, `cmux` CLI calls, the app). A `cmux` process here is one of the bundle's CLI
+    or hook binaries; each holds at most one connection or is waiting for one."""
+    _, parsed, code = cli("raw", "command", "--request-json", json.dumps({"cmd": "list-clients"}), timeout=15)
+    listed = value(parsed) if parsed else None
+    clients = listed if isinstance(listed, list) else (listed or {}).get("clients") if isinstance(listed, dict) else None
+    by_label = {}
+    ages = {}
+    for client in clients or []:
+        if not isinstance(client, dict):
+            continue
+        label = f"{client.get('kind') or '-'}/{client.get('name') or '-'}/{client.get('transport') or '-'}"
+        by_label[label] = by_label.get(label, 0) + 1
+        ages.setdefault(label, []).append(client.get("connected_seconds"))
+    roles = {"hook_helper": 0, "cli": 0, "other_bundle": 0}
+    for _, _, _, args in rows:
+        if "cmux-tui-hook" in args or "__agent-hook" in args:
+            roles["hook_helper"] += 1
+        elif args.startswith(CLI + " ") or args == CLI:
+            roles["cli"] += 1
+        elif args.startswith(opts.app + "/") and "--headless" not in args:
+            roles["other_bundle"] += 1
+    return {"list_code": code, "listed": len(clients) if clients is not None else None, "by_label": by_label,
+            "max_age_s": {k: max((a for a in v if isinstance(a, (int, float))), default=None) for k, v in ages.items()},
+            "processes": roles}
+
+
 def sampler():
     tick = 0
     while not STOP.is_set():
@@ -306,6 +335,7 @@ def sampler():
         record("samples", sample)
         if tick % 3 == 0:
             record("server_stats", {**server_stats(), "phase": PHASE["name"]})
+            record("holders", {"t": round(time.time() - T0, 2), "phase": PHASE["name"], **connection_holders(rows)})
         tick += 1
         STOP.wait(5)
 

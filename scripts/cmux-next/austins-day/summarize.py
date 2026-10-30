@@ -7,6 +7,12 @@ arm.json (written by austins-day.sh): {"arm": "base"|"head"|"run", "sha", "job",
 Every metric is over the load phase. Distributions are {n, p50, p95, p99, max} (nearest rank);
 counts are plain numbers. Per arm, each metric is listed per run and as the median over runs.
 
+The base must be the PR's parent commit (for a stacked PR, the head of the PR below it), so base..head is
+exactly the PR's own commits; the summary lists them, and a base that is not an ancestor of the head is
+invalid. Cumulative daemon counters (refused, accepted) are compared as a rate per second over each run's
+own server-stats window and as a share of connects, because the last answered server-stats comes at a
+different time in each run.
+
 An A/B (base and head arms) gives a verdict per metric: a paired percentile bootstrap 95 % confidence
 interval of mean(head - base) over the rounds (each round is one base and one head run on one host),
 10,000 resamples with a fixed seed. Every metric is lower-is-better: `better` when the whole interval is
@@ -174,6 +180,12 @@ def run_metrics(run):
     stats = [s for s in series["server_stats"] if s.get("stats")]
     first = stats[0]["stats"] if stats else {}
     last = stats[-1]["stats"] if stats else {}
+    # Cumulative counters are read at the first and last answered server-stats; those times differ per run
+    # (a refused server-stats call is itself lost), so they are compared as a rate over that window and as a
+    # share of connects, never as a raw difference (#28159 review, 2026-10-30).
+    window_s = (stats[-1]["t"] - stats[0]["t"]) if len(stats) >= 2 else None
+    accepted_n = (stat(last, "connections", "accepted") or 0) - (stat(first, "connections", "accepted") or 0)
+    refused_n = (stat(last, "connections", "refused") or 0) - (stat(first, "connections", "refused") or 0)
     stats_fail = counts(s.get("code") for s in series["server_stats"] if not s.get("stats"))
     agents = run["agent_records"]
     hooks = [r for r in agents if r.get("kind") == "hook"]
@@ -210,8 +222,10 @@ def run_metrics(run):
         "agent_hook_failures": counts(h.get("rc") for h in hooks if h.get("rc") not in (0, None)),
         "agent_tool_ms": dist(t["ms"] for t in tools),
         "agent_cli_ms": dist(c["ms"] for c in agent_cli), "agent_cli_refusals": counts(c.get("code") for c in agent_cli),
-        "daemon_connections": {"accepted": (stat(last, "connections", "accepted") or 0) - (stat(first, "connections", "accepted") or 0),
-                               "refused": (stat(last, "connections", "refused") or 0) - (stat(first, "connections", "refused") or 0),
+        "daemon_connections": {"accepted": accepted_n, "refused": refused_n,
+                               "window_s": window_s and round(window_s, 1),
+                               "refused_per_s": round(refused_n / window_s, 3) if window_s else None,
+                               "refused_share": round(refused_n / (refused_n + accepted_n), 4) if refused_n + accepted_n else None,
                                "peak": stat(last, "connections", "peak"), "limit": stat(last, "connections", "limit")},
         "server_stats_unanswered": stats_fail,
         "daemon_lock_wait_us": {k: lock_wait.get(k) for k in ("count", "p50", "p90", "p99", "max")},
@@ -256,6 +270,20 @@ def run_metrics(run):
     if crashed:
         faults.append(f"{len(crashed)} hook runs hit a harness error ({crashed[0][:120]})")
     m["harness_faults"] = faults
+    # Who fills the connection pool (descriptive): median per load sample of the daemon's own client list by
+    # label, and of the live client processes by role; plus the refusals each client kind saw itself.
+    holders = load(series.get("holders", []))
+    labels = sorted({k for h in holders for k in (h.get("by_label") or {})})
+    m["pool_holders"] = {
+        "samples": len(holders), "listed_ok": sum(1 for h in holders if h.get("listed") is not None),
+        "listed_median": {k: statistics.median([(h.get("by_label") or {}).get(k, 0) for h in holders if h.get("listed") is not None] or [0])
+                          for k in labels},
+        "processes_median": {k: statistics.median([(h.get("processes") or {}).get(k, 0) for h in holders] or [0])
+                             for k in ("hook_helper", "cli", "other_bundle")},
+        "refusals_seen": {"agent_cli": sum(1 for c in agent_cli if c.get("code") in ("server.busy", "session.busy")),
+                          "person_cli": sum(1 for p in person if p.get("code") in ("server.busy", "session.busy")),
+                          "app_log_server_busy": run["app_log"].get("server_busy"),
+                          "hook_timeouts": sum(1 for h in hooks if h.get("rc") == "timeout")}}
     m["austin_failure"] = {
         "refused_connections": (m["daemon_connections"]["refused"] or 0) > 0
         or any(k in ("server.busy", "session.busy") for k in {**m["person_cli_refusals"], **m["agent_cli_refusals"]}),
@@ -276,7 +304,8 @@ KEY = [  # (label, path in metrics) for the text summary
     ("agent hook p99 ms", ("agent_hook_ms", "p99")),
     ("agent hook CPU total s", ("agent_hook_cpu_total_s",)),
     ("agent hook CPU p99 ms", ("agent_hook_cpu_ms", "p99")),
-    ("daemon refused", ("daemon_connections", "refused")),
+    ("daemon refused per s", ("daemon_connections", "refused_per_s")),
+    ("daemon refused share of connects", ("daemon_connections", "refused_share")),
     ("daemon peak/limit", ("daemon_connections", "peak")),
     ("lock wait p99 us", ("daemon_lock_wait_us", "p99")),
     ("workspace close p99 ms", ("workspace_close_app_ms", "p99")),
@@ -323,6 +352,26 @@ def head_edits_harness(base_sha, head_sha, repo=REPO):
     except (OSError, subprocess.SubprocessError):
         return None
     return {0: False, 1: True}.get(done.returncode)
+
+
+def base_is_ancestor(base_sha, head_sha, repo=REPO):
+    if not base_sha or not head_sha:
+        return None
+    try:
+        done = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", base_sha, head_sha], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {0: True, 1: False}.get(done.returncode)
+
+
+def measured_commits(base_sha, head_sha, repo=REPO):
+    """The commits the A/B measures (base..head, first line each): the reader checks they are the PR's own."""
+    try:
+        done = subprocess.run(["git", "-C", repo, "log", "--format=%h %s", f"{base_sha}..{head_sha}"], capture_output=True,
+                              text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.splitlines() if done.returncode == 0 else None
 
 
 def paired_bootstrap(pairs, seed=27698):
@@ -378,7 +427,8 @@ def _close(label):
 
 
 METRIC_FAILURE = {
-    "daemon refused": _refused,
+    "daemon refused per s": _refused,
+    "daemon refused share of connects": _refused,
     "person CLI p99 ms": _refused,
     "agent CLI p99 ms": _refused,
     "agent hook p99 ms": _refused,
@@ -433,6 +483,9 @@ def validity(runs):
     quiet = [f"round {r.get('round')}" for r in base if not any(r["metrics"]["austin_failure"].values())]
     if quiet:
         return f"invalid: base did not reproduce ({', '.join(quiet)} showed none of Austin's failures)"
+    ancestor = base_is_ancestor(base[0].get("sha"), head[0].get("sha"))
+    if ancestor is False:
+        return "invalid: base is not an ancestor of head (the base must be the PR's parent commit)"
     edits = head_edits_harness(base[0].get("sha"), head[0].get("sha"))
     if edits is None:
         return "invalid: cannot check the head for harness edits (fetch both commits into this checkout)"
@@ -473,6 +526,8 @@ def main():
         rounds.setdefault(r.get("round"), set()).add(r.get("host"))
     summary["same_host_per_round"] = {str(k): len(v) == 1 for k, v in rounds.items()}
     summary["invalid"] = validity(runs)
+    if "base" in arms and "head" in arms:
+        summary["measured_commits"] = measured_commits(arms["base"][0].get("sha"), arms["head"][0].get("sha"))
     if "base" in arms and "head" in arms and not summary["invalid"]:
         summary["comparison"] = compare(runs)
     with open(out_path, "w") as f:
@@ -480,6 +535,10 @@ def main():
     names = list(summary["arms"])
     lines = [f"Austin's day: {len(runs)} runs; arms {', '.join(f'{n} ({summary['arms'][n]['sha'] or '?'}, {summary['arms'][n]['runs']} runs)' for n in names)}"]
     lines.append(f"same host per round: {summary['same_host_per_round']}")
+    if summary.get("measured_commits") is not None:
+        commits = summary["measured_commits"]
+        lines.append(f"measured commits (base..head): {len(commits)}; check they are the PR's own (base = the PR's parent)")
+        lines.extend(f"   {c}" for c in commits[:30])
     if summary["invalid"]:
         lines.append(f"{summary['invalid']} -- NO VERDICT")
     width = max(len(label) for label, _ in KEY)

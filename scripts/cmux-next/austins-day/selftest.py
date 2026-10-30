@@ -87,9 +87,9 @@ class Packs(unittest.TestCase):
 def synthetic_run():
     series = {"samples": [{"t": i, "phase": "load", "load1": 100 + i, "swap_used_mb": 1000 * i, "memory_level": 20,
                            "app_rss_mb": 500 + i, "daemon_rss_mb": 200, "acpmux_rss_mb": 50} for i in range(10)],
-              "server_stats": [{"phase": "start", "stats": {"connections": {"accepted": 10, "refused": 0, "peak": 5, "limit": 64}}},
-                               {"phase": "load", "code": "server.busy", "stats": None},
-                               {"phase": "end", "stats": {"connections": {"accepted": 510, "refused": 70, "peak": 64, "limit": 64},
+              "server_stats": [{"phase": "start", "t": 0.0, "stats": {"connections": {"accepted": 10, "refused": 0, "peak": 5, "limit": 64}}},
+                               {"phase": "load", "t": 50.0, "code": "server.busy", "stats": None},
+                               {"phase": "end", "t": 100.0, "stats": {"connections": {"accepted": 510, "refused": 70, "peak": 64, "limit": 64},
                                                           "registry_lock": {"wait_us": {"count": 9, "p50": 1, "p90": 5_000_000,
                                                                                          "p99": 17_000_000, "max": 20_000_000}}}}],
               "person_cli": [{"phase": "load", "ms": float(i), "code": "server.busy" if i == 99 else None} for i in range(100)],
@@ -123,6 +123,9 @@ class Summary(unittest.TestCase):
             self.assertEqual(m["person_cli_ms"], {"n": 100, "p50": 49.0, "p95": 94.0, "p99": 98.0, "max": 99.0})
             self.assertEqual(m["person_cli_refusals"], {"server.busy": 1})
             self.assertEqual(m["daemon_connections"]["refused"], 70)
+            # As a rate over the run's own server-stats window (100 s) and as a share of connects.
+            self.assertEqual(m["daemon_connections"]["refused_per_s"], 0.7)
+            self.assertEqual(m["daemon_connections"]["refused_share"], round(70 / 570, 4))
             self.assertEqual(m["daemon_connections"]["accepted"], 500)
             # The probe over the run: end minus start (90, 4, 1); rank 91 of 95 is in the second bucket, 95 in the third.
             self.assertEqual(m["app_requests"]["n"], 95)
@@ -215,7 +218,7 @@ class Verdicts(unittest.TestCase):
             self.assertEqual(metrics["person CLI p99 ms"]["verdict"], "better")
             self.assertLess(metrics["person CLI p99 ms"]["ci_high"], 0)
             # Identical in every round: the interval is [0, 0], which is not outside 0.
-            self.assertEqual(metrics["daemon refused"]["verdict"], "no difference")
+            self.assertEqual(metrics["daemon refused per s"]["verdict"], "no difference")
             # The base's lock wait p99 is 17 s (over the daemon's 100 ms stall line): it has a verdict.
             self.assertEqual(metrics["lock wait p99 us"]["verdict"], "no difference")
 
@@ -239,13 +242,46 @@ class Verdicts(unittest.TestCase):
             metrics = summary["comparison"]["metrics"]
             self.assertEqual(metrics["lock wait p99 us"]["verdict"], "invalid: base did not reproduce")
             self.assertEqual(metrics["app request p99 ms"]["verdict"], "not measured")
-            self.assertEqual(metrics["daemon refused"]["verdict"], "no difference")
+            self.assertEqual(metrics["daemon refused per s"]["verdict"], "no difference")
         with tempfile.TemporaryDirectory() as tmp:
             # Two rounds that disagree (one better, one worse): no difference.
             dirs = [write_run(tmp, "base-1", "base", head, 1), write_run(tmp, "head-1", "head", head, 1, scale=0.5),
                     write_run(tmp, "base-2", "base", head, 2), write_run(tmp, "head-2", "head", head, 2, scale=2.0)]
             summary = summarize(os.path.join(tmp, "s.json"), dirs)
             self.assertEqual(summary["comparison"]["metrics"]["person CLI p99 ms"]["verdict"], "no difference")
+
+
+class ReadTimes(unittest.TestCase):
+    def test_refused_is_a_rate_over_each_runs_own_window(self):
+        """A base whose last answered server-stats came earlier has a smaller cumulative count but the same
+        rate: no verdict from the read time alone (#28159 review)."""
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for r in range(1, 6):
+                for arm, end_t in (("base", 60.0), ("head", 100.0)):
+                    d = write_run(tmp, f"{arm}-{r}", arm, head, r)
+                    path = os.path.join(d, "run.json")
+                    with open(path) as f:
+                        run_ = json.load(f)
+                    stats = run_["series"]["server_stats"]
+                    stats[-1]["t"] = end_t
+                    stats[-1]["stats"]["connections"]["refused"] = int(7 * end_t)  # 7 refused a second in both arms
+                    stats[-1]["stats"]["connections"]["accepted"] = 10 + int(21 * end_t)
+                    with open(path, "w") as f:
+                        json.dump(run_, f)
+                    dirs.append(d)
+            metrics = summarize(os.path.join(tmp, "s.json"), dirs)["comparison"]["metrics"]
+            self.assertEqual(metrics["daemon refused per s"]["verdict"], "no difference")
+            self.assertEqual(metrics["daemon refused share of connects"]["verdict"], "no difference")
+
+    def test_a_base_that_is_not_the_heads_ancestor_is_invalid(self):
+        before, after = harness_commits()
+        with tempfile.TemporaryDirectory() as tmp:
+            # Swapped: the later commit as base.
+            dirs = [write_run(tmp, "base-1", "base", after, 1), write_run(tmp, "head-1", "head", before, 1)]
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertTrue(summary["invalid"].startswith("invalid: base is not an ancestor of head"), summary["invalid"])
 
 
 class StallCause(unittest.TestCase):

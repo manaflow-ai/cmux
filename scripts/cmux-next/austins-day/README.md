@@ -76,6 +76,9 @@ to explore, and say so next to any number you cite.
   app requests with no reply in time, registry lock wait p99 over 1 s, acpmux restarts, cmux main-thread
   CODE stalls over 100 ms. If any base run shows none of them, the summary says "invalid: base did not
   reproduce" and gives no verdict.
+- **The base is the PR's parent commit.** For a stacked PR that is the head of the PR below it, not
+  the merge base with feat-cmux-next; base..head must be exactly the PR's own commits. The summary lists
+  them, and a base that is not an ancestor of the head is invalid.
 - **The head must not change the harness** ("invalid: head edits the harness").
 - **Per metric, the base must show that metric's failure**, by a budget the product or the brief states
   (`METRIC_FAILURE` in `summarize.py`): refused connections, any; lock wait p99, over the daemon's own
@@ -113,7 +116,11 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
 - `agent_hook_ms`, `agent_hook_cpu_ms`, `agent_hook_cpu_total_s`, `agent_cli_ms`, `agent_cli_refusals`,
   `agent_tool_ms`: from the agents' logs. Hook CPU is user plus system time of each hook command and the
   children it waited for (`wait4`); a helper's detached child is not counted.
-- `daemon_connections` (accepted, refused, peak, limit), `daemon_lock_wait_us`,
+- `daemon_connections`: accepted, refused, peak, limit, and, for comparing arms, `refused_per_s` over the
+  run's own server-stats window and `refused_share` of connects (the last answered server-stats comes at
+  a different time in each run, so a raw cumulative count is never compared). `pool_holders`: who fills
+  the pool, from the daemon's `list-clients` by kind/name and the live hook-helper and CLI processes, with
+  the refusals each client kind saw itself. `daemon_lock_wait_us`,
   `daemon_lock_hold_us`, `daemon_lock_top_sites`, `journal_commit_us`: from `cmux server stats`.
 - `workspace_close_app_ms` / `workspace_close_daemon_ms`: time from the close action until the
   app's topology and the daemon's list no longer have the workspace; `workspace_close_not_done`.
