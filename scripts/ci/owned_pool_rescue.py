@@ -3280,6 +3280,15 @@ class PlacementRerun:
         found = self.keys(job)
         return not found or bool(found & self.below)
 
+    def brings_back(self, job: Mapping[str, Any]) -> bool:
+        """Whether re-running the placement surely runs `job` again (an unfinished job the cancel stops): the
+        placement itself, or a name every workflow job it could be needs the placement. A name that maps to no
+        workflow job, or to one outside the placement's subtree too, may be left cancelled: no."""
+        if job.get("id") is not None and job.get("id") == self.job_id:
+            return True
+        found = self.keys(job)
+        return bool(found) and found <= self.below
+
 
 def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]) -> tuple[PlacementRerun | None, str]:
     """(the placement re-run, why) for a cmux-next pull request run's open-head failover, or (None, why) when the
@@ -3317,7 +3326,9 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
 def failover_loses(job: Mapping[str, Any], plan: PlacementRerun | None) -> bool:
     """Whether the open-head failover's cancel and re-run could lose `job`. Without a placement re-run (`plan`), as
     job_started() rules (dep-fleet's ruling for a full re-run). With one, a job still waiting with no runner loses
-    nothing if the re-run runs it again (it needs the placement), and a finished job loses nothing if the re-run
+    nothing if the re-run surely runs it again (every workflow job its name could be needs the placement,
+    PlacementRerun.brings_back(); an unmatched or ambiguous name is not shown to come back), and a finished job
+    loses nothing if the re-run
     keeps it (it need not the placement: a Linux check, a red `checks` included, keeps its result and is not
     repeated) or if it was skipped (it ran nothing). A running or runner-assigned job, a waiting one the re-run would
     leave cancelled, or a finished one the re-run would repeat, could be lost."""
@@ -3326,7 +3337,7 @@ def failover_loses(job: Mapping[str, Any], plan: PlacementRerun | None) -> bool:
     status, conclusion = job.get("status"), job.get("conclusion")
     assigned = bool(job.get("runner_name") or job.get("runner_id"))
     if status != "completed":
-        return status not in ("queued", "waiting", "pending", "requested") or assigned or not plan.reruns(job)
+        return status not in ("queued", "waiting", "pending", "requested") or assigned or not plan.brings_back(job)
     if conclusion == "skipped" and not assigned:
         return False
     if job.get("id") is not None and job.get("id") == plan.job_id:
@@ -3830,8 +3841,8 @@ def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.dateti
                      placement: PlacementRerun | None = None, only_job: int | None = None) -> str:
     """rescue() after its cancel went out: wait for the run to settle, then re-run it unless its head moved.
     `refusal` is rescue()'s (rerun_failed_or_repick()). `placement` (an open-head failover of a cmux-next run)
-    re-runs that job and the jobs that need it instead of every job; GitHub refusing that re-run re-runs every job,
-    the failover's re-run before the placement re-run. `only_job` (a settled-sibling failover's one waiting job,
+    re-runs that job and the jobs that need it instead of every job; GitHub refusing that re-run is reported, never
+    widened to every job, which would repeat the finished jobs the placement failover keeps. `only_job` (a settled-sibling failover's one waiting job,
     open_head_failover()) re-runs that job and every job that needs it instead of the failed jobs."""
     log(f"cancelled run {target.run_id}")
     started = now()
@@ -3882,12 +3893,14 @@ def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.dateti
     if placement is not None:
         try:
             api.rerun_job(target.run_id, placement.job_id, target.attempt + 1)
-            return (f"re-ran {CMUX_NEXT_PLACEMENT_JOB} of run {target.run_id} and every job that needs it; attempt "
-                    f"{target.attempt + 1} places its Mac jobs afresh and keeps every other finished job")
         except urllib.error.HTTPError as error:
-            # Refused (GitHub declines a job it cannot re-run): every job, as the failover did before. If the job
-            # re-run did start, the run is no longer finished and this re-run is refused in turn.
-            log(f"the re-run of {CMUX_NEXT_PLACEMENT_JOB} was refused ({error.code}); re-running every job")
+            # Refused (GitHub declines a job it cannot re-run): no fallback. A re-run of every job would repeat the
+            # finished Linux jobs, a red check included, that the placement failover keeps; the run stays as GitHub
+            # has it.
+            return (f"not re-run: GitHub refused the re-run of {CMUX_NEXT_PLACEMENT_JOB} (job {placement.job_id}) "
+                    f"of run {target.run_id} ({error.code}); its finished jobs keep their results")
+        return (f"re-ran {CMUX_NEXT_PLACEMENT_JOB} of run {target.run_id} and every job that needs it; attempt "
+                f"{target.attempt + 1} places its Mac jobs afresh and keeps every other finished job")
     api.rerun(target.run_id, target.attempt + 1)
     if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "

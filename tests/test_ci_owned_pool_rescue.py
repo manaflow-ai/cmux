@@ -6735,7 +6735,8 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         checks = job("cmux-next checks (god files, concurrency, crash safety, l10n)")
         self.assertTrue(rescue.failover_loses(checks, plan), "a queued job the re-run would leave cancelled")
 
-    def test_a_refused_placement_rerun_reruns_every_job(self):
+    def test_a_refused_placement_rerun_is_reported_not_widened(self):
+        # A re-run of every job would repeat the red checks and the cargo tier the placement failover keeps.
         clock, api, target = self.world(self.shape())
 
         def refused(run_id, job_id, next_attempt):
@@ -6743,9 +6744,35 @@ class OpenHeadPlacementRerun(unittest.TestCase):
             raise rescue.urllib.error.HTTPError("u", 403, "cannot re-run", {}, None)
         api.rerun_job = refused
         result, lines = self.run_rescue(api, clock, target)
-        self.assertEqual([call for call in api.calls if call.startswith("rerun")],
-                         [f"rerun-job:{self.PLACEMENT_ID}", "rerun"])
-        self.assertTrue(any("re-running every job" in line for line in lines), lines)
+        self.assertEqual([call for call in api.calls if call.startswith("rerun")], [f"rerun-job:{self.PLACEMENT_ID}"])
+        self.assertIn(f"GitHub refused the re-run of {rescue.CMUX_NEXT_PLACEMENT_JOB}", result)
+
+    def test_a_queued_job_the_placement_rerun_may_not_bring_back_is_never_cancelled(self):
+        # A stalled Mac job beside an unrelated queued job whose name maps to no workflow job, or to a job inside the
+        # placement's subtree and one outside it: the placement re-run is not shown to run it again, so no cancel.
+        ambiguous = CMUX_NEXT_FIXTURE + """  fast-tier-lint:
+    name: cmux-next fast tier
+    needs: [path_route]
+    strategy: {matrix: {shard: [a]}}
+    runs-on: ubuntu-latest
+    steps: [{run: "true"}]
+"""
+        def unmatched():
+            return job("a job this file does not name", labels=["blacksmith-2vcpu-ubuntu-2404"], created=-60)
+
+        def twin():
+            return job("cmux-next fast tier", labels=["blacksmith-2vcpu-ubuntu-2404"], created=-60)
+        for make, workflow in ((unmatched, CMUX_NEXT_FIXTURE), (twin, ambiguous)):
+            with self.subTest(job=make.__name__):
+                clock, api, target = self.world(with_ids(self.shape(make)), workflow=workflow)
+                result, _ = self.run_rescue(api, clock, target)
+                assert_left_at_open_head(self, api, result, number=27797)
+                self.assertFalse([call for call in api.calls if call.startswith("rerun-job")], api.calls)
+        plan, _ = rescue.placement_rerun(ambiguous, self.shape()(0))
+        self.assertTrue(plan.reruns({"name": "cmux-next fast tier"}), "a finished twin is still kept conservatively")
+        self.assertFalse(plan.brings_back({"name": "cmux-next fast tier"}))
+        self.assertFalse(plan.brings_back({"name": "a job this file does not name"}))
+        self.assertTrue(plan.brings_back({"name": "cmux-next swift test"}))
 
     def test_follow_moves_a_run_left_queued_behind_a_red_job(self):
         # assess() leaves a stuck job queued once `checks` failed on its own (a full re-run would repeat it), and
