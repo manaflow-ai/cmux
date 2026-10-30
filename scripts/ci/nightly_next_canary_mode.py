@@ -58,11 +58,15 @@ gate for a bounded time:
 
   await-gate --repo R --run-id ID --attempt N --job visual-gate-nightly
              [--queue-budget-minutes 15] [--gate-timeout-minutes 75]
+             [--hold-minutes M] [--mode MODE]
       reads the run attempt's jobs every minute. A gate still queued when the
       queue budget is spent, a gate that never finishes, a missing gate or an
       unreadable API all give `verdict=unavailable` and `blocks=false`; it
       cancels nothing. A finished gate blocks only when its `Hold publication`
-      step succeeded (enforce mode, failing verdict). Prints `verdict=` and
+      step succeeded (enforce mode, failing verdict). --hold-minutes bounds the
+      whole wait from now (else the queue budget plus the gate's timeout plus
+      5 min). A --mode other than `enforce` can never hold the build, so it
+      waits for nothing and gives `verdict=report`. Prints `verdict=` and
       `blocks=` lines for $GITHUB_OUTPUT.
 """
 
@@ -373,14 +377,24 @@ def main(argv: list[str]) -> int:
     w.add_argument("--job", default="visual-gate-nightly")
     w.add_argument("--queue-budget-minutes", type=float, default=15.0)
     w.add_argument("--gate-timeout-minutes", type=float, default=75.0)
+    w.add_argument("--hold-minutes", type=float, default=None,
+                   help="the longest this waits, from now, in all (default: queue budget + gate timeout + 5)")
+    w.add_argument("--mode", default="", help="the gate's resolved mode; anything but `enforce` waits for nothing")
     w.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY", ""))
     args = parser.parse_args(argv)
     if args.command == "await-gate":
         queue_s = args.queue_budget_minutes * 60
+        run_s = (args.hold_minutes * 60 if args.hold_minutes is not None
+                 else queue_s + args.gate_timeout_minutes * 60 + 300)
+        mode = args.mode.strip().lower()
         token = os.environ.get("GH_TOKEN", "")
-        if token:
+        if mode and mode != "enforce":
+            # Only enforce runs the gate's `Hold publication` step, so no verdict can hold this
+            # build: publication does not wait for the gate (it still reports its own verdict).
+            verdict, blocks, why = "report", False, f"the gate is in `{mode}` mode, so it cannot hold this build"
+        elif token:
             verdict, blocks, why = await_gate(github_jobs(args.repo, token, args.run_id, args.attempt), args.job,
-                                              queue_s, queue_s + args.gate_timeout_minutes * 60 + 300)
+                                              queue_s, run_s)
         else:
             verdict, blocks, why = "unavailable", False, f"no GH_TOKEN to read {args.job}"
         print(f"verdict={verdict}")
