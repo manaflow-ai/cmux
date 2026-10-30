@@ -31,6 +31,8 @@ export const CloudMachine = Schema.Struct({
   id: MachineId,
   team: TeamId,
   creator: UserId,
+  /** Explicit enrollment marker; absent on legacy rows until migration. */
+  visibility: Schema.optionalKey(Schema.Literals(["private", "team"])),
   name: Schema.NullOr(MachineName),
   size: CloudMachineSize,
   status: CloudMachineStatus,
@@ -56,6 +58,7 @@ export const CloudMachine = Schema.Struct({
 export const CloudSnapshot = Schema.Struct({
   id: SnapshotId,
   machine: MachineId,
+  visibility: Schema.optionalKey(Schema.Literals(["private", "team"])),
   name: Schema.NullOr(MachineName),
   size_mb: Schema.Int,
   status: Schema.Literals(["creating", "ready", "deleting", "failed"]),

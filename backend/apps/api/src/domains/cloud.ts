@@ -60,6 +60,8 @@ export interface CloudState {
 }
 
 export interface MachineRow extends Omit<CloudMachineView, "revision"> {
+  /** Explicit enrollment marker. Missing means legacy creator-only access. */
+  readonly visibility?: "private" | "team"
   /** Private provider route fixed at create; absent on legacy direct machines. */
   readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly revision: string
@@ -157,7 +159,14 @@ export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undef
 export const CLOUD_APPROVAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.resize", "cloud.machine.delete", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.environment.build", "cloud.environment.boot", "cloud.environment.delete"])
 
 /** Creator or team admin (all teams are personal today: the personal team's user is its admin). */
-export const mayManage = (p: Principal, row: MachineRow) => p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
+/** Existing rows stay creator/admin-only until an explicit enrollment writes visibility=team. */
+export const mayManage = (p: Principal, row: MachineRow) =>
+  (row.visibility === "team" && p.team === row.team && (p.kind === "session" || (p.grant_classes ?? []).includes("mutate-shared"))) ||
+  p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
+
+/** Deletion remains creator/admin-only even after a machine is enrolled as shared. */
+export const mayDelete = (p: Principal, row: MachineRow) =>
+  p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
 
 const decodeInternal = <T>(schema: Schema.Top, params: unknown): { ok: true; value: T } | ReturnType<typeof reject> => {
   const exit = Schema.decodeUnknownExit(schema as Schema.Codec<T, unknown>)(params ?? {})
@@ -306,7 +315,8 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     bind: null,
     // The SSO team whose sign-in created the machine: its VM install is vouched by that team (SSO gate).
     ...(p.sso_team ? { creator_sso_team: p.sso_team } : {}),
-    ...(p.identity.startsWith(PLATFORM_IDENTITY_PREFIX) ? { platform: true as const } : {})
+    ...(p.identity.startsWith(PLATFORM_IDENTITY_PREFIX) ? { platform: true as const } : {}),
+    ...(machine.team !== personalTeamIdFor(machine.creator) ? { visibility: "team" as const } : {})
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { transport: machine.transport, key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
@@ -336,7 +346,7 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   if (ctx.rows?.get(TABLE_TOMBSTONE, d.value.machine)) return noChange(state, { deleted: true })
   const stored = machineRow(ctx.rows, d.value.machine)
   if (!stored) return reject("cloud.machine.not_found", "no such machine in this team")
-  if (!mayManage(ctx.principal, stored.row)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete it")
+  if (!mayDelete(ctx.principal, stored.row)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete it")
   // A delete already waiting for its call: the same answer, no new ledger row (no churn).
   const deleting = Object.entries(state.pending).some(([key, e]) => e.machine === stored.row.id && ledgerRow(ctx.rows, key)?.row.op === "delete")
   if (deleting) return noChange(state, { deleted: true })

@@ -28,7 +28,8 @@ export const machineBySelector = (rows: Rows | undefined, sel: { machine?: strin
 
 /** The services `p` may dial on `row` given the team's policy set, or a refusal. */
 export const allowedServices = (entity: string, row: MachineRow, p: Principal, policy: ReadonlyArray<string>): { ok: true; services: Array<string> } | { ok: false; code: string; message: string } => {
-  if (entity === personalTeamIdFor(row.creator) && p.user !== row.creator) return { ok: false, code: "auth.forbidden", message: "a personal machine is reachable only by its creator" }
+  if ((entity === personalTeamIdFor(row.creator) || row.visibility === "private") && p.user !== row.creator)
+    return { ok: false, code: "auth.forbidden", message: "a private machine is reachable only by its creator" }
   let services: Array<string> = LINK_SERVICES.filter((s) => policy.includes(s))
   // FINDER-FS: never daemon without ssh, whatever the stored policy says.
   if (cloudServicesProblem(services)) services = services.filter((s) => s !== "daemon")

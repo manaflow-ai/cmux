@@ -166,21 +166,22 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         if (Number.isNaN(after)) return { ok: false, code: "validation.invalid", message: "unknown cursor" }
         const limit = d.value.limit ?? 50
         const page = rows?.range<MachineRow>(TABLE_MACHINE, { ...(after === undefined ? {} : { after }), limit: limit + 1 }) ?? []
-        const more = page.length > limit
-        const shown = page.slice(0, limit)
+        const visible = page.filter((r) => r.row.visibility !== "private" || r.row.creator === principal.user)
+        const more = visible.length > limit
+        const shown = visible.slice(0, limit)
         return { ok: true, value: { machines: shown.map((r) => publicMachine(r.row)), next_cursor: more ? `c${shown[shown.length - 1]!.n}` : null, revision: String(state.rev) }, revision: "" }
       }
       case "cloud.machine.get": {
         const id = (params as { machine?: unknown } | null)?.machine
         const row = typeof id === "string" ? rows?.get<MachineRow>(TABLE_MACHINE, id) : undefined
-        if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+        if (!row || (row.row.visibility === "private" && row.row.creator !== principal.user)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
         return { ok: true, value: publicMachine(row.row), revision: "" }
       }
       case "cloud.snapshot.list": {
         const machine = (params as { machine?: unknown } | null)?.machine
         if (machine !== undefined && typeof machine !== "string") return { ok: false, code: "validation.invalid", message: "invalid machine" }
         const all = rows?.range<SnapshotRow>(TABLE_SNAPSHOT, { limit: 1000 }).map((r) => r.row) ?? []
-        return { ok: true, value: { snapshots: all.filter((r) => machine === undefined || r.machine === machine).map(publicSnapshot) }, revision: "" }
+        return { ok: true, value: { snapshots: all.filter((r) => (machine === undefined || r.machine === machine) && (r.visibility !== "private" || r.creator === principal.user)).map(publicSnapshot) }, revision: "" }
       }
       case "cloud.environment.list": {
         const all = rows?.range<EnvironmentRow>(TABLE_ENVIRONMENT_ROWS, { limit: 1000 }).map((r) => r.row) ?? []

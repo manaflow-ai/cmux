@@ -2,7 +2,7 @@ import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/own
 import { CloudSnapshotCreate, CloudSnapshotDelete, CloudSnapshotRestore, planRequiredDetails, type CloudDriverResultParams, type CloudSnapshot } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
 import { limitDetails, providerName, teamPlan, type CloudConfig } from "./cloud-plan.ts"
-import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
+import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, mayDelete, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
 
 /**
  * Snapshots (state-placement.md 7 item 4; CLOUDDO-MONEY-OPS). A snapshot row is private; the public
@@ -26,6 +26,7 @@ export interface SnapshotRow {
   readonly provider_name: string
   /** Who took it (decides delete once its machine is gone). */
   readonly creator?: string
+  readonly visibility?: "private" | "team"
   /** The machine's size when it was taken (a restore asks for it). */
   readonly size: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
 }
@@ -56,7 +57,7 @@ export const snapshotCreate = (config: CloudConfig, state: CloudState, params: u
   const id = ctx.newId("snap")
   const size = { cpu: m.size.cpu ?? 0, memory_mb: m.size.memory_mb ?? 0, disk_mb: m.size.disk_mb ?? 0 }
   const protocol = m.transport === "vm-api" ? { capture_protocol: 1 as const } : {}
-  const row: SnapshotRow = { ...protocol, transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
+  const row: SnapshotRow = { ...protocol, transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user!, ...(m.visibility ? { visibility: m.visibility } : {}) }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { ...protocol, transport: m.transport ?? "direct", key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
   const s = next(state, { saved: state.saved + 1, pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false, snapshot: id })
@@ -73,7 +74,7 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
   // The machine may be gone; then the team admin (or the creator recorded on no row) decides: personal teams only today.
   // The machine's creator or a team admin; once the machine is gone, the snapshot's own creator or a team admin (review P3).
   const owner = (source ? source.row : { creator: r.creator ?? "" }) as Parameters<typeof mayManage>[1]
-  if (!mayManage(ctx.principal, owner)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete its snapshots")
+  if (!mayDelete(ctx.principal, owner)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete its snapshots")
   if (!ctx.idempotencyKey) return unavailable()
   return snapshotRetire(config, state, stored, ledgerKey(ctx.principal.identity, ctx.idempotencyKey), ctx)
 }
