@@ -51,7 +51,8 @@ extension DaemonService {
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
+            requestLatency: newRequestLatency()))
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
@@ -90,7 +91,8 @@ extension DaemonService {
     /// begun in `main` (`prestart`) and for the connections after it.
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
-                                               echoesPlacementShift: Bool, retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
+                                               echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
+                                               requestLatency: DaemonRequestLatency? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
         var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
@@ -100,7 +102,18 @@ extension DaemonService {
         // shows it not connected (cx-jniyz.4).
         configuration.localHeartbeat = true
         configuration.echoesPlacementShift = echoesPlacementShift
+        configuration.requestLatency = requestLatency
         return configuration
+    }
+
+    /// A daemon-request probe for the local connection in Debug and bench builds (`debug.daemon_requests`
+    /// reads it); nil in Release, which registers no debug method and so records nothing.
+    nonisolated static func newRequestLatency() -> DaemonRequestLatency? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        DaemonRequestLatency()
+        #else
+        nil
+        #endif
     }
 
     /// Records the local daemon's socket for the next launch

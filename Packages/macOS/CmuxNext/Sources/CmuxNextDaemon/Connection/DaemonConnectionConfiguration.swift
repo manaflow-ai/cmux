@@ -60,6 +60,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// sends no `workspace_placement` restatement. The App's composition root sets it
     /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
     public var echoesPlacementShift = false
+    /// Records each request's send-to-reply time (``DaemonRequestLatency``; Debug and bench builds read
+    /// it through `debug.daemon_requests`). Nil: not measured. The local ``DaemonService`` sets its own.
+    public var requestLatency: DaemonRequestLatency?
 
     public init(
         clientName: String = "cmux-next",
