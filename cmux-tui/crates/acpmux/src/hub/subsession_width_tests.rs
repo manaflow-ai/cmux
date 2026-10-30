@@ -59,16 +59,17 @@ fn width_slots_count_live_children_only() {
     assert_eq!(index.live_count("parent"), 1);
     // Not closed: the work below a parent looks at them all (`work_below.rs`).
     assert_eq!(index.open_children("parent"), vec!["dead", "finished", "live"]);
-    assert_eq!(index.resting_children("parent"), vec!["dead", "finished"]);
     assert!(index.reserve("parent", 1, &[]).is_err(), "the live child still binds the cap");
 
     index.note_status("parent", "live", SessionStatus::Idle);
     assert_eq!(index.live_count("parent"), 0);
     assert!(index.reserve("parent", 1, &[]).is_ok(), "finished children free the slot");
-    // A resting child waking counts; a closed one is not resting, and a name it does not
-    // know counts for nothing.
+    // A waking child that is not live counts; a live one counts once, a closed one or a name
+    // it does not know counts for nothing.
     let waking = ["finished".to_owned(), "closed".to_owned(), "gone".to_owned()];
     assert_eq!(index.reserve("parent", 1, &waking).err(), Some(1), "a waking child binds it");
+    index.note_status("parent", "finished", SessionStatus::Running);
+    assert_eq!(index.used("parent", &waking), 1, "a live waking child counts once");
 }
 
 #[tokio::test]

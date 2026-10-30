@@ -73,12 +73,24 @@ impl Index {
         self.lock().open.get(parent).map(|s| s.iter().cloned().collect()).unwrap_or_default()
     }
 
-    /// The open children of `parent` that are not live.
-    pub(super) fn resting_children(&self, parent: &str) -> Vec<String> {
-        let s = self.lock();
+    /// How many children of `parent` are live.
+    pub fn live_count(&self, parent: &str) -> u32 {
+        self.lock().live.get(parent).map_or(0, |s| s.len() as u32)
+    }
+
+    /// How many children of `parent` use a width slot: live, or among `waking` (children with a
+    /// prompt on its way, `Hub::waking_children`) and open but not live now.
+    pub(super) fn used(&self, parent: &str, waking: &[String]) -> u32 {
+        Self::used_in(&self.lock(), parent, waking)
+    }
+
+    fn used_in(s: &IndexState, parent: &str, waking: &[String]) -> u32 {
         let live = s.live.get(parent);
-        let open = s.open.get(parent).into_iter().flatten();
-        open.filter(|c| !live.is_some_and(|l| l.contains(*c))).cloned().collect()
+        let open = s.open.get(parent);
+        let resting = |c: &&String| {
+            open.is_some_and(|o| o.contains(*c)) && !live.is_some_and(|l| l.contains(*c))
+        };
+        live.map_or(0, |set| set.len() as u32) + waking.iter().filter(resting).count() as u32
     }
 
     /// How many children of `parent` are open.
@@ -86,13 +98,10 @@ impl Index {
         self.lock().open.get(parent).map_or(0, |s| s.len() as u32)
     }
 
-    /// How many children of `parent` are live.
-    pub fn live_count(&self, parent: &str) -> u32 {
-        self.lock().live.get(parent).map_or(0, |s| s.len() as u32)
-    }
-
-    /// Reserves one child slot of `parent` under `max`, or returns how many are used: live,
-    /// reserved, or `waking` (resting children with a prompt on its way, still resting now).
+    /// Reserves one child slot of `parent` under `max`, or returns how many are used ([`used`])
+    /// or reserved.
+    ///
+    /// [`used`]: Self::used
     pub(super) fn reserve<'a>(
         &'a self,
         parent: &'a str,
@@ -100,14 +109,7 @@ impl Index {
         waking: &[String],
     ) -> Result<Reservation<'a>, u32> {
         let mut s = self.lock();
-        let live = s.live.get(parent);
-        let open = s.open.get(parent);
-        let resting = |c: &&String| {
-            open.is_some_and(|o| o.contains(*c)) && !live.is_some_and(|l| l.contains(*c))
-        };
-        let used = live.map_or(0, |set| set.len() as u32)
-            + waking.iter().filter(resting).count() as u32
-            + s.reserved.get(parent).copied().unwrap_or(0);
+        let used = Self::used_in(&s, parent, waking) + s.reserved.get(parent).copied().unwrap_or(0);
         if used >= max {
             return Err(used);
         }

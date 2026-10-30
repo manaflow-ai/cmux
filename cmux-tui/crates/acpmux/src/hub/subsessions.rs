@@ -404,15 +404,18 @@ impl Hub {
         })
     }
 
-    /// `parent`'s children that are not live but have a prompt on its way to a turn: queued (for
-    /// the turn lock or a run slot), or holding the turn lock while their harness starts. They
-    /// count toward the width limit, so a wake never lets a start pass it. Prompts a failed turn
-    /// holds (`pause_queue`) wake nothing until released, so they do not count.
+    /// `parent`'s open children with a prompt on its way to a turn: queued (for the turn lock or
+    /// a run slot), or holding the turn lock while their harness starts. The index counts the
+    /// ones among them that are not live (`Index::reserve`), so a wake never lets a start take
+    /// its slot. Read over every open child, live ones too: one that hibernates between this
+    /// read and the reservation still counts. A prompt that comes after this read wakes its child
+    /// as one after the reservation would: past the limit, as a reopen does. Prompts a failed
+    /// turn holds (`pause_queue`) wake nothing until released, so they do not count.
     pub(super) fn waking_children(&self, parent: &str) -> Vec<String> {
-        let resting = self.subsessions.resting_children(parent);
+        let open = self.subsessions.open_children(parent);
         let children: Vec<Arc<Session>> = {
             let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            resting.iter().filter_map(|id| sessions.get(id).cloned()).collect()
+            open.iter().filter_map(|id| sessions.get(id).cloned()).collect()
         };
         let waking = |c: &Session| {
             let held = c.queue().iter().filter(|q| q.held).count() as u64;
@@ -423,7 +426,7 @@ impl Hub {
 
     /// How many of `parent`'s children use a width slot now: live or waking.
     pub(super) fn width_used(&self, parent: &str) -> u32 {
-        self.subsessions.live_count(parent) + self.waking_children(parent).len() as u32
+        self.subsessions.used(parent, &self.waking_children(parent))
     }
 
     /// Tells the parent's watchers when a sub-session closed or reopened. Its width slot follows
