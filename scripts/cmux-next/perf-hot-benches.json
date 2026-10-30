@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. `trace` lists the SignpostName catalog names (Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift) whose records show the path in a Release trace ring or signpost recording. An id with no `trace` has no catalog name that shows its own cost yet (observability-audit.py MQ5 lists it). Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "chats-window-diff": {
+      "what": "one acpmux chats window message on the main actor: the window's keys and the changed rows (sidebar chat history; acpmux sorts, filters and pages)",
+      "bench": "ChatsWindowMainThreadTests (rows touched per change, 3,000-chat index) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
+      "owner": "Performance Lead"
+    },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",

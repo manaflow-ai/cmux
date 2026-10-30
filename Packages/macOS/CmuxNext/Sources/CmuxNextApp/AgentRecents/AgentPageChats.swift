@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextSidebar

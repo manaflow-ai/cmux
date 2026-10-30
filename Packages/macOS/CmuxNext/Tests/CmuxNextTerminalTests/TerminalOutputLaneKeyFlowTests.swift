@@ -38,7 +38,7 @@ import Testing
             parsed.yield(data)
             if data == Data("b".utf8) { gate.wait() }  // holds the lane inside the second chunk's parse
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         let first = try press(probe, on: key), second = try press(probe, on: key)
         probe.outputDecoded(flow: first)
         probe.outputDecoded(flow: second)
@@ -73,7 +73,7 @@ import Testing
         probe.startFlows()
         let key = probe.makeSurfaceKey(), other = probe.makeSurfaceKey()
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.key-flows-other", keyFlows: key, probe: probe) { _, _ in }
-        defer { lane.close() }
+        defer { lane.close {} }
         let elsewhere = try press(probe, on: other)
         probe.outputDecoded(flow: nil)
 
@@ -94,7 +94,7 @@ import Testing
     /// Any other event is the session's to handle on the main actor.
     @Test func otherEventsStayWithTheSession() async {
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.key-flows-events") { _, _ in }
-        defer { lane.close() }
+        defer { lane.close {} }
         #expect(await !lane.takeOffMain(.exited))
         #expect(await !lane.takeOffMain(.resize(cols: 80, rows: 24)))
     }

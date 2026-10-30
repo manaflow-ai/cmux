@@ -8,7 +8,7 @@ import IOSurface
 /// pointer hand-off. Swift never reads through it; Ghostty's contract keeps
 /// each kind valid: a clipboard request state until its completion call, a
 /// cloned config until it is freed, and a surface until `ghostty_surface_free`,
-/// which ``TerminalOutputLane/close()`` fences.
+/// which the lane's last block posts (``TerminalOutputLane/close(then:)``).
 // crash-allow: an immutable C address passed back to libghostty, never dereferenced in Swift; the handle's lifetime is Ghostty's documented contract above
 @safe nonisolated struct UncheckedPointer: @unchecked Sendable {
     let raw: UnsafeMutableRawPointer?
@@ -31,7 +31,7 @@ import IOSurface
 
 // Every `userdata` below is what cmux registered for its callback: the runtime's
 // RuntimeCallbackContext's registry token, or a surface's SurfaceBridge, which outlives its surface
-// (TerminalSurfaceView.deinit releases it after ghostty_surface_free returns).
+// (TerminalSurfaceTeardown, which the view's deinit hands it to, releases it after ghostty_surface_free returns).
 
 nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     // SAFETY: the runtime's userdata (above).

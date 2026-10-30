@@ -10,6 +10,7 @@ import Testing
 /// (`PaneContentView.install`/`retire`). A switch back to a recently hidden workspace moves no workspace,
 /// pane or terminal view into or out of the window. Three workspaces with a terminal pane each, against a
 /// same-tree cmux-tui daemon; the unit form is HiddenWorkspaceStaysInWindowTests.
+/// skip-owner: PL-switch; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct HiddenWorkspaceSwitchKeepsPanesInWindowTests {
     /// A hidden, zero-size child that counts the times its ancestors enter or leave a window.

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -145,6 +146,70 @@ struct TerminalAttachmentStreamTests {
         #expect(sent.contains(StreamWireDaemon.Request(connection: 1, cmd: CancelStreamRequest.command, stream: 1)))
         #expect(await Self.closeReason(of: stopped) == .overflow)
         reading.detachNow()
+        await connection.close()
+    }
+
+    /// `test-emit-output` (``StreamWireDaemon/emitOutputCommand``): the daemon writes the surface's output, then the reply.
+    private struct EmitOutput: DaemonRequest {
+        typealias Response = JSONValue
+        static let commandName: DaemonCommandName = "test-emit-output"
+        var surface: Int
+        var bytes: Int
+    }
+
+    /// A view's output lane that is full from its first chunk and never drains (a hidden tab, a stalled parser).
+    private final class FullLane: Sendable {
+        private let filled: AsyncStream<Void>
+        private let fill: AsyncStream<Void>.Continuation
+        private let wakes = Mutex<[@Sendable () -> Void]>([])
+
+        init() {
+            (filled, fill) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        }
+
+        var sink: TerminalEchoSink {
+            TerminalEchoSink { [self] _, _, wake in
+                wakes.withLock { $0.append(wake) }
+                fill.yield()
+                return true
+            }
+        }
+
+        func waitUntilFull() async { for await _ in filled { return } }
+    }
+
+    /// Lawrence's "no new terminals" (2026-10-30, cmux20, v2.2.9-opt): the app's shared connection reader sat in
+    /// `parkReader()` behind one view's full lane, so `new-tab`'s reply, sent at once by an idle daemon, waited
+    /// unread for 3 s. The reply to a request behind 4 MiB of that view's output comes, and with the view's lane
+    /// still full the next request is answered.
+    @Test func aReplyNeverWaitsBehindAViewWhoseLaneIsFull() async throws {
+        let daemon = try StreamWireDaemon()
+        defer { daemon.stop() }
+        let connection = try await Self.connect(daemon)
+        let view = try await Self.attach(1, on: connection)
+        let (opened, open) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        // The view's consumer: applies every event and resumes each marker, so the route to its lane opens.
+        let consumer = Task {
+            for await event in view.events {
+                if case .outputResume(let marker) = event {
+                    marker.resume()
+                    open.yield()
+                }
+            }
+        }
+        defer { consumer.cancel() }
+        let lane = FullLane()
+        view.setOutputSink(lane.sink)
+        for await _ in opened { break }
+
+        let emitted = Task { try await connection.request(EmitOutput(surface: 1, bytes: 4 << 20), timeout: .seconds(5)) }
+        await lane.waitUntilFull()
+        _ = try await emitted.value
+
+        // The deadlines above only end a red run (the reply never comes while the reader is parked); no time
+        // decides the result (R5).
+        _ = try await connection.request(IdentifyRequest(), timeout: .seconds(2))
+        view.detachNow()
         await connection.close()
     }
 

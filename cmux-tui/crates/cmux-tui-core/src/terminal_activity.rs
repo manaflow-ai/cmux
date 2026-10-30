@@ -231,6 +231,17 @@ pub(crate) struct ShellActivity {
     /// program read them, or each waits for the shell as a typed-ahead line.
     /// Its end decides ([`Self::settle_command_input`]).
     typed_while_running: u32,
+    /// The shell is drawing the primary prompt its last `A` started: no
+    /// input, `B`, `C`, `D` or replay came since, only secondary `A`s. A `B`
+    /// now ends that prompt, so those `A;k=s` were its later lines (kitty
+    /// marks a multi-line PS1's lines so), not continuation prompts. Only a
+    /// `B` of the same draw vouches for them: a continuation prompt answers a
+    /// line the shell read after its prompt (input, which ends the draw), or
+    /// a line typed ahead (owed at the `A`, so that prompt is not idle
+    /// anyway); a nested shell's `B` ends its own prompt's draw. With no `B`
+    /// (an integration that sends none, a transient prompt's redraw) a
+    /// secondary `A` stays not idle until a primary `A`.
+    drawing_prompt: bool,
     /// Bytes were written after the last Return (a partial line, or a key
     /// the daemon cannot read as a Return: an unknown fallback key, a kitty
     /// keyboard protocol Enter): the next prompt's line editor may hold them.
@@ -275,9 +286,11 @@ impl ShellActivity {
             ShellMark::CommandStart => {
                 self.busy_since_ms.get_or_insert(now_ms);
                 self.prompt_since_ms = None;
+                self.drawing_prompt = false;
                 false
             }
             ShellMark::CommandEnd { .. } => {
+                self.drawing_prompt = false;
                 self.settle_command_input();
                 self.end();
                 false
@@ -294,19 +307,18 @@ impl ShellActivity {
                 // Input written before this `A` was parsed but after the
                 // shell printed it waits unread for the line editor: a line
                 // typed ahead (still owed) or a partial one.
-                self.input_after_prompt = self.owed_prompts > 0 || self.unsubmitted;
+                self.input_after_prompt = self.input_waits();
+                self.drawing_prompt = true;
                 true
             }
             // A secondary prompt (`A;k=s`, `A;k=c`): a continuation prompt
             // (PS2: an open quote, a heredoc, a `for` loop over lines) or a later
-            // line of a multi-line PS1 (kitty marks those the same way). No mark
-            // tells them apart for sure (a `B`, the only bound of a primary
-            // prompt, can come from a nested shell, and an integration may send
-            // none), so every one keeps the shell not idle until a primary `A`,
-            // and none pays a line: a count paid by a PS1 line goes low and reads
-            // a typed-ahead line idle. A Return a continuation prompt answers
-            // stays owed (the accepted cost: the close asks), and a multi-line
-            // PS1 with secondary marks never reads idle.
+            // line of a multi-line PS1 (kitty marks those the same way). It keeps
+            // the shell not idle until a primary `A`, or until the `B` that ends
+            // the primary prompt it is drawn in (`drawing_prompt`) shows it was a
+            // line of that prompt. None pays a line: a count paid by a PS1 line
+            // goes low and reads a typed-ahead line idle. A Return a continuation
+            // prompt answers stays owed (the accepted cost: the close asks).
             ShellMark::SecondaryPromptStart => {
                 self.input_after_prompt = true;
                 false
@@ -314,8 +326,21 @@ impl ShellActivity {
             // A right prompt (zsh's RPROMPT) is drawn with the primary prompt,
             // after its `B`: it answers no line.
             ShellMark::RightPromptStart => false,
-            ShellMark::InputStart => false,
+            // The end of a primary prompt. In the draw its `A` started, the
+            // secondary `A`s since were its lines: the prompt's own state again.
+            ShellMark::InputStart => {
+                if std::mem::take(&mut self.drawing_prompt) {
+                    self.input_after_prompt = self.input_waits();
+                }
+                false
+            }
         }
+    }
+
+    /// Input waits unread for the line editor at a prompt: a line typed
+    /// ahead (still owed) or a partial one.
+    fn input_waits(&self) -> bool {
+        self.owed_prompts > 0 || self.unsubmitted
     }
 
     /// A command ended (`D`, or an `A` with no `D`): a Return typed while it
@@ -432,6 +457,7 @@ impl ShellActivity {
     /// the caller asks for a publication.
     pub(crate) fn note_input(&mut self, bytes: &[u8]) -> bool {
         let was_idle = self.idle_since();
+        self.drawing_prompt = false;
         self.epoch = self.epoch.wrapping_add(1);
         self.input_after_prompt = true;
         self.note_input_lines(bytes);
@@ -459,6 +485,7 @@ impl ShellActivity {
     pub(crate) fn note_replayed_output(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.input_after_prompt = true;
+        self.drawing_prompt = false;
         self.shell_foreground = None;
         self.foreground_leader = None;
     }
@@ -585,6 +612,7 @@ impl ShellActivity {
         self.prompted = true;
         self.owed_prompts = 0;
         self.typed_while_running = 0;
+        self.drawing_prompt = false;
         self.unsubmitted = false;
         self.in_paste = false;
         self.shell_foreground = None;
@@ -603,6 +631,7 @@ impl ShellActivity {
         self.owed_prompts = previous.owed_prompts;
         self.prompted = previous.prompted;
         self.typed_while_running = previous.typed_while_running;
+        self.drawing_prompt = previous.drawing_prompt;
         self.unsubmitted = previous.unsubmitted;
         self.in_paste = previous.in_paste;
         self.unseen_input = previous.unseen_input;
@@ -1022,18 +1051,63 @@ mod tests {
         assert_eq!(activity.foreground_check_due(), None, "two Returns no prompt paid");
     }
 
-    /// kitty marks the second line of a multi-line PS1 `A;k=s`, the same mark
-    /// as a continuation prompt: such a prompt never reads idle (fails safe;
-    /// review 4 of cp/fix-tip-continuation-prompt-idle-2 showed no mark tells
-    /// the two apart for sure).
+    /// Review of cp/fix-tip-continuation-prompt-idle, finding 1: kitty marks
+    /// the second line of a multi-line PS1 `A;k=s`; with no line typed it is
+    /// part of the prompt, which reads idle.
     #[test]
-    fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_not_idle() {
+    fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_idle() {
         let mut activity = ShellActivity::default();
         activity.observe(ShellMark::PromptStart, 1_000);
         activity.observe(ShellMark::SecondaryPromptStart, 1_001);
         activity.observe(ShellMark::InputStart, 1_002);
-        assert_eq!(activity.foreground_check_due(), None);
-        assert_eq!(activity.idle_since(), None);
+        let epoch = activity.foreground_check_due().expect("the prompt asks for a check");
+        activity.record_foreground(epoch, true);
+        assert_eq!(activity.idle_since(), Some(1_000));
+        // After a command (an integration with no `C`): the next two-line
+        // prompt answers the Return and reads idle again.
+        activity.note_input(b"true\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        activity.observe(ShellMark::SecondaryPromptStart, 2_001);
+        assert_eq!(activity.foreground_check_due(), None, "the prompt is not drawn yet");
+        check_at_b(&mut activity, 2_002);
+        assert!(activity.idle_since().is_some(), "the second prompt");
+    }
+
+    /// Only the `B` of the draw a primary `A` started vouches for its
+    /// secondary marks. A continuation prompt that ends with a `B` (some
+    /// integrations mark PS2's end too) comes after input or after the
+    /// redraw's own `B` (a transient prompt), so it stays not idle.
+    #[test]
+    fn shell_idle_a_continuation_prompt_that_ends_with_b_is_not_idle() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::SecondaryPromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        assert_eq!(activity.idle_since(), None, "PS2 after the Return");
+        // A transient prompt redraws PS1 (`A`, `B`) after the Return, then PS2.
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::PromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_102);
+        check_at_b(&mut activity, 1_103);
+        assert_eq!(activity.idle_since(), None, "PS2 after a redraw's B");
+    }
+
+    /// A heredoc typed ahead of a two-line prompt: the prompt's own `B` ends
+    /// its draw, but the line is still owed, and its PS2 after that `B` keeps
+    /// the shell not idle.
+    #[test]
+    fn shell_idle_a_heredoc_typed_ahead_of_a_two_line_prompt_is_not_idle() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rcat <<EOF\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        activity.observe(ShellMark::SecondaryPromptStart, 2_001);
+        check_at_b(&mut activity, 2_002);
+        assert_eq!(activity.idle_since(), None, "`cat <<EOF` is owed");
+        activity.observe(ShellMark::SecondaryPromptStart, 2_100);
+        check_at_b(&mut activity, 2_101);
+        assert_eq!(activity.idle_since(), None, "the heredoc is open");
     }
 
     /// The same prompt after a line typed ahead into an open quote: the

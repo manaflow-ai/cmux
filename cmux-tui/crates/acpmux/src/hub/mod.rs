@@ -205,6 +205,8 @@ mod web_control;
 mod web_token;
 mod work_below;
 pub(crate) mod worktree_care;
+#[cfg(test)]
+mod writer_flush_tests;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;

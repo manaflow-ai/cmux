@@ -133,6 +133,7 @@ impl Conn {
             client_requests: Default::default(),
             watch_tools: AtomicBool::new(false),
             fanout_progress: std::sync::OnceLock::new(),
+            chat_windows: Default::default(),
         }
     }
 }

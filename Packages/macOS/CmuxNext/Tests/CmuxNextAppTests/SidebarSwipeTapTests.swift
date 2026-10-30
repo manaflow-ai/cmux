@@ -243,6 +243,7 @@ import Testing
 
     // MARK: Through the tap
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aSwipeOverTheListThroughTheTapPagesAndScrollWheelKeepsIt() throws {
         let harness = Harness()
@@ -261,6 +262,7 @@ import Testing
         #expect(harness.scrolls.map { $0.0 } == [.began, .changed, .ended])
     }
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aSwipeOverTheBarThroughTheTapPagesOnlyTheBar() throws {
         let harness = Harness()
@@ -272,6 +274,7 @@ import Testing
         #expect(harness.scrolls.map { $0.0 } == [.began, .changed], "the bar and the list must not both page one gesture")
     }
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aSwipeOrWheelOffTheSidebarThroughTheTapPagesNothing() throws {
         let harness = Harness()
@@ -283,6 +286,7 @@ import Testing
         #expect(harness.scrolls.isEmpty && harness.pages.isEmpty, "a scroll off the sidebar paged its spaces")
     }
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aSidewaysWheelRollOverTheListThroughTheTapPagesOnceAndScrollWheelKeepsIt() throws {
         let harness = Harness()
@@ -299,6 +303,7 @@ import Testing
         #expect(harness.pages == [1], "one sideways roll over the list pages once")
     }
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aScrollAnEarlierInterceptConsumedOverTheListPagesNothing() throws {
         let harness = Harness()
@@ -322,6 +327,7 @@ import Testing
         #expect(harness.pages.isEmpty && harness.scrolls.isEmpty, "a scroll the card consumed also paged the spaces")
     }
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aVerticalWheelOverTheBarThroughTheTapPages() throws {
         let harness = Harness()
@@ -334,6 +340,7 @@ import Testing
         #expect(harness.sidebar.profileBar.swipes.takes(notch))
     }
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aVerticalWheelOverTheListThroughTheTapScrollsAndPagesNothing() throws {
         let harness = Harness()
@@ -345,6 +352,7 @@ import Testing
         #expect(!harness.sidebar.scrollView.swipes.takes(notch), "scrollWheel would not scroll the list for a vertical notch")
     }
 
+    // skip-owner: PL-input; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
     func aWheelInAnotherWindowThroughTheTapPagesNothing() throws {
         let harness = Harness()
