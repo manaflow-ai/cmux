@@ -16,6 +16,12 @@
 // 2026-10-29: "i also like the way it just loads in the subagent stuff instantly :("). The list
 // stays mounted under it, so Back returns to it as it was: scrolled, folded and opened the same.
 //
+// A Claude workflow's agent is the one transcript that is not in the snapshot: it is read from the
+// run's folder through acpmux (summary/useWorkflowTranscript.ts, the reader the app's workflow pane
+// uses). Its drill-in draws on the click as well, with the transcript's Loading line until the first
+// page lands, then the agent's rows; its progress refreshes it while it is open, and closing it
+// disposes the reader. Workflow agents open only where the app reads workflows (Labs), as elsewhere.
+//
 // What runs turns the shared spinner, never a pulsing dot. Its one clock ticks each second only
 // while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops with the panel.
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -25,6 +31,9 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { useNow } from "../subagents/SubagentGroup";
+import type { WorkflowAgent } from "../summary/workflow";
+import type { TranscriptRead } from "../summary/workflowTranscript";
+import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
 import {
   anyRunning,
   isLive,
@@ -40,6 +49,11 @@ import "./backgroundTasks.css";
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
 const StopsAgents = createContext(true);
 
+/// How a workflow agent's transcript is read (App.tsx `readWorkflowAgent`); unset, a workflow's
+/// agents are listed but open nothing.
+export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
+const Workflows = createContext<WorkflowReads | undefined>(undefined);
+
 /// How many finished tasks a group lists before Show more, and how many more each press adds.
 export const FINISHED_PAGE = 8;
 
@@ -48,7 +62,8 @@ export const FINISHED_PAGE = 8;
 /// `compact` puts the counts on the agent's own line and opens the tasks from it.
 export type PanelLook = "nested" | "flat" | "compact";
 
-export type Drill = { agentId: string; rowId?: string };
+/// `agentId` is a subagent's id, or for a workflow's agent (`workflow`) its workflow pane id.
+export type Drill = { agentId: string; rowId?: string; workflow?: boolean };
 
 export function BackgroundTasksPanel({
   groups,
@@ -57,6 +72,7 @@ export function BackgroundTasksPanel({
   expanded = false,
   initialDrill,
   stopsAgents = true,
+  workflow,
   onStop,
   onClearFinished,
   onExpand,
@@ -73,6 +89,8 @@ export function BackgroundTasksPanel({
   /// A gallery or a test opens on a transcript.
   initialDrill?: Drill;
   stopsAgents?: boolean;
+  /// Reads a workflow agent's transcript; unset (Labs off), a workflow's agents open nothing.
+  workflow?: WorkflowReads;
   onStop?(target: StopTarget): Promise<unknown>;
   onClearFinished(ids: string[]): void;
   onExpand(): void;
@@ -111,45 +129,56 @@ export function BackgroundTasksPanel({
   const drilled = drill && agentOf(groups, drill.agentId);
   return (
     <StopsAgents.Provider value={stopsAgents}>
-      <PanelFrame
-        title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
-        back={drill ? back : undefined}
-        backLabel={t("backgroundTasks.back")}
-        clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
-        expanded={expanded}
-        onExpand={onExpand}
-        onClose={onClose}
-      >
-        <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
-          {groups.length === 0 ? (
-            <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
-          ) : (
-            groups.map((group, index) => (
-              <GroupBlock
-                key={group.id}
-                group={group}
-                look={look}
-                now={now}
-                startsOpen={index === 0 && isLive(group)}
-                onDrill={open}
-                onStop={onStop}
-                onOpenSession={onOpenSession}
-                onOpenCommand={onOpenCommand}
-              />
-            ))
-          )}
-        </div>
-        {drill && (
-          <NestedAgents.Provider value={nested}>
-            <SubagentTranscript
+      <Workflows.Provider value={workflow}>
+        <PanelFrame
+          title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
+          back={drill ? back : undefined}
+          backLabel={t("backgroundTasks.back")}
+          clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
+          expanded={expanded}
+          onExpand={onExpand}
+          onClose={onClose}
+        >
+          <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
+            {groups.length === 0 ? (
+              <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+            ) : (
+              groups.map((group, index) => (
+                <GroupBlock
+                  key={group.id}
+                  group={group}
+                  look={look}
+                  now={now}
+                  startsOpen={index === 0 && isLive(group)}
+                  onDrill={open}
+                  onStop={onStop}
+                  onOpenSession={onOpenSession}
+                  onOpenCommand={onOpenCommand}
+                />
+              ))
+            )}
+          </div>
+          {drill?.workflow && workflow && (
+            <WorkflowAgentTranscript
               key={`${stack.length}:${drill.agentId}`}
-              rows={views?.[drill.agentId] ?? []}
+              pane={drill.agentId}
+              agent={drilled?.workflow}
               running={drilled?.state === "running"}
-              anchor={drill.rowId}
+              reads={workflow}
             />
-          </NestedAgents.Provider>
-        )}
-      </PanelFrame>
+          )}
+          {drill && !drill.workflow && (
+            <NestedAgents.Provider value={nested}>
+              <SubagentTranscript
+                key={`${stack.length}:${drill.agentId}`}
+                rows={views?.[drill.agentId] ?? []}
+                running={drilled?.state === "running"}
+                anchor={drill.rowId}
+              />
+            </NestedAgents.Provider>
+          )}
+        </PanelFrame>
+      </Workflows.Provider>
     </StopsAgents.Provider>
   );
 }
@@ -158,10 +187,41 @@ export function BackgroundTasksPanel({
 function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
   for (const group of groups) {
     if (group.agentId === agentId) return { name: group.name, state: group.state };
-    for (const task of [...group.running, ...group.finished])
+    for (const task of [...group.running, ...group.finished]) {
       if (task.kind === "agent" && task.agentId === agentId) return { name: task.title, state: task.state };
+      if (task.workflow?.pane === agentId)
+        return { name: task.title, state: task.state, workflow: task.workflow.agent };
+    }
   }
   return undefined;
+}
+
+/// A workflow agent's transcript, read through acpmux as the app's workflow pane reads it. Its rows
+/// draw in the same transcript as a subagent's; the Loading line shows from the click until the
+/// first page lands, so the pane is never blank.
+function WorkflowAgentTranscript({
+  pane,
+  agent,
+  running,
+  reads,
+}: {
+  pane: string;
+  agent?: WorkflowAgent;
+  running: boolean;
+  reads: WorkflowReads;
+}) {
+  const transcript = useWorkflowTranscript(
+    pane,
+    reads.sessionId,
+    true,
+    agent,
+    reads.chat,
+    reads.read,
+    reads.connection,
+  );
+  // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it.
+  const rows = useMemo(() => transcript.rows?.slice(1) ?? [], [transcript.rows]);
+  return <SubagentTranscript rows={rows} running={running} />;
 }
 
 function PanelFrame({
@@ -404,11 +464,14 @@ function TaskRow({
   onOpenCommand?(task: BackgroundTask): void;
 }) {
   const agentId = task.agentId;
+  const pane = useContext(Workflows) ? task.workflow?.pane : undefined;
   const opens = agentId
     ? () => onDrill({ agentId, rowId: task.kind === "agent" ? undefined : task.rowId })
-    : task.kind === "command" && onOpenCommand
-      ? () => onOpenCommand(task)
-      : undefined;
+    : pane
+      ? () => onDrill({ agentId: pane, workflow: true })
+      : task.kind === "command" && onOpenCommand
+        ? () => onOpenCommand(task)
+        : undefined;
   return (
     <div className="acpmux-bg__task" data-state={task.state}>
       <button type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>

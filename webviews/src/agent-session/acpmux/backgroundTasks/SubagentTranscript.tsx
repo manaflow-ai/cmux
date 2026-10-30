@@ -169,6 +169,14 @@ const TranscriptRow = memo(
           {row.text}
         </p>
       );
+    // A workflow agent's transcript states (summary/useWorkflowTranscript.ts): Loading, or why it is
+    // short or unavailable.
+    if (row.kind === "notice" && row.text)
+      return (
+        <p className="acpmux-bg__notice" data-row-id={row.id}>
+          {row.text}
+        </p>
+      );
     if (row.kind === SUBAGENTS)
       return (
         <div data-row-id={row.id}>

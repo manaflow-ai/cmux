@@ -5923,6 +5923,7 @@ function AcpmuxPane() {
               commands: panelCommands,
               sessions: childSessions,
               chatName,
+              sessionId: shownSessionId,
               dismissed: backgroundDismissed,
             },
             backgroundCache.current,
@@ -5935,8 +5936,17 @@ function AcpmuxPane() {
       panelCommands,
       childSessions,
       chatName,
+      shownSessionId,
       backgroundDismissed,
     ],
+  );
+  // A workflow agent's transcript in the panel reads as the workflow pane's does (Labs only).
+  const backgroundWorkflowReads = useMemo(
+    () =>
+      workflowLabsEnabled
+        ? { sessionId: shownSessionId, chat: chatName, connection: snapshot.connection, read: readWorkflowAgent }
+        : undefined,
+    [workflowLabsEnabled, shownSessionId, chatName, snapshot.connection, readWorkflowAgent],
   );
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.
@@ -11440,6 +11450,7 @@ function AcpmuxPane() {
               look={experimentArm(backgroundTasksLook)}
               expanded={backgroundPanel.expanded}
               stopsAgents={stopSubagent !== undefined}
+              workflow={backgroundWorkflowReads}
               onStop={(target) =>
                 target.kind === "agent"
                   ? (stopSubagent?.(target.id) ?? Promise.reject(new Error()))

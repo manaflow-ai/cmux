@@ -316,6 +316,12 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A workflow agent's transcript state line: Loading, or why it is short. */
+.acpmux-bg__notice {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--agent-muted);
+}
 .acpmux-bg__reply {
   overflow-wrap: anywhere;
 }
