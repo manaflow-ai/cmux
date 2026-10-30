@@ -849,5 +849,4 @@ test("a stale root parent on a known child's progress does not promote its grand
     ["child", null],
     ["grandchild", "child"],
   ]);
-
 });
