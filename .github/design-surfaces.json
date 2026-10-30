@@ -29,6 +29,11 @@
         "webviews/src/agent-session/acpmux/composerStates.css"
       ]
     },
+    "session-rail": {
+      "spec": "leo-workspace design/session-rail.md",
+      "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
+      "paths": ["webviews/src/agent-session/acpmux/threadMinimap/"]
+    },
     "new-tab": {
       "spec": "leo-workspace design/new-tab.md",
       "aliases": ["new tab"],
