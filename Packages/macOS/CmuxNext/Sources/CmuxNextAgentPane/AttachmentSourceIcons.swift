@@ -8,9 +8,9 @@ import AppKit
 /// Only the apps this Mac itself said an attachment came from (``noteAnswered(_:)``: a drop's or
 /// paste's source, and cmux for its own captures) have an icon. Any other id answers none, so a page
 /// can't ask whether an app it names is installed. They are kept across launches, so a reopened
-/// chat's chips keep theirs.
+/// chat's chips keep theirs. Each pane's model owns one (``AgentPaneModel/sourceIcons``); the
+/// answered apps are kept in `defaults`, so every pane draws the same ones.
 @MainActor final class AttachmentSourceIcons {
-    static let shared = AttachmentSourceIcons()
     /// Pixels a side: the corner icon is at most 20pt, drawn at 2x and then some.
     nonisolated static let side = 64
     /// The most apps kept; past it the cache starts over (a person's sources are a handful).

@@ -23,7 +23,7 @@ extension AgentPaneModel {
             Self.sources(for: names, urls: urls, claimed: claimed) { AttachmentSource.source(of: $0, apps: apps) }
         }.value
         // Only these apps' icons are drawn (`attachment.sourceIcon`).
-        for bundleId in sources.compactMap({ $0?.bundleId }) { AttachmentSourceIcons.shared.noteAnswered(bundleId) }
+        for bundleId in sources.compactMap({ $0?.bundleId }) { sourceIcons.noteAnswered(bundleId) }
         return AgentPaneReply.success(["sources": sources.map { $0?.json ?? NSNull() as Any }])
     }
 

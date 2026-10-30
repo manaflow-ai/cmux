@@ -206,6 +206,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onLocalPaths: (@MainActor () -> Bool)?
     /// The file URLs of the person's last native drop or paste on the page.
     @ObservationIgnored var droppedPaths = AgentPaneDroppedPaths()
+    /// The icons of the apps this pane said attachments came from (`attachment.sourceIcon`).
+    @ObservationIgnored let sourceIcons = AttachmentSourceIcons()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// The native Debug Settings baseline for the sidebar's latest-reply preview. A user's
     /// `layout.sidebarPreviewVariant` can temporarily override it in the page.
@@ -383,7 +385,7 @@ public final class AgentPaneModel {
         // A chat on another machine gets the gesture's source only (`attachSource`).
         case .attachSource(let kind, let names): return await attachSource(kind, names: names)
         case .attachmentSourceIcon(let bundleId):
-            return AgentPaneReply.success(AttachmentSourceIcons.shared.dataURL(bundleId).map { ["src": $0] } ?? [:])
+            return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         case .useFolder(let cwd, let confirm) where remoteChat:
             // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
