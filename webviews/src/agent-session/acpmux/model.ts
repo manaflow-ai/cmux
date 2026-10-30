@@ -941,7 +941,7 @@ const userMetaHeight = (row: AcpmuxRow) => {
   const hasAttachment = Boolean(
     row.images?.length ||
       row.retryAttachments?.length ||
-      row.inlineParts?.some((part) => part.kind === "file" || part.kind === "image"),
+      row.inlineParts?.some((part) => part.kind !== "text"),
   );
   return (
     ((row.text || hasAttachment) && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
@@ -1178,15 +1178,20 @@ function fallbackRowHeight(
     !row.text?.trim() &&
     (row.images?.length ||
       row.retryAttachments?.length ||
-      row.inlineParts?.some((part) => part.kind === "file" || part.kind === "image"))
+      row.inlineParts?.some((part) => part.kind !== "text"))
   ) {
     // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (192px) when
     // estimating columns so a narrow pane never lets a second attachment row overlap the next row.
-    const imageCount = row.images?.length ?? 0;
+    const inlineParts = row.inlineParts ?? [];
+    const imageCount =
+      (row.images?.length ?? 0) + inlineParts.filter((part) => part.kind === "image").length;
     const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 198));
     const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
-    const attachmentHeight = imageRows * 126;
-    return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
+    const otherAttachments =
+      (row.retryAttachments?.length ?? 0) + inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length;
+    const attachmentHeight = imageRows * 128 + (otherAttachments ? 28 : 0);
+    const deliveryAnchor = row.delivery?.state === "sending" ? 23 : 0;
+    return finish(attachmentHeight + deliveryAnchor + messageBelow(beforeFooter) + chromeHeight(row, actions));
   }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.

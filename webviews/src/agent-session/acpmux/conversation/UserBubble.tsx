@@ -73,7 +73,11 @@ export function UserBubble({
           ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
           : [],
       );
-  const hasAttachment = Boolean(row.images?.length || files?.length);
+  // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
+  // that do not become legacy file chips.
+  const hasAttachment = Boolean(
+    row.images?.length || files?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+  );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
