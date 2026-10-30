@@ -976,6 +976,17 @@ fn a_new_workspace_holds_a_terminal_unless_asked_otherwise() {
 }
 
 #[test]
+fn a_missing_required_field_is_named_with_its_values() {
+    let neighbor = v2_tools::find("pane_neighbor_get").expect("pane_neighbor_get");
+    let error = neighbor.plan(&object(json!({"pane": "current"}))).err().expect("an error");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("pane_neighbor_get needs direction"), "{error}");
+    assert!(message.contains("right"), "the values: {error}");
+    let call = neighbor.plan(&object(json!({"pane": "current", "direction": "right"})));
+    assert!(call.is_ok(), "{:?}", call.err());
+}
+
+#[test]
 fn an_owner_that_says_the_run_never_started_decides_the_state() {
     let failure = CallFailure {
         kind: FailureKind::Rejected,
