@@ -258,6 +258,12 @@ public final class CmuxSidebarView: NSView {
         set { controller.filter = newValue ? .unread : .all }
     }
 
+    /// Searches for `query` as typing it into the field does (automation and screenshots).
+    public func search(_ query: String) {
+        controller.searchField.stringValue = query
+        controller.setQuery(query)
+    }
+
     /// Ends a search: the field empties and the list shows every conversation again.
     public func clearSearch() {
         guard !controller.searchField.stringValue.isEmpty else { return }

@@ -451,9 +451,10 @@ public final class HomeSidebarView: NSView {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Screenshots: true gives the search field the keyboard (it opens over an avatar-only list), false
     /// ends the search and takes the keyboard back.
-    public func debugSearch(_ open: Bool) {
+    public func debugSearch(_ open: Bool, query: String? = nil) {
         if open {
             window?.makeFirstResponder(list.searchField)
+            if let query { list.search(query) }
         } else {
             list.clearSearch()
             if list.searchField.isEditing { window?.makeFirstResponder(nil) }
@@ -463,13 +464,13 @@ public final class HomeSidebarView: NSView {
 
     /// Screenshots (`debug.home.sidebar_fixture`), each optional: the list's `width` (clamped as
     /// a divider drag is), selects the `select`-th row (0 first, below the pinned tiles), sets
-    /// the Unread toggle, opens or ends the search (`debugSearch`). The answer is a
+    /// the Unread toggle, opens or ends the search (`debugSearch`), types `query` into it. The answer is a
     /// `JSONSerialization` graph: the list's `width` and the `header` (each frame as [x, y, width,
     /// height], `compact`, `buttonsCovered`, and `chatCompose`, the chat's compose button in window
     /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
     /// nothing changes then. `buttons` is the compose and Unread buttons' glyph state
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
-    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
+    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?, query: String? = nil) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
         let before = [compose, unreadToggle].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
@@ -486,7 +487,7 @@ public final class HomeSidebarView: NSView {
             self.select(model.rows[select].id)
         }
         if let unread { unreadOnly = unread }
-        if let search { debugSearch(search) }
+        if let search { debugSearch(search, query: query) } else if let query { debugSearch(true, query: query) }
         (split?.superview ?? self).layoutSubtreeIfNeeded()
         func frame(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
         let h = header

@@ -15,6 +15,9 @@ import Foundation
 /// `team` (at most 12) lists that many fixture team members with no DM after the conversations
 /// (`team: 0` removes them). `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
 /// after the rows (no `count` keeps them); the answer carries the header's frames.
+/// `messages` [{row, text}] answers the list's message search with those messages of the fixture
+/// rows (a message containing every typed word matches); `messages: []` gives the search back to
+/// the owner. `query` types into the search field, as a person does.
 /// `new_message` (a team size) opens New Message and fills its list with fixture Chiefs and teammates;
 /// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows).
 @MainActor
@@ -40,7 +43,9 @@ enum DebugHomeSidebarFixture {
             }
             page.list.update(page.sidebar.model())
         }
-        if params["count"] != nil || params["chiefs"] != nil || !["width", "select", "search", "unread", "team"].contains(where: { params[$0] != nil }) {
+        if let messages = params["messages"]?.arrayValue { fixtureMessages(messages, page: page, services: services) }
+        if params["count"] != nil || params["chiefs"] != nil
+            || !["width", "select", "search", "unread", "team", "messages", "query"].contains(where: { params[$0] != nil }) {
             let count = min(names.count, max(0, params["count"]?.intValue ?? 5)), pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
             let me = services.home.homeStore.me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
             let chiefs = (params["chiefs"]?.arrayValue ?? []).compactMap { entry -> (id: String, name: String)? in
@@ -53,8 +58,35 @@ enum DebugHomeSidebarFixture {
             for row in page.sidebar.debugRows.prefix(pinned) where !page.sidebar.pins.isPinned(row) { page.sidebar.setPinned(true, row.id) }
             page.list.update(page.sidebar.model())
         }
-        guard let look = page.list.debugLook(width: params["width"]?.doubleValue, select: params["select"]?.intValue, unread: params["unread"]?.boolValue, search: params["search"]?.boolValue) else { return .object(["error": .string("no such row")]) }
+        guard let look = page.list.debugLook(width: params["width"]?.doubleValue, select: params["select"]?.intValue, unread: params["unread"]?.boolValue,
+                                             search: params["search"]?.boolValue, query: params["query"]?.stringValue) else {
+            return .object(["error": .string("no such row")])
+        }
         return JSONValue(foundation: look.merging(["rows": page.sidebar.debugRows.map(\.id.rawValue)]) { a, _ in a }) ?? .null
+    }
+
+    /// The list's message search answers from `messages` ({row, text}: a message in the fixture row
+    /// at `row`, an hour apart, newest first); none gives the search back to the owner.
+    static func fixtureMessages(_ messages: [JSONValue], page: TopHomePageView, services: AppServices) {
+        guard !messages.isEmpty else {
+            let home = services.home
+            page.list.searchMessages = { query in (try? await home.homeStore.search(query, limit: 20)) ?? [] }
+            return
+        }
+        let rows = page.sidebar.debugRows
+        let now = Date()
+        let hits = messages.enumerated().compactMap { i, entry -> HomeSearchHit? in
+            guard let row = entry["row"]?.intValue, rows.indices.contains(row), let text = entry["text"]?.stringValue else { return nil }
+            let conversation = rows[row].id // checked: indices.contains above
+            let message = Message(id: MessageID("msg_fixture_\(i)"), conversation: conversation, seq: Seq(i + 1),
+                                  clientMessageID: IdempotencyKey("msg_fixture_\(i)"), author: ParticipantID("user_fixture_\(row)"),
+                                  parts: [.text(text)], createdAt: now.addingTimeInterval(Double(-(i + 1) * 3600)))
+            return HomeSearchHit(conversation: conversation, message: message, highlights: [])
+        }
+        page.list.searchMessages = { query in
+            let words = query.lowercased().split(separator: " ")
+            return hits.filter { hit in words.allSatisfy { hit.message.plainText.lowercased().contains($0) } }
+        }
     }
 
     /// One DM with each Chief, a minute apart, through the same mirror path real inbox rows take.
