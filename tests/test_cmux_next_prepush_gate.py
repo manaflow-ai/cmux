@@ -911,6 +911,7 @@ class SwiftFormatLaneTests(unittest.TestCase):
         try:
             self.binary = self.gate.ensure_tool(lock, "swiftformat")
         except SystemExit as refused:
+            # skip-owner: PL-guardrails; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
             self.skipTest(f"no pinned swiftformat here: {refused}")
         self.config = SOURCE / "scripts/cmux-next/lint/swiftformat.conf"
         temporary = tempfile.TemporaryDirectory(prefix="cmux-swiftformat-lane-")
