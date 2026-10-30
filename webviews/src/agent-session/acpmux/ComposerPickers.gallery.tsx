@@ -353,14 +353,17 @@ const effortFocus: Play = async (ctx) => {
     const highlighted = ctx.document.querySelector(".acpmux-quick-menu [data-highlighted]");
     return highlighted !== null && highlighted !== checked;
   });
+  // The first Escape closes the effort dropdown back to its row; the next closes the menu.
   await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-effort-menu"));
+  if (ctx.document.querySelector('[role="menu"]')) await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
 const effortPick: Play = async (ctx) => {
   const levels = await openEffortMenu(ctx);
   const high = [...levels.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment")].find(
-    (segment) => segment.textContent?.trim() === "High",
+    (segment) => (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.trim() === "High",
   );
   if (!high) throw new Error("the current model's effort control offers no High");
   await ctx.click({ selector: `.acpmux-quick-menu [aria-label="${high.getAttribute("aria-label")}"]` });
