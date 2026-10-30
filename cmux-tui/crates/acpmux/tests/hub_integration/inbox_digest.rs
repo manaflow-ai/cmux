@@ -791,45 +791,62 @@ async fn messages_drained_twice_follow_the_newest_digest_at_a_restart() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A digest whose turn never reached its agent (the agent could not start again: its folder is
-/// gone) puts the messages it took back unheld, as a failed start puts back any agent message
-/// that joined it: each gets its own try at once, not after the held messages' retry wait.
+/// A digest whose turn never reached its agent (it cannot start) puts the messages it took back
+/// unheld, as a failed start puts back any agent message that joined it: each gets its own try
+/// at once, not after the held messages' retry wait (10 s at first).
 #[tokio::test]
 async fn a_digest_whose_agent_cannot_start_puts_its_messages_back_unheld() {
-    let root = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
-    let (state, folder) = (root.join("state"), root.join("work"));
-    std::fs::create_dir_all(&folder).unwrap();
-    let hub = durable_hub(&state);
-    // A held message's own retry waits out the test.
-    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
-    let mut c = connect(&hub).await;
-    let s = c.request(method::SESSION_NEW, json!({"cwd": folder, "mcpServers": []})).await;
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
     let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
-    let turn =
-        c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel-then-exit", Some("p-turn"))).await;
-    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "answer-then-exit", Some("p-exit")))
+        .await
+        .unwrap();
+    let s = hub.resolve(&id).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while s.meta().status != acpmux::store::SessionStatus::Disconnected {
+        assert!(tokio::time::Instant::now() < deadline, "the agent never exited");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // From now on the agent cannot start at all, and takes a moment to say so.
+    let mut config = hub.config.write().await;
+    let fake = config.harnesses.get_mut("fake").unwrap();
+    fake.env.insert("FAKE_DIE_AT_START".to_owned(), "cannot start".to_owned());
+    fake.env.insert("FAKE_INIT_DELAY_MS".to_owned(), "1000".to_owned());
+    drop(config);
+
+    // The person's prompt starts the agent; the messages wait behind it and go into a digest.
+    let first = c.send(method::SESSION_PROMPT, prompt(&id, "mine", Some("p-me"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-me").await;
     let a = queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     let b = queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
     let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
     assert_eq!((made["digested"].clone(), made["delivery"].clone()), (json!(2), json!("queued")));
     let digest = made["promptId"].as_str().unwrap().to_owned();
-    std::fs::remove_dir_all(&folder).unwrap();
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-    c.response(turn).await;
+    let (failed, _) = c.response(first).await;
+    assert!(failed.is_err(), "the agent started: {failed:?}");
 
-    // Each tries on its own and is answered from that try, well before a held retry.
-    let answered = tokio::time::timeout(Duration::from_secs(15), answers(&mut c, &[a, b])).await;
-    let answered = answered.expect("a message the digest put back stayed held");
-    for answer in answered.values() {
-        assert_ne!(answer["_meta"]["acpmux"]["joinedPromptId"], *digest, "{answer}");
+    // The digest's start fails too; each message then tries on its own, at once.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+    let mut left = vec![a, b];
+    while !left.is_empty() {
+        let line = tokio::time::timeout_at(deadline, c.rx.recv())
+            .await
+            .expect("a message the digest put back stayed held")
+            .expect("connection closed");
+        if let Message::Response { id: rid, error, .. } = Message::parse(&line).unwrap()
+            && let Some(rid) = rid.as_i64().filter(|rid| left.contains(rid))
+        {
+            let error = error.expect("an agent that cannot start answered");
+            assert!(!error.message.contains(digest.as_str()), "{error:?}");
+            left.retain(|l| *l != rid);
+        }
     }
     let events = hub.events(&id, 0, 10_000).unwrap();
-    let held = find(&events, "queue_paused")
-        .into_iter()
-        .any(|e| e.msg["held"].as_array().is_some_and(|h| h.contains(&json!("p-a"))));
-    assert!(!held, "the messages went back held");
+    let back = find(&events, "queued").into_iter().filter(|e| e.msg["requeued"] == true).count();
+    assert_eq!(back, 2, "the digest's failed start did not put them back");
+    assert!(find(&events, "queue_paused").is_empty(), "a failed start held the queue");
     hub.shutdown_all().await;
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// A digest goes behind the person's prompts, a held one included: draining agent messages moves
