@@ -637,9 +637,12 @@ class WorkflowTests(unittest.TestCase):
         new ready-for-review event. github.sha under pull_request_target is the base branch's tip."""
         text = (ROOT / ".github/workflows/cmux-next-defaults-guard.yml").read_text(encoding="utf-8")
         step = text.split("- name: Check out the trusted guard (base)", 1)[1].split("- name:", 1)[0]
-        self.assertIn("ref: ${{ github.sha }}", step)
-        self.assertNotIn("pull_request.base.sha", step)
+        ref = next(line.split("ref:", 1)[1].strip() for line in step.splitlines() if line.strip().startswith("ref:"))
+        # An open pull request reads the base tip; the merge receipt (closed) never reads github.sha,
+        # which is then the merge commit, the pull request's own code.
+        self.assertEqual(ref, "${{ github.event.action == 'closed' && github.event.pull_request.base.sha || github.sha }}")
         self.assertIn("pull_request_target:", text)
+        self.assertNotIn("\n  push:", text.split("jobs:", 1)[0])
 
 
 if __name__ == "__main__":
