@@ -5,7 +5,7 @@ import {
   isImageFile,
   linkAttachment,
   linkItems,
-  readAttachment,
+  readImageAttachment,
   savedAttachment,
   type AttachmentError,
   type ComposerAttachment,
@@ -87,7 +87,7 @@ export async function intakeFiles(
   await Promise.all(
     files.map(async (file, index) => {
       const result = isImageFile(file)
-        ? await readAttachment(file, options.allowImages).catch(() => undefined)
+        ? await readImageAttachment(file, options.allowImages).catch(() => undefined)
         : undefined;
       const image = result && !("reason" in result) ? result : undefined;
       const path = (await known)?.[index];
@@ -121,7 +121,10 @@ export async function intakeFiles(
         }
         waiting.push({ index, file, ...(image ? { image } : {}) });
       } else if (!image) {
-        fail(index, { name: file.name, reason: result && "reason" in result ? result.reason : "unsupported" });
+        fail(index, {
+          name: file.name,
+          reason: result && "reason" in result ? result.reason : "unsupported",
+        });
       }
     }),
   );

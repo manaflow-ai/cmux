@@ -93,7 +93,8 @@ export type DictationAudio = {
   accepts: boolean;
   chat?(): string | undefined;
   elsewhere?(): void;
-  attach(audio: DictationRecording): void;
+  /// An upload may finish later. False or rejection keeps the dictated words unsent.
+  attach(audio: DictationRecording): void | Promise<void | boolean>;
   omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
 };
 
@@ -132,6 +133,9 @@ export function useDictation(
 
   useEffect(() => {
     let composing = false;
+    let disposed = false;
+    let revision = 0;
+    let submitTimer: ReturnType<typeof setTimeout> | undefined;
     /// The last update spliced; a repeat (a level-only tick) leaves the prompt and caret alone.
     let applied: DictationUpdate | null = null;
     /// The field element the session writes into.
@@ -150,6 +154,8 @@ export function useDictation(
       }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
+      const currentRevision = ++revision;
+      const chat = shownChat.current?.();
       // The final recording and transcript belong to the chat where recording began.
       // Never splice or auto-send either into a chat the pane navigated to while closing.
       if (update.session !== undefined && shownChat.current && update.session !== (shownChat.current() ?? "")) {
@@ -158,9 +164,10 @@ export function useDictation(
         if (update.state === "idle" && !update.cancelled) audioElsewhere.current?.();
         return;
       }
-      // The recording joins the composer before the words do, so an auto-send takes both.
+      // Begin saving the recording before splicing words; auto-send waits for both.
+      let attached: void | Promise<void | boolean> = undefined;
       if (update.state === "idle" && !update.cancelled && acceptsAudioNow.current) {
-        if (update.audio) attachAudio.current?.(update.audio);
+        if (update.audio) attached = attachAudio.current?.(update.audio);
         else if (update.audioOmitted) omitAudio.current?.(update.audioOmitted);
       }
       // A session the shortcut started writes where the user will type, as undoable edits.
@@ -172,7 +179,21 @@ export function useDictation(
       field.writeText(splice.value, splice.selectionStart, splice.selectionEnd);
       // Submit on the next task, once the composer's state holds the dictated text.
       if (update.state === "idle" && !update.cancelled && autoSend && splice.placed)
-        setTimeout(() => (field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit()), 0);
+        void Promise.resolve(attached).then(
+          (ready) => {
+            const stillHere = () =>
+              !disposed &&
+              revision === currentRevision &&
+              prompt.current === field &&
+              shownChat.current?.() === chat &&
+              field.text().value === splice.value;
+            if (ready === false || !stillHere()) return;
+            submitTimer = setTimeout(() => {
+              if (stillHere()) field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit();
+            }, 0);
+          },
+          () => {},
+        );
     };
     const receive = (update: DictationUpdate) => {
       requested.current = false;
@@ -208,6 +229,8 @@ export function useDictation(
     document.addEventListener("compositionend", compositionEnd, true);
     listeners.add(receive);
     return () => {
+      disposed = true;
+      if (submitTimer !== undefined) clearTimeout(submitTimer);
       listeners.delete(receive);
       document.removeEventListener("compositionstart", compositionStart, true);
       document.removeEventListener("compositionend", compositionEnd, true);

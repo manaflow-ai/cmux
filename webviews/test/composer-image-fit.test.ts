@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  IMAGE_BUDGET_BYTES,
-  MAX_IMAGE_BYTES,
-  MAX_IMAGE_SIDE,
-  readAttachment,
-} from "../src/agent-session/acpmux/attachments";
+import { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, readImageAttachment } from "../src/agent-session/acpmux/attachments";
 
 /// A fake engine: createImageBitmap reports `width`×`height`; each canvas encodes to `encoded(type)`
 /// bytes (given the canvas width) and records its size, so a test sees what was drawn and which
@@ -43,12 +38,13 @@ afterEach(() => {
   delete g.OffscreenCanvas;
 });
 
-const big = (name: string, type = "image/png") => new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], name, { type });
+const LARGE_IMAGE_BYTES = 5 * 1024 * 1024;
+const big = (name: string, type = "image/png") => new File([new Uint8Array(LARGE_IMAGE_BYTES + 1)], name, { type });
 
 describe("an image over the per-image limit", () => {
   test("attaches scaled to the longest side as PNG when that fits", async () => {
     const drawn = installEngine(5120, 2880, () => 1024);
-    const result = await readAttachment(big("image.png"), true);
+    const result = await readImageAttachment(big("image.png"), true);
     expect("reason" in result).toBe(false);
     if ("reason" in result) return;
     expect(result).toMatchObject({
@@ -62,41 +58,44 @@ describe("an image over the per-image limit", () => {
   });
 
   test("keeps the scaled image's base64 under the limit, not only its bytes", async () => {
-    const limit = Math.floor((MAX_IMAGE_BYTES * 3) / 4);
+    const limit = Math.floor((LARGE_IMAGE_BYTES * 3) / 4);
     installEngine(4000, 4000, (type) => (type === "image/png" ? limit + 1 : limit));
-    const result = await readAttachment(big("image.png"), true);
+    const result = await readImageAttachment(big("image.png"), true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
     expect(result.mimeType).toBe("image/jpeg");
-    expect(result.data!.length).toBeLessThanOrEqual(MAX_IMAGE_BYTES);
+    expect(result.data!.length).toBeLessThanOrEqual(LARGE_IMAGE_BYTES);
   });
 
   test("encodes a JPEG source straight to JPEG, and names a re-encoded GIF .png", async () => {
     const drawn = installEngine(6000, 4000, () => 1024);
-    const photo = await readAttachment(big("photo.jpeg", "image/jpeg"), true);
+    const photo = await readImageAttachment(big("photo.jpeg", "image/jpeg"), true);
     expect(photo).toMatchObject({ name: "photo.jpg", mimeType: "image/jpeg" });
     expect(drawn.map((d) => d.type)).toEqual(["image/jpeg"]);
-    expect(await readAttachment(big("anim.gif", "image/gif"), true)).toMatchObject({
+    expect(await readImageAttachment(big("anim.gif", "image/gif"), true)).toMatchObject({
       name: "anim.png",
       mimeType: "image/png",
     });
   });
 
   test("falls back to JPEG, renamed, when the scaled PNG is still too large", async () => {
-    installEngine(4000, 4000, (type) => (type === "image/png" ? MAX_IMAGE_BYTES + 1 : 2048));
-    const result = await readAttachment(big("Screen Shot.png"), true);
+    installEngine(4000, 4000, (type) => (type === "image/png" ? LARGE_IMAGE_BYTES + 1 : 2048));
+    const result = await readImageAttachment(big("Screen Shot.png"), true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
     expect(result).toMatchObject({ name: "Screen Shot.jpg", mimeType: "image/jpeg", size: 2048 });
   });
 
   // Leo, 2026-10-24: "we shouldn't have this limit". Past every step the smallest try goes.
   test("is never refused for its size: past every step its smallest try goes", async () => {
-    const drawn = installEngine(4000, 4000, () => MAX_IMAGE_BYTES + 1);
-    expect(await readAttachment(big("huge.png"), true)).toMatchObject({ name: "huge.jpg", mimeType: "image/jpeg" });
+    const drawn = installEngine(4000, 4000, () => LARGE_IMAGE_BYTES + 1);
+    expect(await readImageAttachment(big("huge.png"), true)).toMatchObject({
+      name: "huge.jpg",
+      mimeType: "image/jpeg",
+    });
     expect(drawn.at(-1)).toEqual({ width: 512, height: 512, type: "image/jpeg" });
   });
 
   test("goes as a file where the engine cannot draw images", async () => {
-    expect(await readAttachment(big("image.png"), true)).toEqual({
+    expect(await readImageAttachment(big("image.png"), true)).toEqual({
       name: "image.png",
       reason: "unsupported",
     });
@@ -110,7 +109,7 @@ describe("any image", () => {
 
   test("wider than the longest side is scaled to it, however few its bytes", async () => {
     const drawn = installEngine(3024, 1964, () => 512 * 1024);
-    const result = await readAttachment(small("Screenshot.png"), true);
+    const result = await readImageAttachment(small("Screenshot.png"), true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
     expect(result).toMatchObject({
       name: "Screenshot.png",
@@ -122,7 +121,7 @@ describe("any image", () => {
 
   test("within the side and the budget is still reencoded to strip metadata", async () => {
     const drawn = installEngine(1200, 800, () => 1);
-    const gif = await readAttachment(small("party.gif", "image/gif"), true);
+    const gif = await readImageAttachment(small("party.gif", "image/gif"), true);
     expect(gif).toMatchObject({ name: "party.png", mimeType: "image/png", size: 1 });
     expect([...drawn]).toEqual([{ width: 1200, height: 800, type: "image/png" }]);
     expect(drawn.closed).toBe(1);
@@ -136,7 +135,7 @@ describe("any image", () => {
     const drawn = installEngine(4000, 3000, (type, width) =>
       type === "image/jpeg" && width <= 1200 ? IMAGE_BUDGET_BYTES : IMAGE_BUDGET_BYTES * 2,
     );
-    const result = await readAttachment(heavy, true);
+    const result = await readImageAttachment(heavy, true);
     if ("reason" in result) throw new Error(`refused: ${result.reason}`);
     expect(result).toMatchObject({
       name: "noise.jpg",
@@ -147,7 +146,7 @@ describe("any image", () => {
   });
 
   test("does not pass unsanitized bytes through when the image engine is unavailable", async () => {
-    expect(await readAttachment(small("plain.png"), true)).toEqual({
+    expect(await readImageAttachment(small("plain.png"), true)).toEqual({
       name: "plain.png",
       reason: "unsupported",
     });

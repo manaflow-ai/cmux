@@ -7,8 +7,7 @@ import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
 import {
-  MAX_AUDIO_BYTES,
-  audioAttachment,
+  INLINE_AUDIO_BUDGET_BYTES,
   promptBlocks,
   recordingAttachment,
   recordingLeftOutNotice,
@@ -111,7 +110,13 @@ test("a harness that takes audio gets the recording before the words, and the ho
   expect(pane.calls).toContainEqual(["dictation.audio", { enabled: true }]);
   await act(async () => {
     deliverDictation({ state: "listening", text: "fix the", level: 0.4, cancelled: false });
-    deliverDictation({ state: "idle", text: "fix the build", level: 0, cancelled: false, audio: clip });
+    deliverDictation({
+      state: "idle",
+      text: "fix the build",
+      level: 0,
+      cancelled: false,
+      audio: clip,
+    });
   });
   expect(pane.attached).toEqual([{ audio: clip, textThen: "fix the" }]);
   expect(pane.text()).toBe("fix the build");
@@ -141,9 +146,14 @@ test("a chat without audio keeps plain dictation", async () => {
   root = undefined;
 });
 
-test("the recording goes to the agent as an ACP audio block after the transcript", () => {
-  const recording = audioAttachment(clip, "Voice recording")!;
-  expect(recording).toMatchObject({ kind: "audio", mimeType: "audio/wav", size: 4, data: clip.data });
+test("the recording goes to the agent as an ACP audio block after the transcript", async () => {
+  const recording = (await recordingAttachment(clip, "Voice recording", false, async () => "/unused"))!;
+  expect(recording).toMatchObject({
+    kind: "audio",
+    mimeType: "audio/wav",
+    size: 4,
+    data: clip.data,
+  });
   expect(promptBlocks("fix the build", [recording])).toEqual([
     { type: "text", text: "fix the build" },
     { type: "audio", mimeType: "audio/wav", data: clip.data },
@@ -179,7 +189,13 @@ test("a recording left out says why, and only to a harness that takes audio", as
   const pane = await mount(true);
   await act(async () => {
     deliverDictation({ state: "listening", text: "a long one", level: 0.4, cancelled: false });
-    deliverDictation({ state: "idle", text: "a long one", level: 0, cancelled: false, audioOmitted: "tooLong" });
+    deliverDictation({
+      state: "idle",
+      text: "a long one",
+      level: 0,
+      cancelled: false,
+      audioOmitted: "tooLong",
+    });
   });
   expect(pane.omitted).toEqual(["tooLong"]);
   expect(pane.attached).toEqual([]);
@@ -189,32 +205,31 @@ test("a recording left out says why, and only to a harness that takes audio", as
   const plain = await mount(false);
   await act(async () => {
     deliverDictation({ state: "listening", text: "words", level: 0.4, cancelled: false });
-    deliverDictation({ state: "idle", text: "words", level: 0, cancelled: false, audioOmitted: "narrowband" });
+    deliverDictation({
+      state: "idle",
+      text: "words",
+      level: 0,
+      cancelled: false,
+      audioOmitted: "narrowband",
+    });
   });
   expect(plain.omitted).toEqual([]);
   act(() => root?.unmount());
   root = undefined;
 });
 
-test("a recording past the byte cap is no attachment", () => {
-  // Two minutes of 16 kHz 16-bit mono plus its header fits under the cap.
+test("a recording within the inline budget stays an audio block", async () => {
   const twoMinutes = "A".repeat(Math.ceil(((44 + 16_000 * 2 * 120) * 4) / 3));
-  expect(audioAttachment({ mimeType: "audio/wav", data: twoMinutes }, "Voice recording")).toBeDefined();
-  const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
-  expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
-});
-
-test("a recording kept out by the byte cap gets a notice that does not claim two minutes", async () => {
-  const { translate } = await import("../src/agent-session/acpmux/i18n");
-  const { recordingLeftOutNotice } = await import("../src/agent-session/acpmux/attachments");
-  // The byte cap's path, as App.tsx's `attach` takes it: no attachment, then the notice.
-  const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
-  expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
-  const capped = translate(recordingLeftOutNotice("tooLarge"), {}, "en");
-  expect(capped).toBe("The voice recording is too long to attach, so the prompt gets the transcript only.");
-  // The host's two-minute stop reads the same; a narrowband mic keeps its own reason.
-  expect(translate(recordingLeftOutNotice("tooLong"), {}, "en")).toBe(capped);
-  expect(translate(recordingLeftOutNotice("narrowband"), {}, "en")).not.toBe(capped);
+  const chip = await recordingAttachment(
+    { mimeType: "audio/wav", data: twoMinutes },
+    "Voice recording",
+    false,
+    async () => {
+      throw new Error("must stay inline");
+    },
+  );
+  expect(chip).toMatchObject({ kind: "audio", data: twoMinutes });
+  expect(chip!.size).toBeLessThanOrEqual(INLINE_AUDIO_BUDGET_BYTES);
 });
 
 // Review of #27012 (P2): a recording the host could not write (a full disk, a folder that is not
@@ -231,9 +246,13 @@ test("a recording the host could not save gets a notice that says the audio was 
 
 // Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE". A recording too
 // long to go inline is the WAV the host wrote on this Mac: a local chat's agent gets that file.
-test("a long recording goes to a local chat as its saved file, of any size", () => {
-  const long = { mimeType: "audio/wav", path: "/tmp/cmux-dictation/Recording-a.wav", byteCount: 96_000_044 };
-  const chip = recordingAttachment(long, "Voice recording", true)!;
+test("a long recording goes to a local chat as its saved file, of any size", async () => {
+  const long = {
+    mimeType: "audio/wav",
+    path: "/tmp/cmux-dictation/Recording-a.wav",
+    byteCount: 96_000_044,
+  };
+  const chip = (await recordingAttachment(long, "Voice recording", true, async () => "/unused"))!;
   expect(chip).toMatchObject({
     kind: "link",
     saved: true,
@@ -244,10 +263,13 @@ test("a long recording goes to a local chat as its saved file, of any size", () 
   const blocks = promptBlocks("hello", [chip]);
   expect(blocks).toContainEqual(expect.objectContaining({ type: "resource_link", uri: `file://${long.path}` }));
   // A chat on another computer cannot open this Mac's file: the transcript goes, with a notice.
-  expect(recordingAttachment(long, "Voice recording", false)).toBeUndefined();
+  expect(await recordingAttachment(long, "Voice recording", false, async () => "/unused")).toBeUndefined();
   expect(recordingLeftOutNotice("elsewhere")).toBe("dictation.recordingElsewhere");
   // One that fits a prompt still goes as an audio block, local or not.
-  expect(recordingAttachment(clip, "Voice recording", false)).toMatchObject({ kind: "audio", data: clip.data });
+  expect(await recordingAttachment(clip, "Voice recording", false, async () => "/unused")).toMatchObject({
+    kind: "audio",
+    data: clip.data,
+  });
 });
 
 // A slow writer lets the pane navigate before its last recording update arrives.
@@ -292,15 +314,26 @@ test("auto-send waits for the recording upload before submitting its words", asy
   const { deliverDictation, configureDictation } = await import("../src/agent-session/acpmux/dictation");
   configureDictation({ dictation: { autoSend: true } });
   let finish!: () => void;
-  const saved = new Promise<void>((resolve) => { finish = resolve; });
+  const saved = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
   const pane = await mount(true, undefined, () => saved);
   await act(async () => {
     deliverDictation({ state: "listening", text: "keep audio", level: 0, cancelled: false });
-    deliverDictation({ state: "idle", text: "keep audio", level: 0, cancelled: false, audio: clip });
+    deliverDictation({
+      state: "idle",
+      text: "keep audio",
+      level: 0,
+      cancelled: false,
+      audio: clip,
+    });
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
   expect(pane.submitted()).toBe(0);
-  await act(async () => { finish(); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  await act(async () => {
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
   expect(pane.submitted()).toBe(1);
   configureDictation(undefined);
   act(() => root?.unmount());

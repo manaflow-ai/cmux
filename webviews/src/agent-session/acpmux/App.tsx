@@ -7095,10 +7095,29 @@ function AcpmuxPane() {
   const chatIsLocal = useRef(false);
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
-    attach: (audio) => {
-      const recording = recordingAttachment(audio, translate("dictation.recording"), chatIsLocal.current);
-      if (recording) composerHandle.current?.attach(recording);
-      else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "tooLarge")));
+    attach: async (audio) => {
+      const session = sessionIdRef.current;
+      const composer = composerHandle.current;
+      const moved = () => session !== sessionIdRef.current || composer !== composerHandle.current;
+      try {
+        const recording = await recordingAttachment(
+          audio,
+          translate("dictation.recording"),
+          chatIsLocal.current,
+          async (file) => {
+            const result = await uploadFiles([file], moved);
+            if (result && "paths" in result && result.paths[0]) return result.paths[0];
+            throw new Error(result && "error" in result ? result.error : translate("upload.notRead"));
+          },
+        );
+        if (moved()) return false;
+        if (recording) composer?.attach(recording);
+        else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "writeFailed")));
+        return recording !== undefined;
+      } catch (error) {
+        if (!moved()) directClient.current?.notice(errorMessage(error) || String(error));
+        return false;
+      }
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
     chat: () => sessionIdRef.current,

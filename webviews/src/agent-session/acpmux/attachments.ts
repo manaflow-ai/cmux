@@ -1,7 +1,6 @@
 /// Dropped files go to session storage and are linked from the prompt (composer/intakeFiles.ts).
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
-import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
 import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
@@ -42,8 +41,6 @@ export type AttachmentError = {
   name: string;
   reason: "tooLarge" | "unsupported" | "imagesUnsupported";
 };
-/// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
-export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
 export type PromptBlock =
   | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
@@ -118,7 +115,13 @@ export function inlineTokenIds(text: string, known: InlineKnownIds = () => true)
 /// A token-shaped run of a text (`inlineTokenSpans`): `known`, of an attachment's id; `place`, that
 /// attachment's place (its first token); otherwise a token whose attachment is not there (gone, or
 /// a second of one id).
-export type InlineTokenSpan = { from: number; to: number; id: string; place: boolean; known: boolean };
+export type InlineTokenSpan = {
+  from: number;
+  to: number;
+  id: string;
+  place: boolean;
+  known: boolean;
+};
 
 const NONE_PLACED: ReadonlySet<string> = new Set();
 
@@ -238,7 +241,10 @@ export function placeInline(
   const strip = attachments
     .filter((attachment) => !placedSet.has(attachment))
     .map(({ inline: _, ...attachment }) => attachment);
-  return { text: out, attachments: [...placed.map((attachment) => ({ ...attachment, inline: true })), ...strip] };
+  return {
+    text: out,
+    attachments: [...placed.map((attachment) => ({ ...attachment, inline: true })), ...strip],
+  };
 }
 
 /// `attachments` with the ones placed in the text (`ids`, in its order, each by its first place, as
@@ -272,7 +278,10 @@ export function bindMarks(
   if (placesById(text, attachments) || !legacyMarks(text, attachments)) return { text, attachments: own };
   const placed = attachments.filter((attachment) => attachment.inline);
   let next = 0;
-  return { text: text.replaceAll(INLINE_ATTACHMENT_MARK, () => inlineToken(placed[next++]!.id)), attachments: own };
+  return {
+    text: text.replaceAll(INLINE_ATTACHMENT_MARK, () => inlineToken(placed[next++]!.id)),
+    attachments: own,
+  };
 }
 
 /// `text` without its attachments' places: for a host that keeps a draft's text and not its
@@ -285,16 +294,7 @@ export function withoutInlineTokens(text: string, known: InlineKnownIds = () => 
 
 export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
-/** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
-/** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
- * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
- * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
- * as a link to its copy (intakeFiles.ts). */
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
-/** A text file this large is already a lot of prompt. */
-export const MAX_TEXT_BYTES = 256 * 1024;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// Pictures the models do not take as they are (an iPhone's HEIC, TIFF, BMP, AVIF) but the engine
 /// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
@@ -309,50 +309,14 @@ export function isImageFile(file: Pick<File, "name" | "type">): boolean {
   );
 }
 
-function isPdf(file: File): boolean {
-  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-}
-
-/// Reads every file in a batch for the composer; per-file size and type rules still apply.
-export async function readAttachments(
-  files: File[],
-  allowImages: boolean,
-): Promise<{ attachments: ComposerAttachment[]; errors: RefusedFile[] }> {
-  const attachments: ComposerAttachment[] = [];
-  const errors: RefusedFile[] = [];
-  for (const file of files) {
-    // A dropped folder arrives as a File whose bytes cannot be read.
-    const result = await readAttachment(file, allowImages).catch((): RefusedFile => ({
-      name: file.name,
-      reason: "unsupported",
-      file,
-      unreadable: true,
-    }));
-    if ("reason" in result) errors.push({ ...result, file });
-    else attachments.push(result);
-  }
-  return { attachments, errors };
-}
-
-export async function readAttachment(
+/// Makes an optional image preview. Original admission belongs to intakeFiles: an undecodable
+/// image, PDF, text file or recording goes through the session's file transport at any size.
+export async function readImageAttachment(
   file: File,
   allowImages: boolean,
   id: string = crypto.randomUUID(),
 ): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
-  if (isPdf(file)) {
-    if (file.size > MAX_DOCUMENT_BYTES) return { name, reason: "tooLarge" };
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    return {
-      id,
-      kind: "document",
-      name,
-      mimeType: "application/pdf",
-      size: file.size,
-      data: base64(bytes),
-      pageCount: pdfPageCount(bytes),
-    };
-  }
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     // A picture the engine cannot decode is not a picture after all: it goes as a file.
@@ -362,10 +326,7 @@ export async function readAttachment(
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
   }
-  if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
-  const text = decodeText(new Uint8Array(await file.arrayBuffer()));
-  if (text === undefined) return { name, reason: "unsupported" };
-  return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
+  return { name, reason: "unsupported" };
 }
 
 /// An image's chip: its metadata-free preview, made off the main thread (composer/imagePool.ts),
@@ -475,9 +436,19 @@ export function orderedDraftParts(
 export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   if (attachment.kind === "image" && attachment.data)
-    blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
+    blocks.push({
+      type: "image",
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+      name: attachment.name,
+    });
   else if (attachment.kind === "document" && attachment.data)
-    blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+    blocks.push({
+      type: "document",
+      mimeType: "application/pdf",
+      data: attachment.data,
+      name: attachment.name,
+    });
   else if (attachment.kind === "audio" && attachment.data)
     blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   else if (attachment.kind === "link" && attachment.path)
@@ -590,48 +561,48 @@ export function takesAudio(promptCapabilities: unknown, configOptions: unknown):
   return Array.isArray(modalities) && modalities.includes("audio");
 }
 
-/// The largest recording a prompt carries: the host stops keeping audio at two minutes (3.84 MB
-/// of 16 kHz PCM), so this only backs that cap up. A bigger clip would go out as one huge JSON
-/// line that the model's API refuses; the transcript goes alone instead.
-export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
-
-/// A dictation session's recording as a chip, for a harness that takes voice input
-/// (`promptCapabilities.audio`): it goes with the prompt beside the transcript. Undefined past
-/// `MAX_AUDIO_BYTES`.
-export function audioAttachment(
-  audio: { mimeType: string; data: string },
-  name: string,
-): ComposerAttachment | undefined {
-  const padding = audio.data.endsWith("==") ? 2 : audio.data.endsWith("=") ? 1 : 0;
-  const size = Math.floor((audio.data.length * 3) / 4) - padding;
-  if (size > MAX_AUDIO_BYTES) return undefined;
-  return {
-    id: crypto.randomUUID(),
-    kind: "audio",
-    name,
-    mimeType: audio.mimeType,
-    size,
-    data: audio.data,
-  };
-}
+/// A prompt's inline audio budget. Larger recordings use file transport, never a larger frame.
+export const INLINE_AUDIO_BUDGET_BYTES = 4 * 1024 * 1024;
 
 /// A finished session's recording for the composer. One that fits a prompt goes as an audio
-/// block; a longer one, the WAV the host wrote on this Mac, goes as a saved original the chat's
+/// block; a longer one, including an older host's inline recording, goes as a saved original the chat's
 /// agent opens (`local`). Undefined for a chat on another computer, which cannot open that file:
 /// its prompt gets the transcript (`recordingLeftOutNotice("elsewhere")`).
-export function recordingAttachment(
+export async function recordingAttachment(
   audio: DictationRecording,
   name: string,
   local: boolean,
-): ComposerAttachment | undefined {
+  save: (file: File) => Promise<string>,
+): Promise<ComposerAttachment | undefined> {
   if (audio.path)
     return local ? { ...savedAttachment(audio.path, `${name}.wav`), size: audio.byteCount ?? 0 } : undefined;
-  return audio.data ? audioAttachment({ mimeType: audio.mimeType, data: audio.data }, name) : undefined;
+  if (!audio.data) return undefined;
+  const padding = audio.data.endsWith("==") ? 2 : audio.data.endsWith("=") ? 1 : 0;
+  const size = Math.floor((audio.data.length * 3) / 4) - padding;
+  if (size <= INLINE_AUDIO_BUDGET_BYTES)
+    return {
+      id: crypto.randomUUID(),
+      kind: "audio",
+      name,
+      mimeType: audio.mimeType,
+      size,
+      data: audio.data,
+    };
+  // Older hosts supplied inline audio only. Decode bounded pieces, yielding between them so
+  // the page stays responsive. Each one-shot yield ends next task; the loop ends with the data.
+  const parts: BlobPart[] = [];
+  const chunk = 256 * 1024;
+  for (let at = 0; at < audio.data.length; at += chunk) {
+    const binary = atob(audio.data.slice(at, at + chunk));
+    parts.push(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+    if (at + chunk < audio.data.length) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const file = new File(parts, `${name}.wav`, { type: audio.mimeType });
+  return { ...savedAttachment(await save(file), file.name), size: file.size, mimeType: file.type };
 }
 
 /// The notice for a recording that goes no further than its transcript: the host left it out
-/// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old
-/// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
+/// (`DictationUpdate.audioOmitted`), its file stays on this Mac for a chat that runs elsewhere, or the host could
 /// not save it (`writeFailed`: a full disk, a folder it cannot write).
 export function recordingLeftOutNotice(
   reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed",
@@ -639,17 +610,6 @@ export function recordingLeftOutNotice(
   if (reason === "elsewhere") return "dictation.recordingElsewhere";
   if (reason === "writeFailed") return "dictation.recordingNotSaved";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
-}
-
-/** Counts PDF page objects without parsing or rendering the document. */
-function pdfPageCount(bytes: Uint8Array): number | undefined {
-  try {
-    const source = new TextDecoder("latin1").decode(bytes);
-    const count = [...source.matchAll(/\/Type\s*\/Page(?:\s|\/|>)/g)].length;
-    return count > 0 ? count : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function longestBacktickRun(text: string): number {
