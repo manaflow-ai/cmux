@@ -21,7 +21,8 @@ extension SidebarBridge {
             doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.dropFold(group) }
             return
         }
-        if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) || handleAbsent(intent, state: state)
+            || SidebarDocWiring.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)

@@ -20,7 +20,9 @@ enum WindowInvariants {
             }
             if !window.isOpen { problems.append("window \(id) is on screen but closed") }
             if window.workspaceIDs.isEmpty { problems.append("window \(id) has 0 workspaces") }
-            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window) {
+            // A kept Cloud workspace that is not connected shows why (P-AUSTIN B7): not an empty window.
+            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window),
+               controller.shownCloudAbsence == nil {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }

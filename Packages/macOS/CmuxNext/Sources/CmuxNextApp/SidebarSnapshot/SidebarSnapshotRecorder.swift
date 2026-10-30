@@ -10,6 +10,9 @@ struct SidebarSnapshotRecorder {
     /// Once incognito, never saved, even after the window leaves the
     /// incognito set on its way out.
     private var everIncognito = false
+    /// The last snapshot saved: the names and looks of the rows the window showed, which a kept Cloud
+    /// workspace's row keeps while no machine lists it (P-AUSTIN B7).
+    private(set) var lastSnapshot: SidebarSnapshot?
 
     /// Saves what `model` shows (placeholders and live-only detail left
     /// out) once the launch is over, only for an open registered window
@@ -22,6 +25,7 @@ struct SidebarSnapshotRecorder {
         if let key = savedKey, key.0 == model.contentRevision, key.1 == model.profiles, key.2 == model.activeProfileID { return }
         savedKey = (model.contentRevision, model.profiles, model.activeProfileID)
         let snapshot = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
+        lastSnapshot = snapshot
         recordSequence += 1
         let store = services.sidebarSnapshots, sequence = recordSequence
         Task { await store.record(snapshot, window: window, sequence: sequence) }

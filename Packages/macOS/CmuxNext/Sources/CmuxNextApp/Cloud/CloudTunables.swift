@@ -21,5 +21,13 @@ nonisolated struct CloudTunables {
         AgentPaneTunables.updatePeersAutomatically.value && updateCloudMachinesAutomatically.value
     }
 
-    static var all: [TunableDescriptor] { [updateCloudMachinesAutomatically.descriptor] }
+    /// How a window shows a kept Cloud workspace that is not connected (signed out, Cloud off, its machine paused
+    /// or not loaded; P-AUSTIN B7). Off: a card in place of its content. On: a bar over the last content it showed
+    /// (a window with none shows the card). Two variants while Lawrence picks one.
+    static let absentBanner = Tunable<Bool>.toggle(
+        "cloud.absentBanner", PageTunables.section, "Show a disconnected Cloud workspace as a banner",
+        help: "Off: a card in place of the workspace says why it is not connected. On: a bar over its last content says it.",
+        default: false, code: "CloudTunables.absentBanner")
+
+    static var all: [TunableDescriptor] { [updateCloudMachinesAutomatically.descriptor, absentBanner.descriptor] }
 }

@@ -7,6 +7,7 @@ import CmuxNextDaemonRecovery
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
@@ -50,6 +51,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// The bar over the last content of a kept Cloud workspace that is not connected (the banner variant, P-AUSTIN B7).
+    private var absentBanner: CloudWorkspaceAbsentView?
     /// What the window shows, for `debug.daemon`: `content` (a workspace), `connecting` (the connecting view) or `none`.
     var recoveryShows: String { content != nil ? "content" : connectingView != nil ? "connecting" : "none" }
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
@@ -204,6 +207,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
         _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled, LayoutTunables.dockedWorkspaces.value)
+        _ = (cloud.isSignedIn, cloud.auth.isRestoring, machines.cloud.map(\.machine.status)) // a kept Cloud workspace's state (P-AUSTIN B7)
         _ = creationKey(state, cloud, machines)
         _ = windows.registry.members(of: state.id)
         for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
@@ -229,11 +233,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
+        // A kept Cloud workspace that is not connected says why, never a blank pane (P-AUSTIN B7).
+        if let requested, let absence = services.windows.cloudAbsence(of: requested) { return showAbsent(requested, absence) }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
+        }
+        if let (id, absence) = members.lazy.compactMap({ id in self.services.windows.cloudAbsence(of: id).map { (id, $0) } }).first {
+            return showAbsent(id, absence)
         }
         // Keep what is shown (the old content stays until the manager
         // closes or refills this window); a window with nothing yet waits.
@@ -257,6 +266,62 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// Shows kept Cloud workspace `id` as not connected (P-AUSTIN B7): the card in place of its
+    /// content, or with Debug Settings `cloud.absentBanner` a bar over the last content it showed. While
+    /// it only connects and the window shows content, that content stays (a redial never flashes).
+    private func showAbsent(_ id: String, _ absence: CloudWorkspaceAbsence) {
+        if state.workspaceID != id { state.workspaceID = id }
+        if absence == .connecting, content != nil { return }
+        let title = sidebar.absentRowTitle(id)
+        if CloudTunables.absentBanner.value, let content, content.workspace.id == id {
+            let banner = absentBanner ?? makeAbsentView(.banner)
+            if banner.superview !== content.contentView {
+                banner.frame = NSRect(x: 0, y: content.contentView.bounds.height - CloudWorkspaceAbsentView.bannerHeight,
+                                      width: content.contentView.bounds.width, height: CloudWorkspaceAbsentView.bannerHeight)
+                banner.autoresizingMask = content.contentView.isFlipped ? [.width, .maxYMargin] : [.width, .minYMargin]
+                if content.contentView.isFlipped { banner.frame.origin.y = 0 }
+                content.contentView.addSubview(banner)
+            }
+            absentBanner = banner
+            banner.show(workspaceID: id, title: title, absence: absence)
+            return
+        }
+        removeAbsentBanner()
+        let card = root.content as? CloudWorkspaceAbsentView ?? makeAbsentView(.card)
+        card.show(workspaceID: id, title: title, absence: absence)
+        if root.content !== card {
+            parkContentForPage()
+            root.show(card)
+            themeScope.show(nil)
+        }
+        titleObservation?.cancel()
+        root.titlebar.title = title
+        services.windows.absentContentDidAppear(self)
+    }
+
+    private func makeAbsentView(_ style: CloudWorkspaceAbsentView.Style) -> CloudWorkspaceAbsentView {
+        CloudWorkspaceAbsentView(style: style) { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .signIn: _ = services.registry.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user))
+            case .resume:
+                guard let id = state.workspaceID, let machine = services.windows.seenMachine[id] else { return }
+                _ = services.registry.perform("cloudResumeMachine", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+            }
+        }
+    }
+
+    private func removeAbsentBanner() {
+        absentBanner?.removeFromSuperview()
+        absentBanner = nil
+    }
+
+    /// The kept Cloud workspace this window shows as not connected, and why (P-AUSTIN B7); nil otherwise.
+    var shownCloudAbsence: (workspaceID: String, absence: CloudWorkspaceAbsence)? {
+        guard let view = absentBanner ?? root.content as? CloudWorkspaceAbsentView else { return nil }
+        return (view.workspaceID, view.absence)
+    }
+
     private func isWaiting(for machineID: String) -> Bool {
         guard services.cloud.isSignedIn || services.cloud.auth.isRestoring else { return false }
         guard services.cloud.hasLoadedMachines else { return true }
@@ -267,6 +332,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
+        removeAbsentBanner()
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
         if let current = content { park(current) }
         DebugWorkspaceSwitch.mark(self, "park")
