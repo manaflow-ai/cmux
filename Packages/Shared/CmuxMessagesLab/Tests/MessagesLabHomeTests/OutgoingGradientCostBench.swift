@@ -7,7 +7,8 @@ import Testing
 /// What one sent-bubble draw pays to make its themed gradient (R10: FixtureTheme keeps the gradient's stops, not a
 /// CGGradient, so it is checked Sendable; a row render, sometimes on the main thread inside its draw budget, makes the
 /// gradient when it draws). Prints nanoseconds per creation (p50, p95, p99, max over `runs`), for the stops path the
-/// draw takes (`Colors.outgoingGradient`: HomeColor -> CGColor -> CGGradient) and for a gradient from ready CGColors.
+/// draw takes (`Colors.outgoingGradient`: a CGGradient from the theme's ready CGColors) and, for comparison, for one
+/// made from the palette's HomeColor stops (HomeColor -> CGColor -> CGGradient).
 /// A measurement, not a gate: quote the `outgoing-gradient-cost` line.
 @Suite(.serialized) struct OutgoingGradientCostBench {
     private static let runs = 20_000
@@ -42,11 +43,12 @@ import Testing
     @Test func gradientCreationPerDraw() {
         let colors = Self.colors()
         _ = Self.nanos { colors.outgoingGradient }  // warm
-        let fromStops = Self.nanos { colors.outgoingGradient }
-        let ready = colors.palette.outgoingGradient.map { $0.color.cgColor } as CFArray
-        let locations = colors.palette.outgoingGradient.map(\.location)
-        let space = CGColorSpace(name: CGColorSpace.sRGB)
-        let fromReady = Self.nanos { CGGradient(colorsSpace: space, colors: ready, locations: locations) }
-        print("outgoing-gradient-cost runs=\(Self.runs) " + Self.line("stops", fromStops) + " | " + Self.line("readyColors", fromReady))
+        let perDraw = Self.nanos { colors.outgoingGradient }
+        let stops = colors.palette.outgoingGradient
+        let fromStops = Self.nanos {
+            CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: stops.map { $0.color.cgColor } as CFArray,
+                       locations: stops.map(\.location))
+        }
+        print("outgoing-gradient-cost runs=\(Self.runs) " + Self.line("perDraw", perDraw) + " | " + Self.line("fromHomeColorStops", fromStops))
     }
 }
