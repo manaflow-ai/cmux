@@ -36,8 +36,8 @@ public final class WhatsNewCenter {
     /// The update this build came from, with its changelog (its lines may
     /// be empty), as the old app recorded it when the update staged. Only
     /// ``dismissUpdated()`` clears it; nil on a first install and after an
-    /// update the old app did not record.
-    public private(set) var lastUpdate: WhatsNewLastUpdate?
+    /// update the old app did not record. Settable inside the module so tests seed the record.
+    public internal(set) var lastUpdate: WhatsNewLastUpdate?
 
     public let current: WhatsNewVersion?
     @ObservationIgnored let seen: WhatsNewSeenStore

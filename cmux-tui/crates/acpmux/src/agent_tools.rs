@@ -23,10 +23,10 @@
 //! - Computer use: when the cmux app exported its tag's helper socket
 //!   (`CMUX_NEXT_CUA_SOCKET`, `cua_socket.rs`), `cmux-cua mcp` gets it as
 //!   `--socket` plus the agent token in its env; this daemon starts no
-//!   helper. The tools refuse the user's cmux and other terminals; a profile
-//!   or preset env with `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS` (for example
-//!   the session's own tagged `com.cmuxterm.app.debug.<tag>`) unlocks exact
-//!   bundle ids for that session only.
+//!   helper. The tools refuse the user's cmux and other terminals. The legacy
+//!   server accepts exact bundle ids from `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS`
+//!   in a profile or preset env. Helper v2 ignores session scope. The cmux app
+//!   sets its policy at launch, with only its own tagged DEV bundle allowed.
 //! - Per-workspace displays (`agent_displays.rs`, a Linux cloud machine
 //!   with `CMUX_AGENT_DISPLAYS=per-workspace`): `cmux-cua mcp` gets its
 //!   workspace's `CMUX_CUA_DISPLAY`, and a session without a workspace gets
@@ -57,6 +57,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 mod cua_helper;
@@ -490,11 +491,17 @@ pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
 
 /// Remove the session's MCP config when the session ends.
 pub fn remove_mcp_config(home: &Path, session_id: &str) {
-    let _ = std::fs::remove_file(mcp_config_path(home, session_id));
+    let path = mcp_config_path(home, session_id);
+    let _ = std::fs::remove_file(crate::bg_hook::denied_path(&path));
+    let _ = std::fs::remove_file(path);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    resolve_with_cua_helper(inputs, cua_helper::installed)
+    let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
+    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+        tools.servers.retain(|server| server.name != "cmux-cua");
+    }
+    tools
 }
 
 fn resolve_with_cua_helper(
@@ -590,7 +597,7 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
-        // instead of `acpmux send` in a shell.
+        // instead of `acpmux send` in a shell; and the chat's daemon-owned background tasks.
         servers.push(McpServer {
             name: crate::acpmux_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
@@ -630,8 +637,9 @@ fn resolve_with_cua_helper(
 
 impl AgentTools {
     /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
-    /// the computer use server. Without one the server gets the key empty,
-    /// so a value inherited from the daemon's env never widens the guard.
+    /// the computer use server. The legacy server uses it; helper v2 ignores it.
+    /// Without one the server gets the key empty, so a value inherited from
+    /// the daemon's env never widens the legacy guard.
     ///
     /// In per-workspace display mode the env's
     /// [`crate::agent_displays::WORKSPACE_KEY`] picks the server's display;
@@ -815,7 +823,7 @@ impl AgentTools {
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
-                    spec["callTimeoutSecs"] = json!(3600);
+                    spec.set("callTimeoutSecs", json!(3600));
                 }
                 spec
             })
@@ -843,20 +851,33 @@ impl AgentTools {
     }
 
     /// Claude Code flags: the servers as `--mcp-config <config_file>` (the
-    /// file is written here), the skills as a session-only plugin.
+    /// file is written here), the skills as a session-only plugin. Without
+    /// servers an earlier launch's file goes: the plugin's background-shell
+    /// hook reads it (`bg_hook.rs`) and must not send the agent to a server
+    /// this launch does not have.
     pub fn claude_args(&self, config_file: &Path) -> Vec<String> {
         let mut args = Vec::new();
+        // Each launch starts the hook's turned-away calls afresh: one from a launch with other
+        // servers is not a retry in this one.
+        let _ = std::fs::remove_file(crate::bg_hook::denied_path(config_file));
+        if self.servers.is_empty() {
+            let _ = std::fs::remove_file(config_file);
+        }
         if let Some(config) = self.mcp_config() {
             match write_private(config_file, config.to_string().as_bytes()) {
                 Ok(()) => {
                     args.push("--mcp-config".into());
                     args.push(config_file.to_string_lossy().into_owned());
                 }
-                // Never fall back to inline JSON: that puts the token in argv.
-                Err(e) => tracing::warn!(
-                    "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
-                    config_file.display()
-                ),
+                // Never fall back to inline JSON: that puts the token in argv. An earlier
+                // launch's file goes too, so the hook never reads servers this one lacks.
+                Err(e) => {
+                    let _ = std::fs::remove_file(config_file);
+                    tracing::warn!(
+                        "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
+                        config_file.display()
+                    )
+                }
             }
         }
         if let Some(dir) = &self.plugin_dir {
@@ -939,6 +960,8 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
         all.extend_from_slice(text.as_bytes());
         all.push(0);
     }
+    let hooks = bg_hooks();
+    all.extend_from_slice(hooks.as_bytes());
     let hash = crate::sha256::sha256_hex(&all);
     let dir = state_dir.join(&hash[..16]);
     if dir.join(".claude-plugin/plugin.json").is_file() {
@@ -953,6 +976,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     });
     let mut files = vec![(".claude-plugin/plugin.json".to_owned(), manifest.to_string())];
     files.extend(SKILL_FILES.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
+    files.push(("hooks/hooks.json".to_owned(), hooks));
     for (path, text) in files {
         let file = tmp.join(path);
         if let Some(parent) = file.parent() {
@@ -972,6 +996,25 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
             Err(e.into())
         }
     }
+}
+
+/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, run by this binary
+/// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
+/// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
+/// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
+/// its content's hash, so each home has its own. Leo, 2026-10-27: "also when it comes to
+/// hibernation...can't you hibernate the agent but not hibernate the bg tasks?"
+fn bg_hooks() -> String {
+    let this = crate::self_command::SelfCommand::current()
+        .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
+    let mut words = vec![this.exe.to_string_lossy().into_owned()];
+    let home = crate::config::home().to_string_lossy().into_owned();
+    words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
+    let quoted: Vec<String> =
+        words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
+    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
+        "hooks": [{"type": "command", "command": quoted.join(" "), "timeout": 10}]}]}})
+    .to_string()
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer
