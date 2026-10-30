@@ -205,6 +205,14 @@ public struct SidebarMapping {
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs, harnessIcons: harnessIcons), front: front,
                             notification: row.notificationText)
+        // Agent-session workspaces use the chat's readable title when available. The daemon's
+        // lane/session id is a routing name, so it must not displace a title or task summary.
+        if let agent = agentTab(tabs, harnessIcons: harnessIcons), let ref = agent.agentSession,
+           let chatTitle = AgentTurnStateStore.shared.title(for: ref)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !chatTitle.isEmpty, chatTitle.caseInsensitiveCompare(row.title) != .orderedSame,
+           chatTitle.caseInsensitiveCompare(ref.session ?? "") != .orderedSame {
+            row.title = chatTitle
+        }
         return row
     }
 
