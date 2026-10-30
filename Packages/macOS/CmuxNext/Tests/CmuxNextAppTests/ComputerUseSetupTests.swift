@@ -99,9 +99,10 @@ struct ComputerUseSetupTests {
         box.value.upstreamFallback = true
         let reader = Reader()
         await reader.answer()
-        let setup = make(box, reader)
+        let rig = MainDeadlineRig()
+        let setup = make(box, reader, rig: rig)
         setup.start()
-        await wait(setup, for: .ready)
+        await wait(setup, for: .ready, rig)
         #expect(setup.pageJSON["driver"] == .string("legacy"))
         #expect(setup.pageJSON["upstream_fallback"] == .bool(true))
         #expect(setup.pageJSON["note"] == .string("Upstream helper isn't in this build; using Legacy"))
