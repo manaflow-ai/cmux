@@ -434,10 +434,15 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
     const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
     const uploaded = await streamPartInto(upload, part, request, length, sha, renew)
     if (uploaded === "unavailable" && !lost) return failure({ status: 503, code: "attachment.part_unavailable", message: `part ${part} could not be stored right now; send it again`, extra: { retryable: true } })
-    if (uploaded === "unavailable" || (!uploaded && lost)) return failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it` })
+    // The client sends the part again: a later request may have stored it (then the retry answers the stored part) or not.
+    const claimLost = () => failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it`, extra: { retryable: true } })
+    if (uploaded === "unavailable" || (!uploaded && lost)) return claimLost()
     if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
+    if (lost) return claimLost()
     const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
     if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
+      // Only the claim's holder may end the slot: a stale request whose claim another one took changes nothing.
+      if (!(await renew.run())) return claimLost()
       // The parts so far are hashed: no retry can fix the file, so the slot ends here.
       const used = await conv.uploadSlot(conversation, id, "multipart", true)
       await upload.abort().catch(() => undefined)
@@ -446,7 +451,8 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
     }
     // The claim ended (the slot expired or ended): nothing was recorded.
     recorded = await conv.recordMultipartPart(conversation, id, part, uploaded.etag, slot.multipart_hash ?? null, after, claimed.claim)
-    if (!recorded) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
+    // Retryable: a part another request stored answers its stored result on the retry; an ended slot answers 403 there.
+    if (!recorded) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended", extra: { retryable: true } })
     return success({ part_number: part, byte_count: length, etag: uploaded.etag })
   } finally {
     // A part that was not recorded frees its claim at once, so the client sends it again.
