@@ -1,40 +1,35 @@
-//! `vmHost`: whether this machine is a dedicated agent VM, where the VM is the
-//! sandbox (`remote_sandbox.rs`: a remote chain's Claude Code runs without
-//! Seatbelt, and the owner's peer daemon's new sessions start approve-all).
+//! `vmHost`: whether this machine takes a caller's VM boundary, the owner's
+//! per-machine toggle. The caller decides the boundary, never this machine
+//! (`vm_boundary.rs`): a remote chain's Claude Code runs without bwrap only
+//! for a session whose caller asked for it, after the Cloud API told that
+//! caller it owns this VM (or its fleet registry says it is a dedicated agent
+//! VM). This setting can only refuse that.
 //!
-//! On by default on a VM cmux itself created, off everywhere else (Leo,
-//! 2026-10-26: "we wanna make it ergo and just like… shit just works. few
-//! permissions. worst cases something happens but you just recover and learn"):
+//! Nothing on the machine turns anything on. The agent user of a Cloud VM has
+//! passwordless sudo, so it can write `/etc/cmux/vm-kind`, remove `/srv/team`,
+//! and as this user write config.json. So:
 //!
-//! - A cmux-created VM is one whose root-owned `/etc/cmux/vm-kind` reads
-//!   `owner` and that has no team files root `/srv/team`, the rule the Cloud
-//!   peer bridge uses (`cmux-tui` `remote_cli/acpmux_peer.rs` `vm_admits`).
-//!   cmux's own creation paths write that file: the machine bind
-//!   (`cmux-host` `cloud/client.rs` `record_owner_kind`) and the devbox
-//!   image's `cmux-vm-kind-sync`. A team VM (shared by people) and every
-//!   personal or SSH-added machine have no `owner` record.
-//! - config.json's `vmHost` wins when present: `false` turns it off on a
-//!   cmux-created VM, and `true` keeps it on wherever a fleet writes it (our
-//!   own GCP lane VMs, leo-workspace `gcp-session-host vm-host`).
-//! - `_acpmux/vm_host {on}` (`acpmux host vm-host [NAME] on|off`, the app's
-//!   machine settings) is the per-machine toggle. Off writes `vmHost: false`;
-//!   on removes the key, back to the default, and is refused on a machine
-//!   cmux did not create. It applies at once, to the sessions started after
-//!   it, with no restart: every use reads it live ([`Hub::vm_host`]).
+//! - `vmHost` (on now, [`Hub::vm_host`], what the app's switch shows): this
+//!   machine takes a caller's boundary ([`Hub::takes_vm_boundary`]: Linux
+//!   only, off once config.json says `vmHost: false`). On changes nothing by
+//!   itself: with no caller asking, a session runs in the platform sandbox
+//!   after its probe and canary (`remote_sandbox.rs`).
+//! - `cmuxVm`: whether the creation marker says cmux created this VM for one
+//!   owner (`/etc/cmux/vm-kind` reads `owner`, no team files root
+//!   `/srv/team`, the rule the Cloud peer bridge uses: `cmux-tui`
+//!   `remote_cli/acpmux_peer.rs` `vm_admits`). For display only.
+//! - `configured`: config.json's `vmHost`; only `false` means anything.
 //!
-//! Who may toggle it: this machine's unix socket and app, and the owner's
-//! peer daemon (`Control::Peer`), never a Web client. Turning it on needs no
-//! person proof: on a cmux-created VM it is the default, and a process that
-//! runs as this user can already write config.json and reload (the
-//! same-uid residual in `person.rs`).
+//! `_acpmux/vm_host {on: false}` writes `vmHost: false`; `{on: true}` removes
+//! it, back to taking a caller's boundary. Both apply at once, to the spawns
+//! after them, with no restart. Who may ask: this machine's unix socket and
+//! app, and the owner's peer daemon (`Control::Peer`), never a Web client.
 
 use super::*;
 
 /// The marker files, under `/` outside tests (`Hub::set_vm_marker_root`).
 const KIND_FILE: &str = "etc/cmux/vm-kind";
 const TEAM_FILES_ROOT: &str = "srv/team";
-/// `error.data.reason` when `on` is asked of a machine cmux did not create.
-pub const NOT_CMUX_VM: &str = "vmHost.not_cmux_vm";
 /// `error.data.reason` when a Web client asks to change it.
 pub const REMOTE_REFUSED: &str = "vmHost.remote";
 
@@ -50,54 +45,39 @@ pub(crate) fn cmux_vm_at(root: &Path) -> bool {
     std::fs::read_to_string(root.join(KIND_FILE)).is_ok_and(|kind| kind.trim() == "owner")
 }
 
-/// Whether `vmHost` is on: the config's own value, else whether cmux created
-/// this VM.
-pub(crate) fn effective(configured: Option<bool>, cmux_vm: bool) -> bool {
-    configured.unwrap_or(cmux_vm)
-}
-
 impl Hub {
     /// Read the creation marker under `root` instead of `/` (tests).
     pub fn set_vm_marker_root(&self, root: PathBuf) {
         *self.vm_marker_root.lock().unwrap_or_else(|e| e.into_inner()) = root;
     }
 
-    /// Whether cmux created this machine as one owner's VM (module docs).
+    /// Whether the creation marker says cmux created this machine as one
+    /// owner's VM (module docs). Guest-writable: for display, never trust.
     pub fn cmux_vm(&self) -> bool {
         let root = self.vm_marker_root.lock().unwrap_or_else(|e| e.into_inner()).clone();
         cmux_vm_at(&root)
     }
 
-    /// Whether this machine is a dedicated agent VM now (module docs). Read
-    /// at each use, so a toggle or a reload applies with no restart.
+    /// Whether this machine takes a caller's VM boundary now (module docs).
     pub async fn vm_host(&self) -> bool {
-        let configured = self.config.read().await.vm_host;
-        effective(configured, configured.is_none() && self.cmux_vm())
+        self.takes_vm_boundary().await
     }
 
     /// `_acpmux/vm_host`'s view of this machine: `vmHost` (on now), `cmuxVm`
-    /// (created by cmux, so on by default) and `configured` (config.json's
-    /// value, null when it follows the default).
+    /// (the creation marker, for display) and `configured` (config.json's
+    /// value, null when absent).
     pub async fn vm_host_view(&self) -> Value {
         let configured = self.config.read().await.vm_host;
-        let cmux_vm = self.cmux_vm();
         json!({
-            "vmHost": effective(configured, cmux_vm),
-            "cmuxVm": cmux_vm,
+            "vmHost": self.vm_host().await,
+            "cmuxVm": self.cmux_vm(),
             "configured": configured,
         })
     }
 
     /// The per-machine toggle (module docs): off writes `vmHost: false`, on
-    /// goes back to the default and is refused unless cmux created this VM.
+    /// removes it.
     pub async fn set_vm_host(&self, on: bool) -> Result<Value, RpcError> {
-        if on && !self.cmux_vm() {
-            return Err(RpcError::new(
-                -32000,
-                "vmHost stays off here: it is only for a VM cmux created (an owner /etc/cmux/vm-kind), never a personal or SSH-added machine",
-            )
-            .with_data(json!({"reason": NOT_CMUX_VM})));
-        }
         {
             let mut cfg = self.config.write().await;
             cfg.vm_host = if on { None } else { Some(false) };
@@ -109,7 +89,7 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::{cmux_vm_at, effective};
+    use super::cmux_vm_at;
 
     /// A fresh machine root with these markers (removed by the caller).
     fn root(kind: Option<&str>, team: bool) -> std::path::PathBuf {
@@ -160,13 +140,5 @@ mod tests {
         if blocked {
             assert!(!admitted, "an unreadable /srv/team must refuse");
         }
-    }
-
-    #[test]
-    fn the_config_value_wins_over_the_marker() {
-        assert!(effective(None, true), "on by default on a cmux VM");
-        assert!(!effective(None, false), "off by default elsewhere");
-        assert!(!effective(Some(false), true), "the toggle turned it off");
-        assert!(effective(Some(true), false), "a fleet turned it on");
     }
 }

@@ -1,0 +1,37 @@
+Lawrence|0.7|Okay, morning everyone, let's do a quick standup and then I want to look at the nightly.
+Austin|0.6|Morning. So the cloud workspace PR is still open, I fixed the review comments last night.
+Lawrence|0.7|Nice. Is that the one where every new workspace gets its own Freestyle VM?
+Austin|0.6|Yes, twenty six oh seven eight. The only thing left is the pause and resume timing for metering.
+Leo|0.5|I merged the setup wizard yesterday, so environments have a first screen now.
+Lawrence|0.7|Cool. What's missing for snapshots?
+Leo|0.5|We need the start script and the env vars tied to the vault, and nothing stores the snapshot id yet.
+Lawrence|0.7|Okay. Chief, make a task to store the snapshot id on the environment record and show it in the wizard.
+Leo|0.5|That works for me, I can review it.
+Aziz|0.6|On my side the Home group chats are faster now, p95 went from four and a half seconds to about one.
+Lawrence|0.7|That's great. Did that reach production or only staging?
+Aziz|0.6|Only staging. It goes out with the normal promote.
+Lawrence|0.7|Fine. Let's look at the nightly. Can everyone see my screen?
+Austin|0.6|Yes, I see the GitHub actions page.
+Lawrence|0.7|So notarization failed again last night. It says the signature is invalid for the helper.
+Austin|0.6|That's the server helper, I think its entitlements changed in the bundle script.
+Lawrence|0.7|Chief, find out why notarization of the server helper failed in last night's nightly and fix the bundle script.
+Aziz|0.6|Also the sidebar footer is still too tall on small screens.
+Lawrence|0.7|Yeah, I saw that. Somebody should take a look at it this week, it's not urgent.
+Leo|0.5|I'll do the footer, I have the context from the last rework.
+Lawrence|0.7|Thanks. Other thing, the metering design. We want ClickHouse as the source of truth.
+Austin|0.6|PostHog can mirror the events for product analytics, and Stripe only gets monthly totals.
+Lawrence|0.7|Right, we don't want to be coupled to a closed platform where we can't export.
+Austin|0.6|Freestyle has no webhooks, so we poll the VM state every thirty seconds for now.
+Lawrence|0.7|Polling is fine for the prototype, but log the transitions with timestamps.
+Aziz|0.6|What about lunch, are we ordering again today?
+Leo|0.5|I'm fine with the Thai place.
+Lawrence|0.7|Sure, Thai again. Okay, last thing. The voice room prototype, I'm testing it right now.
+Austin|0.6|Is it recording all of this?
+Lawrence|0.7|Yes, the transcript is on device and only the cheap model sees the text. The pause button stops it for everyone.
+Austin|0.6|Okay good. Can it join from a phone?
+Lawrence|0.7|Through the tailnet link it should, it's a normal web page.
+Lawrence|0.7|Chief, after this call send me a summary of who owns what from this standup.
+Leo|0.5|Should I post the footer fix to feat cmux next directly?
+Lawrence|0.7|Yes, plain push, rebased, no force.
+Aziz|0.6|I'll also look at the reply bubble color, the blue circle was missing in the screenshot.
+Lawrence|0.7|Okay, that's everything. Thanks everyone.

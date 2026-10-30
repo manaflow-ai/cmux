@@ -100,4 +100,28 @@ import Testing
         #expect(harness.rowIsOn == false, "a failed write leaves the row on the stored value")
         #expect(!harness.storedIsOn)
     }
+
+    @Test func exportedPaletteRowsComeFromTheDescriptorRegistry() async throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-palette-registry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let source = SettingsPaletteSource(settings: settings, themeColors: { [] })
+        let rows = source.rows
+        let expected = Set(SettingsSchema.all.filter(\.isPaletteExposed).map(\.id))
+        #expect(Set(rows.map(\.id)) == expected)
+
+        let items = await SettingsPaletteProvider(source: source, showsItemsForEmptyQuery: true).items()
+        let settingItems = items.filter { $0.id.hasPrefix("setting:") }
+        #expect(Set(settingItems.map(\.id)) == Set(rows.map { "setting:\($0.id)" }))
+        for row in rows {
+            let descriptor = try #require(SettingsSchema.descriptor(for: row.id.split(separator: ".").map(String.init)))
+            #expect(descriptor.surfacePlan.palette.row == "setting:\(row.id)", Comment(rawValue: row.id))
+        }
+    }
 }

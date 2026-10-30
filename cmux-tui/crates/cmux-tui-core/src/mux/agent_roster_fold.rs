@@ -28,7 +28,21 @@ impl Mux {
         {
             return Ok(());
         }
-        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
+        use crate::journal_reducers::hook_roster_state;
+        let native_event =
+            ingress.payload.get("native_event").and_then(Value::as_str).unwrap_or_default();
+        // Attention-worthy transitions earn a notification even when they
+        // leave the roster state as it is (a failed tool call of a working
+        // agent: PostToolUseFailure keeps it working but still reports the
+        // error).
+        let notification = agent_hook_notification(ingress);
+        // Only a kind that moves a terminal under some current state, or
+        // earns a notification, gets past this guard.
+        if notification.is_none()
+            && hook_roster_state(&ingress.kind, native_event, Some(AgentState::Blocked)).is_none()
+        {
+            return Ok(());
+        }
         let Some(terminal_subject) =
             ingress.subjects.iter().find(|subject| subject.kind == "terminal")
         else {
@@ -36,6 +50,13 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
+        // A completed tool call resumes only a blocked agent, so the roster's state decides it.
+        let current =
+            self.agent_records.lock().unwrap().get(&terminal_id).map(|record| record.state);
+        let state = hook_roster_state(&ingress.kind, native_event, current);
+        if state.is_none() && notification.is_none() {
+            return Ok(());
+        }
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             // A durable terminal that is still live may be between journal
             // commit and host materialization. A missing or tombstoned
@@ -113,19 +134,12 @@ impl Mux {
         ) else {
             return Ok(());
         };
-        let next_fence = HookFence::next(
-            previous_fence.as_ref(),
-            agent_session_id.clone(),
-            sequence,
-            state == AgentState::Done,
-            observed_at_ms,
-        );
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
         // replays the notification instead of posting it twice, and the fence
         // (stored by the report) still advances exactly once.
-        if let Some((title, body, level)) = agent_hook_notification(ingress) {
+        if let Some((title, body, level)) = notification {
             self.create_durable_notification(
                 &Actor::Daemon,
                 &format!("agent-hook-notification-{sequence}"),
@@ -138,6 +152,16 @@ impl Mux {
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
         }
+        // A notification that leaves the roster state as it is reports
+        // nothing and leaves the fence where the last report stored it.
+        let Some(state) = state else { return Ok(()) };
+        let next_fence = HookFence::next(
+            previous_fence.as_ref(),
+            agent_session_id.clone(),
+            sequence,
+            state == AgentState::Done,
+            observed_at_ms,
+        );
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         let marker = if state == AgentState::Done {

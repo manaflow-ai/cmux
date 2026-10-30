@@ -97,7 +97,9 @@ class NoHostedMacInNightlies(unittest.TestCase):
         read = set()
         for path in scoped_workflows():
             for line in path.read_text(encoding="utf-8").splitlines():
-                if re.search(r"runs-on:|_runner:|^\s+- \$\{\{", line):
+                # A picker's OWNED_LABELS and CANDIDATE reach runs-on through its outputs
+                # (nightly-next-train.yml's pick-train-runner reads vars.NIGHTLY_NEXT_TRAIN_RUNNER there).
+                if re.search(r"runs-on:|_runner:|^\s+- \$\{\{|^\s+(?:OWNED_LABELS|CANDIDATE):", line):
                     read |= set(re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", line))
         self.assertIn("NIGHTLY_NEXT_TRAIN_RUNNER", read)
         self.assertEqual(read - policy.NO_HOSTED_MAC_VARIABLES, set(), "add to NO_HOSTED_MAC_VARIABLES")

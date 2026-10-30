@@ -130,6 +130,8 @@ public final class SidebarModel {
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
+    /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
+    @ObservationIgnored public var drawnSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
@@ -174,6 +176,8 @@ public final class SidebarModel {
     /// The section layout to draw (plans/cmux-next/sidebar-sections.md):
     /// the App fills it with the store's document plus pending intents.
     public var layout: SidebarLayoutDocument = .defaults
+    /// References hidden from list rows after the document arranges machine and group items.
+    @ObservationIgnored public var hiddenItemRefs: Set<LayoutItemRef> = []
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
@@ -349,7 +353,13 @@ public final class SidebarModel {
     public func section(_ id: SectionID) -> SidebarSection? { sections.first { $0.id == id } }
 
     /// Selected ids in visual order.
-    public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
+    /// A pinned workspace drawn only as a tile is no section node: such ones come first, in drawn order (#27701).
+    public var orderedSelection: [WorkspaceID] {
+        let listed = SidebarEdits.treeOrder(selection, in: sections)
+        guard listed.count < selection.count else { return listed }
+        let tiles = selection.subtracting(listed)
+        return drawnSelectionOrder().filter(tiles.contains) + listed
+    }
 
     /// What a row verb on `id` (Close, Pin, Duplicate, Move Up/Down, from its menu or a key) acts
     /// on: the whole selection, in row order, when `id` is one of two or more selected rows;
@@ -375,7 +385,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab, .moveTab:
+        case .selectTab, .moveTab, .closeTab:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
@@ -388,7 +398,7 @@ public final class SidebarModel {
             dropClosed(Set(ids), oldOrder: oldOrder)
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
+        case .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
              .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio, .addItems:
             break
         case let .layout(op):
@@ -421,7 +431,7 @@ public final class SidebarModel {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
+        sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
     }
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural

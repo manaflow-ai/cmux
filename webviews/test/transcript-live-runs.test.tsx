@@ -43,7 +43,13 @@ function drawnRuns(liveRuns: boolean): Record<string, string> {
   return Object.fromEntries(
     shaped
       .filter((entry) => entry.kind === "activity")
-      .map((entry) => [entry.id, renderToStaticMarkup(<ToolRows row={entry} />).replace(/<[^>]+>/g, " ")]),
+      // Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+      .map((entry) => [
+        entry.id,
+        renderToStaticMarkup(<ToolRows row={entry} />)
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " "),
+      ]),
   );
 }
 

@@ -35,6 +35,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STEER,
     method::MUX_BRIEFS,
     method::MUX_REPORT,
+    // A GitHub action is for this daemon's own caller session (`github_broker.rs`).
+    method::MUX_GITHUB_ACTION,
+    // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
+    method::MUX_GITHUB_APP_LEASE,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -45,6 +49,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
+    // Mesh enqueue borrows only this daemon's identity, after its local-socket check.
+    method::MUX_MESH_CONTROL,
+    // Forwarded by its own handler, which answers for a peer that is down (`session_auth.rs`).
+    method::MUX_SESSION_AUTH,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
     method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
@@ -77,13 +85,23 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
 /// proof (`mark_forwarded` drops the provenance), so without it the peer records the agent's
 /// report as the person's (claude-sr2, 2026-10-24: every remote lane's report a plain bubble), and
 /// a keyed prompt could replace another sender's (`hub/supersede.rs`). The person names no one.
+/// That session's id and harness go too (`fromSessionId`, `fromHarness`), this daemon's word on
+/// its proven caller; whatever a client wrote there is dropped first, and only a prompt that came
+/// over a peer link itself keeps what that link said (`prompt_provenance::FROM_SESSION_ID`).
 fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
+    if conn.origin != Origin::Peer {
+        crate::prompt_provenance::drop_sender_fields(p);
+    }
     if conn.is_person() {
         return;
     }
     let Some(caller) = conn.caller() else { return };
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
         crate::hub::merge_mux_meta(p, json!({"fromAgent": hub.session_name(caller)}));
+    }
+    if let Ok(from) = hub.resolve(caller) {
+        let sender = crate::prompt_provenance::BoundSender::of_session(&from.id, &from.meta());
+        crate::hub::merge_mux_meta(p, sender.mux_fields());
     }
 }
 
@@ -104,7 +122,11 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    forward_inner(hub, conn, m, params).await.transpose()
+    let reply = forward_inner(hub, conn, m, params).await.transpose();
+    if conn.origin == Origin::Peer {
+        return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
+    }
+    reply
 }
 
 async fn forward_inner(
@@ -324,7 +346,7 @@ async fn forward_inner(
                                     "peer": peer.name,
                                     "method": m,
                                 }))
-                        } else if m == method::MUX_PERMISSION_RESPOND {
+                        } else if matches!(m, method::MUX_PERMISSION_RESPOND | method::MUX_PERMISSION_GROUP_RESPOND) {
                             // A refused answer names the peer that refused it, so the app can say
                             // where to enroll this Mac (`hub/mac_approvers.rs`).
                             name_peer(e, &peer.name)
@@ -348,11 +370,8 @@ async fn forward_inner(
         {
             obj.insert("presence".into(), crate::hub::presence::none(&id));
         }
-        // This daemon's link is never the person on the peer, so the peer
-        // refuses every group allow it forwards (`hub/person.rs`), whatever
-        // its build says: the client draws none.
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
-            result["allowRefused"] = json!(crate::hub::person::REASON);
+            mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
         }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
@@ -369,8 +388,11 @@ async fn forward_inner(
         return Ok(Some(result));
     }
     // `PEER/name` for a peer that is down and lists no such session: say
-    // the peer is unreachable, not that the session does not exist.
+    // the peer is unreachable, not that the session does not exist. A peer daemon's
+    // connection never learns this host's peers or their state (`redact::hide_peers_from_peer`):
+    // it gets the answer a name no peer has gets.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && conn.origin != Origin::Peer
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
         && let Some(e) = hub.peer_down_for(key)
@@ -378,6 +400,27 @@ async fn forward_inner(
         return Err(e);
     }
     Ok(None)
+}
+
+/// A peer's `_acpmux/permission_groups` reply, as this daemon's client may draw it. This
+/// daemon's link is never the person on the peer, so the peer refuses every group allow it
+/// forwards (`hub/person.rs`), whatever its build says: the client draws none
+/// (`allowRefused`). One exception: the peer counts an enrolled Mac's signed Allow once
+/// (`macAllowOnce`), and the reader is this machine's person whose app holds this Mac's
+/// approver key (`mac_signs`): it may draw Allow once and Deny, never Allow for the chat.
+fn mac_group_read(result: &mut Value, mac_signs: bool) {
+    if !(mac_signs && result.get("macAllowOnce") == Some(&Value::Bool(true))) {
+        result["allowRefused"] = json!(crate::hub::person::REASON);
+        return;
+    }
+    if let Some(obj) = result.as_object_mut() {
+        obj.remove("allowRefused");
+    }
+    for group in result.get_mut("groups").and_then(Value::as_array_mut).into_iter().flatten() {
+        if let Some(decisions) = group.get_mut("decisions").and_then(Value::as_array_mut) {
+            decisions.retain(|d| d != "allow_chat");
+        }
+    }
 }
 
 /// Drop from a peer's reply for its session `id` every ask the peer may
@@ -458,6 +501,30 @@ mod tests {
         assert_eq!(e.data.as_ref().unwrap()["reason"], crate::hub::person::REASON);
         let e = name_peer(RpcError::internal("x").with_data(json!({"peer": "far"})), "hb");
         assert_eq!(e.data.unwrap()["peer"], "hb");
+    }
+
+    /// A peer's group read: the person here whose app holds this Mac's key draws Allow once and
+    /// Deny when the peer counts a Mac's signed allow; every other reader, or a peer that does
+    /// not say so, draws no Allow.
+    #[test]
+    fn a_peers_group_read_draws_allow_once_only_for_a_mac_that_signs() {
+        let read = || {
+            json!({"groups": [{"decisions": ["allow_once", "allow_chat", "deny"]}],
+                   "allowRefused": crate::hub::person::REASON, "macAllowOnce": true})
+        };
+        let mut r = read();
+        mac_group_read(&mut r, true);
+        assert!(r.get("allowRefused").is_none(), "{r}");
+        assert_eq!(r["groups"][0]["decisions"], json!(["allow_once", "deny"]));
+        let mut r = read();
+        mac_group_read(&mut r, false);
+        assert_eq!(r["allowRefused"], crate::hub::person::REASON);
+        assert_eq!(r["groups"][0]["decisions"].as_array().unwrap().len(), 3);
+        for old in [json!({"groups": []}), json!({"groups": [], "macAllowOnce": false})] {
+            let mut r = old;
+            mac_group_read(&mut r, true);
+            assert_eq!(r["allowRefused"], crate::hub::person::REASON, "{r}");
+        }
     }
 
     /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to

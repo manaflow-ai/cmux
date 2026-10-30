@@ -12,7 +12,8 @@
 //! - Otherwise each file is uploaded to the receiving chat first, in chunks of at most
 //!   `file_uploads::CHUNK_BYTES` read from disk as they go, and the prompt names it by reference
 //!   (`prompt_uploads.rs`): the daemon that runs the chat puts an image the agent can take inline
-//!   and gives it every other file by its path.
+//!   and gives it every other file by its path. The sender says how far it is, retries what a
+//!   flaky link loses, and resumes an upload a sender that died began (`attach/upload.rs`).
 //!
 //! The prompt then goes as every prompt goes (direct, through the outbox, or whole over the peer
 //! link), so the send rules, the prompt id's run-once ledger and the `--from` provenance are
@@ -35,10 +36,14 @@ use crate::client::Client;
 use crate::rpc::{RpcError, method};
 use anyhow::Context;
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+mod upload;
+pub use upload::Say;
 
 /// The `initialize` feature of a daemon that saves a message's attachments.
 pub const FEATURE: &str = "sendAttach";
@@ -131,11 +136,13 @@ pub fn block(name: &str, bytes: &[u8]) -> Value {
 /// `daemon` (`acpmux send --attach`, the cmux-subsessions `send_message` tool): inline when they
 /// fit ([`fits_inline`]), else each uploaded to the chat and named by reference, whatever their
 /// size or number. A file that cannot be read, or an upload the daemon refuses, fails the send.
+/// `say` gets the uploads' progress lines (`attach/upload.rs`).
 pub async fn blocks_for(
     daemon: &Client,
     session: &str,
     text: &str,
     paths: &[PathBuf],
+    say: Say<'_>,
 ) -> anyhow::Result<Vec<Value>> {
     let mut sizes = Vec::with_capacity(paths.len());
     for path in paths {
@@ -171,8 +178,9 @@ pub async fn blocks_for(
     // far, none of them finished yet, so nothing is left behind for a send that never happens.
     let mut sent: Vec<Sent> = Vec::with_capacity(paths.len());
     let mut failure = None;
+    let mut progress = upload::Progress::start(say, &chat, &sizes);
     for (path, size) in paths.iter().zip(sizes) {
-        match upload(daemon, &chat, path, size).await {
+        match upload::upload(daemon, &chat, path, size, &mut progress).await {
             Ok(one) => sent.push(one),
             Err((e, begun)) => {
                 sent.extend(begun);
@@ -182,22 +190,52 @@ pub async fn blocks_for(
         }
     }
     if failure.is_none() {
+        let since = std::time::Instant::now();
         for one in &sent {
             let finish = json!({"sessionId": chat, "uploadId": one.id, "fileName": one.name,
                 "size": one.size});
-            if let Err(e) = daemon.request(method::MUX_FILE_PUT_FINISH, finish).await {
-                failure = Some(anyhow::anyhow!("cannot attach {}: {e:#}", one.name));
+            let what = format!("finishing {}", one.name);
+            // A repeated finish answers the same, so one whose answer the link lost is asked again.
+            let finished = upload::retrying(daemon, say, &what, since, || {
+                daemon.request(method::MUX_FILE_PUT_FINISH, finish.clone())
+            });
+            if let Err(e) = finished.await {
+                failure = Some(upload::failure(daemon, &one.name, e));
                 break;
             }
         }
     }
+    // Finished: a later send of the same files uploads them again, for its own prompt. A record
+    // that cannot be removed would let a later send take this prompt's upload as its own, so the
+    // send fails instead and its uploads go.
+    if failure.is_none()
+        && let Some(stuck) = sent.iter().filter_map(|one| one.record.as_ref()).find(|r| !r.forget())
+    {
+        failure = Some(anyhow::anyhow!(
+            "cannot remove the upload record {}; the files were not sent",
+            stuck.path().display()
+        ));
+    }
     if let Some(e) = failure {
+        // A link that stopped: each upload with a record stays for the same send to resume
+        // (`attach/upload.rs`), and the age sweep takes it if that never comes. The rest go.
+        let stopped = e.downcast_ref::<upload::LinkStopped>().is_some();
+        let mut kept = 0;
         for one in &sent {
+            if stopped && one.record.is_some() {
+                kept += 1;
+                continue;
+            }
             let cancel = json!({"sessionId": chat, "uploadId": one.id, "ownerToken": one.owner});
             let _ = daemon.request(method::MUX_FILE_PUT_CANCEL, cancel).await;
+            one.forget();
+        }
+        if kept > 0 {
+            return Err(anyhow::anyhow!("{e:#}; run the same send again to resume the upload"));
         }
         return Err(e);
     }
+    progress.finished();
     Ok(sent.iter().map(Sent::block).collect())
 }
 
@@ -222,16 +260,26 @@ struct Sent {
     size: u64,
     /// Its first bytes, which say whether it is an image.
     head: Vec<u8>,
+    /// The record a later send resumes it by, held by this sender (`attach/upload.rs`); none
+    /// from an older daemon, or while another sender holds it.
+    record: Option<upload::Record>,
 }
 
 impl Sent {
+    /// Removes its resume record: it was cancelled.
+    fn forget(&self) {
+        if let Some(record) = &self.record {
+            record.forget();
+        }
+    }
+
     /// The block that names the upload (`prompt_uploads.rs`), marked as this prompt's own: the
     /// daemon deletes it if the prompt is refused before the chat takes it (`Saved`).
     fn block(&self) -> Value {
         let (id, name) = (&self.id, &self.name);
         let mut upload = json!({"uploadId": id, "fileName": name});
         if let Some(token) = &self.owner {
-            upload["owned"] = json!(token);
+            upload.set("owned", json!(token));
         }
         let meta = json!({"acpmux": {"upload": upload}});
         match image_type(&self.head) {
@@ -239,54 +287,6 @@ impl Sent {
             None => json!({"type": "resource_link", "name": name,
                 "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
         }
-    }
-}
-
-/// Begins an upload of the file at `path`, `size` bytes, to chat `chat` and sends its bytes in
-/// chunks read as they go. A failure answers the upload when it was begun, for the caller to
-/// cancel.
-async fn upload(
-    daemon: &Client,
-    chat: &str,
-    path: &Path,
-    size: u64,
-) -> Result<Sent, (anyhow::Error, Option<Sent>)> {
-    let label = path.display();
-    let name = safe_name(&path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
-    // With its reason: the CLI prints the outer message only.
-    let context = |e: anyhow::Error| anyhow::anyhow!("cannot attach {label}: {e:#}");
-    let mut file = tokio::fs::File::open(path).await.map_err(|e| (context(e.into()), None))?;
-    let begin = json!({"sessionId": chat, "fileName": name, "size": size, "forPrompt": true});
-    let begun = daemon.request(method::MUX_FILE_PUT_BEGIN, begin).await;
-    let begun = begun.map_err(|e| (context(e), None))?;
-    let Some(id) = begun.get("uploadId").and_then(Value::as_str) else {
-        return Err((anyhow::anyhow!("the daemon gave no uploadId for {label}"), None));
-    };
-    let owner = begun.get("ownerToken").and_then(Value::as_str).map(str::to_owned);
-    let mut one = Sent { id: id.to_owned(), owner, name, size, head: Vec::new() };
-    let sent = async {
-        use tokio::io::AsyncReadExt;
-        let mut buf = vec![0u8; crate::hub::file_uploads::CHUNK_BYTES];
-        let mut offset = 0u64;
-        while offset < size {
-            let want = usize::try_from((size - offset).min(buf.len() as u64))?;
-            file.read_exact(&mut buf[..want])
-                .await
-                .with_context(|| format!("{label} changed while it was sent"))?;
-            if one.head.is_empty() {
-                one.head = buf[..want.min(64)].to_vec();
-            }
-            let data = base64::engine::general_purpose::STANDARD.encode(&buf[..want]);
-            let chunk =
-                json!({"sessionId": chat, "uploadId": one.id, "offset": offset, "data": data});
-            daemon.request(method::MUX_FILE_PUT_CHUNK, chunk).await?;
-            offset += want as u64;
-        }
-        anyhow::Ok(())
-    };
-    match sent.await {
-        Ok(()) => Ok(one),
-        Err(e) => Err((context(e), Some(one))),
     }
 }
 
@@ -410,9 +410,10 @@ pub fn receive(
         let sniffed = crate::hub::prompt_images::sniffed_type(&bytes);
         let mime = sniffed.unwrap_or("application/octet-stream");
         saved.push(format!("- {} ({mime}, {})", path.display(), mib(bytes.len())));
-        blocks[index] = match image_type(&bytes) {
+        let Some(block) = blocks.get_mut(index) else { continue };
+        *block = match image_type(&bytes) {
             Some(mime) => json!({"type": "image", "mimeType": mime, "name": name,
-                                 "data": data_of(&blocks[index]).unwrap_or_default()}),
+                                 "data": data_of(block).unwrap_or_default()}),
             None => {
                 json!({"type": "resource_link", "uri": file_uri(&path), "name": name, "mimeType": mime})
             }

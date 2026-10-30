@@ -41,7 +41,7 @@ impl Hub {
                 return Err(RpcError::not_found(self.unfound(query, None, shown)));
             }
             let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
-            return Ok(json!({"session": matches[0], "matches": matches, "link": null}));
+            return Ok(json!({"session": matches.first(), "matches": matches, "link": null}));
         }
         let (link, found) = match crate::agent_link::find(query) {
             Some(Err(e)) => {
@@ -58,7 +58,7 @@ impl Hub {
         }
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         Ok(json!({
-            "session": matches[0],
+            "session": matches.first(),
             "matches": matches,
             "link": link.map(|l| json!({
                 "harness": l.harness,
@@ -68,6 +68,27 @@ impl Hub {
                 "message": l.message,
             })),
         }))
+    }
+
+    /// Read one exact mux session id without rebuilding the complete session list.
+    /// This is an opt-in operation for native callers that already have the id;
+    /// the normal resolver above keeps its name, prefix and link semantics.
+    pub fn locate_exact(&self, query: &str, names_hosts: bool) -> Result<Value, RpcError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(RpcError::invalid_params("sessionId is required"));
+        }
+        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let shown = names_hosts.then_some(own.as_str());
+        let summary = self
+            .session_summaries_of(&[query.to_owned()])
+            .remove(query)
+            .ok_or_else(|| RpcError::not_found(self.unfound(query, None, shown)))?;
+        // `card` derives the display host from the cached row's peer marker.
+        // Session summaries do not carry a host field, so do not overwrite
+        // that derived locality with a missing value.
+        let session = card(&summary, None);
+        Ok(json!({"session": session}))
     }
 
     /// Where `locate` looked, for its not-found error: this machine and its peers by name, which
@@ -150,20 +171,27 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
     found
 }
 
-/// The sessions `key` names, by the first rule that finds any: an id (acpmux's, qualified or
-/// the harness's) or whole name; a bead id the session carries (`beads.rs`); `HOST/NAME` on
-/// that host (this machine's name included); a bare name on any host.
+/// The sessions `key` names: ids take precedence over names. A bare name includes every
+/// host, so a local chat cannot hide a peer's chat with the same name from control callers.
+/// Qualified names select their host; bead ids still find the sessions that carry them.
 fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     let exact: Vec<&Value> = summaries
         .iter()
         .filter(|s| {
-            ["sessionId", "qualifiedSessionId", "agentSessionId", "name"]
+            ["sessionId", "qualifiedSessionId", "agentSessionId"]
                 .iter()
                 .any(|f| s[*f].as_str() == Some(key))
         })
         .collect();
     if !exact.is_empty() {
         return exact;
+    }
+    let named: Vec<&Value> = summaries
+        .iter()
+        .filter(|s| s["name"].as_str() == Some(key) || bare_name(s) == key)
+        .collect();
+    if !named.is_empty() {
+        return named;
     }
     if crate::beads::is_bead_id(key) {
         let carry = by_bead(summaries, key);
@@ -172,13 +200,26 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
         }
     }
     if let Some((host, rest)) = key.split_once('/') {
-        return summaries
+        let on_host: Vec<&Value> =
+            summaries.iter().filter(|s| host_of(s, own).eq_ignore_ascii_case(host)).collect();
+        let exact: Vec<&Value> = on_host
             .iter()
-            .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
+            .copied()
             .filter(|s| bare_name(s) == rest || s["sessionId"].as_str() == Some(rest))
             .collect();
+        if !exact.is_empty() {
+            return exact;
+        }
+        return on_host.into_iter().filter(|s| key_prefix(s, rest)).collect();
     }
-    summaries.iter().filter(|s| bare_name(s) == key).collect()
+    summaries.iter().filter(|s| key_prefix(s, key)).collect()
+}
+
+/// Keep the CLI's unique id/name prefixes, collecting all candidates before a control
+/// caller chooses one. A prefix never wins over an exact id or name.
+fn key_prefix(summary: &Value, key: &str) -> bool {
+    summary["sessionId"].as_str().is_some_and(|id| id.starts_with(key))
+        || bare_name(summary).starts_with(key)
 }
 
 /// The sessions that carry bead `id` (`beads.rs`).
@@ -307,7 +348,7 @@ mod tests {
         let rows = rows();
         assert_eq!(ids(&by_key(&rows, "hb/m2", "big-red")), ["m2"]);
         assert_eq!(ids(&by_key(&rows, "a2", "big-red")), ["m2"]);
-        assert_eq!(ids(&by_key(&rows, "review", "big-red")), ["m1"]);
+        assert_eq!(ids(&by_key(&rows, "review", "big-red")), ["m1", "m3"]);
         assert_eq!(ids(&by_key(&rows, "big-red/review", "big-red")), ["m1"]);
         assert_eq!(ids(&by_key(&rows, "builder", "big-red")), ["m2"]);
         assert!(by_key(&rows, "nobody", "big-red").is_empty());

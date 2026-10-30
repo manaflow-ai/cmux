@@ -19,6 +19,7 @@
 
 use super::*;
 use crate::config::HarnessKind;
+use cmux_json::JsonSet as _;
 
 /// The longest `from` (serialized) a guarded finish records.
 const MAX_FROM: usize = 4 << 10;
@@ -206,9 +207,9 @@ pub(super) fn guarded_record(rec: &mut EventRecord, control: Control) {
     if matches!(rec.kind.as_str(), "queued" | "queue_updated" | "turn_started")
         && rec.msg.is_object()
     {
-        rec.msg["control"] = json!(control.as_str());
+        rec.msg.set("control", json!(control.as_str()));
         if control == Control::Web {
-            rec.msg["trustGate"] = json!(true);
+            rec.msg.set("trustGate", json!(true));
         }
     }
 }
@@ -290,6 +291,8 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_slice(&raw)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
+        // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
+        super::policy_source::settle_imported_grant(&mut meta);
         let wanted = cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
         meta.cwd = guard.folder(&wanted).await.ok_or_else(|| {
             guard_error("cwd", format!("{wanted:?} is not a folder under the move's roots"))

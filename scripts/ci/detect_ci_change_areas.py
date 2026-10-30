@@ -1023,6 +1023,8 @@ def is_web_change(path: str) -> bool:
         "scripts/build-webviews-app.sh",
         # react-apps-check runs the webviews tests through it.
         "scripts/ci/run-webviews-tests.sh",
+        # and splits and orders its files by recorded duration through this.
+        "scripts/ci/webviews_test_shards.py",
         # and compares its reds with the base's through these.
         "scripts/ci/webviews-tests-new-reds.sh",
         "scripts/ci/webviews_test_results.py",
