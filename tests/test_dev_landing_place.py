@@ -153,6 +153,18 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(place.overflow_label(large, broken, now)[0], large)
         self.assertEqual(place.overflow_label("macos-26", lambda: snap({}), now), ("macos-26", ""))
 
+    def test_the_overflow_skips_a_dead_label_a_stale_snapshot_shows(self):
+        # 2026-10-30: blacksmith-12vcpu-macos-26 started nothing for about a day; the janitor's snapshot is
+        # often older than the stall rule's 15 minutes, and the overflow then took OVERFLOW_LABEL unchecked.
+        now = place.dt.datetime(2026, 10, 30, 19, 0, tzinfo=place.dt.timezone.utc)
+        large, small = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
+        stale = {"generated_at": "2026-10-30T18:22:00Z",
+                 "pools": {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 5}},
+                 "label_started": {small: "2026-10-30T18:21:00Z"}}
+        self.assertEqual(place.overflow_label(large, lambda: stale, now)[0], small)
+        older = {key: value for key, value in stale.items() if key != "label_started"}
+        self.assertEqual(place.overflow_label(large, lambda: older, now)[0], large)
+
     def test_a_mac_freed_during_the_wait_is_taken(self):
         def runners(read):
             return [runner("cmux13-glaeda-4", SIDE, busy=read < 3)]

@@ -1126,6 +1126,9 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
+    #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
+    pub usage_warnings: UsageWarningsConfig,
     /// Labs-only transport switches (`transport.wireguard`).
     #[serde(default)]
     pub transport: TransportConfig,
@@ -1707,6 +1710,8 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+mod usage_warnings;
+pub use usage_warnings::{UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;
 pub mod profiles;

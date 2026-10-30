@@ -232,6 +232,40 @@ test("cancel resolution and the old grace deadline do not end Stopping", () =>
     expect(f.shown().stopping).toBeUndefined();
   }));
 
+// Leo, 2026-10-29: "i literally can't stop you i clicked the stop button and it didnt do anything".
+// A Stop acpmux refuses (a chat on another machine that only its owner can stop) comes back as
+// `_acpmux/cancel_refused`: the turn runs on, so it no longer reads as stopping, and the chat says why.
+test("a refused Stop stops reading as stopping and says why", () =>
+  withStoppingClient(async (f) => {
+    const { translate } = await import("./i18n");
+    await f.start();
+    const notes = () =>
+      f
+        .shown()
+        .rows.filter((row) => row.kind === "notice")
+        .map((row) => row.text);
+    const before = notes().length;
+    await f.client.cancel();
+    expect(f.shown().stopping).toBe(true);
+    const deliver = (params: unknown) =>
+      (f.socket as unknown as { deliver(message: unknown): void }).deliver({
+        jsonrpc: "2.0",
+        method: "_acpmux/cancel_refused",
+        params,
+      });
+    const reason = "This chat runs on lane-host, and only its owner can stop it";
+    // Another chat's refusal is not this one's.
+    deliver({ sessionId: "another-chat", message: reason, reason: "remote.session_cancel_ownership" });
+    expect(f.shown().stopping).toBe(true);
+    expect(notes()).toHaveLength(before);
+    deliver({ sessionId: f.id, message: reason, reason: "remote.session_cancel_ownership" });
+    await f.until(() => f.shown().stopping === undefined);
+    expect(f.shown().isWorking).toBe(true);
+    const said = translate("queue.stopRefused", { reason });
+    expect(said).toContain(reason);
+    expect(notes().slice(before)).toEqual([said]);
+  }));
+
 test("a failed cancel send leaves Stop available for a successful retry", () =>
   withStoppingClient(async (f) => {
     await f.start();

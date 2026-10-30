@@ -46,6 +46,8 @@
 //!   (`tools.remote`). Turning an MCP server on, or reconnecting it, makes
 //!   the harness start the stdio command the user's config names on this
 //!   machine; unlike a mode, no asking table makes that safe.
+//! - Web and Peer: no `session/cancel` of a chat started on this machine, but from the
+//!   owner's own peer daemon (`cancel_owner.rs`).
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
@@ -80,6 +82,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+mod cancel_owner;
 pub(super) mod hint;
 mod peer_folder;
 pub(super) use hint::POLICY_REFUSED;
@@ -226,7 +229,7 @@ async fn check_inner(
             .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
     }
     if m == method::SESSION_CANCEL && web {
-        check_cancel_ownership(hub, params)?;
+        cancel_owner::check(hub, origin, auth, params)?;
     }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
@@ -530,30 +533,6 @@ pub(super) async fn local_trust_folder(
         return Err(outside_roots("cwd"));
     }
     Ok(())
-}
-
-/// A remote connection may stop only a session that was created by a remote
-/// origin. Local-origin sessions belong to the person at this daemon, even
-/// when a Web/Peer caller can resolve their id.
-fn check_cancel_ownership(
-    hub: &std::sync::Arc<crate::hub::Hub>,
-    params: &Value,
-) -> Result<(), RpcError> {
-    let key = super::session_key(params)?;
-    match hub.resolve(key) {
-        Ok(session) if session.meta().remote_origin => Ok(()),
-        Ok(_) => Err(
-            RpcError::invalid_params(
-                "session/cancel is refused for a local-origin session; only its local owner may cancel it",
-            )
-            .with_data(serde_json::json!({"reason": "remote.session_cancel_ownership"})),
-        ),
-        Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
-        Err(e) => Err(RpcError::invalid_params(format!(
-            "session/cancel from a remote WebSocket connection is refused: the session cannot be resolved ({})",
-            e.message
-        ))),
-    }
 }
 
 /// The asking modes for `family`: the merged table (`web_modes.rs`).

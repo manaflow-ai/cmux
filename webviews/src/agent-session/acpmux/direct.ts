@@ -630,8 +630,10 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 }
 
 /// How long a send waits for acpmux before its row says it is still sending, and before it fails
-/// (plans/cmux-next/composer-delivery-DESIGN.md). Tests shorten them.
-export const deliveryTiming = { slowMs: 10_000, failMs: 60_000 };
+/// (plans/cmux-next/composer-delivery-DESIGN.md): `failMs` on a connection with no native relay
+/// journal, `localFailMs` on one to this Mac's acpmux (a busy session's acknowledgement may be slow,
+/// and the page cannot see whether the journal kept the prompt). Tests shorten them.
+export const deliveryTiming = { slowMs: 10_000, failMs: 60_000, localFailMs: 300_000 };
 
 const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
   sending: 0,
@@ -2617,6 +2619,20 @@ export class AcpmuxDirectClient {
     // A new chat's start mode may have changed (a config reload, the
     // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
+    // acpmux refused this pane's Stop, which as a notification has no answer of its own.
+    else if (notification.method === "_acpmux/cancel_refused") this.stopRefused(notification.params);
+  }
+
+  /// A Stop acpmux refused (`_acpmux/cancel_refused`: a chat on another machine that only its owner
+  /// can stop, a mode a paired device cannot stop): the turn runs on, so it no longer reads as
+  /// stopping, and the chat says why instead of looking as if Stop did nothing.
+  private stopRefused(params: any): void {
+    if (typeof params?.sessionId !== "string" || params.sessionId !== this.actingSessionId) return;
+    this.stopAfterSeq = undefined;
+    this.stoppingEnded();
+    const reason =
+      typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
+    this.notice(translate("queue.stopRefused", { reason }));
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -5576,6 +5592,7 @@ export class AcpmuxDirectClient {
     /// acpmux took it: the page no longer holds the only copy.
     tookIt: () => void,
   ): Promise<string | undefined> {
+    const trustCancellation = this.trustCancellation;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
     ({ text: input, attachments } = liftInlineImages(input, attachments));
@@ -5749,45 +5766,59 @@ export class AcpmuxDirectClient {
     // No answer for a while: the row says it is still sending, and then that it failed, with Retry
     // (the same prompt id, so a copy acpmux did take runs once). A late acceptance still lands.
     const timers = this.deliveries.get(promptId)!.timers;
+    // On a connection to this Mac's acpmux, a delayed acknowledgement is usually an in-flight prompt
+    // (a busy session; the native relay journals the approved frame for the same promptId), so it
+    // fails only after the longer `localFailMs`: the journal may not have kept it (too large,
+    // evicted, no journal), and the page cannot tell, so it never stays sending forever. Other
+    // connections have no relay journal and fail after `failMs`. Both fail with Retry under the
+    // same promptId and keep the slow marker; an explicit RPC refusal below fails at once. A sender
+    // that still holds the prompt (`accepted`: a new chat's, the Quick Composer's or a View Only
+    // chat's composer; a started chat's composer lets go at once) keeps it in its composer at either
+    // deadline, as before: there is no failed row then, so no second copy to send.
     timers.push(
       setTimeout(() => {
         if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true }))
           this.emit();
       }, deliveryTiming.slowMs),
-      setTimeout(() => {
-        if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
-        // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
-        // copy as a failed row.
-        if (accepted !== undefined && !released) return;
-        this.queue = this.queue.filter((entry) => entry.id !== promptId);
-        const shownRow = this.rows.get(rowId) ?? {
-          id: rowId,
-          version: 1,
-          at,
-          kind: "user",
-          text,
-          images: attachedImages(attachments),
-          retryAttachments: attachments,
-          ...(inline ? { inlineParts: inline.parts } : {}),
-        };
-        this.rows.set(rowId, {
-          ...shownRow,
-          pending: false,
-          failed: true,
-          error: translate("prompt.delivery.noAnswer"),
-          version: shownRow.version + 1,
-        });
-        this.deliveries.get(promptId)!.rowId = rowId;
-        this.failedPrompts.set(rowId, { input, attachments, promptId });
-        this.setDelivery(promptId, {
-          state: "failed",
-          failedAt: Date.now(),
-          hop: "acpmux",
-          code: "timeout",
-          error: translate("prompt.delivery.noAnswer"),
-        });
-        this.emit();
-      }, deliveryTiming.failMs),
+    );
+    timers.push(
+      setTimeout(
+        () => {
+          if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
+          // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
+          // copy as a failed row.
+          if (accepted !== undefined && !released) return;
+          this.queue = this.queue.filter((entry) => entry.id !== promptId);
+          const shownRow = this.rows.get(rowId) ?? {
+            id: rowId,
+            version: 1,
+            at,
+            kind: "user",
+            text,
+            images: attachedImages(attachments),
+            retryAttachments: attachments,
+            ...(inline ? { inlineParts: inline.parts } : {}),
+          };
+          this.rows.set(rowId, {
+            ...shownRow,
+            pending: false,
+            failed: true,
+            error: translate("prompt.delivery.noAnswer"),
+            version: shownRow.version + 1,
+          });
+          this.deliveries.get(promptId)!.rowId = rowId;
+          this.failedPrompts.set(rowId, { input, attachments, promptId });
+          this.setDelivery(promptId, {
+            state: "failed",
+            failedAt: Date.now(),
+            hop: "acpmux",
+            code: "timeout",
+            error: translate("prompt.delivery.noAnswer"),
+          });
+          this.emit();
+        },
+        this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs,
+      ),
     );
     this.emit();
     try {
@@ -5859,7 +5890,7 @@ export class AcpmuxDirectClient {
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
-      if (here) this.routeTrustRefusal(error);
+      if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
       if (held) {
         // Refused before acpmux took it, back in the composer: it never ran, so its turn is free for
         // the next Send (an ambiguous failure keeps the claim: acpmux may run it).
@@ -6757,6 +6788,13 @@ export class AcpmuxDirectClient {
       route(waiting.refusal, waiting.again);
   }
   private trustRoute?: TrustRoute;
+  private trustCancellation = 0;
+  /// Cancel the retry intent without navigating away. Refusals retain their request-time
+  /// generation, so replacing the UI callback cannot revive a canceled request.
+  cancelTrustRefusals(): void {
+    this.trustCancellation += 1;
+    this.waitingTrust = undefined;
+  }
   private waitingTrust?: { refusal: TrustRefusal; again?: () => void; generation: number };
   /// True when `error` is a trust refusal, which then went to the route.
   routeTrustRefusal(error: unknown, again?: () => void): boolean {
@@ -6770,10 +6808,12 @@ export class AcpmuxDirectClient {
   /// `session/new` for every caller: a trust refusal goes to the one route, then rejects as before.
   private async newSession(params: Record<string, unknown>, again?: () => void): Promise<any> {
     const generation = this.selectionGeneration;
+    const trustCancellation = this.trustCancellation;
     try {
       return await this.request("session/new", params);
     } catch (error) {
-      if (generation === this.selectionGeneration) this.routeTrustRefusal(error, again);
+      if (generation === this.selectionGeneration && trustCancellation === this.trustCancellation)
+        this.routeTrustRefusal(error, again);
       throw error;
     }
   }
@@ -6997,9 +7037,11 @@ export class AcpmuxDirectClient {
   prewarm(harness: string, cwd?: string): void {
     if (!this.prewarmSupported) return;
     const generation = this.selectionGeneration;
+    const trustCancellation = this.trustCancellation;
     // A prewarm in a folder without a Trust answer asks the question early (nothing to re-run).
     void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch((error: unknown) => {
-      if (generation === this.selectionGeneration) this.routeTrustRefusal(error);
+      if (generation === this.selectionGeneration && trustCancellation === this.trustCancellation)
+        this.routeTrustRefusal(error);
     });
   }
   /// The folder a new chat's bare start goes to (`startSession` with no folder: the pane's

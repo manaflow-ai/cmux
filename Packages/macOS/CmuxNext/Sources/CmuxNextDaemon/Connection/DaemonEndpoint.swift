@@ -82,6 +82,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// The manual tab unread mark (Mark Tab Unread): `marked_unread` on
     /// `tab.update` and the tab's `extra.marked_unread`; no notification needed.
     case tabMarkUnread = "tab-mark-unread-v1"
+    /// Agent attention mark on a tab.
+    case tabAttention = "tab-attention-v1"
+    /// Owner-issued request identity and compare-and-clear for attention marks.
+    case tabAttentionRequestID = "tab-attention-request-id-v1"
     /// A workspace's description: `description` on `workspace.update` and the
     /// workspace's `extra.description` (Edit / Clear Workspace Description).
     case workspaceDescription = "workspace-description-v1"
@@ -495,7 +499,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
              .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
-             .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .workspaceDescription, .workspaceStatus,
+             .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,

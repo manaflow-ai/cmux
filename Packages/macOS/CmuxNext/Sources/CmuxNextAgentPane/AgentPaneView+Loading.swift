@@ -213,7 +213,6 @@ extension AgentPaneView {
     func beginLoadingState() {
         guard !model.hasPainted else { return }
         pageContent.alphaValue = 0
-        PageWebView.syncChromiumVisibility(in: pageContent)
         loadingView.frame = topBar.contentFrame(in: bounds)
         addSubview(loadingView, positioned: .above, relativeTo: nil)
         themeLoadingState(themeTokens)
