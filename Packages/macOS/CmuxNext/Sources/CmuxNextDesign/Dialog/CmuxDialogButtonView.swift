@@ -166,7 +166,6 @@ public final class CmuxDialogButtonView: ClickableButton {
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state,
-                                        filledDestructive: ChromeTunables.filledDestructiveDialogButton.value,
                                         card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
         }
     }

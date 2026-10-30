@@ -6,9 +6,9 @@ public import CmuxNextDesignTokens
 ///   `appearance.accent` names a hue) with its on-accent ink, as the web pages' primary button
 ///   draws, so the button Return presses reads first at a glance. It was a gray 3 to 4% denser
 ///   than Cancel's.
-/// - destructive: filled (``ChromeTunables/filledDestructiveDialogButton``, the default), a solid
-///   danger fill with ink fit to 4.5:1 on it, as the web pages' `.danger` button; tinted, the danger
-///   ink on a faint danger wash, lifted to 4.5:1 over the card. The theme's `danger` is fit only to
+/// - destructive: a solid danger fill with ink fit to 4.5:1 on it, as the web pages' `.danger`
+///   button. `filledDestructive: false` gives the tinted alternative (the danger ink on a faint danger
+///   wash, lifted to 4.5:1 over the card), kept for the design call (manaflow-ai/cmux#13742). The theme's `danger` is fit only to
 ///   3:1 (a mark's floor): over the glass it measured 2.1:1 (debug.dialog_strip, 2026-10-28).
 /// - cancel and normal: the selection fill (gray, or the accent's tint in an accent theme), a step
 ///   above the hover fill they had, so each reads as a button on the glass.
@@ -94,10 +94,10 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     /// most: the card's surfaces are near one another).
     static func readable(_ ink: ThemeRGB, over surfaces: [ThemeRGB], minimum: Double = minimumContrast) -> ThemeRGB {
         let target = minimum + 0.05
-        var color = ink
-        for _ in 0..<4 where !surfaces.allSatisfy({ color.contrast(with: $0) >= target }) {
-            color = surfaces.reduce(color) { ThemeTokens.readable($0, over: $1, minimum: target) }
+        var fitted = ink
+        for _ in 0..<4 where !surfaces.allSatisfy({ fitted.contrast(with: $0) >= target }) {
+            fitted = surfaces.reduce(fitted) { ThemeTokens.readable($0, over: $1, minimum: target) }
         }
-        return color
+        return fitted
     }
 }
