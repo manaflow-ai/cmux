@@ -134,6 +134,16 @@ private final class WorkspaceTabHoverDocument: NSView {
     override var isFlipped: Bool { true }
 }
 
+extension WorkspaceTabHoverCardView {
+    /// What a row's status indicator draws for `state`. The compact card always uses the shared
+    /// arc spinner for active work: working-look preferences may restyle `.working` into a
+    /// breathing dot, so its progress is drawn as loading. Every other state (loading, waiting,
+    /// error, done) keeps its own glyph beside its status word.
+    nonisolated static func indicatorState(for state: StatusIndicatorState) -> StatusIndicatorState {
+        state.isWorking ? .busy(progress: state.progress) : state
+    }
+}
+
 @MainActor
 private final class WorkspaceTabHoverCardRow: NSView {
     private let icon = NSImageView()
@@ -219,11 +229,7 @@ private final class WorkspaceTabHoverCardRow: NSView {
         cwd.stringValue = tab.folder ?? ""
         cwd.isHidden = tab.folder == nil || tab.folder?.isEmpty == true
         status.stringValue = Self.statusText(tab.state)
-        // The compact card always uses the shared arc spinner for active work;
-        // a user's pulsing-dot preference must not turn this status into a dot.
-        // Working-look preferences may restyle `.working` into a breathing dot;
-        // use its progress as loading so this surface always shows an arc.
-        activity.configure(tab.state.isWorking ? .busy(progress: tab.state.progress) : (tab.state.isLoading ? tab.state : .idle), style: .arc)
+        activity.configure(WorkspaceTabHoverCardView.indicatorState(for: tab.state), style: .arc)
         setAccessibilityLabel("\(tab.title), \(status.stringValue)")
         reportedLine = [tab.title, tab.folder, status.stringValue].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         paint()

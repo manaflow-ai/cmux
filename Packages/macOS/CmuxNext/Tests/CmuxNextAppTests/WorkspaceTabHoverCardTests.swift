@@ -45,6 +45,15 @@ private final class HoverInteractionSource: HoverCardSource {
 
 @MainActor
 struct WorkspaceTabHoverCardTests {
+    @Test func rowIndicatorsKeepWaitingErrorAndDoneGlyphs() {
+        #expect(WorkspaceTabHoverCardView.indicatorState(for: .waiting) == .waiting)
+        #expect(WorkspaceTabHoverCardView.indicatorState(for: .error) == .error)
+        #expect(WorkspaceTabHoverCardView.indicatorState(for: .success) == .success)
+        #expect(WorkspaceTabHoverCardView.indicatorState(for: .busy) == .busy)
+        #expect(WorkspaceTabHoverCardView.indicatorState(for: .idle) == .idle)
+        #expect(WorkspaceTabHoverCardView.indicatorState(for: .working(progress: 0.5)) == .busy(progress: 0.5))
+    }
+
     @Test func rowsReportTabDetailsAndReturnFocusesTheSelectedTab() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?
