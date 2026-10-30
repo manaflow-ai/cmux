@@ -47,8 +47,9 @@ jobs queued on a pool they hold exceeds a threshold:
      re-run needs a later sweep and this workflow's concurrency group evicts
      pending sweeps. A lost job there is the stall-aware failover instead
      (open_head_lost(), coordinator-approved 2026-10-30): the sweep cancels
-     the run, waits a bounded time for the cancel to settle and re-runs its
-     failed jobs as cmux-bot at the same head (rerun_open_head()), and the
+     the run, waits a bounded time for the cancel to settle, reads its pull
+     request and the runs at its head again (plan_lost_reruns()), and
+     re-runs its failed jobs as cmux-bot at the same head (rerun_open_head()), and the
      pending re-run state, written before the cancel's first read, carries
      it to the next sweep when the cancel has not settled or the re-run was
      refused. A bot's re-run, a run that already failed, one a newer run
@@ -325,12 +326,17 @@ LOST_RERUN_TTL = dt.timedelta(hours=6)
 LOST_PENDING_MAX = 25
 LOST_RERUN_MAX = 10
 # A lost job at an open pull request's head (classify_lost(), open_head): the sweep that cancels it reads
-# the run up to LOST_SETTLE_READS times, LOST_SETTLE_INTERVAL_S apart, for the cancel to settle, then re-runs
-# its failed jobs as cmux-bot (rerun_open_head()). A cancel still unsettled after that, or a re-run GitHub
-# refused, stays in LOST_RERUNS_KEY for the next sweep. 12 x 10 s keeps the wait for all of a sweep's cancels
-# (at most MAX_CANCELS, read together) at 2 minutes of the job's 15-minute timeout.
+# the run up to LOST_SETTLE_READS times, LOST_SETTLE_INTERVAL_S apart, for the cancel to settle, re-checks
+# its pull request and the runs at its head, then re-runs its failed jobs as cmux-bot (rerun_open_head()).
+# A cancel still unsettled after that, or a re-run GitHub refused, stays in LOST_RERUNS_KEY for the next
+# sweep. LOST_SETTLE_BUDGET_S bounds the whole of it in wall time, requests, their retries and their socket
+# timeouts included (GitHub.deadline): a sweep that lists the whole queue already takes up to 13 minutes of
+# the job's 15, and a timed-out job never uploads the snapshot that carries the entry to the next sweep.
+# A sweep past LOST_FAILOVER_CUTOFF_S leaves the re-run to the next sweep.
 LOST_SETTLE_READS = 12
 LOST_SETTLE_INTERVAL_S = 10
+LOST_SETTLE_BUDGET_S = 90.0
+LOST_FAILOVER_CUTOFF_S = 9 * 60.0
 # Unclaimed legs (find_unclaimed()): a leg on an owned label still queued with
 # no runner this long after it could first run, or the pool's p90 wait when
 # that is longer (unclaimed_bound()), at a live head, needs no evidence.
@@ -2136,52 +2142,92 @@ def rerun_open_head(
     github: GitHub,
     entries: Sequence[Mapping[str, Any]],
     *,
+    now: dt.datetime,
+    inventory: Sequence[Mapping[str, Any]] = (),
     reads: int = LOST_SETTLE_READS,
     interval_s: float = LOST_SETTLE_INTERVAL_S,
+    budget_s: float = LOST_SETTLE_BUDGET_S,
 ) -> tuple[list[LostRerun], list[dict[str, Any]], dict[int, str], int]:
     """Re-run, in the sweep that cancelled them, the lost jobs category e cancelled at an open PR's head.
 
     `entries` are this sweep's pending entries for those cancels (new_lost_reruns(), `open_head`), already
     saved in the snapshot. Each run is read up to `reads` times, `interval_s` apart, all of them together,
-    until its cancel has settled: completed and cancelled at the same attempt and head. Then its failed
-    jobs are re-run as cmux-bot (rerun_lost(), app_only: never on the workflow's token, whose re-run is
-    github-actions[bot]'s). Returns (decisions, entries still pending, results, failures): an entry whose
-    cancel did not settle in time, whose run could not be read, or whose re-run GitHub refused stays pending,
-    and the next sweep's plan_lost_reruns() re-runs it (run 40398277457 stayed cancelled because its re-run
-    waited on a later sweep with no state to find it; here the state is written before the first read).
-    An entry whose run moved on (another attempt, another head, a finish other than cancelled) is dropped.
+    until its cancel has settled. Then the pull requests of their branches and the runs at each settled
+    run's head (plus `inventory`, this sweep's in-flight runs) are read again, and plan_lost_reruns()
+    judges every entry as a later sweep would: a pull request a push moved past the run's head, a newer
+    run at its head (even one already green), an opt-out label or another attempt drops it, so a re-run
+    never lands on an old head and cancels the new head's CI through a shared concurrency group. What it
+    keeps is re-run as cmux-bot (rerun_lost(), app_only: never on the workflow's token, whose re-run is
+    github-actions[bot]'s).
+
+    All of it, requests, their retries and their socket timeouts included, ends within `budget_s` of the
+    first read (GitHub.deadline): the job's timeout skips the snapshot upload that carries an entry to the
+    next sweep. Returns (decisions, entries still pending, results, failures): an entry whose cancel did not
+    settle in time, whose run or pull request could not be read, or whose re-run GitHub refused stays
+    pending, and the next sweep's plan_lost_reruns() re-runs it (run 40398277457 stayed cancelled because
+    its re-run waited on a later sweep with no state to find it; here the state is written before the first
+    read).
     """
+    deadline = time.monotonic() + budget_s
     waiting = {int(entry["run_id"]): entry for entry in entries}
     seen: dict[int, Mapping[str, Any]] = {}
-    for read in range(max(1, reads)):
-        for run_id in list(waiting):
+    previous = github.deadline
+    github.deadline = deadline
+    try:
+        for read in range(max(1, reads)):
+            for run_id in list(waiting):
+                if time.monotonic() >= deadline:
+                    break
+                try:
+                    run = github.run(run_id)
+                except Exception as error:  # noqa: BLE001 the entry stays pending for the next sweep
+                    print(f"queue-janitor: open-head re-run of run {run_id}: {error!r}", file=sys.stderr)
+                    continue
+                seen[run_id] = run
+                if run.get("status") == "completed":
+                    del waiting[run_id]
+            pause = min(interval_s, deadline - time.monotonic())
+            if not waiting or read == reads - 1 or pause <= 0:
+                break
+            time.sleep(pause)
+        settled = {run_id: run for run_id, run in seen.items() if run_id not in waiting}
+        branches = sorted({str(entry.get("branch") or "") for entry in entries if int(entry["run_id"]) in settled})
+        prs_now: dict[str, Sequence[Mapping[str, Any]]] = {}
+        if branches and time.monotonic() < deadline:
             try:
-                run = github.run(run_id)
-            except Exception as error:  # noqa: BLE001 the entry stays pending for the next sweep
-                print(f"queue-janitor: open-head re-run of run {run_id}: {error!r}", file=sys.stderr)
+                prs_now = github.pull_requests(branches)
+            except Exception as error:  # noqa: BLE001 every entry is kept: "pull request lookup missing"
+                print(f"queue-janitor: open-head re-run: pull requests: {error!r}", file=sys.stderr)
+        head_runs: dict[int, list[Mapping[str, Any]]] = {}
+        for run_id, run in settled.items():
+            if run.get("conclusion") != "cancelled" or time.monotonic() >= deadline:
                 continue
-            seen[run_id] = run
-            if run.get("status") == "completed":
-                del waiting[run_id]
-        if not waiting or read == reads - 1:
-            break
-        time.sleep(interval_s)
-    decisions: list[LostRerun] = []
-    for entry in entries:
-        run_id = int(entry["run_id"])
-        run = seen.get(run_id)
-        if run_id in waiting:
-            why = f"cancel not settled ({run.get('status')})" if run else "run not readable"
-            decisions.append(LostRerun(entry, "keep", f"{why} after {reads} reads; the next sweep re-runs it", run))
-        elif int(run.get("run_attempt") or 0) != int(entry.get("attempt") or 0):
-            decisions.append(LostRerun(entry, "drop", f"already re-run (now attempt {run.get('run_attempt')})", run))
-        elif run.get("head_sha") != entry.get("head_sha"):
-            decisions.append(LostRerun(entry, "drop", "head changed", run))
-        elif run.get("conclusion") != "cancelled":
-            decisions.append(LostRerun(entry, "drop", f"finished {run.get('conclusion')}", run))
-        else:
-            decisions.append(LostRerun(entry, "rerun", "open PR head: the cancel settled, re-run as cmux-bot", run))
-    pending, results, failures = rerun_lost(github, decisions)
+            try:
+                head_runs[run_id] = [*github.runs_at_head(run), *inventory]
+            except Exception as error:  # noqa: BLE001 the entry is kept: "runs at its head not listed"
+                print(f"queue-janitor: open-head re-run: runs at the head of run {run_id}: {error!r}",
+                      file=sys.stderr)
+        judged = {id(decision.entry): decision for decision in plan_lost_reruns(
+            [entry for entry in entries if int(entry["run_id"]) in settled], settled, prs_now, now=now,
+            head_runs=head_runs, app_token=github.app_token, cmux_bot=True)}
+        decisions: list[LostRerun] = []
+        for entry in entries:
+            run_id = int(entry["run_id"])
+            if run_id in waiting:
+                run = seen.get(run_id)
+                why = f"cancel not settled ({run.get('status')})" if run else "run not readable"
+                decisions.append(LostRerun(entry, "keep", f"{why} within the wait; the next sweep re-runs it", run))
+                continue
+            decision = judged[id(entry)]
+            if decision.action == "rerun" and time.monotonic() >= deadline:
+                decision = LostRerun(entry, "keep", "the wait ran out; the next sweep re-runs it", decision.run)
+            elif decision.action == "rerun":
+                decision = LostRerun(entry, "rerun", f"open PR head: the cancel settled, {decision.note}; "
+                                     "re-run as cmux-bot", decision.run)
+            decisions.append(decision)
+        pending, results, failures = rerun_lost(github, decisions)
+    finally:
+        github.deadline = previous
     return decisions, pending, results, failures
 
 
@@ -3200,6 +3246,9 @@ class GitHub:
         # in_flight_runs()'s account of its listing, per status (listing_state()).
         self.run_listing: dict[str, dict[str, Any]] = {}
         self.fallback_token = fallback_token if fallback_token != token else ""
+        # A time.monotonic() bound: while set, a read is not made again past it and no request waits past it
+        # (rerun_open_head()).
+        self.deadline: float | None = None
         # An App's token is in use: one was minted beside the workflow's, and it was not refused yet.
         self.app_token = bool(self.fallback_token)
         # Rate limit resource ("core", "graphql") -> the newest response's values.
@@ -3219,7 +3268,8 @@ class GitHub:
             try:
                 return self._request(method, path, body, app_only=app_only)
             except _Transient as error:
-                if not retry or delay is None:
+                if not retry or delay is None or (self.deadline is not None
+                                                  and time.monotonic() + delay >= self.deadline):
                     raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error})") from error.__cause__
                 print(f"queue-janitor: {method} {path.split('?')[0]} failed ({error}); again in {delay:.0f} s",
                       file=sys.stderr)
@@ -3237,7 +3287,13 @@ class GitHub:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            timeout = 30.0
+            if self.deadline is not None:
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(f"{method} {path.split('?')[0]} not sent: past the sweep's deadline")
+                timeout = min(timeout, remaining)
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 self.note_rate_limit(response.headers)
                 raw = response.read()
                 return json.loads(raw) if raw else {}
@@ -3617,6 +3673,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="write this sweep's per-pool macOS demand here as JSON")
     parser.add_argument("--summary", type=Path, default=(
         Path(os.environ["GITHUB_STEP_SUMMARY"]) if os.environ.get("GITHUB_STEP_SUMMARY") else None))
+    # The open-head failover's cutoff (LOST_FAILOVER_CUTOFF_S) counts from here.
+    sweep_started = time.monotonic()
     args = parser.parse_args(argv)
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -3857,13 +3915,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         # cannot re-run now stays in `fresh` for the next sweep; the rest leaves it.
         open_head = [entry for entry in fresh if entry.get("open_head")]
         if open_head:
-            if cmux_bot():
+            if cmux_bot() and time.monotonic() - sweep_started < LOST_FAILOVER_CUTOFF_S:
                 open_head_decisions, open_head_pending, open_head_results, open_head_failures = rerun_open_head(
-                    github, open_head)
+                    github, open_head, now=now, inventory=runs)
             else:
-                # Refused since the plan (app_token): leave every one to a sweep that holds cmux-bot's token.
-                open_head_decisions = [LostRerun(entry, "keep", "cmux-bot's token was refused; the next sweep "
-                                                 "re-runs it") for entry in open_head]
+                # Refused since the plan (app_token), or the sweep is too far into its timeout to wait: leave
+                # every one to the next sweep, which re-runs it once it holds cmux-bot's token.
+                why = ("cmux-bot's token was refused" if not cmux_bot()
+                       else f"the sweep is past {LOST_FAILOVER_CUTOFF_S / 60:.0f} minutes")
+                open_head_decisions = [LostRerun(entry, "keep", f"{why}; the next sweep re-runs it")
+                                       for entry in open_head]
                 open_head_pending, open_head_results, open_head_failures = [dict(e) for e in open_head], {}, 0
             failures += open_head_failures
             open_head_freed = sum(1 for decision in open_head_decisions if decision.action == "rerun"
