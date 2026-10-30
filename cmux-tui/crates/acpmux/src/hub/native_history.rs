@@ -373,21 +373,25 @@ fn fit_reply(mut reply: Value) -> Value {
         let Some((index, _)) = event_sizes
             .iter()
             .enumerate()
-            .filter(|(index, _)| !omitted[*index])
+            .filter(|(index, _)| !omitted.get(*index).copied().unwrap_or(true))
             .max_by_key(|(_, size)| *size)
         else {
             break;
         };
-        let original = event_sizes[index];
-        let original_msg = events[index].get("msg").cloned().unwrap_or(Value::Null);
+        let Some(event) = events.get_mut(index) else { break };
+        let original = event_sizes.get(index).copied().unwrap_or(usize::MAX);
+        let original_msg = event.get("msg").cloned().unwrap_or(Value::Null);
         let original_msg_bytes = serde_json::to_string(&original_msg).map_or(0, |text| text.len());
-        events[index]["msg"] = json!({
+        let Some(event_object) = event.as_object_mut() else { break };
+        event_object.insert("msg".to_owned(), json!({
             "_meta": {"acpmux": {"omitted": {"bytes": original_msg_bytes, "reason": "too_large"}}}
-        });
+        }));
         let replacement =
-            serde_json::to_string(&events[index]).map_or(usize::MAX, |text| text.len());
-        event_sizes[index] = replacement;
-        omitted[index] = true;
+            serde_json::to_string(event).map_or(usize::MAX, |text| text.len());
+        let Some(event_size) = event_sizes.get_mut(index) else { break };
+        *event_size = replacement;
+        let Some(event_omitted) = omitted.get_mut(index) else { break };
+        *event_omitted = true;
         bytes = bytes.saturating_sub(original.saturating_sub(replacement));
     }
     // `fit_reply` is only called after reducing to one turn. Its event count is bounded by the
