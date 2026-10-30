@@ -225,10 +225,14 @@ impl Connection {
         self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < INTERACTIVE_MIN_FLIGHT
     }
 
-    /// Bytes per second, or `None` before the first RTT sample (unpaced).
-    fn rate(&self) -> Option<f64> {
+    /// Bytes per second for a packet that left as `interactive` or bulk, or
+    /// `None` before the first RTT sample (unpaced). The caller passes the
+    /// class the packet was selected under: taking a packet off a bulk queue
+    /// can leave it short enough to look interactive, and the pace must stay
+    /// the one of the queue it left.
+    fn rate(&self, interactive: bool) -> Option<f64> {
         let srtt = self.srtt?.as_secs_f64().max(1e-6);
-        let floor = if self.interactive() { INTERACTIVE_MIN_FLIGHT } else { BULK_MIN_FLIGHT };
+        let floor = if interactive { INTERACTIVE_MIN_FLIGHT } else { BULK_MIN_FLIGHT };
         Some(GAIN * f64::from(self.flight().max(floor)) / srtt)
     }
 
@@ -243,7 +247,7 @@ impl Connection {
         fresh
     }
 
-    fn sent(&mut self, segment: &Segment, len: usize, now: Instant) {
+    fn sent(&mut self, segment: &Segment, len: usize, now: Instant, interactive: bool) {
         self.last_seen = now;
         if segment.len > 0 {
             let end = segment.seq.wrapping_add(segment.len);
@@ -257,7 +261,7 @@ impl Connection {
                 self.timed = None;
             }
         }
-        if let Some(rate) = self.rate() {
+        if let Some(rate) = self.rate(interactive) {
             let start = self.next_free.max(now.checked_sub(MAX_CREDIT).unwrap_or(now));
             self.next_free = start + Duration::from_secs_f64(len as f64 / rate);
         }
@@ -623,7 +627,7 @@ impl Pacer {
         let packet = connection.queue.pop_front()?;
         // Only packets `segment` parsed are queued on a connection.
         if let Some(segment) = segment(&packet) {
-            connection.sent(&segment, packet.len(), now);
+            connection.sent(&segment, packet.len(), now, interactive);
         }
         self.queued = self.queued.saturating_sub(1);
         Some(packet)
