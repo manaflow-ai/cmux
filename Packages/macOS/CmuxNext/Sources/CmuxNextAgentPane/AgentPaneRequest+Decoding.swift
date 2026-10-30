@@ -361,6 +361,17 @@ extension AgentPaneRequest {
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
+        case "pane.tabRowTools.openMenu":
+            guard let id = params?["id"] as? String, id == "chat-menu",
+                  let rawMenuItemID = params?["menuItemId"], !(rawMenuItemID is NSNull) else {
+                if params?["menuItemId"] == nil || params?["menuItemId"] is NSNull,
+                   params?["id"] as? String == "chat-menu" { self = .tabRowToolsOpenMenu(id: "chat-menu", menuItemID: nil) }
+                else { self = .unsupported(method) }
+                return
+            }
+            guard let menuItemID = rawMenuItemID as? String, !menuItemID.isEmpty,
+                  menuItemID.utf8.count <= 256, menuItemID.count <= 64 else { self = .unsupported(method); return }
+            self = .tabRowToolsOpenMenu(id: id, menuItemID: menuItemID)
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }

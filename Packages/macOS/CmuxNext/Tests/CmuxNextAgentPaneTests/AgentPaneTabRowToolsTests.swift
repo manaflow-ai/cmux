@@ -27,6 +27,21 @@ import Testing
         #expect(tools?.first?.menu.first?.checked == true)
     }
 
+    @Test func decodesContextMenusAndPaletteOpenRequest() throws {
+        let raw: [String: Any] = [
+            "id": "terminal", "symbol": "terminal", "label": "Terminal", "enabled": true, "toggled": false,
+            "contextMenu": [["id": "move", "label": "Move right", "enabled": true, "separatorBefore": true]],
+        ]
+        let tool = try #require(AgentPaneTabRowTools.list([raw])).first
+        #expect(tool.contextMenu.first?.separatorBefore == true)
+        #expect(AgentPaneRequest(body: [
+            "method": "pane.tabRowTools.openMenu", "params": ["id": "chat-menu", "menuItemId": "continue"],
+        ]) == .tabRowToolsOpenMenu(id: "chat-menu", menuItemID: "continue"))
+        #expect(AgentPaneRequest(body: [
+            "method": "pane.tabRowTools.openMenu", "params": ["id": "chat-menu", "menuItemId": String(repeating: "x", count: 65)],
+        ]) == .unsupported("pane.tabRowTools.openMenu"))
+    }
+
     @Test func decodesAbsentOptionalBadgeAndRole() throws {
         let raw: [String: Any] = [
             "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,

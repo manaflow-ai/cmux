@@ -171,6 +171,10 @@ extension AgentPaneModel {
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             setTabRowTools(tools)
             return AgentPaneReply.success()
+        case .tabRowToolsOpenMenu(let id, let menuItemID):
+            guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
+            onTabRowToolMenuRequested?(id, menuItemID)
+            return AgentPaneReply.success()
         case .tabState(let refresh):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")

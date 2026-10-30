@@ -209,6 +209,9 @@ public final class AgentPaneView: NSView {
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
+        model.onTabRowToolMenuRequested = { [weak self] id, menuItemID in
+            self?.onNativeToolMenuRequested?(id, menuItemID)
+        }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
@@ -420,6 +423,8 @@ public final class AgentPaneView: NSView {
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
+        model.onTabRowToolMenuRequested = nil
+        onNativeToolMenuRequested = nil
         hideRemoteApprovalsOff()
         transportPacer?.stop()
         removeContextMenu()
@@ -452,6 +457,8 @@ public final class AgentPaneView: NSView {
 
     /// Called by a pane when AppKit reparents this page, so native toolbar ownership cannot stay stale.
     public var onNativeToolOwnerChange: (() -> Void)?
+    /// Called by the page's palette to open a native tab-row menu.
+    public var onNativeToolMenuRequested: ((String, String?) -> Void)?
 
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()

@@ -150,7 +150,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
     }
 
-
     nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
@@ -339,6 +338,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
         if let agent = view as? AgentPaneView {
             agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
+            agent.onNativeToolMenuRequested = { [weak self] id, menuItemID in
+                self?.toolbar?.view.presentNativeMenu(toolID: id, menuItemID: menuItemID)
+            }
         }
         content = view
         refreshNativeToolOwner()
@@ -382,6 +384,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         (shown as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        (shown as? AgentPaneView)?.onNativeToolMenuRequested = nil
         content = nil
         refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
@@ -435,7 +438,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         paintPaneBackdrop()
     }
 }
-
 // A terminal or page edge inside the titlebar band never moves the window;
 // the strip, hit before this view, answers for its own empty space.
 extension PaneContentView: TitlebarPressDeciding {
@@ -449,4 +451,3 @@ private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: 
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
-
