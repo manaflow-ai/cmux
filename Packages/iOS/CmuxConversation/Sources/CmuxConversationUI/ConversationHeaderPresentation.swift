@@ -4,7 +4,7 @@ import UIKit
 /// Presentation hooks for a host that uses the conversation outside Messages.
 /// The package continues to own header layout, controls and transcript insets.
 public struct ConversationHeaderPresentation {
-    public enum ScrollEdge: Sendable {
+    public enum ScrollEdge: Sendable, Equatable {
         /// Preserve the package's platform-specific Messages wash/blur.
         case messages
         /// Use UIKit's soft scroll edge on iOS 26+, with fading blur material
