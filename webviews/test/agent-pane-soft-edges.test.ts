@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { PNG } from "pngjs";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -125,8 +126,7 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Whether each edge of the scroller fades (a mask with a ramp on that edge: 18px, or 56px at the foot
-  /// while Jump to latest stands there), and its box, which must not move.
+  /// Whether each edge of the scroller fades, and its box, which must not move.
   const edges = (page: Page) =>
     page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -225,6 +225,30 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
       latest: { top: true, bottom: false, box: latest.box },
       middle: { top: true, bottom: true, box: latest.box },
       start: { top: false, bottom: true, box: latest.box },
+    });
+
+    // A floating jump button must not erase several extra text lines above the composer.
+    // Paint a solid probe through the real scroller's alpha mask: 30px above the dock stays fully
+    // legible, while the short edge still softens and everything below the dock stays hidden.
+    await scrollTo(page, "middle");
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    const probe = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      document.querySelector<HTMLElement>(".acpmux-main")!.style.background = "black";
+      node.style.background = "red";
+      const foot = box.bottom - parseFloat(style.getPropertyValue("--acpmux-dock-space"));
+      return { x: box.left + 2, foot };
+    });
+    const pixels = PNG.sync.read(await page.screenshot());
+    const redAt = (y: number) => pixels.data[(Math.floor(y) * pixels.width + Math.floor(probe.x)) * 4]!;
+    expect(redAt(probe.foot - 30), "text more than one line above the dock stays opaque").toBeGreaterThan(240);
+    expect(redAt(probe.foot - 2), "the short transition remains soft").toBeLessThan(100);
+    expect(redAt(probe.foot + 4), "rows stay hidden beneath the dock").toBeLessThan(10);
+    await page.evaluate(() => {
+      document.querySelector<HTMLElement>(".acpmux-main")!.style.removeProperty("background");
+      document.querySelector<HTMLElement>(".acpmux-scroll")!.style.removeProperty("background");
     });
 
     // Reduce Transparency: plain edges.

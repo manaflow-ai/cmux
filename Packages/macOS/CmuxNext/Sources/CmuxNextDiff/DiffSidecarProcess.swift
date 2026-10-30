@@ -106,12 +106,18 @@ private nonisolated final class Invocation: Sendable {
         process.standardOutput = output
         process.standardError = errors
         output.fileHandleForReading.readabilityHandler = { [self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            receiveReply(handle.availableData, handle: handle)
+            switch handle.readReady() {
+            case .bytes(let data): receiveReply(data, handle: handle)
+            case .retry: return
+            case .end: receiveReply(Data(), handle: handle)
+            }
         }
         errors.fileHandleForReading.readabilityHandler = { [self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            receiveStderr(handle.availableData, handle: handle)
+            switch handle.readReady() {
+            case .bytes(let data): receiveStderr(data, handle: handle)
+            case .retry: return
+            case .end: receiveStderr(Data(), handle: handle)
+            }
         }
         process.terminationHandler = { [self] finished in exited(finished.terminationStatus) }
         let cancelled = state.withLock { state -> Bool in

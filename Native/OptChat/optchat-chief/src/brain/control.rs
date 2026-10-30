@@ -772,6 +772,7 @@ impl Brain {
     ) -> Result<String, String> {
         let id = sub.id.as_str();
         let text = message.unwrap_or(RESTART_PROMPT).to_owned();
+        self.outcome_resumed(id);
         if let Some(s) = self.state.sub_mut(id) {
             s.cancelled = false;
             s.paused = false;

@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+import yaml
 from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -253,6 +255,62 @@ printf {live_code}
         self.assertEqual(out, feed(item("400", "cmux-next-dev")))
 
 
+class LegacySignSkipScriptTests(unittest.TestCase):
+    """scripts/ci/nightly-steps/legacy-identity-sign-skip-published.sh with a stand-in curl that
+    serves the old feed and the cmux NEXT feed from files."""
+
+    SCRIPT = ROOT / "scripts/ci/nightly-steps/legacy-identity-sign-skip-published.sh"
+
+    def run_script(self, build: str, old: str, next_feed: str | None, action: str = "new"):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "old").mkdir()
+            (root / "next").mkdir()
+            (root / "old" / "appcast-arm64.xml").write_text(old)
+            if next_feed is not None:
+                (root / "next" / "appcast-arm64.xml").write_text(next_feed)
+            curl = root / "bin" / "curl"
+            curl.parent.mkdir()
+            curl.write_text("""#!/usr/bin/env bash
+out=""; url=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift ;; -A) shift ;; -*) ;; *) url="$1" ;; esac; shift; done
+cp "${url#file://}" "$out"
+""")
+            curl.chmod(0o755)
+            output, summary = root / "out", root / "summary"
+            env = {"PATH": f"{root / 'bin'}:/usr/bin:/bin", "RUNNER_TEMP": str(root), "GITHUB_OUTPUT": str(output),
+                   "GITHUB_STEP_SUMMARY": str(summary), "NIGHTLY_BUILD": build, "LEGACY_ACTION": action,
+                   "LEGACY_APPCAST": "appcast-arm64.xml", "NIGHTLY_NEXT_LEGACY_FEED_BASE": f"file://{root}/old",
+                   "NIGHTLY_NEXT_FEED_BASE": f"file://{root}/next"}
+            result = subprocess.run(["bash", str(self.SCRIPT)], cwd=ROOT, env=env, capture_output=True, text=True)
+            return result, output.read_text() if output.exists() else ""
+
+    def test_a_build_newer_than_both_feeds_is_signed(self):
+        result, out = self.run_script("300", feed(item("200")), feed(item("300"), item("200")))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(out, "skip=false\n")
+
+    def test_a_build_the_old_feed_has_is_skipped(self):
+        result, out = self.run_script("200", feed(item("200")), feed(item("300")))
+        self.assertEqual((result.returncode, out), (0, "skip=true\n"), result.stderr)
+
+    def test_a_new_submission_behind_the_next_feed_is_superseded(self):
+        result, out = self.run_script("250", feed(item("200")), feed(item("300"), item("250")))
+        self.assertEqual((result.returncode, out), (0, "skip=true\n"), result.stderr)
+        self.assertIn("cmux NEXT feed Nightly build: 300", result.stdout)
+
+    def test_a_dev_item_on_the_next_feed_does_not_supersede_a_nightly_build(self):
+        result, out = self.run_script("250", feed(item("200")), feed(item("300", "cmux-next-dev"), item("250")))
+        self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
+
+    def test_a_continuation_is_kept_even_behind_the_next_feed(self):
+        result, out = self.run_script("250", feed(item("200")), feed(item("300")), action="continue")
+        self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
+
+    def test_an_unreadable_next_feed_supersedes_nothing(self):
+        result, out = self.run_script("250", feed(item("200")), None)
+        self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
@@ -324,7 +382,8 @@ class WorkflowTests(unittest.TestCase):
         job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
         keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
         step = job[keep:job.index("\n      - ", keep + 1)]
-        self.assertIn("publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)", step)
+        self.assertIn('read -r -a feeds <<<"$NIGHTLY_FEEDS"', step)
+        self.assertIn('publish-next-feed-keep-nightly.sh "${feeds[@]/#/nightly-out/}"', step)
         self.assertIn("DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}", step)
         # Before the live-ring retag, the hand-off, the guard and the live write.
         for later in ("- name: Tag the new build's items from the live Dev ring switch",
@@ -392,6 +451,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${NIGHTLY_APPCAST}", step)
         self.assertIn("--replace-sha256", step)
         self.assertIn('verdicts/${KEY##*/}', text)
+
+    def test_a_failed_old_feed_promotion_fails_the_verdict_run(self):
+        # The NEXT feed's promotion runs first and is kept when the old feed's
+        # write fails; that failure turns the run red instead of passing
+        # quietly with the two feeds on different rings.
+        steps = yaml.safe_load(VERDICT_YML.read_text())["jobs"]["write"]["steps"]
+        names = [s.get("name") for s in steps]
+        main = names.index("Move builds whose canary passed to Nightly")
+        legacy = names.index("Move the old feed's builds whose canary passed to Nightly")
+        self.assertLess(main, legacy)
+        self.assertNotIn("continue-on-error", steps[legacy])
+        self.assertNotIn("never fails the verdict", VERDICT_YML.read_text())
 
     def test_a_verdict_promotes_on_the_live_feed_with_if_match(self):
         text = VERDICT_YML.read_text()

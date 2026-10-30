@@ -9,6 +9,44 @@ use super::new_request::{claude_resume_refusal, unique_name_among};
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
 
+/// Owns a session while a creation future is still configuring it. If that future is cancelled
+/// after publication, the guard purges the exact session rather than guessing from its name.
+pub(super) struct CreationGuard {
+    hub: Arc<Hub>,
+    session: Arc<Session>,
+    created_stops: u64,
+    /// The inline `/btw` request's transcript owner, read when the guard is made: the request
+    /// may end (and drop its mark) before the spawned purge runs.
+    inline: Option<super::InlineBtwOwner>,
+    armed: bool,
+}
+
+impl CreationGuard {
+    pub(super) fn new(hub: Arc<Hub>, session: Arc<Session>, created_stops: u64) -> Self {
+        let inline = hub.inline_btw_owner(&session);
+        Self { hub, session, created_stops, inline, armed: true }
+    }
+
+    pub(super) fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CreationGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let hub = self.hub.clone();
+        let session = self.session.clone();
+        let created_stops = self.created_stops;
+        let inline = self.inline.take();
+        tokio::spawn(async move {
+            hub.discard_failed_creation_owned(&session, created_stops, inline).await;
+        });
+    }
+}
+
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
@@ -47,15 +85,24 @@ impl Hub {
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest } = {
+        let (
+            Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest },
+            preset_plain,
+        ) = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
+            let r =
+                self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?;
+            let plain = super::start_mode::plain_for_mode(r.preset_name.as_deref(), &cfg);
+            (r, plain)
         };
         let agent = agent.as_str();
         if profile.kind == crate::config::HarnessKind::Terminal {
             return Err(terminal_harness_refusal(agent));
         }
         let family = crate::config::derive_family(agent, &profile);
+        // The store an adopt reads: every Claude Code profile's is Claude's, whatever its family
+        // (`claude-sr2`); the chat keeps `family` and the profile it was asked on.
+        let store_family = crate::config::store_family(agent, &profile);
         // No policy asked: the defaults' when it is no wider than a starter's, else the starter's
         // own (`start_mode.rs`, "Inherit").
         let inherits_policy = policy.is_none() && starter.is_some();
@@ -77,9 +124,11 @@ impl Hub {
         // conversation keep today's chain (request, then `defaults`).
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
         // The start mode also skips a remote-origin session (the remote
-        // guard settles its mode) and a profile that pins its mode.
+        // guard settles its mode) and a profile that pins its mode; a built-in Chief subagent
+        // preset's chat takes it as a plain chat does (`start_mode.rs`, cmux#27847).
+        let mode_plain = adopt.is_none() && preset_plain && folder_root.is_none();
         let mode_eligible =
-            super::start_mode::mode_eligible(eligible, remote, keep_harness_mode, &profile);
+            super::start_mode::mode_eligible(mode_plain, remote, keep_harness_mode, &profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
@@ -111,7 +160,7 @@ impl Hub {
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
         let (recorded, fork, adopted_file, chat_store) =
-            match self.adoption(adopt.as_ref(), agent, &family, &env, remote).await? {
+            match self.adoption(adopt.as_ref(), agent, &store_family, &env, remote).await? {
                 Adoption::Existing(existing) => return Ok(existing),
                 Adoption::Found { cwd, fork, file, store } => (cwd, fork, file, store),
             };
@@ -119,7 +168,7 @@ impl Hub {
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
-        let fam = family.clone();
+        let fam = store_family.clone();
         let (cwd, adopted_cwd, git) =
             tokio::task::spawn_blocking(move || start_folder(cwd, recorded, &fam, &cwd_map))
                 .await
@@ -182,6 +231,7 @@ impl Hub {
         if let Some(route_id) = &route {
             self.check_new_route(route_id, &family).await?;
         }
+        let stores = super::adoption::store_families(&*self.config.read().await);
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
         let session = {
@@ -194,7 +244,8 @@ impl Hub {
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
             if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none())
-                && let Some(existing) = adopted_in(&sessions, &family, &a.agent_session_id)
+                && let Some(existing) =
+                    adopted_in(&sessions, &stores, &store_family, &a.agent_session_id)
             {
                 return Ok(existing);
             }
@@ -205,8 +256,9 @@ impl Hub {
                             "session name {n:?} is taken"
                         )));
                     }
-                    // Named by the person: no generated title (`titles.rs`).
-                    meta.title_source = Some(super::titles::NAMED.to_owned());
+                    // The name is a handle (a lane's): the chat is still titled (`titles.rs`).
+                    meta.title_source = Some(super::titles::LAUNCHED.to_owned());
+                    meta.name_given = true;
                     n
                 }
                 // A pooled harness was started under its name: keep it.
@@ -228,9 +280,12 @@ impl Hub {
             (session, stops)
         };
         let (session, created_stops) = session;
+        let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
+            // A list built meanwhile showed it (`list_guard.rs`).
+            self.events.changed();
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -242,6 +297,7 @@ impl Hub {
             {
                 self.sessions.lock().unwrap().remove(&id);
                 self.child_tags.forget(&id);
+                self.events.changed();
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
@@ -259,7 +315,8 @@ impl Hub {
         self.note_preset_resolved(&session, preset_digest);
         // A watch starts no harness: it shows and follows the transcript (`watch.rs`).
         if let (Some(file), true) = (&adopted_file, adopt.as_ref().is_some_and(|a| a.watch)) {
-            return Ok(self.begin_watch(&session, &family, file.clone()));
+            creation_guard.disarm();
+            return Ok(self.begin_watch(&session, &store_family, file.clone()));
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => {
@@ -280,10 +337,10 @@ impl Hub {
             // The adopted chat shows its past at once: Claude Code's resume replays nothing, and a
             // Codex session/load's history is logged as `.replay` records no client shows, so both
             // replay their own transcript (OpenCode's store is a database: not replayed).
-            if matches!(family.as_str(), "claude" | "codex")
+            if matches!(store_family.as_str(), "claude" | "codex")
                 && let Some(file) = adopted_file.clone()
             {
-                self.replay_adopted(&session, &family, file).await;
+                self.replay_adopted(&session, &store_family, file).await;
             }
         }
         // Defaults and explicit values, applied once the harness is up. A bad
@@ -372,6 +429,7 @@ impl Hub {
         if adopt.is_none() {
             self.pool_note_used(&session);
         }
+        creation_guard.disarm();
         Ok(session)
     }
 
@@ -459,7 +517,9 @@ impl Hub {
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
         // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started.
+        // the child the previous holder started. The idle pass never ends the harness meanwhile.
+        self.touch(session);
+        let _using = session.harness_use.read().await;
         let _spawning = session.spawn_lock.lock().await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
@@ -467,7 +527,14 @@ impl Hub {
             return Err(stopped_while_starting());
         }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
-        let child = Box::pin(self.reach_or_start(session, profile, stops, &off)).await?;
+        let wake = self.wake_began(session);
+        let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
+            Ok(child) => child,
+            Err(e) => {
+                self.wake_ended(session, wake, Some(&e));
+                return Err(e);
+            }
+        };
         // Stopped while this agent started (no other start can run while this one holds the
         // spawn lock): the stop found no agent to end yet, or the start went on after it. The
         // agent is ended here and the session stays closed.
@@ -485,8 +552,11 @@ impl Hub {
             // As `kill` left it: a start above may have cleared it.
             session.closing.store(true, Ordering::SeqCst);
             self.append(session, "mux", "stopped_while_starting", json!({}));
-            return Err(stopped_while_starting());
+            let e = stopped_while_starting();
+            self.wake_ended(session, wake, Some(&e));
+            return Err(e);
         }
+        self.wake_ended(session, wake, None);
         Ok(child)
     }
 
@@ -495,17 +565,50 @@ impl Hub {
     /// request's, and its agent keeps running. The spawn lock, which every reopen holds
     /// (`ensure_child`), is held from the read to the end of the purge (`kill` never takes it).
     pub(super) async fn discard_failed_creation(&self, session: &Arc<Session>, created_stops: u64) {
+        let inline = self.inline_btw_owner(session);
+        self.discard_failed_creation_owned(session, created_stops, inline).await;
+    }
+
+    /// The inline `/btw` request's mark on this session (`btw.rs` `InlineOwned`), if any.
+    pub(super) fn inline_btw_owner(&self, session: &Session) -> Option<super::InlineBtwOwner> {
+        self.inline_btw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&session.meta().name)
+            .cloned()
+    }
+
+    /// `discard_failed_creation` with the inline owner already read: an inline /btw's
+    /// session takes its harness transcript with it.
+    pub(super) async fn discard_failed_creation_owned(
+        &self,
+        session: &Arc<Session>,
+        created_stops: u64,
+        inline: Option<super::InlineBtwOwner>,
+    ) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         let _spawning = session.spawn_lock.lock().await;
         let reopened_since = session.stops.load(Ordering::SeqCst) != created_stops
             && session.status() != SessionStatus::Closed;
         if !reopened_since {
-            let _ = self.kill(session, true).await;
+            // An inline /btw's session takes its harness transcript with it (`btw.rs`).
+            match inline {
+                Some((family, env)) => Box::pin(self.btw_cleanup(session, &family, &env)).await,
+                None => {
+                    let _ = self.kill(session, true).await;
+                }
+            }
         }
     }
 
     /// A stopped session reopens for a request that came after its last stop (`ensure_child`);
     /// one stopped since refuses the start.
     pub(super) fn reopen_to_start(&self, session: &Session, stops: u64) -> Result<(), RpcError> {
+        if let Some(to) = session.meta().moved_to {
+            return Err(super::transfer_out::moved_error(&to));
+        }
         if session.status() == SessionStatus::Closed && !self.reopen(session, stops) {
             return Err(stopped_while_starting());
         }
@@ -729,18 +832,26 @@ impl Hub {
             && let Some(sid) = existing_sid.take()
         {
             tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: {why}");
-            self.append(
-                session,
-                "mux",
-                "resume_failed",
-                json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
-            );
+            // A chat woken from hibernation had no turn when it hibernated (`idle.rs` keeps one
+            // with turns but none stored awake), so it has nothing to restore: it starts fresh
+            // with no row and no restored transcript. (The prompt waking it is counted already.)
+            let untouched = self.waking(session);
+            if !untouched {
+                self.append(
+                    session,
+                    "mux",
+                    "resume_failed",
+                    json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
+                );
+            }
             {
                 let mut m = session.meta.lock().unwrap();
-                m.agent_session_id = None;
+                m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
             }
-            session.rehydrate.store(true, Ordering::SeqCst);
+            if !untouched {
+                session.rehydrate.store(true, Ordering::SeqCst);
+            }
         }
         // The --permission-mode acpmux started a Claude process in.
         let mut started_mode = None;
@@ -967,7 +1078,7 @@ impl Hub {
                 } else {
                     "new"
                 };
-                m.agent_session_id = sid.clone();
+                m.set_agent_session_id(sid.clone(), "claude");
                 m.claude_unstored = level == "new";
                 if level != "exact" {
                     m.claude_profile = Some(m.harness.clone());
@@ -984,7 +1095,12 @@ impl Hub {
                     session.fork_from.lock().unwrap().take();
                 }
                 if level != "new" {
-                    self.append(session, "mux", "resumed", json!({"level": level}));
+                    self.append(
+                        session,
+                        "mux",
+                        "resumed",
+                        self.wake_marked(session, json!({"level": level})),
+                    );
                 }
             }
             // Nor is it handed out in full access by any form it now reports (`cap_full_access`).
@@ -1021,7 +1137,12 @@ impl Hub {
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
-                        self.append(session, "mux", "resumed", json!({"level": "exact"}));
+                        self.append(
+                            session,
+                            "mux",
+                            "resumed",
+                            self.wake_marked(session, json!({"level": "exact"})),
+                        );
                         true
                     }
                     Err(e) => {
@@ -1056,12 +1177,17 @@ impl Hub {
                 .to_owned();
             {
                 let mut m = session.meta.lock().unwrap();
-                m.agent_session_id = Some(sid);
+                m.set_agent_session_id(Some(sid), "non-claude");
             }
             self.absorb_session_response(session, &res);
             if had_history {
                 session.rehydrate.store(true, Ordering::SeqCst);
-                self.append(session, "mux", "resumed", json!({"level": "rehydrate"}));
+                self.append(
+                    session,
+                    "mux",
+                    "resumed",
+                    self.wake_marked(session, json!({"level": "rehydrate"})),
+                );
             }
         }
         if saved.agent_session_id.is_some() {
