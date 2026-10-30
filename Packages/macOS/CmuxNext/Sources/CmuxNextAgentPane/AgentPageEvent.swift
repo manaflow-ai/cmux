@@ -8,7 +8,7 @@ public import Foundation
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command`, `stopTurn`, `focusLocation` or `transport`.
+    /// `command`, `stopTurn`, `sideQuestion`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
     let deliveryID: UInt64?
@@ -70,6 +70,11 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
+
+    /// The palette's side-question command, carrying the session selected when it was invoked.
+    public static func sideQuestion(_ sessionId: String) -> AgentPageEvent {
+        AgentPageEvent(kind: "sideQuestion", value: .string(sessionId))
+    }
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).
     public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {
