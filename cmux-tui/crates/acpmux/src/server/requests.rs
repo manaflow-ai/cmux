@@ -146,6 +146,7 @@ pub(super) async fn handle_notification(
                     device.as_deref(),
                     m,
                     &mut params,
+                    false,
                 )
                 .await
             {
@@ -443,6 +444,7 @@ async fn dispatch_brief(
             None,
             method::SESSION_NEW,
             &mut new_params,
+            false,
         )
         .await?;
     }
@@ -658,11 +660,34 @@ pub(super) async fn handle_request(
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
+    // A policy raise the person proved in another machine's app, for a chat here: counted and
+    // its challenge spent once, before any check reads it, and the change goes to that very
+    // chat (`hub/person/policy_grant.rs`).
+    let proved_chat = hub.take_person_policy(m, &params);
+    let policy_proved = proved_chat.is_some();
+    // A refused raise of a chat here carries a challenge the person's app can prove.
+    let challenge = |e: RpcError, params: &Value| {
+        hub.with_policy_challenge(
+            m,
+            params,
+            &[super::remote_guard::POLICY_REFUSED, crate::hub::person::REASON],
+            e,
+        )
+    };
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
-        super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
-            .await?;
+        super::remote_guard::check(
+            hub,
+            conn.origin,
+            conn.auth,
+            device.as_deref(),
+            m,
+            &mut params,
+            policy_proved,
+        )
+        .await
+        .map_err(|e| challenge(e, &params))?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
@@ -674,17 +699,19 @@ pub(super) async fn handle_request(
             == crate::hub::Control::Web;
     let verdict = hub
         .person_check(
-            conn.is_person(),
+            conn.is_person() || policy_proved,
             remote_authenticated,
             conn.caller(),
             !conn.origin.web_class(),
             m,
             &params,
         )
-        .await?;
+        .await
+        .map_err(|e| challenge(e, &params))?;
     // Again after the guard's awaits: a session that took the name meanwhile (`hub/vm_boundary.rs`).
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
-    let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
+    let resolved = proved_chat
+        .or_else(|| super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok()));
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     // A message's class is checked here, before a peer's prompt is forwarded: an older peer
     // ignores the field, and a send queued for later would fail only once it is delivered.
@@ -1202,7 +1229,7 @@ async fn dispatch_request(
         }
         method::SESSION_LOAD => session_open::load(hub, conn, resolved.as_ref(), &params),
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
-        method::SESSION_LIST => super::list_reply::acp_list(hub, conn).await,
+        method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
@@ -2169,7 +2196,8 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
-            let s = hub.resolve(session_key(&params)?)?;
+            // The chat a proved raise was checked for (`hub/person/policy_grant.rs`).
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let policy: PermissionPolicy = str_param(&params, "policy")
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()

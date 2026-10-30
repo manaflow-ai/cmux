@@ -423,6 +423,85 @@ def tree_input_paths(root: Path) -> list[str]:
     return paths
 
 
+import re  # noqa: E402 - the Cargo and Xcode project readers below
+
+CMUX_TUI = "cmux-tui/"
+# The routing replay (cmux_next_route_replay.py) accepts dropped native and scheme tiers with this reason.
+NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
+APP_FFI_CRATE = "cmux-tui/crates/cmux-app-ffi"
+APP_PROJECT = "cmux.xcodeproj/project.pbxproj"
+CARGO_PATH = re.compile(r'path\s*=\s*"([^"]+)"')
+CARGO_WORKSPACE_DEP = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*(?:\.workspace\s*=\s*true|=\s*\{[^}\n]*\bworkspace\s*=\s*true)', re.M)
+PHASE_INPUT = re.compile(r'"\$\(SRCROOT\)/(cmux-tui/[^"]+)"')
+
+
+_READ: dict = {}  # (reader, root) -> its paths, read once a run
+
+
+def app_ffi_inputs(root: Path) -> list[str]:
+    if ("ffi", root) not in _READ:
+        _READ["ffi", root] = _app_ffi_inputs(root)
+    return _READ["ffi", root]
+
+
+def scheme_phase_rust_inputs(root: Path) -> list[str]:
+    if ("scheme", root) not in _READ:
+        _READ["scheme", root] = _scheme_phase_rust_inputs(root)
+    return _READ["scheme", root]
+
+
+def _app_ffi_inputs(root: Path) -> list[str]:
+    """The CCmuxAppFFI sources, the only Rust the Swift compiles link: cmux-app-ffi and every crate it
+    reaches through Cargo path dependencies (its own or the workspace's), the toolchain and the build
+    script, as scripts/cmux-next/check-app-ffi-pin.sh derives them, plus the swift test job's crates. A
+    change to one also needs a new pin (Package.swift, which runs every tier)."""
+    workspace: dict[str, str] = {}
+    try:
+        manifest = (root / "cmux-tui/Cargo.toml").read_text(encoding="utf-8")
+        for line in manifest.splitlines():
+            named = re.match(r'\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"', line)
+            if named:
+                workspace[named.group(1)] = "cmux-tui/" + named.group(2).strip("/")
+    except OSError:
+        pass
+    seen: set[str] = set()
+    pending = [APP_FFI_CRATE]
+    while pending:
+        crate = pending.pop()
+        if crate in seen or not (root / crate / "Cargo.toml").is_file():
+            continue
+        seen.add(crate)
+        text = (root / crate / "Cargo.toml").read_text(encoding="utf-8")
+        found = [(Path(crate) / dep).as_posix() for dep in CARGO_PATH.findall(text)]
+        found += [workspace[name] for name in CARGO_WORKSPACE_DEP.findall(text) if name in workspace]
+        for dep in found:
+            resolved = (root / dep).resolve()
+            try:
+                relative = resolved.relative_to(root.resolve()).as_posix()
+            except ValueError:
+                continue
+            if (resolved / "Cargo.toml").is_file():
+                pending.append(relative)
+    prefixes = {crate + "/" for crate in seen}
+    prefixes |= {p for p in SWIFT_JOB_INPUTS if p.startswith(CMUX_TUI)}
+    prefixes |= {"cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"}
+    return sorted(prefixes)
+
+
+def _scheme_phase_rust_inputs(root: Path) -> list[str]:
+    """The cmux-tui files and directories the app scheme's build phases name as inputs (the diff sidecar,
+    the mobile host, the CLI resources). The Bundle cmux-tui phase names the whole tree: it bundles the
+    same-tree build the daemon tier makes, so that entry adds nothing here."""
+    try:
+        text = (root / APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        return [CMUX_TUI]
+    found = set()
+    for entry in PHASE_INPUT.findall(text):
+        found.add(entry + "/" if (root / entry).is_dir() else entry)
+    return sorted(found)
+
+
 def matches(path: str, pattern: str) -> bool:
     return under(path, pattern) if pattern.endswith("/") else path == pattern
 
@@ -538,6 +617,19 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
             result.webview = True
         elif any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE):
             pass
+        elif path.startswith(CMUX_TUI):
+            # Rust: the daemon tier (tree inputs, below) builds and tests it. Only the
+            # CCmuxAppFFI sources reach the Swift compiles, and only the app scheme's build
+            # phases read the rest of what they name; nothing else needs a Mac compile.
+            if any(matches(path, prefix) for prefix in app_ffi_inputs(root)):
+                result.native = result.scheme = True
+                result.reasons.append(f"{path} is a CCmuxAppFFI source: the Swift compiles run")
+            elif "dev-build" in labels or any(matches(path, prefix) for prefix in scheme_phase_rust_inputs(root)):
+                # A dev-build PR's dogfood app is the scheme compile's, with this tree bundled.
+                result.scheme = True
+                result.reasons.append(f"{path} is bundled by the app scheme's build phases {NO_SWIFT_COMPILE_REASON}")
+            else:
+                result.reasons.append(f"{path} is Rust the daemon tier builds {NO_SWIFT_COMPILE_REASON}")
         elif not path.startswith("Packages/"):
             # App host, Xcode project, CLI, resources and build scripts: only
             # the app scheme compiles them.
