@@ -31,8 +31,15 @@ pub(crate) use blobs::require_icon_asset;
 pub const DEFAULT_PROFILE_ID: &str = "default";
 const MIGRATED_META_KEY: &str = "personal_migrated_v1";
 const REVISION_META_KEY: &str = "personal_revision";
-/// Longest accepted transport or capabilities JSON, in bytes.
-pub const MAX_PERSONAL_JSON_BYTES: usize = 4096;
+/// Longest accepted JSON value in a personal row (a session's transport or
+/// capabilities, a browser profile's source or proxy), in bytes. It is the
+/// transport's own message bound, so a row holds whatever one request can
+/// carry: a session's capability list grows with each daemon feature (5,765
+/// bytes on 2026-10-29), and a fixed smaller cap refused `put-session`, which
+/// left machines out of the registry and the next launch unable to restore
+/// them (P-AUSTIN B7a). Only a caller inside the daemon can pass a larger
+/// value; it is refused with an error, never cut.
+pub const MAX_PERSONAL_JSON_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 /// Longest accepted theme spec, in characters.
 pub const MAX_THEME_CHARS: usize = 256;
 
