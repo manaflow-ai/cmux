@@ -25,7 +25,9 @@ struct SearchTabsSectionBoundaryTests {
 
     private func page(_ fixture: Fixture) -> PalettePageSpec {
         PalettePageSpec(id: "tab-search", title: "Search Tabs", placeholder: "Search", providers: [
-            StaticPaletteProvider(id: "tabs", items: fixture.items)
+            AsyncPaletteProvider(id: "tabs", immediateItems: fixture.items) {
+                fixture.items
+            }
         ], ownsCloseKey: true, keepsSectionOrder: true)
     }
 
