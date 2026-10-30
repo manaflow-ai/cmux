@@ -87,6 +87,7 @@ export const PreviewCard = React.forwardRef<
     /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
     railLeft?: number;
     bookmark?: PreviewBookmark;
+    onPointerEnter?(): void;
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
     onSizeChange?(): void;
     onFocus?(): void;
@@ -103,6 +104,7 @@ export const PreviewCard = React.forwardRef<
     metadata,
     railLeft = 0,
     bookmark,
+    onPointerEnter,
     onPointerLeave,
     onSizeChange,
     onFocus,
@@ -127,7 +129,8 @@ export const PreviewCard = React.forwardRef<
     const base = node.offsetParent instanceof HTMLElement ? node.offsetParent : layer;
     const mark = from.getBoundingClientRect();
     const frame = base.getBoundingClientRect();
-    const shiftX = Number.parseFloat(getComputedStyle(from.parentElement!).translate) || 0;
+    const shiftX =
+      Number.parseFloat(from.ownerDocument.defaultView?.getComputedStyle(from.parentElement!).translate ?? "") || 0;
     const next = {
       x: mark.left - shiftX - frame.left - base.clientLeft + base.scrollLeft,
       y: mark.top - frame.top - base.clientTop + base.scrollTop,
@@ -144,7 +147,8 @@ export const PreviewCard = React.forwardRef<
       const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt");
       const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
       if (!promptNode || !replyNode) return;
-      const style = getComputedStyle(promptNode);
+      const style = promptNode.ownerDocument.defaultView?.getComputedStyle(promptNode);
+      if (!style) return;
       const lineHeight = Number.parseFloat(style.lineHeight) || 20;
       const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
       const naturalReply = replyNode.cloneNode(true) as HTMLElement;
@@ -193,6 +197,7 @@ export const PreviewCard = React.forwardRef<
           transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)`,
         } as React.CSSProperties
       }
+      onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}

@@ -45,10 +45,13 @@ nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {
         case .busy: return .busy
         case .needsBinary(let triple): return .needsBinary(target: triple)
         case .rolledBack: return .rolledBack(reason: reply.error ?? "the new acpmux did not start")
-        case .cloudMachine, .held: return .handledElsewhere
-        // Not reachable now: the policy asks again with backoff, and drops it while the local
-        // daemon reports it disconnected (``currentBuild()``) until it connects again.
-        case .unreachable: return .busy
+        case .cloudMachine: return .handledElsewhere
+        case .held: return .held(reason: reply.error ?? "held off updates (acpmux host hold)")
+        // Not reachable now: the policy asks again with backoff, says it is offline, and waits
+        // while the local daemon reports it disconnected (``currentBuild()``) until it connects again.
+        case .unreachable: return .unreachable
+        // Cut short here, not there: asked again with backoff, quietly; only a failed retry shows.
+        case .interrupted: return .busy
         case .failed: return .failed(reason: reply.error ?? "acpmux host update failed")
         }
     }
@@ -112,11 +115,17 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
         return nil
     }
 
-    /// One `host update` run and its reply; a run that prints no reply is a failure. `whileBusy`
-    /// drops `--if-idle` (``AcpmuxPeerUpdateCommand/updateArguments(peer:binaryDirectory:whileBusy:)``).
+    /// One `host update` run and its reply; a run that prints no reply is a failure, unless a
+    /// signal cut it short (``AcpmuxPeerUpdateReply/Outcome/interrupted``): a restart of the local
+    /// daemon under it says nothing about the peer. `whileBusy` drops `--if-idle`
+    /// (``AcpmuxPeerUpdateCommand/updateArguments(peer:binaryDirectory:whileBusy:)``).
     func hostUpdate(_ name: String, binaries: URL, whileBusy: Bool) async -> AcpmuxPeerUpdateReply {
         let result = await command.run(AcpmuxPeerUpdateCommand.updateArguments(peer: name, binaryDirectory: binaries, whileBusy: whileBusy))
         if let reply = AcpmuxPeerUpdateReply.parse(result.output, peer: name) { return reply }
+        if result.interrupted {
+            Self.logger.info("\(name, privacy: .public): host update cut short by a signal; asked again")
+            return AcpmuxPeerUpdateReply(outcome: .interrupted, error: "the update was cut short")
+        }
         let last = result.errors.split(whereSeparator: \.isNewline).last.map { String($0).trimmingCharacters(in: .whitespaces) }
         return AcpmuxPeerUpdateReply(outcome: .failed, error: last ?? "acpmux exited \(result.status.map(String.init) ?? "without a status")")
     }

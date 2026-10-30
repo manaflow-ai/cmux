@@ -67,6 +67,7 @@ NESTED_COLUMNS = (1, 3)  # 0-based: columns 2 and 4 split their middle row once 
 CHROMIUM_WORKSPACES = 10
 CHROMIUM_PER_WORKSPACE = 2
 BUSY_TERMINALS = 10
+PROVISIONAL_TAB = "pending_tab_"  # ProvisionalTab.idPrefix: a tab the app shows before the daemon has it
 WINDOW_SIZE = (1600, 1000)  # width, height in points (debug.window_frame)
 # An app without the screen fields (before bb4ac3c2b03) cannot be placed on its screen: the window then goes
 # here, bottom-left screen points, as before.
@@ -251,17 +252,28 @@ class Stress:
         pane = next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)
         return (pane or {}).get("tabs") or []
 
+    def settled_tabs(self, workspace_id, pane_id, seconds=20):
+        """`pane_id`'s tabs once none is provisional (the app shows a new tab under a `pending_tab_` id until
+        the daemon has it), or as they are after `seconds`."""
+        settled = wait(lambda: (lambda tabs: tabs if tabs and not any(provisional(t) for t in tabs) else None)(
+            self.tabs(workspace_id, pane_id)), seconds, step=0.1)
+        return settled or self.tabs(workspace_id, pane_id)
+
     def add_tab(self, workspace_id, pane_id, kind):
         """One tab of `kind` (terminal, chromium, webkit, chat) in `pane_id`, aimed at it by id (never at
-        whatever has focus); waits for it."""
-        before = {t.get("id") for t in self.tabs(workspace_id, pane_id)}
-        count = len(before)
+        whatever has focus); waits for it, and for the daemon to have it."""
+        # The tab before this one may still be provisional (a new agent chat is, until its conversation
+        # starts): a target that names it is refused ("No tab matches pending_tab_..."), and a provisional
+        # tab that goes away would hide the new one from a tab count. So: the pane settled first, the target
+        # a tab the daemon has, and the new tab found by id and kind, not by count.
+        tabs = self.settled_tabs(workspace_id, pane_id)
+        before = {t.get("id") for t in tabs}
         target = f"pane:{pane_id}"
         # The new-tab actions (newSurface, openBrowser.*) take a tab target: the tab the new one opens
         # beside, in that tab's pane. A pane target is refused (invalid_params), and no tab opens.
-        tabs = self.tabs(workspace_id, pane_id)
-        beside = next((t for t in tabs if t.get("selected")), tabs[-1] if tabs else None)
-        tab_target = f"tab:{beside['id']}" if beside and beside.get("id") else target
+        real = [t for t in tabs if t.get("id") and not provisional(t)]
+        beside = next((t for t in real if t.get("selected")), real[-1] if real else None)
+        tab_target = f"tab:{beside['id']}" if beside else target
         fallback = False
         if kind == "terminal":
             self.action("newSurface", target=tab_target)
@@ -274,18 +286,32 @@ class Stress:
             # launch denied, a build without agent chats) falls back to the New Tab page; a reply that does not
             # come in time is no refusal (the chat may still open), so nothing is added and the pane's mix
             # check names the missing tab.
-            reply = self.action("palette.newAgentChat", target=target)
+            # focus=False: a script's chat aimed at a pane opens as a tab in that pane (AgentHandlers
+            # openTargetedChat, #23016). With focus the run takes the person's New Agent Chat path, which
+            # puts the first chat in a new left chat dock and every later one in that dock
+            # (NewChatPlacement): one extra pane and column, and no chat in any measured pane.
+            reply = self.action("palette.newAgentChat", target=target, focus=False)
             if typed_refusal(reply):
                 self.chat_fallbacks += 1
                 fallback = True
                 self.action("newTab.page", target=target)
-        appeared = wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
+        kinds = topology_kinds(kind, fallback)
+
+        def fresh():
+            return [t for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before and t.get("kind") in kinds] or None
+        appeared = wait(fresh, 20, step=0.1)
         if not appeared and kind in ("terminal", "chromium", "webkit"):
             # No silent go-on: a run that measures a pane without the tab it asked for measures the wrong
             # pane (the Command-pan bench over Chromium measured a terminal, 2026-10-24). A chat may still
             # open late; the pane's mix check names it.
             raise RuntimeError(f"{kind} tab did not appear in {pane_id} in 20 s (refusals: {self.refusals[-3:]})")
-        new = [t.get("id") for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before]
+        # Only the daemon's id is recorded: a provisional id is replaced when the daemon has the tab, and a tab
+        # the daemon never got is no STRESS tab. A terminal or page without it fails here; a chat without it is
+        # recorded as missing (None), and the pane's mix check names it.
+        confirmed = wait(lambda: [t for t in fresh() or [] if not provisional(t)] or None, 20, step=0.1) if appeared else None
+        if appeared and not confirmed and kind in ("terminal", "chromium", "webkit"):
+            raise RuntimeError(f"{kind} tab in {pane_id} stayed provisional for 20 s (the daemon never had it)")
+        new = [t.get("id") for t in confirmed or []]
         self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None, fallback))
 
     def send(self, tab_id, text):
@@ -584,12 +610,13 @@ class Stress:
 
 def topology_kinds(asked, fallback):
     """The `snapshot.get` tab kinds a tab asked as `asked` may have: a terminal, a browser tab for Chromium
-    and WebKit, an agent chat (`conversation`), or the New Tab page (`page`) for a counted chat fallback."""
+    and WebKit, an agent chat (`conversation`), or the New Tab page for a counted chat fallback: an agent tab
+    showing the page (`conversation`, PaneController.newTabPage), or a store page tab (`page`)."""
     if asked == "terminal":
         return {"terminal"}
     if asked in ("chromium", "webkit"):
         return {"browser"}
-    return {"page"} if fallback else {"conversation"}
+    return {"page", "conversation"} if fallback else {"conversation"}
 
 
 def cef_problems(cef, web_dev_config=None):
@@ -608,6 +635,12 @@ def cef_problems(cef, web_dev_config=None):
     if web_dev_config and os.path.exists(web_dev_config):
         problems.append(f"{web_dev_config} points pages at a dev server")
     return problems
+
+
+def provisional(tab):
+    """Whether `tab` (a snapshot.get tab) is the app's stand-in for a tab the daemon does not have yet
+    (ProvisionalTab.idPrefix): no action can name it."""
+    return str(tab.get("id") or "").startswith(PROVISIONAL_TAB)
 
 
 def typed_refusal(reply):

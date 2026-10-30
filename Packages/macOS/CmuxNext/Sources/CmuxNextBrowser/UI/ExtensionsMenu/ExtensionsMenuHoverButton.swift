@@ -123,18 +123,20 @@ final class ExtensionsMenuHoverButton: NSView {
         let boxX = insets.left
         imageView.frame.origin = NSPoint(x: boxX + (imageBox - size.width) / 2, y: (bounds.height - size.height) / 2)
         guard titleLabel.superview != nil else { return }
+        // The text boxes span from `x` to the right inset; each frame adds its label's padding
+        // around its text box (a frame the size of the text alone truncated the name).
         let x = boxX + imageBox + imageLabelSpacing
         let width = max(0, bounds.width - x - insets.right)
         let height = ceil(titleLabel.intrinsicContentSize.height)
         guard detailLabel.superview != nil, !detailLabel.stringValue.isEmpty else {
-            titleLabel.frame = NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
+            titleLabel.frame = titleLabel.frame(forAlignmentRect: NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height))
             return
         }
         // Two lines centered together, the name over its access.
         let detailHeight = ceil(detailLabel.intrinsicContentSize.height)
         let top = (bounds.height - height - detailHeight) / 2
-        titleLabel.frame = NSRect(x: x, y: top, width: width, height: height)
-        detailLabel.frame = NSRect(x: x, y: top + height, width: width, height: detailHeight)
+        titleLabel.frame = titleLabel.frame(forAlignmentRect: NSRect(x: x, y: top, width: width, height: height))
+        detailLabel.frame = detailLabel.frame(forAlignmentRect: NSRect(x: x, y: top + height, width: width, height: detailHeight))
     }
 
     // MARK: Drawing

@@ -20,7 +20,8 @@ public nonisolated protocol DaemonUpdateTarget: Sendable {
     /// ``DaemonUpdateOutcome/busy`` and changes nothing. With `whileBusy` it updates mid-turn too:
     /// the restarted daemon resumes what it interrupted. The policy asks so from the first ask
     /// (``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` is zero by default). It also answers
-    /// `busy` when it cannot update now, such as an unreachable machine or another update running.
+    /// `busy` when it cannot update now, such as another update running, and
+    /// ``DaemonUpdateOutcome/unreachable`` when the machine cannot be reached.
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome
     /// Whether the target updates as soon as the policy reaches it: the policy queues it also when
     /// its build is unknown, ahead of every other waiting target and without waiting out another
@@ -46,6 +47,9 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// It is not idle, or, asked to update while busy, it cannot now (unreachable, another update
     /// running); nothing changed. The policy asks again later.
     case busy
+    /// The machine could not be reached (offline); nothing changed. Like ``busy`` the policy asks
+    /// again later, and also once it connects again; never a failure or a toast.
+    case unreachable
     /// No binary for its platform (`target`, a Rust triple) could be found; nothing changed. The
     /// next launch asks again.
     case needsBinary(target: String)
@@ -54,6 +58,11 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// Another path updates it (a cmux Cloud VM reached as an ssh peer goes through
     /// `cmux link machine update --to-bundled`); nothing changed and nothing shows.
     case handledElsewhere
+    /// The person held the machine off updates (`acpmux host hold`: reserved for someone else, or
+    /// not theirs); nothing reached it. `reason`: the daemon's words, with the hold's reason and
+    /// `until`. Like ``handledElsewhere`` nothing shows and nothing is recorded, so it is not asked
+    /// again in this run and the next launch asks again; only the log names the hold.
+    case held(reason: String)
     /// The machine cannot take any new build in place (a Cloud machine whose cmux predates in-place
     /// updates); nothing changed, and it keeps working on what it runs. Not a failure: no toast,
     /// one grouped line in Settings > Updates, and not tried again while it reports the same build,
@@ -134,6 +143,9 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         /// non-zero ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, not idle yet): the policy
         /// asks again with backoff.
         case retrying
+        /// The machine is offline (``DaemonUpdateOutcome/unreachable``): it updates once it is back.
+        /// One quiet line, never a toast.
+        case offline
         case updated(build: String)
         /// `rolledBack`: the target put its previous build back.
         case failed(reason: String, rolledBack: Bool)

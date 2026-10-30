@@ -397,19 +397,22 @@ impl CloudPlacement {
     /// The first message's task on the peer: the subagent system text (no
     /// preset there), where it runs and how it gets its own worktree.
     ///
-    /// It opens with the task's own `Title:` and `Group:` lines: the workspace
-    /// name and sidebar group are read from this text (`workspaces::title`,
-    /// `topic_group`) and so is the peer session's title (acpmux `prompt_gist`).
-    /// With the instructions first, 31 workspaces read "You are a subagent of
-    /// Chief, an…" and all went into "Agents & routing" (Oct 22-25; since
-    /// 82a981959a4, Oct 19).
+    /// It opens with the task's own `Title:` line, and its `Group: Chief agents`
+    /// line when it has one (`workspaces::spawn_group`; no other group, #27712):
+    /// the workspace name and group are read from this text (`workspaces::title`)
+    /// and so is the peer session's title (acpmux `prompt_gist`). With the
+    /// instructions first, 31 workspaces read "You are a subagent of Chief, an…"
+    /// (Oct 22-25; since 82a981959a4, Oct 19).
     pub fn task(&self, id: &str, asked: Option<&str>, task: &str) -> String {
         let repo = cloud_repo(asked).unwrap_or_else(|| "cmux".to_owned());
         format!(
-            "Title: {title}\nGroup: {group}\n\n{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `git -C {dir}/{id} config cmux.land <branch>` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
+            "Title: {title}\n{group}\n{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `git -C {dir}/{id} config cmux.land <branch>` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
             self.instructions.trim_end(),
             title = crate::workspaces::title(task),
-            group = crate::workspaces::topic_group(task),
+            group = match crate::workspaces::spawn_group(task) {
+                "" => String::new(),
+                g => format!("Group: {g}\n"),
+            },
             fleet = crate::fleet_wait::NOTE,
             peer = self.peer,
             dir = self.dir.display(),
@@ -462,6 +465,9 @@ pub struct Spawner {
     /// The person profile `remember` writes (`optchat/person.md`); None: no
     /// profile on this host.
     person: Option<std::path::PathBuf>,
+    /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
+    /// None: no cmux app behind this host.
+    cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
 }
 
 impl Spawner {
@@ -490,7 +496,17 @@ impl Spawner {
             cloud_vms: None,
             agent_keys: None,
             person: None,
+            cloud_workspaces: None,
         }
+    }
+
+    /// `cloud_workspace` makes Cloud workspaces through `cloud` (None: off).
+    pub fn with_cloud_workspaces(
+        mut self,
+        cloud: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
+    ) -> Spawner {
+        self.cloud_workspaces = cloud;
+        self
     }
 
     /// `remember` keeps preferences in the profile at `path`.
@@ -821,7 +837,8 @@ impl Spawner {
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        let group = crate::workspaces::topic_group(task);
+        // No group unless the task asks for the person's "Chief agents" (#27712).
+        let group = crate::workspaces::spawn_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
         // The terminal beside the chat runs on this Mac: a peer session's
         // folder is on the VM (/home/agent/work), and a PTY spawned in a
@@ -830,7 +847,7 @@ impl Spawner {
             Some(_) => &self.settings.cwd,
             None => &s.cwd,
         };
-        match workspaces.open(&key, &session, &name, &group, term_cwd) {
+        match workspaces.open(&key, &session, &name, group, term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 // a313: the real ws_ id, so the CLI can list, move and pin it.
@@ -842,7 +859,7 @@ impl Spawner {
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                let mut note = format!("workspace \"{name}\" in {place}");
                 if let Some(r) = &located {
                     note.push_str(&format!(
                         " (id {}; `{}` moves it to the top)",
@@ -854,6 +871,7 @@ impl Spawner {
                     id: id.to_owned(),
                     key,
                     name,
+                    ws: located.map(|r| r.id),
                 });
                 Ok(note)
             }
@@ -1588,6 +1606,26 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn cloud_workspace(&self, request: &crate::cloud_workspace::Request) -> Result<String, String> {
+        let Some(cloud) = &self.cloud_workspaces else {
+            return Err(
+                "cloud_workspace: this Chief host has no cmux app to make Cloud workspaces in"
+                    .into(),
+            );
+        };
+        let answer = cloud.call(request);
+        (self.log)(&format!(
+            "cloud_workspace {:?}: {}",
+            request.title,
+            answer.as_ref().unwrap_or_else(|e| e)
+        ));
+        self.trace.emit(
+            "chief.cloud_workspace",
+            serde_json::json!({"title": self.trace.text(&request.title), "ok": answer.is_ok()}),
+        );
+        answer
+    }
+
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Control { request, reply })?;
@@ -1671,6 +1709,14 @@ impl Orchestrator for Spawner {
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn watch(&self, call: crate::tools::WatchCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Watch { call, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

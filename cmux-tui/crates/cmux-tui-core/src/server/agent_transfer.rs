@@ -80,6 +80,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
+use super::agent_session_attach::agent_session_start::vm_word;
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
@@ -95,9 +96,13 @@ pub mod agent_update;
 mod ask_first;
 mod askable;
 mod landed;
-mod state_file;
+pub(super) mod state_file;
 
 pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
+/// `vm_kind` on `agent-transfer-receive` and `agent-transfer-finish`: the
+/// caller's word that the Cloud API answered `vmKind: "owner"` for it on
+/// its link, which a chat move onto a Cloud VM needs.
+pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 
 /// The largest page of bundle data a write takes or a read answers.
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;
@@ -325,6 +330,10 @@ impl Mux {
 struct ReceiveParams {
     manifest: Map<String, Value>,
     cwd: String,
+    /// The Cloud API's `vmKind` for the caller (only `owner` counts; an
+    /// explicit `null` is a word, and refuses).
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 #[derive(Deserialize)]
@@ -342,6 +351,9 @@ struct FinishParams {
     receive_id: String,
     #[serde(default)]
     name: Option<String>,
+    /// As the receive's.
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 #[derive(Deserialize)]
@@ -487,10 +499,11 @@ impl Refusal {
     }
 }
 
-/// `agent-session-start`'s machine kind gate, read again at each call.
-fn host_gate(mux: &Mux) -> Result<(), Refusal> {
+/// `agent-session-start`'s machine kind gate, read again at each call, with
+/// the call's own `vm_kind`.
+fn host_gate(mux: &Mux, vm_kind: Option<&str>) -> Result<(), Refusal> {
     use super::agent_session_attach::Refusal as Start;
-    match mux.agent_host_gate() {
+    match mux.agent_host_gate(vm_kind) {
         Ok(()) => Ok(()),
         Err(Start::TeamVmBlocked) => Err(Refusal::TeamVmBlocked),
         Err(_) => Err(Refusal::HostUnverified),
@@ -668,9 +681,9 @@ enum Prepared {
 fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
     let transfers = &mux.agent_transfers;
     Ok(match verb {
-        Verb::Receive(ReceiveParams { manifest, cwd }) => {
+        Verb::Receive(ReceiveParams { manifest, cwd, vm_kind }) => {
             let host = transfers.host().ok_or(Refusal::Unavailable)?;
-            host_gate(mux)?;
+            host_gate(mux, vm_word(&vm_kind))?;
             let (guard, cwd) = guard_for(&host, &cwd)?;
             // Before acpmux makes a receive, so a refused one leaves nothing
             // there (calls racing past this overshoot by at most MAX_CALLS).
@@ -697,12 +710,12 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
             Prepared::Write { receive_id, path, offset, data }
         }
-        Verb::Finish(FinishParams { receive_id, name }) => {
+        Verb::Finish(FinishParams { receive_id, name, vm_kind }) => {
             if name.as_deref().is_some_and(|name| !is_chat_name(name)) {
                 return Err(Refusal::BadRequest.into());
             }
             let cwd = transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
-            if let Err(refusal) = host_gate(mux) {
+            if let Err(refusal) = host_gate(mux, vm_word(&vm_kind)) {
                 // A team VM stays one: the receive can never finish here.
                 if refusal == Refusal::TeamVmBlocked {
                     transfers.settle(&receive_id);

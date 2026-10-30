@@ -171,6 +171,20 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the ids at once (ids are unique per home, kept in host.json).
 - `spawn` takes an optional `effort` (low, medium, high, xhigh, max): how
   hard its subagents think; by default the calling turn's effort.
+- `cloud_workspace {title, size?, machine?}` (`optchat-chief cloud-workspace
+  [--size S] [--machine machine:ID] "title"`, `src/cloud_workspace.rs`) starts a
+  cmux Cloud workspace for a task through the app's control socket
+  (`CMUX_SOCKET_PATH`): `cloudListMachines`, then `newCloudMachine {name}` (the
+  title lowercased with dashes), which makes the machine and opens its first
+  workspace in the sidebar under the machine; with `machine` it runs
+  `newCloudWorkspace` on that machine instead (keyed, so a retry never opens a
+  second one). The runs are `script` origin: the app's rules for an agent's
+  create apply (on a paid plan it makes the machine at once), so the Chief calls
+  it only for a machine the person asked for. A machine of that name, or a create
+  of that name the list's `creating` still shows, is answered, never made again;
+  an app without `creating` gets the names this host asked for, held 20 minutes.
+  It rides on the `spawn` grant and runs only in the owner's turn; subagents do
+  not have it; a host with no app answers that it has none.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
   renamed Chief), VIEW_DOC, a short cmux section, then the person profile
@@ -217,9 +231,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `features.multi_agent = false` (harness.rs guard test).
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
-  daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
-  `create-terminal` in the subagent's directory, `new-conversation-tab` with
-  `agent_session {host: install:<id>, host_name, session, harness}`). The
+  daemon instead (`DaemonWorkspaces`: `create-workspace` by key, then
+  `new-conversation-tab {workspace}` with `agent_session {host:
+  install:<id>, host_name, session, harness}`, the chat as its only tab and no
+  shell). The
   subagent runs on that machine, so its workspace belongs to that machine's
   session (data-model.md 1.2); an app shows it while connected to that
   session, and an app on another machine shows the chat tab as running on
@@ -586,11 +601,18 @@ byte-identical across turns. The request the model gets is not fully ours:
   on claude-sr, which resets `CLAUDE_CONFIG_DIR` (see Compactor routes). When
   acpmux refuses the preset, turns still start (with the harness's own
   configuration) and host.log says so; compactor sessions never do.
-  Claude Code keeps each turn's transcript (the whole view) for 2 days
-  (`cleanupPeriodDays`, minimum 1, set in both the isolated configuration
-  and the session directory's project settings); on claude-sr the
-  transcripts are under `~/.claude/projects/`, and whether a project-level
-  `cleanupPeriodDays` governs that sweep is not checked.
+  Each turn's transcript (the whole view) is kept for 2 days: Claude Code's
+  `cleanupPeriodDays` in the isolated configuration, and the host's
+  TurnRetention (`turn_retention.rs`), which prunes exactly the turn
+  project (and the compactor's slot projects a crash left, after 1 day) in
+  the user's Claude home. No Chief project settings file (turn, subagent,
+  compactor slot) sets `cleanupPeriodDays`: Claude Code reads it from the
+  merged settings and its sweep walks every project of the store the
+  session runs on, which for these sessions is the user's own
+  `~/.claude`, so a project-level 2 deleted the user's other chats'
+  transcripts (checked against Claude Code 2.1.312; cmux#27740's
+  investigation). `tests/harness.rs`
+  `chief_project_settings_never_set_the_stores_retention` holds it.
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
