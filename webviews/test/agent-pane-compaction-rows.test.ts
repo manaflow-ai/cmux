@@ -775,6 +775,26 @@ for (const turnId of ["turn-grace", undefined])
     }
   });
 
+// Review at d99da5ca (P2): a daemon that ends the fenced turn with turn_end naming that turn must
+// still end it; only an end that names no turn, or another one, is ambiguous behind the fence.
+test("a fenced live turn ends on a turn_end that names it", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", { turnId: "turn-old", status: "cancelled", cancelForced: true }],
+      ["mux", "user_message", { text: "next prompt", turnId: "turn-new" }],
+      ["mux", "turn_started", { turnId: "turn-new" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  expect(rows().some((row) => row.kind === "typing")).toBe(true);
+  daemon.push(record([["mux", "turn_end", { turnId: "turn-new" }]], 7));
+  expect(rows().some((row) => row.kind === "typing")).toBe(false);
+  client.close();
+});
+
 for (const [kind, msg] of [
   ["turn_end", {}],
   ["turn_end", { turnId: "turn-old" }],
