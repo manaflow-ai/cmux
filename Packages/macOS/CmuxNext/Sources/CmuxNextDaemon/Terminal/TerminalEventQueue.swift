@@ -158,6 +158,13 @@ final class TerminalEventQueue: Sendable {
         return false
     }
 
+    /// A ``Backpressure/dropAndResync(_:)`` queue dropped output and waits for the READY that replaces it:
+    /// live output meanwhile must come through this queue (which drops it), never straight to the view's lane,
+    /// or the view would parse output with a hole in it (``TerminalEchoRouter``).
+    var isResyncing: Bool {
+        state.withLock { $0.resync != .idle }
+    }
+
     /// Enables the bound once the consumer can start draining.
     func arm() {
         state.withLock { $0.armed = true }

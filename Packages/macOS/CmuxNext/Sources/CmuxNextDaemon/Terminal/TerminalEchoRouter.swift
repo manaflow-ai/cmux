@@ -20,7 +20,9 @@ import Foundation
 /// carries every other view and every control reply, and one stopped view parked it for the whole 3 s of Lawrence's
 /// "no new terminals" stall (2026-10-30). There a full lane shuts the route until the lane wakes it, and output past
 /// it, or held past the hold limit, goes onto the stream, whose bounded queue drops and resyncs (one READY): Mojo's
-/// MultiplexRouter never blocks its IO thread on one endpoint either.
+/// MultiplexRouter never blocks its IO thread on one endpoint either. While that queue waits for the READY of a
+/// resync, live output keeps going the stream's way (``TerminalEventQueue/isResyncing``), which drops it, so the view
+/// never parses output with a hole in it.
 ///
 /// Records, markers and held output are queued under one lock, so a marker is always behind the
 /// record that asked for it and held output reaches the lane before any later chunk; the hold limit
@@ -82,7 +84,13 @@ final class TerminalEchoRouter: Sendable {
                 switch state.route.route(data, colors: colors, flow: decoded.flow) {
                 case .lane(let sink):
                     guard !queue.parksReader else { return .lane(sink, data, flow: decoded.flow) }
-                    return .laneWithoutWaiting(sink, data, flow: decoded.flow, generation: state.route.laneFilling())
+                    guard queue.isResyncing else {
+                        let generation = state.route.laneFilling()
+                        return .laneWithoutWaiting(sink, data, flow: decoded.flow, generation: generation)
+                    }
+                    // The stream dropped output and waits for its READY: this chunk goes the stream's way (it
+                    // drops it), a record with a marker behind it, so the lane never sees output with a hole.
+                    queueOutput(TerminalEchoRoute.Held(data: data, colors: colors, flow: decoded.flow))
                 case .held(let full):
                     guard full else { return .queued }
                     if queue.parksReader { queue.holdForMarker() } else { queueHeld(state.route.spillHeld()) }
@@ -143,6 +151,13 @@ final class TerminalEchoRouter: Sendable {
             switch state.route.acknowledge(sequence) {
             case .nothing: break
             case .marker(let next): queue.pushWithoutWaiting(.outputResume(self.marker(next)))
+            case .open(_, let held) where !queue.parksReader && queue.isResyncing:
+                // The stream waits for a READY: what was held goes the stream's way (which drops it), and the
+                // route shuts again behind a marker.
+                guard !held.isEmpty else { break }
+                held.forEach(queueOutput)
+                if let next = state.route.recordQueued() { queue.pushWithoutWaiting(.outputResume(self.marker(next))) }
+                queue.releaseMarkerHold()
             case .open(let sink, let held):
                 // The reader's next chunk goes by the open route and waits on the lane if it is still full; on a
                 // shared stream a lane these fill shuts the route until it wakes.
