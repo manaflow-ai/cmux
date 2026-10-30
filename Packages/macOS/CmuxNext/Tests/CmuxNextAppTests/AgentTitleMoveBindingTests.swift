@@ -10,4 +10,12 @@ struct AgentTitleMoveBindingTests {
         #expect(!AgentTabStore.tabStillShows(nil, requested: "chat-a"))
         #expect(!AgentTabStore.tabStillShows("chat-a", requested: ""))
     }
+
+    /// No targets from a signed-out app or a list not loaded for the account signed in now (an
+    /// account change, a failed refresh): a stale machine is never offered or moved to.
+    @Test func offersTargetsOnlyFromTheCurrentAccountsLoadedList() {
+        #expect(AgentTabStore.offersMoveTargets(signedIn: true, loadedCurrent: true))
+        #expect(!AgentTabStore.offersMoveTargets(signedIn: true, loadedCurrent: false))
+        #expect(!AgentTabStore.offersMoveTargets(signedIn: false, loadedCurrent: true))
+    }
 }

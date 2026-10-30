@@ -113,7 +113,11 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         tabs.machineTargets = { [weak services] in
-            guard let services else { return [] }
+            // Only the machines of the account signed in now, from a list loaded for it (as the
+            // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
+            // a stale inventory's. The dispatch checks the id against this same list again.
+            guard let services, Self.offersMoveTargets(signedIn: services.cloud.isSignedIn,
+                                                       loadedCurrent: services.cloud.hasLoadedCurrentMachines) else { return [] }
             // CloudMove can route only to a Cloud session. Paused machines remain eligible because
             // the existing transfer path resumes them; failed and destroyed records are omitted.
             return services.machines.cloud.compactMap { machine in

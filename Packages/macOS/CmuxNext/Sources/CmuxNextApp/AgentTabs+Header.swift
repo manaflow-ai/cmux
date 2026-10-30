@@ -111,4 +111,10 @@ extension AgentTabStore {
         guard let shown, !requested.isEmpty else { return false }
         return shown == requested
     }
+
+    /// Whether the title menu may list Cloud move targets: signed in, with the machine list loaded
+    /// for the account signed in now (``CloudService/hasLoadedCurrentMachines``).
+    nonisolated static func offersMoveTargets(signedIn: Bool, loadedCurrent: Bool) -> Bool {
+        signedIn && loadedCurrent
+    }
 }
