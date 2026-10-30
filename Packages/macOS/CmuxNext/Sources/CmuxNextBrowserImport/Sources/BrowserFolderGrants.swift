@@ -112,7 +112,9 @@ public struct BrowserFolderGrants: Sendable {
 
     /// Detection over the browsers that need no grant and the granted ones.
     public func detect(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [BrowserSource] {
-        let readable = browsers.filter(isGranted)
+        // Stops resolving grants once the scan is cancelled (the import window closed).
+        let readable = browsers.filter { !Task.isCancelled && isGranted($0) }
+        guard !Task.isCancelled else { return [] }
         return accessing(readable) { BrowserSourceDetector(environment: environment).detect(readable) }
     }
 
