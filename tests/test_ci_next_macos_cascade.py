@@ -129,6 +129,14 @@ class Counts(unittest.TestCase):
                                "as_of": "2026-10-19T21:54:00Z"}
         self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
 
+    def test_stale_artifact_age_overflows_even_when_health_as_of_is_fresh(self):
+        shot = snapshot(minutes_old=6)
+        shot["pools"][GUI] = {"listening": 0, "busy": 1,
+                               "held_offline": {"units": 1, "cpu": 0, "livelock": 0},
+                               "queued": 1, "oldest_queued_s": 120,
+                               "as_of": "2026-10-19T21:59:00Z"}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
     def test_owned_health_with_a_listening_runner_waits(self):
         shot = snapshot(minutes_old=1)
         shot["pools"][GUI] = {"listening": 1, "busy": 1,
@@ -756,6 +764,15 @@ class Stall(unittest.TestCase):
                                          {LARGE: float(cascade.STALL_MINUTES), SMALL: 0.0}), (LARGE,))
         # Nothing queued is never a stall.
         self.assertEqual(cascade.stalled({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, {LARGE: 90.0, SMALL: 90.0}), ())
+
+    def test_unread_blacksmith_counts_still_honor_declared_outage(self):
+        shot = snapshot(minutes_old=1)
+        shot["bs_health"] = {"label_outages": [{"pool": SMALL, "queued": 3,
+                                                    "last_start_s": 1900}]}
+        seen = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, snapshot=shot)
+        result = cascade.place(env(), (), None, {LARGE: 0, SMALL: 3}, seen)
+        self.assertEqual(result.jobs, none_placed())
+        self.assertIn("could not be read", result.why)
 
     def test_the_incident_sends_nothing_to_blacksmith_or_hosted(self):
         result = cascade.place(env(), (), self.INCIDENT_LIVE, self.INCIDENT_QUEUED, self.incident_seen())

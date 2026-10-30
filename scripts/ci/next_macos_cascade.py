@@ -364,7 +364,12 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
     try:
         as_of = dt.datetime.fromisoformat(str(entry.get("as_of") or "").replace("Z", "+00:00"))
         snapshot_age = (now - as_of).total_seconds()
-        if as_of.tzinfo is None or not 0 <= snapshot_age <= OWNED_HEALTH_STALE_SECONDS:
+        try:
+            generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+            generated_age = (now - generated).total_seconds() if generated.tzinfo else float("inf")
+        except (TypeError, ValueError):
+            generated_age = float("inf")
+        if as_of.tzinfo is None or not 0 <= snapshot_age <= OWNED_HEALTH_STALE_SECONDS                 or not 0 <= generated_age <= OWNED_HEALTH_STALE_SECONDS:
             return True
         # The queue age is measured at `as_of`; include time elapsed since the
         # reading so a fresh-at-read queue cannot be admitted after it crosses
