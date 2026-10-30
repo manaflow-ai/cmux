@@ -76,7 +76,8 @@ public struct WorkspaceAutoNameReader {
                                                                nameRevision: workspace.nameRevision,
                                                                allowsLegacyDefaults: allowsLegacyDefaults)
             let sessionName = turns.sessionName(for: session)
-            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil && workspace.name == sessionName
+            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil
+                && (workspace.name == sessionName || workspace.name == SidebarMapping.shortSessionName(sessionName))
             let mayName = (workspace.title ?? "").isEmpty && (!protectedName || launcherNamed)
             guard rule.enabled, mayName else { hold.forget(workspace: workspace.id); return nil }
             let task = (turns.detail(for: session)?.prompt ?? face.agent?.lastPrompt)
@@ -90,7 +91,7 @@ public struct WorkspaceAutoNameReader {
                 chatTitle: NewWorkspaceName.clean(turns.generatedTitle(for: session)),
                 explicitChatTitle: NewWorkspaceName.clean(face.name), taskSummary: task)
             return hold.settle(workspace: workspace.id, namer: Self.namer(face, work: nil),
-                               label: candidate.isEmpty ? nil : candidate) ?? NewWorkspaceName.clean(sessionName)
+                               label: candidate.isEmpty ? nil : candidate) ?? NewWorkspaceName.clean(SidebarMapping.shortSessionName(sessionName))
         }
         let legacyDefaults = self.allowsLegacyDefaults(workspace)
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },

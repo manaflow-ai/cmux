@@ -220,15 +220,21 @@ public struct SidebarMapping {
         // the session name. Revision zero also supports launcher-named workspaces.
         if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
         let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
-            || originalName == sessionName
+            || originalName == sessionName || originalName == shortSessionName(sessionName)
         guard machineNamed else { return workspaceTitle }
         if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
         for candidate in [chatTitle, taskSummary] {
             guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
-                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame else { continue }
+                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
+                  value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame else { continue }
             return value
         }
         return workspaceTitle
+    }
+
+    /// Peers qualify session names for routing; the sidebar already shows the host separately.
+    public static func shortSessionName(_ name: String?) -> String? {
+        name?.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init)
     }
 
     /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and

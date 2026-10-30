@@ -39,6 +39,11 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let harness: String?
     /// What it is doing now, one line (hq#2509): the lane's `step`, which acpmux masks secrets in.
     public let step: String?
+    /// The running turn's prompt, for distinguishing prompt-derived lane steps from status.
+    public let turnPrompt: String?
+    /// Activity and plan metadata, independent of the prompt-derived lane step.
+    public let turnActivity: String?
+    public let turnPlanStep: String?
     /// A turn ended while no client showed the chat (the summary's `unread`); showing it clears it.
     public let unread: Bool
     /// The session folder's name (the last part of `cwd`), the Priority view's project tag.
@@ -67,7 +72,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
-                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil) {
+                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil,
+                turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
@@ -79,6 +85,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.error = error
         self.harness = harness
         self.step = step
+        self.turnPrompt = turnPrompt
+        self.turnActivity = turnActivity
+        self.turnPlanStep = turnPlanStep
         self.unread = unread
         self.project = project
         self.spawnedBy = spawnedBy
@@ -108,7 +117,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let parent = ((summary["tags"] as? [String: Any])?[parentTag] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let workspaceID = (summary["workspaceId"] as? String) ?? (summary["workspace_id"] as? String)
         let harness = (summary["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        // Never the raw prompt beside it: only acpmux's masked step and title are shown.
+        // The masked step may still be a folded/truncated prompt. Keep its provenance
+        // so the sidebar can show activity instead without changing other lane surfaces.
+        let turn = summary["turn"] as? [String: Any]
         let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let unread = (summary["unread"] as? Bool) ?? false
@@ -120,7 +131,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) },
                                  chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])),
                                  updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
-                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]))
+                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
+                                 turnPrompt: turn?["prompt"] as? String,
+                                 turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]))
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

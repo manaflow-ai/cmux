@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import CmuxNextWorkspaceNaming
+import CmuxNextAgentActivity
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Testing
@@ -38,6 +39,89 @@ struct SidebarAgentRowPresentationTests {
             ["name": "optchat-sub-demo"], ["lastPrompt": "Implement the adapter"]
         ]
         for summary in generatedNames { #expect(AgentTurnStates.sessionName(summary) == nil) }
+    }
+
+    @Test func aUserPromptIsNotAConversationSubtitleButAnAgentReplyIs() throws {
+        let turns = AgentTurnStateStore()
+        let host = "install:sidebar-round4"
+        turns.localHost = host
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent-sidebar-round4", turns: turns, lanes: AgentLaneStore())
+        func handle(_ object: [String: Any]) throws {
+            let message = try #require(AgentTurnStateFeed.Message(line: JSONSerialization.data(withJSONObject: object)))
+            feed.handle(message)
+        }
+        let userSummary: [String: Any] = ["sessionId": Self.laneSession, "name": "demo-lane",
+            "lastMessage": ["role": "user", "text": "Implement the adapter and report the result."]]
+        try handle(["id": 2, "result": ["sessions": [userSummary]]])
+        let ref = AgentSessionRef(host: host, session: Self.laneSession, harness: "claude")
+        #expect(turns.lastMessage(for: ref) == nil)
+        let workspace = try fixture(name: "workspace-7", nameSource: .auto, freeFormPrompt: true)
+        var options = SidebarLayoutOptions()
+        options.expanded = true
+        for enabled in [false, true] {
+            var mapped = row(workspace, machine: .local, autoNamesWorkspaces: enabled)
+            mapped.lastMessage = turns.lastMessage(for: ref)
+            mapped.status = "Tests running"
+            #expect(options.rowContent(mapped, machine: nil).detail == "Tests running")
+        }
+        let agentSummary: [String: Any] = ["sessionId": Self.laneSession, "name": "demo-lane",
+            "lastMessage": ["role": "agent", "text": "I finished the adapter."]]
+        try handle(["id": 2, "result": ["sessions": [agentSummary]]])
+        #expect(turns.lastMessage(for: ref) == "I finished the adapter.")
+        var mapped = row(workspace, machine: .local, autoNamesWorkspaces: true)
+        mapped.lastMessage = turns.lastMessage(for: ref)
+        mapped.status = "Tests running"
+        #expect(options.rowContent(mapped, machine: nil).detail == "I finished the adapter.")
+        // A new user prompt must also clear a previous reply on the incremental watch path.
+        try handle(["method": "_acpmux/session_changed", "params": ["sessionId": Self.laneSession, "session": userSummary]])
+        #expect(turns.lastMessage(for: ref) == nil)
+    }
+
+    @Test func aPromptDerivedLaneStepUsesActivityOrPlanStep() throws {
+        let prompt = String(repeating: "Implement the adapter and report the result.\n", count: 8)
+        let foldedPrompt = prompt.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let summary: [String: Any] = ["sessionId": Self.laneSession, "name": "demo-lane",
+            "lane": ["state": "working", "step": String(foldedPrompt.prefix(240)) + "…"],
+            "turn": ["prompt": prompt, "activity": "Running tests", "planStep": "Verify output"]]
+        let lane = try #require(AgentActivityLane.of(summary: summary))
+        #expect(lane.turnPrompt == prompt)
+        #expect(SidebarLaneStatus.step([lane]) == "Running tests")
+        let planOnly = summary.merging(["turn": ["prompt": prompt, "activity": NSNull(), "planStep": "Verify output"]]) { _, new in new }
+        let planLane = try #require(AgentActivityLane.of(summary: planOnly))
+        #expect(SidebarLaneStatus.step([planLane]) == "Verify output")
+        let folded = summary.merging(["turn": ["prompt": prompt]]) { _, new in new }
+        let foldedLane = try #require(AgentActivityLane.of(summary: folded))
+        #expect(SidebarLaneStatus.step([foldedLane]) == nil)
+        let exact: [String: Any] = ["sessionId": Self.laneSession, "name": "demo-lane",
+            "lane": ["state": "working", "step": prompt], "turn": ["prompt": prompt]]
+        let exactLane = try #require(AgentActivityLane.of(summary: exact))
+        #expect(SidebarLaneStatus.step([exactLane]) == nil)
+        let replyOnly: [String: Any] = ["sessionId": Self.laneSession, "name": "demo-lane",
+            "lane": ["state": "working", "step": "Running tests"]]
+        let replyLane = try #require(AgentActivityLane.of(summary: replyOnly))
+        #expect(SidebarLaneStatus.step([replyLane]) == "Running tests")
+    }
+
+    @Test func peerSessionNamesMatchFullAndShortWorkspaceNames() {
+        #expect(SidebarMapping.shortSessionName("peer/demo-lane") == "demo-lane")
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: "demo-lane", workspaceName: "demo-lane",
+            workspaceNameSource: .user, sessionName: "peer/demo-lane", chatTitle: "Review the release", taskSummary: nil) == "Review the release")
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: "peer/demo-lane", workspaceName: "peer/demo-lane",
+            workspaceNameSource: .user, sessionName: "peer/demo-lane", chatTitle: "Review the release", taskSummary: nil) == "Review the release")
+    }
+
+    @Test func peerNamesUseTheSameResolverAndKeepRenames() throws {
+        for name in ["peer/demo-lane", "demo-lane", "workspace-7"] {
+            let workspace = try fixture(name: name, nameSource: name == "workspace-7" ? .auto : .user,
+                                        freeFormPrompt: true)
+            let turns = turnStore(title: "peer/demo-lane", generatedTitle: nil, sessionName: "peer/demo-lane")
+            #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
+            let titled = turnStore(title: "peer/demo-lane", generatedTitle: "Review the release", sessionName: "peer/demo-lane")
+            #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: titled).title == "Review the release")
+        }
+        let renamed = try fixture(name: "demo-lane", nameSource: .user, nameRevision: 1)
+        let turns = turnStore(title: "peer/demo-lane", generatedTitle: "Review the release", sessionName: "peer/demo-lane")
+        #expect(row(renamed, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
     }
 
     @Test func aNamedChatTitleWinsOverItsSessionName() {
@@ -210,6 +294,10 @@ struct SidebarAgentRowPresentationTests {
 
     @Test func autoNameOffPreservesTheNowLineAndIgnoresRawPromptSubtitles() throws {
         let workspace = try fixture(name: "workspace-7", nameSource: .auto, freeFormPrompt: true)
+        let lane = try #require(AgentActivityLane.of(summary: ["sessionId": Self.laneSession, "name": "demo-lane",
+            "lane": ["state": "working", "step": "Implement the adapter"],
+            "turn": ["prompt": "Implement the adapter", "activity": "Running tests"]]))
+        #expect(SidebarLaneStatus.step([lane]) == "Running tests")
         for enabled in [false, true] {
             var mapped = row(workspace, machine: .local, autoNamesWorkspaces: enabled)
             mapped.detail.task = "Implement the adapter and report the result."
@@ -219,10 +307,10 @@ struct SidebarAgentRowPresentationTests {
             let beforeStep = options.rowContent(mapped, machine: nil)
             #expect(beforeStep.detail == "Earlier reply")
             #expect(beforeStep.now == nil)
-            mapped.agentStep = "Running the test suite"
+            mapped.agentStep = SidebarLaneStatus.step([lane])
             let content = options.rowContent(mapped, machine: nil)
-            #expect(content.now == "Running the test suite")
-            #expect(content.detail == "Running the test suite")
+            #expect(content.now == "Running tests")
+            #expect(content.detail == "Running tests")
             #expect(mapped.title == (enabled ? "demo-lane" : "workspace-7"))
         }
     }

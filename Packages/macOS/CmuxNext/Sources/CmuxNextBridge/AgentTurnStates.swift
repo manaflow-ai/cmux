@@ -191,9 +191,10 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         Set((result["sessions"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.filter(muted).compactMap { $0["sessionId"] as? String })
     }
 
-    /// A summary's `lastMessage` text: the reply's last line, else the prompt; nil before one.
+    /// A summary's reply preview. A user message is the raw prompt, not sidebar status.
     public static func lastMessage(_ summary: [String: Any]) -> String? {
-        guard let text = (summary["lastMessage"] as? [String: Any])?["text"] as? String, !text.isEmpty else { return nil }
+        guard let message = summary["lastMessage"] as? [String: Any], message["role"] as? String != "user",
+              let text = message["text"] as? String, !text.isEmpty else { return nil }
         return text
     }
 
