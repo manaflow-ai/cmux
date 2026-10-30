@@ -128,3 +128,38 @@ fn a_committed_read_during_an_open_write_transaction_sees_only_committed_data() 
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A tool call that completes while its agent is working changes no
+/// projection (about half of an agent's hooks). Its ingress still took the
+/// workspace registry lock twice after the journal commit: to clear its
+/// retry row (`journal.rs:613`, 5.5 % of the registry hold on Austin's
+/// day) and to read the journal tail for the roster fold
+/// (`agent_roster_fold.rs:253`, 3 %). Neither needs the registry: the
+/// retry row is keyed by the hook's own receipt, and the tail is committed
+/// data. Such a hook must complete while another thread holds the registry.
+#[test]
+fn a_hook_that_changes_no_projection_takes_no_registry_lock() {
+    let session = "hook-no-registry";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-hook-no-registry-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &terminal_id, "SessionStart", Some("hook-no-registry"));
+    append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("hook-no-registry"));
+
+    let held = mux.workspace_registry.lock().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let hooking = mux.clone();
+    let terminal = terminal_id.clone();
+    std::thread::spawn(move || {
+        append_journal_hook(&hooking, &terminal, "PostToolUse", Some("hook-no-registry"));
+        let _ = tx.send(());
+    });
+    let done = rx.recv_timeout(Duration::from_secs(5));
+    drop(held);
+    assert!(done.is_ok(), "a hook that changes no projection waited for the registry lock");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
