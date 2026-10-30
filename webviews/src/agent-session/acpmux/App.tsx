@@ -7093,6 +7093,7 @@ function AcpmuxPane() {
   /// The chat's agent runs on this Mac (`localCwd`, set below each render): it can open a long
   /// recording's file.
   const chatIsLocal = useRef(false);
+  const [recordingUploadPending, setRecordingUploadPending] = useState(false);
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: async (audio) => {
@@ -7100,6 +7101,7 @@ function AcpmuxPane() {
       const composer = composerHandle.current;
       if (!composer) return false;
       const local = chatIsLocal.current;
+      setRecordingUploadPending(true);
       const moved = () => session !== sessionIdRef.current || composer !== composerHandle.current;
       try {
         const recording = await recordingAttachment(audio, translate("dictation.recording"), local, async (file) => {
@@ -7116,6 +7118,8 @@ function AcpmuxPane() {
       } catch (error) {
         if (!moved()) directClient.current?.notice(errorMessage(error) || String(error));
         return false;
+      } finally {
+        setRecordingUploadPending(false);
       }
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
@@ -10316,7 +10320,7 @@ function AcpmuxPane() {
             handle={composerRef}
             // No prompt goes while a picked folder waits for the user's answer, or while the chat only
             // shows a session another app runs (WatchBanner).
-            blocked={pendingFolder ? {} : trustAsk.blocked}
+            blocked={pendingFolder || recordingUploadPending ? {} : trustAsk.blocked}
             authBlock={authBlock}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
