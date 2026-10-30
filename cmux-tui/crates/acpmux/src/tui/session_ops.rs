@@ -186,15 +186,15 @@ impl App {
         }
         let mut params = json!({"cwd": d.cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": d.harness, "policy": d.policy}}});
         if let Some(p) = &d.peer {
-            params["_meta"]["acpmux"]["peer"] = json!(p);
+            params.set_path(&["_meta", "acpmux", "peer"], json!(p));
         }
         let client = self.client.clone();
         let tx = self.tx.clone();
         if let Some(model) = &d.model {
-            params["_meta"]["acpmux"]["model"] = json!(model);
+            params.set_path(&["_meta", "acpmux", "model"], json!(model));
         }
         if let Some(effort) = &d.effort {
-            params["_meta"]["acpmux"]["effort"] = json!(effort);
+            params.set_path(&["_meta", "acpmux", "effort"], json!(effort));
         }
         self.status = format!("starting {}…", d.harness);
         tokio::spawn(async move {
@@ -261,7 +261,7 @@ impl App {
         }
         let mut meta = json!({"harness": agent, "policy": POLICIES[form.policy]});
         if !form_name.is_empty() {
-            meta["name"] = json!(form_name);
+            meta.set("name", json!(form_name));
         }
         let params = json!({"cwd": form.cwd.text(), "mcpServers": [], "_meta": {"acpmux": meta}});
         let first = form.prompt.text().trim().to_owned();

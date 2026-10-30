@@ -10,6 +10,7 @@
 
 use super::*;
 use crate::adopt::{AdoptRequest, IfLive};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
@@ -536,13 +537,13 @@ impl Hub {
             for tool in &turn.tools {
                 let start = tool.started_at.or(tool.ended_at).or(started);
                 let mut call = tool.call.clone();
-                call["sessionUpdate"] = json!("tool_call");
-                call["toolCallId"] = json!(tool.id);
-                call["status"] = json!("in_progress");
+                call.set("sessionUpdate", json!("tool_call"));
+                call.set("toolCallId", json!(tool.id));
+                call.set("status", json!("in_progress"));
                 self.append_at(session, "in", "tool_call", update(call), None, start);
                 let mut done = tool.done.clone();
-                done["sessionUpdate"] = json!("tool_call_update");
-                done["toolCallId"] = json!(tool.id);
+                done.set("sessionUpdate", json!("tool_call_update"));
+                done.set("toolCallId", json!(tool.id));
                 self.append_at(
                     session,
                     "in",
