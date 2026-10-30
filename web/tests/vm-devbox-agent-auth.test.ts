@@ -544,6 +544,17 @@ describe("Codex hook trust in the shared team CODEX_HOME", () => {
     expect(await teamTrust(target)).toEqual(trusted);
   });
 
+  test("a default-home config that is gone keeps the published trust and says so", async () => {
+    const m = teamMachine();
+    const target = path.join(codexTeam(m), "config.toml");
+    const trusted = bakeTrust(m, "sha256:baked");
+    await launch(m, "codex");
+    rmSync(defaultConfig(m));
+    const log = await launchLogged(m);
+    expect(log).toContain(`cannot read Codex hook trust from ${defaultConfig(m)}`);
+    expect(await teamTrust(target)).toEqual(trusted);
+  });
+
   test("an entry without a usable trusted_hash is skipped with a log line, and the others still copy", async () => {
     const m = teamMachine();
     const trusted = bakeTrust(m, "sha256:baked");
