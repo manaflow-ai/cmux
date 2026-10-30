@@ -150,7 +150,8 @@ final class SidebarFooterBand {
             // no-overlap guarantee for a customized row whose leading items are wider than the
             // normal avatar slot; ordinary rows keep the shared column exactly.
             let columnMinX = columnX - side / 2
-            (x, midY) = (max(columnMinX, row.itemsMaxX + Metrics.space2), row.frame.midY + searchLensDrop)
+            let rightEdge = host.bounds.maxX - side
+            (x, midY) = (min(max(columnMinX, row.itemsMaxX + Metrics.space2), rightEdge), row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.

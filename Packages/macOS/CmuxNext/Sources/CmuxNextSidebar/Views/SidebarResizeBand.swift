@@ -26,7 +26,9 @@ struct SidebarResizeBand: Equatable {
     ///   the main pane is flush). The outside half grows into it, up to all but 2 pt of `width`.
     init(width: CGFloat, gutter: CGFloat) {
         let half = width / 2
-        outside = min(max(gutter, half), max(half, width - Self.contentInset))
+        // Keep the target at least half outside for divider hit parity, while reserving the
+        // declared content inset even when the neighboring gutter is narrower than half.
+        outside = min(width, max(max(gutter, half), width - Self.contentInset))
         inside = width - outside
     }
 }
