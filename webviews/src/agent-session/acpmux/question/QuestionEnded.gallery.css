@@ -1,11 +1,12 @@
-/* Gallery only: two other looks of the line an unanswered ask leaves, beside the shipped one
-   (styles.css .acpmux-question-cancelled, a muted line under the turn). */
+/* Gallery only: two other looks of an unanswered ask's record, beside the shipped card
+   (styles.css .acpmux-question-cancelled, the answered card's shape). */
 .acpmux-question-ended-gallery[data-ended-look="pill"] .acpmux-question-cancelled {
-  padding: 7px 10px;
-  border-radius: 10px;
-  background: var(--acpmux-question-bg);
+  border-color: transparent;
 }
 .acpmux-question-ended-gallery[data-ended-look="rule"] .acpmux-question-cancelled {
   padding: 2px 0 2px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: inset var(--cmux-hairline, 0.5px) 0 0 color-mix(in srgb, var(--agent-text) 30%, transparent);
 }
