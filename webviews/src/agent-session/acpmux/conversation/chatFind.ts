@@ -55,7 +55,7 @@ function drawnText(item: AcpmuxActivity): string {
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
   // without injected context (toolResult.ts), and Markdown as its words, without the marks
   // (messageMenu.ts plainText).
-  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip);
+  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip, tool);
   const output = shell
     ? shellOutput(tool)
     : !result

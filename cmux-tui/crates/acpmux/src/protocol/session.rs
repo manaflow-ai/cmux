@@ -17,6 +17,12 @@ use super::require_all;
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+    /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
+    /// older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub name_given: bool,
     pub harness: String,
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.
@@ -24,7 +30,7 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
-    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    /// Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.
     #[serde(default)]
     #[schemars(default)]
     pub state: String,
@@ -359,6 +365,12 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+    /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+    /// on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub held_by_stop: bool,
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,

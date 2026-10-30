@@ -35,8 +35,10 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
   for (const entry of queue) {
     const message = entry.message;
     if (!message) continue;
+    // The first message may explain a Stop hold, once for the run.
+    const lead = rows.length === 0;
     let row = rowsByEntry.get(entry);
-    if (!row) {
+    if (!row || Boolean(row.queuedMessage?.lead) !== lead) {
       row = {
         id: queuedMessageRowId(entry.id),
         version: ++version,
@@ -44,7 +46,12 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         kind: QUEUED_MESSAGE,
         text: message.text,
         incoming: { kind: "message", message },
-        queuedMessage: { promptId: entry.id, ...(entry.next ? { next: true } : {}) },
+        queuedMessage: {
+          promptId: entry.id,
+          ...(entry.next ? { next: true } : {}),
+          ...(lead ? { lead: true } : {}),
+          ...(entry.heldByStop ? { heldByStop: true } : {}),
+        },
         untyped: true,
         ...(entry.images?.length ? { images: entry.images } : {}),
       };

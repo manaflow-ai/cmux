@@ -76,6 +76,12 @@ export type AttachResult = {
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
   session: SessionDetail;
+  /**
+   * The prompt that opened the turn the page starts inside, when the page starts inside one
+   * with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
+   * acpmux leaves it out, and its client reads it with `_acpmux/events`.
+   */
+  turnOpener: (SessionEvent | null);
 } & Record<string, unknown>;
 
 /**
@@ -354,7 +360,22 @@ export interface MemberApproverDecision {
   decisionNonce: string;
 }
 
+/** The sender and receiver projection of a persisted session-to-session message. */
+export type MessageEvent = {
+  at: number;
+  messageId: string;
+  sender: MessageSender;
+  sessionId: string;
+  text: string;
+} & Record<string, unknown>;
+
 export type MessageRole = "agent" | "user";
+
+export type MessageSender = {
+  host?: (string | null);
+  name: string;
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * One person in a chat. The hub never marks the caller's own entry: a connection may carry
@@ -614,6 +635,12 @@ export type QueuedPromptSummary = {
   fromSessionId: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
+  /**
+   * Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+   * person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+   * on an older acpmux.
+   */
+  heldByStop: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
   prompt: string;
@@ -834,6 +861,12 @@ export type SessionDetail = {
   moving: boolean;
   name: string;
   /**
+   * Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+   * default. Absent otherwise, from a session named before it was kept, and from a peer on an
+   * older acpmux.
+   */
+  nameGiven?: boolean;
+  /**
    * The session whose agent started this one (`acpmux new` in its shell, or its
    * `start_session` tool), recorded at creation from the proven caller; null for a
    * session a person or the app started. Not the fork parent (`parentId`). Absent
@@ -898,7 +931,7 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**
@@ -1043,6 +1076,12 @@ export type SessionSummary = {
   moving: boolean;
   name: string;
   /**
+   * Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+   * default. Absent otherwise, from a session named before it was kept, and from a peer on an
+   * older acpmux.
+   */
+  nameGiven?: boolean;
+  /**
    * The session whose agent started this one (`acpmux new` in its shell, or its
    * `start_session` tool), recorded at creation from the proven caller; null for a
    * session a person or the app started. Not the fork parent (`parentId`). Absent
@@ -1103,7 +1142,7 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**
