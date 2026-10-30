@@ -346,7 +346,7 @@ describe("app pricing page", () => {
     // The settled personal plans (the streamed placeholder carries checkout links).
     const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0])
       .find((section) => section.includes("Manage in the App Store")) ?? "";
-    // Plus, Pro and Max: every personal card is managed in the App Store.
+    // Go, Pro and Max: every personal card is managed in the App Store.
     expect(card.match(/Manage in the App Store/g)).toHaveLength(3);
     expect(card).not.toContain("/api/billing/portal");
     expect(card).not.toContain("/api/billing/checkout");
@@ -380,7 +380,7 @@ describe("app pricing page", () => {
   });
 
   for (const plan of ["pro", "max"] as const) {
-    test(`offers Plus checkout to a ${plan} subscriber`, async () => {
+    test(`offers Go checkout to a ${plan} subscriber`, async () => {
       stackConfigured = true;
       currentUser = proUser;
       stripeSubscriptionRows = [{ id: `sub_${plan}`, plan }];
@@ -390,7 +390,7 @@ describe("app pricing page", () => {
       }));
 
       expect(html).toContain("Current plan");
-      expect(html).toMatch(/api\/billing\/checkout\?plan=go[^"]*"[^>]*><span>Get Plus/);
+      expect(html).toMatch(/api\/billing\/checkout\?plan=go[^"]*"[^>]*><span>Get Go/);
       expect(html).toContain("md:grid-cols-2 lg:grid-cols-4");
     });
   }

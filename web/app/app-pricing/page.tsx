@@ -75,7 +75,7 @@ async function RequestPricing({
 
 const pricingState = cache(async () => {
   const snapshot = await currentPlanSnapshot();
-  // Plus is offered to every visitor, paid subscribers included.
+  // Go is offered to every visitor, paid subscribers included.
   const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   return { snapshot, goPlanEnabled };
 });

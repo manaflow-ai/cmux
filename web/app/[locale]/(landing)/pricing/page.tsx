@@ -162,7 +162,7 @@ const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
     currentPlanSnapshot(),
     searchParams ?? Promise.resolve({}),
   ]);
-  // Plus is offered to every visitor, paid subscribers included.
+  // Go is offered to every visitor, paid subscribers included.
   const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   return { snapshot, query, goPlanEnabled };
 });

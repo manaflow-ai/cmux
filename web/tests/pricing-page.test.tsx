@@ -429,7 +429,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("Manage billing");
   });
 
-  describe("Plus card for every visitor", () => {
+  describe("Go card for every visitor", () => {
     async function plusCardFor(setup: () => void) {
       stackConfigured = true;
       setup();
@@ -444,30 +444,30 @@ describe("localized pricing page", () => {
       currentUser = { ...proUser, id: "user-free", clientReadOnlyMetadata: {} };
     };
 
-    test("a signed-out visitor gets Plus with sign-in before checkout", async () => {
+    test("a signed-out visitor gets Go with sign-in before checkout", async () => {
       const { card } = await plusCardFor(() => { currentUser = null; });
-      expect(card).toContain("$15");
-      expect(card).toMatch(/href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dgo[^"]*"[^>]*><span>Get Plus/);
+      expect(card).toContain("$10");
+      expect(card).toMatch(/href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dgo[^"]*"[^>]*><span>Get Go/);
       expect(card).not.toContain("Current plan");
     });
 
-    test("a Free user gets Plus checkout", async () => {
+    test("a Free user gets Go checkout", async () => {
       const { card } = await plusCardFor(freeUser);
-      expect(card).toContain("$15");
-      expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=go[^"]*"[^>]*><span>Get Plus/);
+      expect(card).toContain("$10");
+      expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=go[^"]*"[^>]*><span>Get Go/);
       expect(card).not.toContain("Current plan");
     });
 
-    test("a Plus subscriber keeps Current plan on the Plus card", async () => {
+    test("a Go subscriber keeps Current plan on the Go card", async () => {
       const { card } = await plusCardFor(() => {
         stripeSubscriptionRows = [{ id: "sub_go", plan: "go" }];
       });
       expect(card).toContain("Current plan");
-      expect(card).not.toContain("Get Plus");
+      expect(card).not.toContain("Get Go");
     });
 
     for (const plan of ["pro", "max"] as const) {
-      test(`a ${plan} subscriber sees the same Plus card as a Free user`, async () => {
+      test(`a ${plan} subscriber sees the same Go card as a Free user`, async () => {
         const { card: freeCard } = await plusCardFor(freeUser);
         const { html, card } = await plusCardFor(() => {
           currentUser = proUser;
@@ -476,7 +476,7 @@ describe("localized pricing page", () => {
         // The personalized cards rendered: the subscriber's own plan is current.
         expect(html).toContain("Current plan");
         expect(card).toBe(freeCard);
-        expect(card).toContain("Get Plus");
+        expect(card).toContain("Get Go");
         expect(card).not.toContain("Current plan");
         expect(html).toContain("25% repeat(6,12.5%)");
       });
@@ -558,12 +558,12 @@ describe("localized pricing page", () => {
   });
 });
 
-/** Each Plus plan card in render order; the last is the personalized one. */
+/** Each Go plan card in render order; the last is the personalized one. */
 function plusCards(html: string): string[] {
   const cardStart = '<div class="relative flex h-full min-w-0 flex-col';
   const cards = html.split(cardStart).slice(1).map((rest) => cardStart + rest);
   return cards
-    .filter((card) => card.includes(">Plus</h2>"))
+    .filter((card) => card.includes(">Go</h2>"))
     .map((card) => card.slice(0, card.indexOf("</section>") === -1 ? undefined : card.indexOf("</section>")));
 }
 
