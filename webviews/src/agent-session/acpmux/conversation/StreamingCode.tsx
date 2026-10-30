@@ -107,7 +107,14 @@ export function CodeHandoff({ code, lang, actions }: { code: string; lang: strin
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
       {stage !== "done" && <PlainCode code={code} lang={lang} actions={actions} />}
-      <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
+      <div
+        className="cv-code-handoff__real"
+        // Keep duplicate highlighted controls out of keyboard and assistive technology traversal
+        // while the plain card is visible underneath.
+        aria-hidden={stage !== "done" || undefined}
+        inert={stage !== "done" || undefined}
+        onAnimationEnd={() => setStage("done")}
+      >
         <CodeBlock code={code} lang={lang} actions={stage === "done" ? actions : undefined} />
       </div>
     </div>

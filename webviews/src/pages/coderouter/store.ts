@@ -35,6 +35,7 @@ export class CodeRouterStore {
   private unpage?: () => void;
   private starting?: Promise<void>;
   private generation = 0;
+  private lifetime = 0;
 
   constructor(private readonly client: PageClient | null) {
     this.snapshot = {
@@ -60,26 +61,35 @@ export class CodeRouterStore {
   /** Follows the host link and loads the first view. Idempotent: every caller awaits one start. */
   start(): Promise<void> {
     if (!this.client) return Promise.resolve();
-    this.starting ??= this.begin();
+    this.starting ??= this.begin(++this.lifetime);
     return this.starting;
   }
 
-  private async begin(): Promise<void> {
+  private async begin(lifetime: number): Promise<void> {
     if (!this.client) return;
     try {
-      this.unpage = await subscribePageStreams(this.client, {
+      const unpage = await subscribePageStreams(this.client, {
         onConnection: (connected) => {
+          if (lifetime !== this.lifetime) return;
           if (!connected) this.set({ connection: "disconnected", loading: false });
           else if (this.snapshot.connection === "disconnected") void this.reload();
         },
       });
+      if (lifetime !== this.lifetime) {
+        unpage();
+        return;
+      }
+      this.unpage = unpage;
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.set(failure(error));
     }
-    await this.reload();
+    if (lifetime === this.lifetime) await this.reload();
   }
 
   stop(): void {
+    ++this.lifetime;
+    ++this.generation;
     this.unpage?.();
     this.unpage = undefined;
     this.starting = undefined;
