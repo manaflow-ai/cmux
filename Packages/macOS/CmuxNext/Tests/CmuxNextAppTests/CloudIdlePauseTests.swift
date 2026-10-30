@@ -381,6 +381,18 @@ struct CloudIdlePauseTests {
         session.disconnect()
     }
 
+    /// A failed or cancelled Machine Status read has no future record to preserve.
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedRecordReadDoesNotKeepAnOmittedMachine() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead()
+        cloud.finishRecordRead(status)
+        cloud.reconcile([], read: list)
+        #expect(f.services.machines.session(f.session.machineID) == nil)
+    }
+
     /// A newer list that first shows a machine (and creates its session) holds that machine's
     /// ticket: an older list landing after it without the machine does not remove it, and an
     /// older Machine Status record does not overwrite it.

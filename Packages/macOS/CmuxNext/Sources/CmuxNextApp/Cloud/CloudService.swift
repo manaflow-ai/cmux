@@ -498,7 +498,7 @@ final class CloudService {
     }
 
     /// Retires a read whose request failed or was superseded before it produced a record.
-    private func finishRecordRead(_ read: Int) {
+    func finishRecordRead(_ read: Int) {
         recordReadsOutstanding.remove(read)
     }
 

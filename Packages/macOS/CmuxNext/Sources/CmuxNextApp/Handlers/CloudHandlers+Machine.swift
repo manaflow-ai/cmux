@@ -242,6 +242,7 @@ extension CloudHandlers {
                 // live on the VM record. Fetch both so a status action observes a
                 // cron decision written after the sidebar last refreshed.
                 let read = cloud.beginRecordRead()
+                defer { cloud.finishRecordRead(read) }
                 async let statsRequest = cloud.api.stats(session.machineID)
                 async let recordRequest = cloud.api.machine(session.machineID)
                 let (stats, record) = try await (statsRequest, recordRequest)
