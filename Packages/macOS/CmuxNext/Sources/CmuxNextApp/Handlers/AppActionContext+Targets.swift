@@ -175,6 +175,13 @@ extension AppActionContext {
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
+            if let machine = invocation.targetMachineID {
+                guard let store = services.machines.daemon(machine: machine)?.store,
+                      let tab = store.tab(idOrResource: target.id), let pane = store.pane(holding: tab) else {
+                    return notFound(RefusalStrings.noTab(target.id))
+                }
+                return (tab, pane)
+            }
             return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }

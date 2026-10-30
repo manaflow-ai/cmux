@@ -102,6 +102,58 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
 });
 
+test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
+  const ran: string[] = [];
+  const render = async (onPlusCommand?: (id: string) => Promise<unknown>) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+          {...(onPlusCommand ? { onPlusCommand } : {})}
+        />,
+      );
+    });
+  await render();
+  const add = () => container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!;
+  await act(async () => add().click());
+  // A host that cannot run them gets no rows that would do nothing.
+  expect(container.querySelector('.acpmux-newtab-plus [data-value="history.search"]')).toBeNull();
+  await act(async () => add().click());
+
+  await render(async (id) => ran.push(id));
+  for (const id of ["agentPane.searchChats", "history.search"]) {
+    await act(async () => add().click());
+    expect(container.querySelector('.acpmux-newtab-plus [data-value="searchFiles"]')).toBeNull();
+    expect(container.querySelector('.acpmux-newtab-plus [data-value="files.search"]')).toBeNull();
+    const row = container.querySelector<HTMLElement>(`.acpmux-newtab-plus [data-value="${id}"]`);
+    expect(row).toBeTruthy();
+    await act(async () => {
+      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+  }
+  expect(ran).toEqual(["agentPane.searchChats", "history.search"]);
+  expect(container.querySelector(".acpmux-switch-notice")).toBeNull();
+
+  // The app refused it: the page says so instead of nothing happening (New Tab shows no transcript).
+  await render(() => Promise.reject(new Error("unavailable")));
+  await act(async () => add().click());
+  const pages = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="history.search"]')!;
+  await act(async () => {
+    pages.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".acpmux-switch-notice [role=alert]")?.textContent).toBe(
+    "Search pages isn't available for this chat",
+  );
+});
+
 const firstRunProps = {
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
