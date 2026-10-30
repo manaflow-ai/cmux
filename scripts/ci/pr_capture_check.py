@@ -91,6 +91,11 @@ def visual_judgment(body: str) -> bool:
     value = verdict.group("verdict").strip()
     normalized_value = re.sub(r"\s+", " ", value).casefold()
     normalized_placeholder = re.sub(r"\s+", " ", VERDICT_PLACEHOLDER).casefold()
+    # Ignore all whitespace while looking for the unchanged prompt. This catches
+    # spaces inserted inside the angle-bracket placeholder or around its colon,
+    # which otherwise let a cosmetic edit bypass the rejection.
+    if re.sub(r"\s+", "", normalized_placeholder) in re.sub(r"\s+", "", normalized_value):
+        return False
     # Treat whitespace before template punctuation and an extra trailing period as the
     # same unchanged prompt.  Otherwise a body can bypass the required visual judgment
     # by changing only the spacing before `>` or appending sentence punctuation.
