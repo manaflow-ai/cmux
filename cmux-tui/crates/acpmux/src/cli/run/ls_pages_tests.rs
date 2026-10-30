@@ -217,7 +217,7 @@ async fn a_limit_a_client_filter_ends_mid_page_hands_on_the_next_rows() {
     let list = RefCell::new(sessions(400, 1));
     let tenth = |row: &Value| {
         let n: u64 = row["sessionId"].as_str().unwrap()[1..].parse().unwrap();
-        if n % 10 == 0 { Step::Keep } else { Step::Skip }
+        if n.is_multiple_of(10) { Step::Keep } else { Step::Skip }
     };
     let want = |n| Plan { want: Some(n), exact: false, ..plan(100) };
     let mut fake = daemon(&list, usize::MAX);

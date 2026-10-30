@@ -5,11 +5,15 @@ use cmux_json::JsonSet as _;
 
 mod host_load;
 
-/// Strip the inventory from census rows, including rows supplied by older peers.
+/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
+/// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
         row.remove("toolsMutable");
+        if let Some(Value::String(title)) = row.get_mut("title") {
+            *title = summary_title(title);
+        }
     }
     summary
 }
