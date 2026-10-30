@@ -396,14 +396,23 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
         questions.withLock { $0[permissionId] ?? nil }
     }
 
-    /// The item ids and prompts of `request.toolCall._meta.acpmux.question`, when it is an object.
+    /// The item ids and prompts of a question request. Claude Code's native
+    /// `AskUserQuestion` shape predates the normalized acpmux envelope, so its
+    /// answer keys come from `toolCall.rawInput.questions[].question`.
     static func questionKeys(_ request: [String: Any]) -> Set<String>? {
-        guard let question = AcpmuxPermissionPrompt.question(request) else { return nil }
-        var keys = Set<String>()
-        for case let item as [String: Any] in question["items"] as? [Any] ?? [] {
-            for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }
+        if let question = AcpmuxPermissionPrompt.question(request) {
+            var keys = Set<String>()
+            for case let item as [String: Any] in question["items"] as? [Any] ?? [] {
+                for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }
+            }
+            return keys
         }
-        return keys
+        let tool = request["toolCall"] as? [String: Any]
+        let meta = tool?["_meta"] as? [String: Any]
+        guard (meta?["claude"] as? [String: Any])?["tool"] as? String == "AskUserQuestion",
+              let questions = (tool?["rawInput"] as? [String: Any])?["questions"] as? [Any] else { return nil }
+        let keys = questions.compactMap { ($0 as? [String: Any])?["question"] as? String }
+        return Set(keys)
     }
 
     /// True when the pane saw `permissionId` offer `optionId` and the stored value says it does not

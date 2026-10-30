@@ -352,6 +352,23 @@ import CmuxNextCompat
         }
     }
 
+    /// Answers a Return capture when native admission failed after Chromium
+    /// already consumed the key. The page has adopted the request by the time
+    /// this is called, so a correlated JSON-RPC refusal restores the card's
+    /// retry state instead of leaving its promise pending forever.
+    func rejectQuestionKeyReply(connection: Int, requestID: String, target: PageQuestionKeyTarget,
+                                error: AgentPaneTransportError = .gestureRequired) {
+        guard connection == current, let socket, !socket.isClosed,
+              let rawID = AcpmuxPaneMethods.rawID(requestID) else { return }
+        let announcement: [String: Any] = ["jsonrpc": "2.0", "method": "_cmux/question_key_request", "params": [
+            "id": requestID, "sessionId": target.sessionID, "permissionId": target.permissionID,
+        ]]
+        guard let text = AcpmuxRequestIds.encode(announcement) else { return }
+        socket.inject(text)
+        socket.inject(AcpmuxPaneMethods.refusal(requestID: rawID, error: error,
+                                                 method: "_acpmux/permission_respond"))
+    }
+
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
 
     /// One page send in line: its frames still to go, its first error, and where its result goes.

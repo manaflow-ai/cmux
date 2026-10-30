@@ -45,9 +45,22 @@ extension AgentPaneView {
                                                         connection: connection, witness: witness) {
                 await page.redeemQuestionKeySnapshot(snapshot)
             }
-            guard let ticket = self.model.transport.reserveGesture(intent) else { return }
-            params["_meta"] = [AcpmuxPaneMethods.gestureTicketKey: ticket]
             let requestID = "question-key-" + UUID().uuidString
+            guard let ticket = self.model.transport.reserveGesture(intent) else {
+                // Chromium has already prevented Return and the card is waiting on
+                // the host's correlated promise. Revoke this witness, release the
+                // isolated snapshot, and reject that promise so the card can retry.
+                self.model.transport.gestures.recordQuestionReturn(false)
+                Task { @MainActor [weak self, weak page] in
+                    guard let self, let page else { return }
+                    _ = await page.redeemQuestionKeySnapshot(snapshot)
+                    self.model.transport.rejectQuestionKeyReply(connection: connection,
+                                                                 requestID: requestID,
+                                                                 target: snapshot.target)
+                }
+                return
+            }
+            params["_meta"] = [AcpmuxPaneMethods.gestureTicketKey: ticket]
             let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID,
                                             "method": "_acpmux/permission_respond", "params": params]
             guard let text = AcpmuxRequestIds.encode(request) else { return }

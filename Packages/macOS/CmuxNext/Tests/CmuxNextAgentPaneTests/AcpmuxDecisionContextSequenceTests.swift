@@ -73,6 +73,26 @@ struct AcpmuxDecisionContextSequenceTests {
         #expect(contexts.questions(session: "s")["claude-question"]?.isQuestion == true)
     }
 
+    @Test func ClaudeAskUserQuestionWithoutNormalizedEnvelopeStoresItsAnswerKeys() {
+        let options = AcpmuxPermissionOptions()
+        options.observe([
+            "method": "_acpmux/permission_pending",
+            "params": [
+                "permissionId": "claude-question",
+                "request": [
+                    "toolCall": [
+                        "_meta": ["claude": ["tool": "AskUserQuestion"]],
+                        "rawInput": ["questions": [
+                            ["question": "Which one?", "options": [["label": "A"]]],
+                            ["question": "Why?", "options": [["label": "Because"]]],
+                        ]],
+                    ],
+                ],
+            ],
+        ], replyTo: nil)
+        #expect(options.questionKeys(permissionId: "claude-question") == Set(["Which one?", "Why?"]))
+    }
+
     @Test func historyCannotReplaceAnUnsequencedPendingUntilItsExactEchoAnchorsIt() {
         let contexts = AcpmuxDecisionContexts()
         Self.pending(contexts)

@@ -25,8 +25,12 @@ extension AgentPaneView {
         page.onQuestionKeyChannelInvalidated = { [weak self] in
             guard let self else { return }
             self.model.transport.gestures.recordQuestionReturn(false)
-            self.questionKeyBinding = nil
-            self.refreshQuestionKeyBinding()
+            // Keep the owner cache stable for this event. The channel has
+            // already dropped its listener; the normal refresh path sees the
+            // missing targets and reinstalls it. Defer that refresh so the
+            // invalidation is observable synchronously and a Return that
+            // follows it still gets a fresh binding.
+            DispatchQueue.main.async { [weak self] in self?.refreshQuestionKeyBinding() }
         }
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
