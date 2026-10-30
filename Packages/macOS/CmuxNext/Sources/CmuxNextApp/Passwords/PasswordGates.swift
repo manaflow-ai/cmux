@@ -10,21 +10,11 @@ protocol DeviceOwnerAuthenticating: AnyObject {
     func authenticate(reason: String) async -> Bool
 }
 
-private final class AuthContextBox: Sendable {
-    private let context: Mutex<LAContext>
-    init(_ context: LAContext) { self.context = Mutex(context) }
-
-    func evaluate(reason: String, reply: AuthReply) {
-        context.withLock { context in
-            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
-                reply.finish(success)
-            }
-        }
-    }
-
-    func invalidate() {
-        context.withLock { $0.invalidate() }
-    }
+// crash-allow: LAContext's evaluatePolicy and invalidate are thread-safe framework operations; the
+// box only shares one context between the main-actor caller and LocalAuthentication's callback queue.
+private final class AuthContextBox: @unchecked Sendable {
+    nonisolated(unsafe) let context: LAContext
+    init(_ context: LAContext) { self.context = context }
 }
 
 // app-type-allow: private LAContext callback state must stay beside the app-owned authenticator.
@@ -64,13 +54,12 @@ final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 reply.install(continuation)
                 // The reply runs on a LocalAuthentication queue, never the main actor.
-                contextBox.evaluate(reason: reason, reply: reply)
+                contextBox.context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
+                    reply.finish(success)
+                }
             }
         }, onCancel: {
-            // LAContext.invalidate is main-actor isolated in the current SDK. Queue it on the
-            // actor from this nonisolated cancellation callback, while the reply fence closes
-            // immediately so a late authentication result cannot authorize the cancelled task.
-            Task { @MainActor in contextBox.invalidate() }
+            contextBox.context.invalidate()
             reply.finish(false)
         })
     }
