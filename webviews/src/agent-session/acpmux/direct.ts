@@ -1427,9 +1427,9 @@ export class AcpmuxDirectClient {
   /// Counts the attaches of the copy on screen: one that a newer one (a reconnect's) took over
   /// leaves the copy to it when it fails.
   private copyAttaches = 0;
-  /// The chat whose attach failed (`dropUnread`): acpmux subscribed this connection before it read
-  /// the page, so records of it can still come live on a socket that stays open. None of them is
-  /// read until the next attach of it asks again (`attachOnce`).
+  /// The chat whose attach failed: acpmux subscribed this connection before it read the page, so
+  /// records of it can still come live on a socket that stays open. None of them is read until the
+  /// next attach of it asks again; every read of the chat goes through that attach (`apply`).
   private unreadAttach?: string;
   /// The attach out now, of which session: a row that says its machine is back while it is out
   /// (no copy drawn yet) is kept for after it, as for a copy's attach (`copyBack`).
@@ -1853,7 +1853,7 @@ export class AcpmuxDirectClient {
         }
         let page: EventRecord[] = [];
         // An attach of the chat that starts meanwhile (a recovery's) decides, as in `select`.
-        const mine = this.copyAttaches;
+        const attachOwner = this.copyAttaches;
         try {
           page = await this.attach(sessionId, generation, keptThrough);
         } catch (error) {
@@ -1866,7 +1866,7 @@ export class AcpmuxDirectClient {
           // records that came live before its attach failed are not read either (`dropUnread`).
           const owns =
             !kept &&
-            mine === this.copyAttaches &&
+            attachOwner === this.copyAttaches &&
             generation === this.selectionGeneration &&
             this.selectedSessionId === sessionId;
           if (owns && (keptThrough > 0 || (resumeAfter === 0 && this.lastSeq > 0)))
@@ -3209,7 +3209,11 @@ export class AcpmuxDirectClient {
       },
       () => settled(),
     );
-    const result = await attaching;
+    const result = await attaching.catch((error: unknown) => {
+      // Whether or not the attach streamed records before it failed (`dropUnread`).
+      if (current()) this.unreadAttach = sessionId;
+      throw error;
+    });
     this.syncView();
     if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another

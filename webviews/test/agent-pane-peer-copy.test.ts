@@ -1671,3 +1671,61 @@ test("a reconnect whose attach fails keeps the rows it read, but not the records
   expect(shown).not.toContain("stray");
   for (const seq of [10, 1001, 1002, 1005]) expect(count(shown, ` ${seq}. `)).toBe(1);
 });
+
+test("a cold select whose attach fails before any record came reads none that comes after it", async () => {
+  const daemon = new Daemon();
+  daemon.other = true;
+  const tab = open(daemon, undefined, OTHER);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  // The machine is refused as down at once, and the Mac has no copy: nothing streamed before.
+  await expect(client.select(SESSION)).rejects.toThrow();
+  await flush();
+  // acpmux subscribed the socket, which stays open: a record of the chat comes live after.
+  daemon.onmessage?.({
+    data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(44, "stray 44. ") }),
+  });
+  await flush();
+  expect((client as unknown as { lastSeq: number }).lastSeq).toBe(0);
+  expect(text(tab.last())).not.toContain("stray");
+});
+
+test("a reconnect whose attach fails before any record came says the pane is disconnected", async () => {
+  const first = new Daemon();
+  first.down = false;
+  first.peer = undefined;
+  first.log = turn(1, 10, "log");
+  const failing = new Daemon();
+  failing.down = false;
+  failing.peer = undefined;
+  failing.failAttach = 1;
+  const sockets = [first, failing];
+  resetKeptTailsForTests();
+  const drawn: AcpmuxSnapshot[] = [];
+  const Client = AcpmuxDirectClient as unknown as new (...args: unknown[]) => AcpmuxDirectClient;
+  const client = new Client(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://peer.invalid/",
+      token: "t",
+      sessionId: SESSION,
+    },
+    (snapshot: AcpmuxSnapshot) => {
+      if (snapshot.type === "snapshot") drawn.push(snapshot);
+    },
+    undefined,
+    () => sockets.shift()!.socket(),
+  );
+  live.push(client);
+  const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
+  await opening.open();
+  await flush();
+  expect(drawn.at(-1)?.connection).not.toBe("disconnected");
+  await expect(opening.open()).rejects.toThrow();
+  await flush();
+  expect(opening.lastSeq).toBe(10);
+  expect(text(drawn.at(-1))).toContain("log 10.");
+  expect(drawn.at(-1)?.connection).toBe("disconnected");
+});
