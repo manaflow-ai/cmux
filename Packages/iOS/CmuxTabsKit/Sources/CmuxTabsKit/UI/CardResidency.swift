@@ -200,11 +200,24 @@ struct ResidentCard<Content: View>: View {
     }
 }
 
-/// An unbuilt card's accessibility element: no pixels, no touches.
+/// An unbuilt card's accessibility element: no pixels, no touches. It offers the
+/// built card's actions: Open, and Close for a regular card (a pinned one has none).
 struct CardStandIn: View {
     var label: String
     var rect: CGRect
     var open: () -> Void
+    var close: (() -> Void)?
+
+    struct Action {
+        let name: String
+        let run: () -> Void
+    }
+
+    var actions: [Action] {
+        var actions = [Action(name: "Open", run: open)]
+        if let close { actions.append(Action(name: "Close", run: close)) }
+        return actions
+    }
 
     var body: some View {
         Color.clear
@@ -214,7 +227,11 @@ struct CardStandIn: View {
             .accessibilityElement()
             .accessibilityLabel(Text(label))
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction(named: "Open", open)
+            .accessibilityActions {
+                ForEach(actions, id: \.name) { action in
+                    Button(action.name, action: action.run)
+                }
+            }
             .accessibilityAction(.default, open)
     }
 }

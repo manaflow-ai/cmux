@@ -321,7 +321,9 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     /// An unbuilt card's accessibility element, named as its built card is.
     private func standIn(_ tab: TabsKitTab, rect: CGRect, pinned: Bool) -> CardStandIn {
-        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab", rect: rect) { [onSelect] in onSelect(tab.id) }
+        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab", rect: rect,
+                    open: { [onSelect] in onSelect(tab.id) },
+                    close: pinned ? nil : { Task { _ = await closeTapped(tab.id) } })
     }
 
     /// A card kept built outside the band: a gesture or the zoom owns it.

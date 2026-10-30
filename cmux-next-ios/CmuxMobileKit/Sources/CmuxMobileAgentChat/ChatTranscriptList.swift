@@ -526,10 +526,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             _ = surface.find?.currentBlock
             _ = store.hasEarlierHistory
             _ = DiffViewedStore.shared.isViewed(Self.viewedProbe)
-        } onChange: { [weak self] in
+        } onChange: { [weak self, weak store, weak surface] in
             // Called before the change lands: rebuild once it has, later in this turn.
-            Task { @MainActor [weak self] in
-                guard let self, self.store === store else { return }
+            // Weak: the store's and surface's registrars hold this until a change, and a
+            // closed chat's never comes.
+            Task { @MainActor [weak self, weak store, weak surface] in
+                guard let self, let store, let surface, self.store === store else { return }
                 self.observe()
                 // Held (the page is a card on the tab grid): no reload per token;
                 // the release or a held refresh reloads once with what arrived.
