@@ -57,7 +57,7 @@ class PlanTests(unittest.TestCase):
         text, summary = rollback.plan(LIVE)
         self.assertEqual(summary, {"pulled": ["3917159104301"], "serving": "3917061587901",
                                    "serving_url": f"{BASE}cmux-nightly-next-macos-arm64-3917061587901.dmg",
-                                   "changed": True, "record": ["3917159104301"]})
+                                   "changed": True, "record": ["3917159104301"], "record_complete": True})
         self.assertEqual(text, feed(item("3917061587901")))
 
     def test_bad_pulls_that_build_and_every_newer_one(self):
@@ -191,6 +191,19 @@ class RecordTests(unittest.TestCase):
             self.assertEqual(summary["pulled"], [], kwargs)
             self.assertEqual(summary["record"], ["30"], kwargs)
 
+    def test_a_rerun_says_when_it_cannot_name_every_build_an_earlier_pull_took(self):
+        # bad=20 on [30, 20, 10] pulled 30 and 20; a new run sees only [10] and can name 20 alone.
+        _, summary = rollback.plan(feed(item("10")), bad="20")
+        self.assertEqual(summary["record"], ["20"])
+        self.assertFalse(summary["record_complete"])
+        # to=20 on [30, 20, 10] pulled 30; a new run sees [20, 10] and can name nothing.
+        _, summary = rollback.plan(feed(item("20"), item("10")), to="20")
+        self.assertEqual(summary["record"], [])
+        self.assertFalse(summary["record_complete"])
+        # An if_newest pull takes that one build alone: the record is complete.
+        _, summary = rollback.plan(feed(item("20"), item("10")), bad="30", if_newest="30")
+        self.assertEqual((summary["record"], summary["record_complete"]), (["30"], True))
+
     def test_nothing_is_recorded_for_a_build_still_served_or_below_it(self):
         live = feed(item("30"), item("20"), item("10"))
         # 25 is below the served 30 (a newer build went out after it): nothing to record.
@@ -323,6 +336,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("scripts/ci/nightly_next_feed_rollback.py reconcile", job)
         self.assertIn("nightly-next-guard.py r2-key", job)
         self.assertIn("record: ${{ steps.plan.outputs.record }}", self.job("rollback"))
+
+    def test_the_exact_recovery_is_named_where_a_new_run_cannot_be_exact(self):
+        rollback_job = self.job("rollback")
+        self.assertIn("record_complete={", rollback_job)
+        self.assertIn("RECORD_COMPLETE: ${{ steps.plan.outputs.record_complete }}", rollback_job)
+        self.assertIn("Re-run failed jobs", rollback_job)
+        self.assertIn("Re-run failed jobs", self.job("pulled-json"))
 
     def test_the_fix_forward_does_not_wait_on_pulled_json(self):
         self.assertNotIn("pulled-json", self.job("fix-forward"))

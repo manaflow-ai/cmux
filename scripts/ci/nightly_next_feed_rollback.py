@@ -38,7 +38,11 @@ The other items are copied byte for byte. Prints a JSON summary:
 "changed": true|false, "record": [...]}. "record" is what pulled.json
 must list: the pulled builds, or, when nothing is pulled because an earlier
 run already took the named build (--bad or --if-newest) off the feed, that
-build, so a re-run still writes pulled.json. Exit 0 also
+build, so a re-run still writes pulled.json. "record_complete" is false when
+an earlier pull may also have taken builds this run cannot see: the ones above
+a --bad build, or above a --to build. Only that earlier run's own outputs
+("Re-run failed jobs") name them. An --if-newest pull takes that one build
+alone, so its record is complete. Exit 0 also
 when there is nothing to pull (changed false, no file written), 1 when the
 pull would leave the feed empty, the target is not on the feed, or the feed
 cannot be read.
@@ -92,7 +96,7 @@ def plan(text: str, bad: str | None = None, to: str | None = None,
     found = items(text)
     builds = [version for _, version in found]
     if if_newest is not None and max(int(b) for b in builds) != int(if_newest):
-        return text, unchanged(found, if_newest)
+        return text, unchanged(found, if_newest, complete=True)
     if to is not None:
         if to not in builds:
             raise Refused(f"build {to} is not on the feed (it has {', '.join(builds)})")
@@ -102,7 +106,7 @@ def plan(text: str, bad: str | None = None, to: str | None = None,
     pulled = [m for m, version in found if int(version) >= cutoff]
     kept = [(m, version) for m, version in found if int(version) < cutoff]
     if not pulled:
-        return text, unchanged(found, bad)
+        return text, unchanged(found, bad, complete=to is None and bad is None)
     if not kept:
         raise Refused(f"pulling {', '.join(builds)} would leave the feed empty; "
                       "publish a fixed build instead (nothing older is on the feed)")
@@ -114,16 +118,17 @@ def plan(text: str, bad: str | None = None, to: str | None = None,
     pulled_builds = sorted((VERSION.search(m.group(0)).group(1) for m in pulled), key=int, reverse=True)
     match, serving = max(kept, key=lambda entry: int(entry[1]))
     return "".join(out), {"pulled": pulled_builds, "serving": serving, "serving_url": enclosure(match),
-                          "changed": True, "record": pulled_builds}
+                          "changed": True, "record": pulled_builds, "record_complete": True}
 
 
-def unchanged(found: list[tuple[re.Match[str], str]], named: str | None) -> dict:
+def unchanged(found: list[tuple[re.Match[str], str]], named: str | None, complete: bool) -> dict:
     """The summary of a plan that pulls nothing. A named build above the served one and off the
-    feed was pulled by an earlier run: it stays in "record" so a re-run reconciles pulled.json."""
+    feed was pulled by an earlier run: it stays in "record" so a re-run reconciles pulled.json.
+    COMPLETE: that earlier pull cannot have taken builds this run cannot name."""
     match, serving = max(found, key=lambda entry: int(entry[1]))
     gone = named is not None and int(named) > int(serving) and named not in {v for _, v in found}
     return {"pulled": [], "serving": serving, "serving_url": enclosure(match), "changed": False,
-            "record": [named] if gone else []}
+            "record": [named] if gone else [], "record_complete": complete}
 
 
 MAX_PULLED = 50

@@ -118,6 +118,7 @@ jobs:
           print(f"serving_url={s['serving_url']}")
           print(f"pulled={' '.join(s['pulled'])}")
           print(f"record={' '.join(s['record'])}")
+          print(f"record_complete={'true' if s['record_complete'] else 'false'}")
           PY
 
       - name: Check the build it falls back to
@@ -178,6 +179,7 @@ jobs:
           SERVING: ${{ steps.plan.outputs.serving }}
           PULLED: ${{ steps.plan.outputs.pulled }}
           RECORD: ${{ steps.plan.outputs.record }}
+          RECORD_COMPLETE: ${{ steps.plan.outputs.record_complete }}
           DRY_RUN: ${{ inputs.dry_run }}
           JOB_STATUS: ${{ job.status }}
         run: |
@@ -193,6 +195,10 @@ jobs:
               if [ -n "$RECORD" ] && [ "$DRY_RUN" != true ]; then
                 echo ""
                 echo "Build $RECORD is already off the feed; job pulled-json makes sure pulled.json lists it."
+              fi
+              if [ "$RECORD_COMPLETE" != true ]; then
+                echo ""
+                echo "If an earlier run pulled builds above ${RECORD:-the named build} and its pulled-json job failed, this run cannot name them: open that run and use Re-run failed jobs, which writes pulled.json from its own list."
               fi
             elif [ "$DRY_RUN" = true ] && [ "$JOB_STATUS" = success ]; then
               echo "Dry run: would pull $PULLED and serve $SERVING."
