@@ -31,6 +31,17 @@ public final class SidebarContainerView: NSView {
     /// The reach currently visible during a slide, derived from the clip rather than the logical
     /// container width so hover columns and page occlusion follow the panel as it gives the gutter back.
     public var visualPaneReach: CGFloat { max(0, clip.frame.width - bounds.width) }
+
+    /// The Card surface reaches beyond the container's logical width. Keep that visible strip in
+    /// the ancestor hit-test tree so rows remain hoverable and clickable all the way to the card.
+    override public func point(inside point: NSPoint, with event: NSEvent?) -> Bool {
+        if super.point(inside: point, with: event) { return true }
+        guard visualPaneReach > 0 else { return false }
+        var expanded = bounds
+        if side == .left { expanded.size.width += visualPaneReach }
+        else { expanded.origin.x -= visualPaneReach; expanded.size.width += visualPaneReach }
+        return expanded.contains(point)
+    }
     /// Holds the sidebar at `model.width`, pinned to the clip's edge that
     /// faces the content (`side`).
     private let panel = NSView()
