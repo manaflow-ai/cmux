@@ -88,10 +88,10 @@ impl Hub {
 
     /// Holds the other agents' messages queued now, and those that come until the hold ends: the
     /// person's next completed turn (`release_held_agent_messages`) or a resume of the queue.
-    /// Nothing releases them by a timer (a person's Stop stops the chat until the person acts),
-    /// except what releases any held agent message: a failed turn's retry, or a daemon restart
-    /// (`digest.rs` `retry_held_agent_messages`). None is dropped: each stays queued, as
-    /// `held`, and is logged so (`queue_paused` with `reason: "stop"`).
+    /// Nothing releases them by a timer (a person's Stop stops the chat until the person acts):
+    /// a failed turn's retry wait and a continuation's end leave them held (`resume_held`).
+    /// A daemon restart forgets the hold. None is dropped: each stays queued, as `held`, and is
+    /// logged so (`queue_paused` with `reason: "stop"`).
     pub(super) fn hold_agent_messages(&self, session: &Arc<Session>, turn_id: &str) {
         static HOLDS: AtomicU64 = AtomicU64::new(0);
         let held: Vec<String> = {

@@ -703,15 +703,16 @@ impl Hub {
     }
 
     /// Runs only the held prompts named in `ids` (the ones one failed turn held, `auto_resume.rs`).
-    /// False when none of them was held.
+    /// False when none of them was held. While a person's Stop holds the other agents' messages
+    /// (`cancel.rs`), those stay held: an automatic release (a failed turn's retry wait, a
+    /// continuation's end) never ends that hold; only the person's next turn or a resume does.
+    /// Read under the queue's lock, where the hold begins and ends.
     pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
         let mut resumed = false;
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Held agent messages going in end a person's Stop's hold (`cancel.rs`), under the lock
-        // that begins it.
-        session.stop_hold.store(0, Ordering::SeqCst);
+        let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         for q in queue.iter_mut() {
-            if ids.contains(&q.prompt_id) {
+            if ids.contains(&q.prompt_id) && !(stop_held && q.run.agent.is_some()) {
                 resumed |= std::mem::take(&mut q.held);
             }
         }
