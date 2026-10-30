@@ -54,6 +54,7 @@ import {
   devboxTerminfoCheckCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
+  devboxDnsCheckCommand,
   sha256File,
 } from "./devbox-image-common";
 import {
@@ -176,6 +177,7 @@ const DAEMON_CHECKS: readonly string[] = [
   `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
   "test -x /usr/local/bin/cmux-prompt-sync && python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync >/dev/null && echo prompt-sync-contract-ok",
+  devboxDnsCheckCommand,
   cmuxTuiWebsocketSmokeCommand(),
 ];
 
