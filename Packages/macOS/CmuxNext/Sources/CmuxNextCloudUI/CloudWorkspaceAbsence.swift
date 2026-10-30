@@ -24,25 +24,11 @@ public nonisolated enum CloudWorkspaceAbsence: Hashable, Sendable {
     /// and can run in this app. `signedIn`, `restoring`: the account state. `machineListed`: the
     /// signed-in account's machine is in the app's machine list; `machineLive`: it runs (not paused).
     public init(cloudOn: Bool, signedIn: Bool, restoring: Bool, machineListed: Bool, machineLive: Bool) {
-        if !cloudOn {
-            self = .cloudOff
-        } else if !signedIn, !restoring {
-            self = .signedOut
-        } else if machineListed, !machineLive {
-            self = .paused
-        } else {
-            self = .connecting
-        }
+        self = .connecting // red stub
     }
 
     /// The content area's button, nil for none (it comes back by itself, or the person turns cmux Cloud on).
-    public var action: Action? {
-        switch self {
-        case .signedOut: .signIn
-        case .paused: .resume
-        case .cloudOff, .connecting: nil
-        }
-    }
+    public var action: Action? { nil } // red stub
 
     /// The sidebar row's second line.
     public var rowStatus: String {
@@ -75,6 +61,11 @@ public nonisolated enum CloudWorkspaceAbsence: Hashable, Sendable {
         case .resume?: String(localized: "cloud.workspaceAbsence.resume", defaultValue: "Resume Machine", table: "Cloud", bundle: .module)
         case nil: nil
         }
+    }
+
+    /// The card's line that names the workspace's machine.
+    public static func machineLine(_ machine: String) -> String {
+        String(format: String(localized: "cloud.workspaceAbsence.machineLine", defaultValue: "On %@", table: "Cloud", bundle: .module), machine)
     }
 
     /// The name of a kept workspace whose sidebar row was never saved (an older build's record).

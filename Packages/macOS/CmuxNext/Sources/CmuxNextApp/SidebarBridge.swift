@@ -155,7 +155,7 @@ final class SidebarBridge {
                 groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
                 harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
             // Kept Cloud workspaces no machine lists (P-AUSTIN B7) show under their machine, saying why.
-            let absent = self?.absentCloudRows(windowState) ?? ([], [:])
+            let absent = self?.absentCloudRows(windowState) ?? (rows: [], headers: [:])
             let withAbsent = SidebarRowSection.adding(absent: absent.rows, header: { absent.headers[$0] ?? SidebarMachine(id: $0, name: "", kind: .cloud) }, to: listed)
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(withAbsent, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),

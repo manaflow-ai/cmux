@@ -1,6 +1,9 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextCloudUI
 
-// The New Cloud Workspace progress in a window's content area (cx-lu8f).
+// The New Cloud Workspace progress in a window's content area (cx-lu8f), and a kept Cloud
+// workspace that is not connected (P-AUSTIN B7).
 extension WindowController {
     /// What the creation observation re-runs on: the shown creation, and
     /// whether its workspace is mirrored (then the window shows it).
@@ -44,5 +47,41 @@ extension WindowController {
         root.titlebar.title = CloudStrings.newCloudWorkspaceTitle
         services.windows.recordSaver.stateDidChange(state)
         return true
+    }
+
+    /// Shows kept Cloud workspace `id` as not connected (P-AUSTIN B7) in place of its content, never a
+    /// blank pane: the card, or with Debug Settings `cloud.absentCompact` its one-line form. While it only
+    /// connects and the window shows content, that content stays (a redial never flashes).
+    func showAbsent(_ id: String, _ absence: CloudWorkspaceAbsence) {
+        if state.workspaceID != id { state.workspaceID = id }
+        if absence == .connecting, content != nil { return }
+        let style: CloudWorkspaceAbsentView.Style = CloudTunables.absentCompact.value ? .compact : .card
+        let view = (root.content as? CloudWorkspaceAbsentView).flatMap { $0.style == style ? $0 : nil }
+            ?? CloudWorkspaceAbsentView(style: style) { [weak self] action in self?.performAbsent(action) }
+        let title = sidebar.absentRowTitle(id)
+        view.show(workspaceID: id, title: title, machine: sidebar.absentMachineName(id), absence: absence)
+        if root.content !== view {
+            parkContentForPage()
+            root.show(view)
+            themeScope.show(nil)
+        }
+        titleObservation?.cancel()
+        root.titlebar.title = title
+        services.windows.absentContentDidAppear(self)
+    }
+
+    /// The kept Cloud workspace this window shows as not connected, and why (P-AUSTIN B7); nil otherwise.
+    var shownCloudAbsence: (workspaceID: String, absence: CloudWorkspaceAbsence)? {
+        (root.content as? CloudWorkspaceAbsentView).map { ($0.workspaceID, $0.absence) }
+    }
+
+    /// Sign In, or Resume Machine on the shown workspace's machine: the same actions as the palette's.
+    private func performAbsent(_ action: CloudWorkspaceAbsence.Action) {
+        switch action {
+        case .signIn: _ = services.registry.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user))
+        case .resume:
+            guard let id = state.workspaceID, let machine = services.windows.seenMachine[id] else { return }
+            _ = services.registry.perform("cloudResumeMachine", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+        }
     }
 }

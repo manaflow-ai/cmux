@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCloudUI
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -70,6 +71,22 @@ struct CloudWorkspaceAbsentDisplayTests {
         #expect(row?.machineID == MachineID("vm-absent"))
         #expect(row?.stage == CloudWorkspaceAbsence.signedOut.rowStatus)
         #expect(row?.isClosable == false, "a close waits for the machine")
+    }
+
+    /// The card names the workspace and its machine, says why and offers Sign In; the compact
+    /// variant (Debug Settings `cloud.absentCompact`) says only why, with the same button.
+    @Test(arguments: [false, true]) func theCardAndTheCompactVariantSayWhyAndOfferTheButton(compact: Bool) throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TunableCatalog.all)
+        TunableStore.shared.set(CloudTunables.absentCompact.key, .bool(compact))
+        defer { TunableStore.shared.set(CloudTunables.absentCompact.key, nil) }
+        let fixture = try Self.fixture()
+        defer { fixture.close() }
+        let view = try #require(fixture.controller.root.content as? CloudWorkspaceAbsentView, "no disconnected view in the content area")
+        #expect(view.style == (compact ? .compact : .card))
+        #expect(view.shownText.message == CloudWorkspaceAbsence.signedOut.message)
+        #expect(view.shownText.button == CloudWorkspaceAbsence.signedOut.actionTitle)
+        #expect(view.shownText.title == (compact ? "" : CloudWorkspaceAbsence.untitledWorkspace))
     }
 
     /// Its machine listed but paused: the window offers Resume Machine.

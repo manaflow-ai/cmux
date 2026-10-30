@@ -108,8 +108,10 @@ final class CaptureSceneRegistry {
         // Home is native: it settles on its own conditions, and neither the
         // agent pane's readiness nor its web view is part of its picture.
         let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
+        // A kept Cloud workspace shows a native view in place of the agent page (P-AUSTIN B7).
+        let isCloudAbsent = Self.cloudAbsentScenes.contains(definition.name)
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard isHome || readinessIsComplete(readiness) else {
+        guard isHome || isCloudAbsent || readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -118,10 +120,12 @@ final class CaptureSceneRegistry {
 
         let sceneAction = await applySceneAction(definition.name)
         let actionReadiness = isHome
-            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
+            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene)
+            : isCloudAbsent ? showCloudAbsent(windowID: targetWindowID, compact: definition.name == Self.cloudAbsentCompactScene)
+            : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
+              isHome || isCloudAbsent || actionReadinessReport["animations_pending"]?.boolValue == false else {
             return .object(["error": .string(isHome ? "Home scene did not settle" : "scene popover did not become opaque before capture"),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
@@ -131,9 +135,10 @@ final class CaptureSceneRegistry {
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
+        if isCloudAbsent { clearCloudAbsent() }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
-        guard isHome || Self.pageComposited(result) else {
+        guard isHome || isCloudAbsent || Self.pageComposited(result) else {
             return .object([
                 "error": .string("agent page was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -237,6 +242,10 @@ final class CaptureSceneRegistry {
                                description: "A real agent chat changes a daemon-owned workspace from its first auto name to its generated title."),
         CaptureSceneDefinition(name: homeChiefScene,
                                description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
+        CaptureSceneDefinition(name: "cloud-workspace-signed-out",
+                               description: "Signed out of cmux Cloud, a window keeps its Cloud workspace: the card says why and offers Sign In; the sidebar lists it under its machine (P-AUSTIN B7)."),
+        CaptureSceneDefinition(name: "cloud-workspace-signed-out-compact",
+                               description: "The cloud-workspace-signed-out scene with the one-line variant (Debug Settings cloud.absentCompact)."),
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
@@ -467,6 +476,39 @@ extension CaptureSceneRegistry {
             && tabFound && sessionOK && hostKnown && generatedOK && painted && pageReady && sidebarRowMatches && !pending
         let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),painted=\(painted),inWindow=\(inWindow),loading=\(loading),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
         return (ready, String(diagnostic.prefix(330)))
+    }
+}
+/// Kept Cloud workspace scenes (P-AUSTIN B7): a Cloud workspace the window keeps while signed out of cmux Cloud.
+extension CaptureSceneRegistry {
+    static let cloudAbsentScene = "cloud-workspace-signed-out"
+    static let cloudAbsentCompactScene = "cloud-workspace-signed-out-compact"
+    static let cloudAbsentScenes: Set<String> = [cloudAbsentScene, cloudAbsentCompactScene]
+    private static let cloudAbsentWorkspace = "ws-capture-cloud-absent"
+
+    /// Adds a saved workspace of Cloud machine `vm-capture` to window `windowID` and shows it, read as signed out
+    /// whatever account the capture app has (the fixture's account state), in the card or the one-line variant.
+    func showCloudAbsent(windowID: String, compact: Bool) -> CmuxNextSettings.JSONValue {
+        let windows = services.windows, id = Self.cloudAbsentWorkspace
+        guard let controller = windows.controller(for: windowID) else { return .object(["error": .string("no window")]) }
+        _ = DebugTunables.handle(["action": .string("set"), "key": .string(CloudTunables.absentCompact.key), "value": .bool(compact)],
+                                 services: services)
+        windows.cloudList = { _ in CloudService.ListFacts(isSignedIn: false, isRestoring: false, hasLoadedMachines: false, hasLoadedCurrentMachines: false) }
+        windows.seenMachine[id] = "vm-capture"
+        _ = windows.transition { $0.move([id], to: windowID) }
+        windows.select(id, in: controller.state)
+        controller.showWorkspace(requested: id)
+        guard let shown = controller.shownCloudAbsence else { return .object(["error": .string("the window shows no disconnected state")]) }
+        return .object(["workspace": .string(shown.workspaceID), "absence": .string("\(shown.absence)"), "compact": .bool(compact)])
+    }
+
+    /// Puts the account state back and lets the next reconcile drop the scene's workspace.
+    func clearCloudAbsent() {
+        let windows = services.windows
+        windows.cloudList = \.listFacts
+        windows.seenMachine[Self.cloudAbsentWorkspace] = nil
+        _ = DebugTunables.handle(["action": .string("set"), "key": .string(CloudTunables.absentCompact.key), "value": .bool(false)],
+                                 services: services)
+        windows.reconcileMembership()
     }
 }
 #endif

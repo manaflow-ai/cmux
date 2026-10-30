@@ -87,8 +87,7 @@ extension SidebarBridge {
             row.progress = nil
             row.stage = absence.rowStatus
             if headers[machine] == nil {
-                let name = services.machines.session(machine.rawValue)?.machine.title ?? saved.machineNames[machine] ?? CloudWorkspaceAbsence.unnamedMachine
-                headers[machine] = SidebarMachine(id: machine, name: name, kind: .cloud,
+                headers[machine] = SidebarMachine(id: machine, name: absentMachineName(id, saved: saved.machineNames), kind: .cloud,
                                                   status: absence == .paused ? .paused : absence == .connecting ? .connecting : .offline)
             }
             return row
@@ -101,6 +100,13 @@ extension SidebarBridge {
         guard let state else { return CloudWorkspaceAbsence.untitledWorkspace }
         return model.workspace(SidebarWorkspaceID(id))?.title ?? savedRows(state.id).rows[SidebarWorkspaceID(id)]?.title
             ?? CloudWorkspaceAbsence.untitledWorkspace
+    }
+
+    /// The name of kept Cloud workspace `id`'s machine: the machine list's, else the one this window's sidebar saved.
+    func absentMachineName(_ id: String, saved: [MachineID: String]? = nil) -> String {
+        let machine = services.windows.seenMachine[id] ?? ""
+        let names = saved ?? state.map { savedRows($0.id).machineNames } ?? [:]
+        return services.machines.session(machine)?.machine.title ?? names[MachineID(machine)] ?? CloudWorkspaceAbsence.unnamedMachine
     }
 
     /// The rows and machine names this window's sidebar last saved: this run's last save, else the launch's.
