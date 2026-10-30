@@ -33,6 +33,7 @@ nonisolated enum AddMachineStrings {
     static var done: String { s("addMachine.done", "Done") }
     static var openWorkspace: String { s("addMachine.openWorkspace", "Open Workspace") }
     static var tryAgain: String { s("addMachine.tryAgain", "Try Again") }
+    static var changeHost: String { s("addMachine.changeHost", "Change Host") }
     static var copyDetails: String { s("addMachine.copyDetails", "Copy Details") }
     static var fix: String { s("addMachine.fix", "Fix") }
 
@@ -87,6 +88,7 @@ nonisolated enum AddMachineStrings {
         switch action {
         case .add: phase == .running ? addingButton : add
         case .tryAgain: tryAgain
+        case .changeHost: changeHost
         case .fix: phase == .running ? checkingButton : fix
         case .openWorkspace: openWorkspace
         case .copyDetails: copyDetails

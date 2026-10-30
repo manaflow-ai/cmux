@@ -33,6 +33,8 @@ public nonisolated enum AddMachineAction: Equatable, Sendable {
     case add
     /// Run the same add again after a failure.
     case tryAgain
+    /// Back to the fields after a failed add, with the host and name kept, to correct them.
+    case changeHost
     /// `doctor --fix` for the checked machine.
     case fix
     /// Open a workspace on the added machine and close.
@@ -266,7 +268,8 @@ public final class AddMachineModel {
         case (.ready, .check):
             [AddMachineButton(action: .done, key: .return)]
         case (.failed, .add):
-            [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .tryAgain, key: .return)]
+            [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .changeHost, key: nil),
+             AddMachineButton(action: .tryAgain, key: .return)]
         case (.failed, .check):
             [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .fix, key: .return)]
         case (.running, .checkJoined):
@@ -284,6 +287,9 @@ public final class AddMachineModel {
         switch action {
         case .add, .tryAgain:
             add()
+            return false
+        case .changeHost:
+            changeHost()
             return false
         case .fix:
             doctor(fix: true)
@@ -333,6 +339,16 @@ public final class AddMachineModel {
             lines.append(line)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// A failed add goes back to the fields as they were typed. Nothing runs until Add is pressed.
+    private func changeHost() {
+        guard mode == .add, case .failed = phase else { return }
+        cancelRun()
+        phase = .pick
+        checklist = HostChecklist()
+        machineID = nil
+        loadCandidates()
     }
 
     // MARK: Runs
