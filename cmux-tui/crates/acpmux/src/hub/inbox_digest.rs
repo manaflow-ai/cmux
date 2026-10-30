@@ -400,6 +400,9 @@ impl Hub {
             class: None,
             supersede: None,
             full_access_device: None,
+            // The digest is no session's message: the messages it took kept theirs.
+            message_id: None,
+            message_sender: None,
         };
         queue.insert(
             at,
