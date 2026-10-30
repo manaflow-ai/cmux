@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextControl
-import CmuxNextDevices
+public import CmuxNextDevices
 public import CmuxNextSettings
 import Foundation
 import os

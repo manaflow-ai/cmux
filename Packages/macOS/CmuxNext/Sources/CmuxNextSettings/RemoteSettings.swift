@@ -20,7 +20,7 @@ public nonisolated struct RemoteSettings: Sendable, Equatable {
 /// General > Screen Sharing.
 nonisolated enum RemoteSettingsSchema {
     static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.remote", "Screen Sharing")
+        let group = SettingsText.keyed("settings.group.cmuxRemote", "Screen Sharing")
         return [
             SettingDescriptor(
                 RemoteSettings.headlessPath, section: .general, group: group,

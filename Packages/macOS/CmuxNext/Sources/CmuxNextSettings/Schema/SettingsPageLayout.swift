@@ -178,7 +178,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
-                group("settings.group.computerUse"),
+                group("settings.group.computerUse"), group("settings.group.cmuxRemote"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
                 // What this Mac does while agents work (keep awake).
