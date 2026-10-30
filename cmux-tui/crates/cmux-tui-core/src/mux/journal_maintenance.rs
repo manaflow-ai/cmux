@@ -184,6 +184,8 @@ impl Mux {
         }
         let mut steps = MaintenanceSteps::default();
         steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
+        // The roster cursor follows the head, so a start replays one tick.
+        steps.time("agent_roster", || self.catch_up_agent_roster());
         let result = (|| -> anyhow::Result<()> {
             let migration = steps.time("auto_vacuum_migration", || {
                 self.workspace_registry

@@ -11,10 +11,20 @@ import CmuxNextSidebar
 /// with the host's name and status, in one list. New workspaces in it run on the host.
 @MainActor
 enum RemoteGroupHandlers {
+    static func shouldContinueMarking(status: SSHConnectionMachine.Status) -> Bool {
+        status != .offline
+    }
+
+    /// A focus request makes an automated run interactive for this action even
+    /// while the registry is capturing its refusal output.
+    static func shouldOfferInteractiveFlow(_ invocation: ActionInvocation) -> Bool {
+        invocation.allowsViewChange
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let ssh = context.services.ssh
         CloudHandlers.bind("remote.newGroup", registry, reason: { ssh.unavailableReason }) { invocation in
-            let interactive = !registry.isCapturingRefusal
+            let interactive = shouldOfferInteractiveFlow(invocation)
             let make = { (text: String) throws in
                 let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
                 markWhenNamed(session)
@@ -93,10 +103,8 @@ enum RemoteGroupHandlers {
                     mark(session: name)
                     return
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed: return
-                }
+                if Self.shouldContinueMarking(status: status) { continue }
+                return
             }
         }
     }
