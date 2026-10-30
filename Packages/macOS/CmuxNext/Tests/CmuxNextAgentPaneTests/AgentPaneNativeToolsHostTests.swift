@@ -16,7 +16,7 @@ struct AgentPaneNativeToolsHostTests {
     func enableTools() -> () -> Void {
         let store = TunableStore.shared
         store.activate(file: nil)
-        store.register(ChromeTunables.all)
+        store.register(DesignTunables.all)
         let key = ChromeTunables.nativeRowTools.key
         let previous = store.override(key)
         store.set(key, .bool(true))

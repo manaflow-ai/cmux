@@ -210,9 +210,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
     }
 
+    /// The selected agent page, for native controls owned by the page: the incoming one while a
+    /// paint hold still shows the outgoing view.
+    var displayedAgentPaneView: AgentPaneView? { hostsContent ? content as? AgentPaneView : nil }
+
     /// The controls and their callback follow the selected page, including an outgoing first-paint hold.
     func refreshNativeToolOwner() {
-        nativeToolOwner.model = hostsContent ? (content as? AgentPaneView)?.model : nil
+        nativeToolOwner.model = displayedAgentPaneView?.model
         toolbar?.refresh()
     }
 

@@ -25,7 +25,7 @@ import Testing
     @Test func holdReleaseRebindsObservationAndIdenticalToolCallbacks() async throws {
         let store = TunableStore.shared, key = ChromeTunables.nativeRowTools.key
         store.activate(file: nil)
-        store.register(ChromeTunables.all)
+        store.register(DesignTunables.all)
         let previous = store.override(key)
         store.set(key, .bool(true))
         defer { store.set(key, previous) }
