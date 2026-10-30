@@ -519,6 +519,10 @@ export function useFolderTrustAsk(
       return;
     }
     if (!held.ready || !trusted || blockSend || !cwd || !mounted.current) return;
+    // The client may already have selected another chat or connection while React still shows
+    // this one: its render-time values pass, the live ones do not. Keep the callback; the next
+    // render, for the chat now selected, drops this chat's released retry.
+    if (!sameAuthority() || !sameVisit()) return;
     resend.current.delete(sessionId);
     try {
       held.again();
@@ -526,7 +530,7 @@ export function useFolderTrustAsk(
       // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
       setAsk({ cwd, state: "failed" });
     }
-  }, [ask, trusted, blockSend, sessionId, cwd, family]);
+  }, [ask, trusted, blockSend, sessionId, cwd, family, sameAuthority, sameVisit]);
 
   const blocked: SendBlock | undefined = reading
     ? {}
