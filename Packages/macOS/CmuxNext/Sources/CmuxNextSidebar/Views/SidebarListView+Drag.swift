@@ -72,6 +72,7 @@ extension SidebarListViewComponents {
         drag.restFrame.origin.x -= stepIn
         drag.restFrame.size.width += stepIn
         drag.morphs = rows.count == 1
+        drag.sourceHost = displayed.sessionHost(for: press.key)
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
@@ -217,7 +218,11 @@ extension SidebarListViewComponents {
         var blockTarget: SidebarBlockGap?
         if let docTarget = hit.target {
             if let row = rows[hit.slot.key] {
-                target = SidebarDocDrag.display(hit, row: row)
+                if let grouped = displayed.groupedDropTarget(row: row, after: hit.zone == .after, sourceHost: drag.sourceHost) {
+                    target = grouped.flatMap { $0 }
+                } else {
+                    target = SidebarDocDrag.display(hit, row: row)
+                }
             } else {
                 blockTarget = SidebarBlockGap(section: hit.slot.section,
                                               index: blockIndex(docTarget, section: hit.slot.section, moving: drag.docItems ?? []))

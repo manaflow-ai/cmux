@@ -48,7 +48,7 @@ import Testing
         #expect(layout.row(for: .workspace(Self.parent))?.content?.treeDepth == 1)
         #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 2)
         #expect(layout.row(for: .workspace(Self.parent))?.content?.treeFold == .expanded)
-        #expect(layout.row(for: .sessionHost(Self.host))?.childCount == 2)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.childCount == 2)
         let child = try #require(layout.row(for: .workspace(Self.child)))
         #expect(child.section == .machine(.local))
         #expect(child.siblingIndex == 2, "grouping must preserve document drop/selection identity")
@@ -58,17 +58,17 @@ import Testing
         let layout = Self.layout(Self.state(), parentPresent: false)
         #expect(layout.row(for: .workspace(Self.parent)) == nil)
         #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 1)
-        #expect(layout.row(for: .sessionHost(Self.host))?.childCount == 1)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.childCount == 1)
         #expect(layout.rows.filter { $0.key == .workspace(Self.child) }.count == 1)
     }
 
     @Test func crossMachineChildFollowsItsLiveParentInsteadOfGettingASecondGroup() {
         let layout = Self.layout(Self.state(crossHost: true), crossMachine: true)
         let keys = layout.rows.map(\.key)
-        #expect(keys == [.sessionHost(Self.host), .workspace(Self.parent), .workspace(Self.child), .workspace(Self.other)])
+        #expect(keys == [.sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))), .workspace(Self.parent), .workspace(Self.child), .workspace(Self.other)])
         #expect(layout.row(for: .workspace(Self.child))?.section == .machine(MachineID("remote")))
         #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 2)
-        #expect(layout.row(for: .sessionHost(Self.host))?.childCount == 2)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.childCount == 2)
     }
 
     @Test func parentAndHostFoldsKeepTheWholeBadgeCount() {
@@ -77,11 +77,11 @@ import Testing
         let parentFolded = Self.layout(state)
         #expect(parentFolded.row(for: .workspace(Self.child)) == nil)
         #expect(parentFolded.row(for: .workspace(Self.parent))?.content?.treeFold == .collapsed)
-        #expect(parentFolded.row(for: .sessionHost(Self.host))?.childCount == 2)
+        #expect(parentFolded.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.childCount == 2)
         state.collapsedHosts = [Self.host]
         let hostFolded = Self.layout(state)
-        #expect(hostFolded.rows.map(\.key) == [.sessionHost(Self.host), .workspace(Self.other)])
-        #expect(hostFolded.row(for: .sessionHost(Self.host))?.childCount == 2)
+        #expect(hostFolded.rows.map(\.key) == [.sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))), .workspace(Self.other)])
+        #expect(hostFolded.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.childCount == 2)
     }
 
     @Test func publishKeepsSessionTreeOffByDefault() {
@@ -109,7 +109,7 @@ import Testing
                                      nodes: [.workspace(SidebarWorkspace(id: Self.child, title: "Worker"))])
         var options = SidebarLayoutOptions(); options.sessionTree = Self.state()
         let layout = SidebarLayout.make(sections: [pinned, machine], metrics: .standard, options: options)
-        #expect(layout.row(for: .sessionHost(Self.host)) != nil)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))) != nil)
         #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 1)
     }
 
@@ -148,10 +148,12 @@ import Testing
         let second = SidebarMachine(id: MachineID("two"), name: "Two", kind: .ssh)
         let one = SidebarSection(kind: .machine(first), nodes: [.workspace(SidebarWorkspace(id: Self.parent, title: "One root"))])
         let two = SidebarSection(kind: .machine(second), nodes: [.workspace(SidebarWorkspace(id: Self.other, title: "Two root"))])
-        var state = Self.state(); state.hosts[Self.other] = "registry:other"
+        var state = Self.state(); state.hosts[Self.other] = Self.host
         var options = SidebarLayoutOptions(); options.sessionTree = state
         let layout = SidebarLayout.make(sections: [one, two], metrics: .standard, options: options)
         #expect(layout.rows.filter { if case .sessionHost = $0.key { true } else { false } }.count == 2)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(MachineID("one"))))) != nil)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(MachineID("two"))))) != nil)
         #expect(layout.row(for: .workspace(Self.parent))?.section == .machine(MachineID("one")))
         #expect(layout.row(for: .workspace(Self.other))?.section == .machine(MachineID("two")))
     }
@@ -200,7 +202,7 @@ import Testing
         let target = try #require(layout.row(for: .workspace(Self.other)))
         #expect(target.y == gapY + layout.gapShift)
         #expect(layout.row(at: gapY + layout.gapHeight / 2) == nil)
-        #expect(layout.row(for: .sessionHost(Self.host)) != nil)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))) != nil)
         #expect(layout.rows.filter { $0.key == .workspace(Self.child) }.count == 1)
         #expect(layout.row(for: .workspace(Self.child))?.siblingIndex == 2)
         #expect(layout.row(for: .workspace(Self.child))?.dropIndex == 2)
@@ -223,6 +225,22 @@ import Testing
             #expect(layout.row(at: gapY + layout.gapHeight / 2) == nil)
             #expect(layout.totalHeight >= gapY + layout.gapHeight)
         }
+    }
+
+    @Test func groupedDropSlotsFollowDrawnNeighborsAndRefuseOtherFamilies() throws {
+        let layout = Self.layout(Self.state())
+        let coordinator = try #require(layout.row(for: .workspace(Self.parent)))
+        let worker = try #require(layout.row(for: .workspace(Self.child)))
+        let plain = try #require(layout.row(for: .workspace(Self.other)))
+        let host = SidebarSessionTree.hostKey(Self.host, section: .machine(.local))
+        let upper = layout.groupedDropTarget(row: coordinator, after: false, sourceHost: Self.host)
+        let lower = layout.groupedDropTarget(row: coordinator, after: true, sourceHost: Self.host)
+        #expect(upper == .some(.position(DropPosition(section: .machine(.local), index: coordinator.siblingIndex))))
+        #expect(lower == .some(.position(DropPosition(section: .machine(.local), index: worker.siblingIndex))))
+        let familyEnd = layout.groupedDropTarget(row: worker, after: true, sourceHost: Self.host)
+        #expect(familyEnd == .some(.position(DropPosition(section: .machine(.local), index: plain.siblingIndex))))
+        #expect(layout.groupedDropTarget(row: coordinator, after: false, sourceHost: nil) == .some(nil))
+        #expect(layout.row(for: .sessionHost(host)) != nil)
     }
 
     @Test func sectionEndDropDoesNotFollowAWorkspaceFromTheNextMachine() throws {
@@ -258,7 +276,7 @@ import Testing
                 let metrics = SidebarLayoutMetrics.standard.resolved(for: options)
                 let pinnedY = try #require(layout.pinnedChatsY)
                 let earlierY = try #require(layout.earlierChatsY)
-                let header = try #require(layout.row(for: .sessionHost(Self.host)))
+                let header = try #require(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))))
                 let lastWorkspace = try #require(layout.row(for: .workspace(Self.other)))
                 #expect(header.y == pinnedY + history.pinnedHeight(metrics))
                 #expect(earlierY == lastWorkspace.maxY + metrics.rowSpacing + metrics.sectionSpacing)
@@ -284,7 +302,7 @@ import Testing
         let layout = SidebarLayout.make(sections: [pinned] + Self.sections(), metrics: .standard, options: options)
         let metrics = SidebarLayoutMetrics.standard.resolved(for: options)
         let pinnedY = try #require(layout.pinnedChatsY)
-        #expect(layout.row(for: .sessionHost(Self.host))?.y == pinnedY + history.pinnedHeight(metrics))
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.y == pinnedY + history.pinnedHeight(metrics))
         let pin = try #require(layout.row(for: .workspace(WorkspaceID("pin"))))
         #expect(pinnedY == pin.maxY + metrics.rowSpacing + metrics.sectionSpacing)
     }
@@ -297,7 +315,7 @@ import Testing
         options.flattensMachines = true
         let layout = SidebarLayout.make(sections: Self.sections(), metrics: .standard, options: options)
         #expect(layout.rows.map(\.key) == Self.layout(Self.state()).rows.map(\.key))
-        #expect(layout.row(for: .sessionHost(Self.host))?.childCount == 2)
+        #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local))))?.childCount == 2)
     }
 
     @Test func revealingChildOpensItsRootHostsFold() throws {

@@ -420,7 +420,8 @@ extension SidebarListViewComponents {
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
         case let (.sessionHost(host), view as StatusHeaderRowView):
-            view.configure(row, title: SidebarSessionTree.shared.state?.hostNames[host] ?? host)
+            let stableHost = SidebarSessionTree.hostID(from: host)
+            view.configure(row, title: SidebarSessionTree.shared.state?.hostNames[stableHost] ?? stableHost)
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
         default:
             break
