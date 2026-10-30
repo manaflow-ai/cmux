@@ -1215,7 +1215,7 @@ async fn dispatch_request(
         }
         method::SESSION_LOAD => session_open::load(hub, conn, resolved.as_ref(), &params),
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
-        method::SESSION_LIST => super::list_reply::acp_list(hub, conn).await,
+        method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
