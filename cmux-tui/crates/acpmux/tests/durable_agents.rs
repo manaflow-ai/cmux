@@ -4,6 +4,8 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/carried_restart.rs"]
+mod carried_restart;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
@@ -14,6 +16,8 @@ mod idle_adopted;
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
+#[path = "durable_agents/reconnect_priority.rs"]
+mod reconnect_priority;
 #[path = "durable_agents/restart_fence.rs"]
 mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]
@@ -1323,8 +1327,18 @@ const IDLE_1S: &[(&str, &str)] = &[("ACPMUX_IDLE_CHILD_SECS", "1")];
 async fn an_idle_hosted_agent_is_terminated_and_the_session_resumes() {
     let daemon = Daemon::with_env("idle", "approve-all", IDLE_1S);
     let session = new_session(&daemon).await;
-    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let record = daemon.host_record(&session);
+    let harness_pid = record["harness_pid"].as_i64().unwrap();
+    let host_pid = record["host_pid"].as_i64().unwrap();
     assert!(gone_within(harness_pid, Duration::from_secs(20)), "the idle agent kept running");
+    // The agent host ends with it, inside the same idle bound, and leaves no record behind.
+    assert!(gone_within(host_pid, Duration::from_secs(20)), "the idle agent host kept running");
+    let host_file = daemon.home.join("hosts").join(format!("{session}.json"));
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while host_file.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!host_file.exists(), "the ended agent host left its record");
     let mut rpc = daemon.rpc().await;
     let reply = rpc
         .call(

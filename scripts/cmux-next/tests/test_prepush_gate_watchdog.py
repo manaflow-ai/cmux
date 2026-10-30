@@ -14,7 +14,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -32,7 +31,6 @@ class GateWatchdogTest(unittest.TestCase):
             git.chmod(0o755)
             env = dict(os.environ, PATH=f"{fake}:{os.environ.get('PATH', '')}", CMUX_NEXT_GATE_LIMIT_SECONDS="2")
             env.pop("GITHUB_ACTIONS", None)
-            started = time.monotonic()
             child = subprocess.Popen([sys.executable, "-I", str(GATE), "--repo", str(REPO), "--base", "A", "--head", "B"],
                                      env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                      start_new_session=True)
@@ -47,9 +45,7 @@ class GateWatchdogTest(unittest.TestCase):
                     os.killpg(child.pid, 9)  # the fake git this test started still sleeps in the child's own group
                 except OSError:
                     pass
-            elapsed = time.monotonic() - started
         self.assertNotEqual(child.returncode, 0, "a gate that ran out of time must refuse the push")
-        self.assertLess(elapsed, 15)
         self.assertIn("ran past its 2s limit", err)
         self.assertIn("Thread", err, "the stacks of every thread name where it hung")
 

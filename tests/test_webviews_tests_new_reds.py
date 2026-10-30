@@ -390,7 +390,13 @@ class Workflow(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         step = text[text.index("      - name: Test webviews\n"):]
         step = step[: step.index("\n      - name:", 10)]
-        self.assertIn('CMUX_WEB_TEST_RETRY_BUDGET: "300"', step)
+        # #27425: a fixed 300 s budget still cut accent-glass-invariants' retry and skipped two more
+        # files. The step's retry deadline bounds every retry, inside the job's 40 min, and no smaller
+        # budget cuts a retry before it.
+        budget = int(re.search(r'CMUX_WEB_TEST_RETRY_BUDGET: "(\d+)"', step).group(1))
+        deadline = int(re.search(r'CMUX_WEB_TEST_RETRY_DEADLINE: "(\d+)"', step).group(1))
+        self.assertGreaterEqual(budget, deadline)
+        self.assertLessEqual(deadline, 34 * 60)
 
 
     def test_a_head_red_the_merge_parent_has_is_a_base_red_even_when_the_old_base_passed(self):

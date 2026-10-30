@@ -69,6 +69,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
     /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
     public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
+    /// `labs.machineJoin`: the one-line machine join surfaces (Add Device's way, joined Machines rows, This Mac's
+    /// consent switches); off when unset.
+    public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -214,6 +217,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
     /// `tabs.terminalFirst`; off when unset or invalid.
     public var terminalFirst: Bool = TerminalFirstSetting.fallback
+    /// `tabs.nativeNewTabPage`: the native (Swift) New Tab page instead of the web one; off when unset or invalid.
+    public var nativeNewTabPage: Bool = NativeNewTabPageSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
@@ -240,6 +245,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var chromeTheme: String?
     /// `appearance.themeEdits`: per-token color edits to themes; none when unset.
     public var themeEdits = ThemeEdits.none
+    /// `appearance.highlightColor`: the app's one highlight color (`#rrggbb`) over the terminal
+    /// theme's `selection-background`; nil (the theme's) when unset or invalid.
+    public var highlightColor: String?
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
     public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
@@ -323,6 +331,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
+        snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -414,6 +423,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (terminalFirst, terminalFirstDiagnostic) = TerminalFirstSetting.parse(root)
         snapshot.terminalFirst = terminalFirst
         if let terminalFirstDiagnostic { snapshot.diagnostics.append(terminalFirstDiagnostic) }
+        snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
@@ -451,6 +461,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        let (highlight, highlightDiagnostic) = HighlightColorSetting().parse(root)
+        snapshot.highlightColor = highlight
+        if let highlightDiagnostic { snapshot.diagnostics.append(highlightDiagnostic) }
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent
         if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }

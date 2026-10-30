@@ -261,6 +261,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case chiefLive = "chief-live-v1"
     case cloudChiefLive = "cloud-chief-live-v1"
     case conversationRuns = "conversation-runs-v1"
+    case conversationRunAnswers = "conversation-run-answers-v1"
     case cloudConversationRuns = "cloud-conversation-runs-v1"
     /// `cloud-conversation-typing` command and event: typing in Cloud DMs and groups.
     case cloudConversationTyping = "cloud-conversation-typing-v1"
@@ -301,6 +302,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// that machine. A Cloud VM's daemon then starts a chat only on `vm_kind: "owner"`, never on
     /// its own `owner` record (the agents there keep sudo).
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
+    /// `agent-session-start` takes an optional model for the first session/new request.
+    case agentSessionStartModel = "agent-session-start-model-v1"
     /// `agent-session-trust` takes `vm_kind`, as `agent-session-start` does: a Cloud VM's daemon
     /// records folder trust only on `vm_kind: "owner"`.
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
@@ -512,10 +515,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
-             .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
+             .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionTrustVMKind,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind,
              .agentSessionChildren, .agentSessionPresence, .pageTabs,
              .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
