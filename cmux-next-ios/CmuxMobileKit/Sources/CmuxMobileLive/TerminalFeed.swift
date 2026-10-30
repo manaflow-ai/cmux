@@ -374,7 +374,8 @@ public final class TerminalFeed {
                     if known.kind == item.kind, known.markdown == item.markdown, known.quote == item.quote,
                        known.agentName == item.agentName,
                        known.harness == item.harness, known.workspaceID == item.workspaceID,
-                       known.workspaceTitle == item.workspaceTitle, known.tabID == item.tabID { continue }
+                       known.workspaceTitle == item.workspaceTitle, known.tabTitle == item.tabTitle,
+                       known.tabID == item.tabID { continue }
                 }
                 history.append(item)
             }
@@ -449,6 +450,7 @@ public final class TerminalFeed {
         )
         item.opensTerminal = true
         item.macID = workspace.macID.isEmpty ? nil : workspace.macID
+        item.tabTitle = tab.title
         return item
     }
 
