@@ -982,7 +982,7 @@ impl Hub {
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name or id prefix;
     /// failing those, the one peer session whose short name `key` is ([`remote_segment`]):
     /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
-    /// (`Hub::local_matches`), or `PEER/mac-ci-3` on that peer only.
+    /// (`Hub::local_match_counts`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.lock().unwrap();
         let row = |r: &RemoteSession| {

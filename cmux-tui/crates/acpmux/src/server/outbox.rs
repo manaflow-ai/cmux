@@ -19,7 +19,6 @@
 //! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
 
 use crate::no_panic::JsonExt;
-use cmux_json::JsonSet as _;
 use std::time::Duration;
 
 use super::*;

@@ -1273,13 +1273,6 @@ impl Hub {
         }
     }
 
-    /// How many of this daemon's own sessions `key` names in any way: id or name, a prefix of
-    /// either, or, for a bare key, the last name segment. A peer's session with that short name
-    /// gives way to any of them (`Hub::resolve_remote`).
-    pub(super) fn local_matches(&self, key: &str) -> usize {
-        self.local_match_counts(key).iter().sum()
-    }
-
     /// This daemon's own sessions `key` names: [by id, name or a prefix of either; by short name
     /// and live; by short name and closed]. A peer's short name gives way to the first two, and
     /// to the third only when it is closed too (`Hub::resolve_remote`).
