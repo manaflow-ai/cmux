@@ -787,8 +787,8 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
 
 mod decision_answers;
 pub mod policy_grant;
-pub use policy_grant::policy_proof;
 pub use decision_answers::decision_answers_proof;
+pub use policy_grant::policy_proof;
 /// The bytes a decision proof covers.
 fn decision_message(parts: [&str; 5]) -> Vec<u8> {
     let mut message = b"acpmux-person-decision-v1".to_vec();

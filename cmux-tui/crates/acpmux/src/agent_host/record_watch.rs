@@ -425,7 +425,7 @@ mod identity_tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&target, &link).unwrap();
         let (tx, rx) = mpsc::channel();
-        let _watch = DirWatch::start_identities(&[link.clone()], move || {
+        let _watch = DirWatch::start_identities(std::slice::from_ref(&link), move || {
             let _ = tx.send(());
             true
         })
@@ -439,7 +439,7 @@ mod identity_tests {
         std::fs::write(&lock, "held").unwrap();
         let _held_lock = std::fs::File::open(&lock).unwrap();
         let (tx, rx) = mpsc::channel();
-        let _watch = DirWatch::start_identities(&[lock.clone()], move || {
+        let _watch = DirWatch::start_identities(std::slice::from_ref(&lock), move || {
             let _ = tx.send(());
             true
         })
