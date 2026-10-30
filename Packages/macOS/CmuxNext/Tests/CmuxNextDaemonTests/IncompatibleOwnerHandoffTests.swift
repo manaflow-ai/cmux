@@ -58,8 +58,8 @@ struct IncompatibleOwnerHandoffTests {
     private func makeEndpoint(_ owner: Owner, log: URL) throws -> DaemonEndpoint {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let capabilities = String(decoding: try JSONEncoder().encode(owner.capabilities), as: UTF8.self)
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: [
-            "-u", "-c", Self.script, String(owner.protocolVersion), capabilities, owner.session, String(owner.pid),
+        let bridge = DaemonBridge.fakePython([
+            "-c", Self.script, String(owner.protocolVersion), capabilities, owner.session, String(owner.pid),
             owner.accepts ? "yes" : "no", log.path, owner.upgrade?.path ?? "",
         ])
         return DaemonEndpoint(socketPath: directory.appendingPathComponent("owner.sock").path, bridge: bridge)
