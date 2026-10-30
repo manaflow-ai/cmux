@@ -18,7 +18,7 @@ the row close (X), unread dots, densities, drag and reorder, the Home/pinned ban
 performance.
 
 - 2026-10-30: sidebar pane gap (PR #28052, commits `8a92353e0b2`, `4e3a0a16d4c` and `c4f11ab868f` and `852496a26e1` and `ded89ea2064` and `9cf5deb0a3c`): Leo, "THE FUCKING OPERATIVE SITUATION IS THE SPACING" / "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card style keeps a scaled 2.5 pt plain sidebar band after each row; the resize line remains above the card in the titlebar, while `flat-sidebar-line` remains unchanged. Geometry: `SidebarPaneGapTests`.
-- 2026-10-30: sidebar pane gap style-switch repair (PR #28052, commit to follow): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card and flat styles remount the resize line when the visual pane reach changes, even when their hit bands are equal. Regression: `SidebarPaneGapTests.styleSwitchRemountsTheDividerAtTheNewSurfaceEdge`.
+- 2026-10-30: sidebar pane gap style-switch repair (PR #28052, commit `4c25ba92f1b`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card and flat styles remount the resize line when the visual pane reach changes, even when their hit bands are equal. Regression: `SidebarPaneGapTests.styleSwitchRemountsTheDividerAtTheNewSurfaceEdge`.
 
 ## Rule for every sidebar change
 
