@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
 import { LinkHoverCard } from "../../agent-session/acpmux/chips/LinkHoverCard";
+import { pullRequestRef } from "../../agent-session/acpmux/chips/PullRequestCard";
 import { useHoverCard } from "../../agent-session/acpmux/chips/useHoverCard";
 import { GitHubMark } from "../../agent-session/acpmux/conversation/icons";
 import type { PageClient } from "../shared/pageClient";
@@ -19,10 +20,10 @@ const REPO = "manaflow-ai/cmux";
 const pullURL = (pr: number) => `https://github.com/${REPO}/pull/${pr}`;
 
 function pullRequest(urlOrNumber: number | string): { href: string; repo: string; number: number } | undefined {
-  if (typeof urlOrNumber === "number") return { href: pullURL(urlOrNumber), repo: REPO, number: urlOrNumber };
-  const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)(?:[/?#].*)?$/i.exec(urlOrNumber);
-  if (!match) return undefined;
-  return { href: `https://github.com/${match[1]}/pull/${match[2]}`, repo: match[1]!, number: Number(match[2]) };
+  // Host-provided notes need the same runtime validation as the shared card, even when
+  // they did not pass through the publishing schema. Numeric legacy references do too.
+  const ref = pullRequestRef(typeof urlOrNumber === "number" ? pullURL(urlOrNumber) : urlOrNumber);
+  return ref && { href: ref.url, repo: ref.repo, number: ref.number };
 }
 
 /// The card asks the host what it knows about the pull request (`pr.inspect`), which browsers it

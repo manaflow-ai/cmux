@@ -19,6 +19,44 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
+test("malformed PR references keep the title without a chip or link", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChangePullRequest } = await import("../src/pages/changelog/ChangePullRequest");
+  const root = createRoot(host);
+  try {
+    for (const pr of [
+      "https://github.com/foo?bar/repo/pull/123",
+      "https://github.com/foo/repo#bar/pull/123",
+      "https://github.com/foo%2Fbar/repo/pull/123",
+      "https://github.com/foo/repo%2Fbar/pull/123",
+      "https://github.com//repo/pull/123",
+      "https://github.com/foo//pull/123",
+      "https://github.com/foo/repo/pull/0",
+      "https://github.com/foo/repo/pull/abc",
+      "https://github.com/foo/../pull/123",
+      "https://github.com.evil.example/foo/repo/pull/123",
+      0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY,
+    ]) {
+      act(() => root.render(<ChangePullRequest pr={pr} title="Keep this change readable" />));
+      expect(host.textContent).toBe("Keep this change readable");
+      expect(host.querySelector("a")).toBeNull();
+      expect(host.querySelector(".cl-pr")).toBeNull();
+    }
+    for (const pr of [
+      "https://github.com/manaflow-ai/cmux/pull/27919",
+      "https://github.com/manaflow-ai/cmux/pull/27919/files?diff=split#discussion",
+      27919,
+    ]) {
+      act(() => root.render(<ChangePullRequest pr={pr} title="A valid change" />));
+      expect(host.querySelectorAll("a.cl-pr").length).toBe(1);
+      expect(host.querySelector(".cv-chip__label")?.textContent).toBe("#27919");
+      expect(host.querySelector("a.cl-pr")?.getAttribute("href")).toBe("https://github.com/manaflow-ai/cmux/pull/27919");
+    }
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
 test("a What's New PR URL renders the shared colored chip and keeps its hover card", async () => {
   const { createRoot } = await import("react-dom/client");
   const { Groups } = await import("../src/pages/changelog/ReleaseParts");
