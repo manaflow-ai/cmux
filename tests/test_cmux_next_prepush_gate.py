@@ -653,6 +653,18 @@ let package = Package(
             self.assertEqual(gate.import_baseline(source), frozenset({"A: B"}), source)
         self.assertIsNone(gate.import_baseline(b"IMPORT_BASELINE: frozenset[str]\n"))
 
+    def test_a_head_without_the_checker_reads_no_baseline_instead_of_aborting(self):
+        # Review of 3f01de17: `git()` raises SystemExit on a failed `git show`, which the CalledProcessError handler
+        # never caught, so a pushed head without the checker aborted the whole push.
+        spec = importlib.util.spec_from_file_location("prepush_gate_no_checker", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        (self.repo / gate.DEPS_CHECKER).unlink()
+        self.commit("a head without the dependency checker")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertNotEqual(self.git("cat-file", "-e", f"{head}:{gate.DEPS_CHECKER}", check=False).returncode, 0)
+        self.assertIsNone(gate.pushed_import_baseline(self.repo, head))
+
     def test_a_push_that_drops_a_baseline_line_without_declaring_the_import_is_refused(self):
         # Review of a37b4cce: the installed checker still lists the pair, so it reported neither a missing import nor
         # a stale line, and a push that only deleted the pair from IMPORT_BASELINE passed; CI's pushed checker failed.

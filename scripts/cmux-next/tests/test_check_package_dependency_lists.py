@@ -282,6 +282,18 @@ class FixImportsTests(unittest.TestCase):
         self.assertIn('name: "CmuxNextCompat",\n            dependencies: ["CmuxNextDaemon"]\n        ),', fixed)
         self.assertTrue(fixed.endswith('dependencies: ["CmuxNextDaemon"]\n        ),\n*/\n'))
 
+    def test_a_dependencies_list_in_a_block_comment_declares_nothing(self):
+        # Review of 3f01de17: `argument()` skipped `//` but not `/* */`, so a commented-out list was read as the
+        # target's dependencies and an undeclared import passed; --fix-imports then edited inside the comment.
+        text = self.manifest_text().replace('name: "CmuxNextCompat"\n',
+                                            'name: "CmuxNextCompat" /* , dependencies: ["CmuxNextDaemon"] */\n', 1)
+        self.assertIn("/* , dependencies", text)
+        self.assertEqual(lint.manifest_targets(text)["CmuxNextCompat"][1], set())
+        fixed = lint.add_dependency(text, "CmuxNextCompat", "CmuxNextDaemon")
+        self.assertIn('/* , dependencies: ["CmuxNextDaemon"] */', fixed)
+        self.assertEqual(fixed.count('"CmuxNextDaemon"'), text.count('"CmuxNextDaemon"') + 1)
+        self.assertEqual(lint.manifest_targets(fixed)["CmuxNextCompat"][1], {"CmuxNextDaemon"})
+
     def test_a_name_followed_by_other_arguments_keeps_its_comma_once(self):
         text = self.manifest_text().replace('name: "CmuxNextCompat"\n',
                                             'name: "CmuxNextCompat",\n            path: "Sources/Compat"\n')

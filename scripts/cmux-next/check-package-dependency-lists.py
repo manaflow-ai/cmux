@@ -321,7 +321,9 @@ def top_level_strings(text: str, open_at: int, close_at: int) -> list[str]:
 def manifest_targets(text: str) -> dict[str, tuple[str, set[str], str | None]]:
     """{name: (kind, the local target names in its dependencies, its `path:` or None)} from the manifest text. The
     dependencies are the string entries of the target's own `dependencies:` array, matched bracket for bracket (a
-    regex up to the next `]` read a following `resources:` list as dependencies)."""
+    regex up to the next `]` read a following `resources:` list as dependencies). Comments are blanked first: a
+    `/* dependencies: ["X"] */` declares nothing (review of 3f01de17)."""
+    text = without_comments(text)
     targets = {}
     for name, (kind, open_at, close_at) in target_spans(text).items():
         span = argument(text, open_at, close_at, "dependencies")
@@ -373,9 +375,10 @@ def add_dependency(text: str, target: str, module: str) -> str:
         raise FixError(f"no target named {target}")
     _, open_at, close_at = span
     entry = f'"{module}"'
-    deps = argument(text, open_at, close_at, "dependencies")
+    code = without_comments(text)  # same indices as TEXT; a commented-out `dependencies:` is not the array
+    deps = argument(code, open_at, close_at, "dependencies")
     if deps is None:  # no dependencies yet: one goes right after the name (SwiftPM's argument order)
-        name = re.search(r'name:\s*"[^"]+"', text[open_at:close_at])
+        name = re.search(r'name:\s*"[^"]+"', code[open_at:close_at])
         end = open_at + name.end()
         if "\n" not in text[open_at:close_at]:  # a one-line call stays on its line
             return text[:end] + f", dependencies: [{entry}]" + text[end:]

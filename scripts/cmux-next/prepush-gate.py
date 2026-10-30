@@ -450,11 +450,9 @@ def import_baseline(source: bytes) -> frozenset[str] | None:
 def pushed_import_baseline(repo: Path, head: str) -> frozenset[str] | None:
     """The pushed head's IMPORT_BASELINE (the dependency check's); None when unreadable.
     The hook runs the installed checker, whose baseline is the one before the push: a push that declares a pair and
-    drops its line (the cleanup the checker asks for) would be told to drop a line it already dropped."""
-    try:
-        return import_baseline(git(repo, "show", f"{head}:{DEPS_CHECKER}"))
-    except subprocess.CalledProcessError:
-        return None
+    drops its line (the cleanup the checker asks for) would be told to drop a line it already dropped. A head without
+    the checker reads as None, not a failed push (review of 3f01de17: `git()` exits on a failed `git show`)."""
+    return import_baseline(git(repo, "show", f"{head}:{DEPS_CHECKER}", check=False))
 
 
 def dropped_baseline_pairs(repo: Path, head: str, trusted_scripts: Path | None) -> frozenset[str]:
