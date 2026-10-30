@@ -2,6 +2,7 @@
 
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
+use cmux_json::JsonSet as _;
 
 tokio::task_local! {
     /// The fence of the ancestor's answer the agent's request in this task got, until its
@@ -64,6 +65,11 @@ impl Hub {
                     ..
                 } => {
                     if m == method::SESSION_UPDATE {
+                        // What an agent a Stop ended still had in flight is not the next turn's
+                        // (`cancel.rs`): none of it lands in the turn that runs now.
+                        if agent == session.stopped_agent.load(Ordering::SeqCst) {
+                            continue;
+                        }
                         // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
                         // before it is applied (the log has it already), as a busy inbound loop
                         // does, so the daemon's integration tests can reach an agent first.
@@ -920,7 +926,7 @@ impl Hub {
                 let mut record = json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance": chat_option.is_some() && full_access.is_none(), "request": request});
                 // The mode that answered it, for the transcript's "Approved: … (Full access)".
                 if let Some((mode, _)) = &full_access {
-                    record["fullAccess"] = json!(mode);
+                    record.set("fullAccess", json!(mode));
                     tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
                 }
                 self.append(session, "mux", "permission_auto", record);
@@ -987,7 +993,7 @@ impl Hub {
         self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
-            out["_meta"] = m;
+            out.set("_meta", m);
             if let Some(o) = out["outcome"].as_object_mut() {
                 o.remove("_meta");
             }
@@ -1009,7 +1015,7 @@ impl Hub {
     ) {
         let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
         if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
+            decision.set("answeredBy", by);
         }
         self.append(session, "mux", "permission_decision", decision.clone());
         let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -1261,11 +1267,11 @@ impl Hub {
         if let Some(a) = answers {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
-            input["answers"] = a;
+            input.set("answers", a);
             if let Some(notes) = annotations {
-                input["annotations"] = notes;
+                input.set("annotations", notes);
             }
-            outcome["_meta"] = json!({"updatedInput": input});
+            outcome.set("_meta", json!({"updatedInput": input}));
         }
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;

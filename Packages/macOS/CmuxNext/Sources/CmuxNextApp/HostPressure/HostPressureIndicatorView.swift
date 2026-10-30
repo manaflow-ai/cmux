@@ -44,6 +44,7 @@ final class HostPressureIndicatorView: NSView {
     private let watching = HostPressureTasks()
     private let levels = HostPressureTasks()
     private lazy var popover: HostPressurePopover = makePopover()
+    private var madePopover = false
     private(set) var level = HostPressureLevel.normal
     /// Whether it is subscribed to the service now (tests read it).
     var isSampling: Bool { service != nil }
@@ -97,6 +98,8 @@ final class HostPressureIndicatorView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of its window, its popover's panel closes for good (it opens again on the next show).
+        if window == nil, madePopover { popover.closePanel() }
         observeWindow()
         reconcile()
     }
@@ -272,6 +275,7 @@ final class HostPressureIndicatorView: NSView {
 
     private func makePopover() -> HostPressurePopover {
         let popover = HostPressurePopover()
+        madePopover = true
         popover.content.onOpenActivity = { [weak self, weak popover] in
             popover?.close()
             _ = self?.services.registry.perform("agentActivity.open")

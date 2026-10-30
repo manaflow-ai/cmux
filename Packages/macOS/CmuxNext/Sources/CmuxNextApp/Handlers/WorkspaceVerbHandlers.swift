@@ -99,14 +99,16 @@ enum WorkspaceVerbHandlers {
 
     /// New workspace in the target workspace's window (else the active
     /// one) at an anchor-free `slot`; `then` runs once it is listed.
+    /// `fromCurrent` false: with no `slot`, `workspaces.newPlacement` places it as if the window
+    /// showed no workspace (`WorkspaceSpawn.placesFromCurrent`).
     static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
-                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
+                       fromCurrent: Bool = true, then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
-                  then: then)
+                  fromCurrent: fromCurrent, then: then)
     }
 
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
-                              newTabPage: Bool, firstChat: AgentPaneSeed? = nil,
+                              newTabPage: Bool, firstChat: AgentPaneSeed? = nil, fromCurrent: Bool = true,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
         let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
@@ -116,6 +118,7 @@ enum WorkspaceVerbHandlers {
         spawn.onListed = then
         // `then` places it itself (New Workspace in New Group): no second write.
         spawn.placesBySetting = then == nil
+        spawn.placesFromCurrent = fromCurrent
         spawn.opensNewTabPage = newTabPage
         spawn.firstChat = firstChat
         let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }

@@ -27,6 +27,7 @@ use super::*;
 use std::ops::Range;
 use std::time::Duration;
 // Tokio's clock, so a paused test clock moves the pace and the windows too.
+use cmux_json::JsonSet as _;
 use tokio::time::Instant;
 
 /// A build runs at most once per `PACE` times its own cost: about 3% of a core.
@@ -114,6 +115,14 @@ impl Snapshot {
     }
 
     /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
+    /// This daemon's own sessions only, no peer's row, serialized as a list reply: what a
+    /// peer's link reads in its watch (`server/list_reply.rs` `watch`).
+    pub(crate) fn own_whole(hub: &Hub, with_tools: bool) -> String {
+        let mut rows = Rows::default();
+        hub.visit_own_session_summaries(with_tools, |row| rows.push(&row));
+        rows.finish().0
+    }
+
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
@@ -241,16 +250,16 @@ impl Rows {
             spans.push(start..whole.len());
             let mut value = json!({"at": at});
             if let Some(session_id) = key.session_id {
-                value["sessionId"] = Value::String(session_id);
+                value.set("sessionId", Value::String(session_id));
             }
             if key.updated_at != 0 {
-                value["updatedAt"] = Value::from(key.updated_at);
+                value.set("updatedAt", Value::from(key.updated_at));
             }
             if let Some(peer) = key.peer {
-                value["peer"] = Value::String(peer);
+                value.set("peer", Value::String(peer));
             }
             if let Some(status) = key.status {
-                value["status"] = Value::String(status);
+                value.set("status", Value::String(status));
             }
             keys.push(value);
         }

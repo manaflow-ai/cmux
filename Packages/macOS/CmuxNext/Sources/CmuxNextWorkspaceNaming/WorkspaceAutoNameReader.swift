@@ -122,14 +122,13 @@ public struct WorkspaceAutoNameReader {
     }
 
     /// What a window's titlebar names `workspace`, whose panes show the tabs `selectedTab` picks
-    /// (the window's selection): `displayName` for the front and work tabs its sidebar row reads
-    /// (`SidebarMapping.row`): its agent chat while the front is an idle shell (`labelTab`).
+    /// (the window's selection): `displayName` for the one tab its sidebar row reads
+    /// (`SidebarMapping.faceTab`): its agent chat while the front is an idle shell (`labelTab`).
     public func titlebarName(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> String {
-        let mapping = SidebarMapping.shared, tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let front = mapping.labelTab(mapping.frontTab(workspace, selectedTab: selectedTab), tabs,
-                                     newTabPages: Set(tabs.filter { isNewTabPage($0) }.map(\.id)))
-        let work = front?.kind == .browser ? SidebarMapping.shared.workTab(workspace, selectedTab: selectedTab) : nil
-        return displayName(workspace, front: front, work: work)
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let newTabPages = Set(tabs.filter { isNewTabPage($0) }.map(\.id))
+        return displayName(workspace, front: SidebarMapping.shared.faceTab(workspace, selectedTab: selectedTab,
+                                                                          newTabPages: newTabPages))
     }
 
     /// A browser tab's title as a workspace name: the tab's user name, else

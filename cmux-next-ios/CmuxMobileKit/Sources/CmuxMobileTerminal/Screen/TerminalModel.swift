@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileTransport
 import Foundation
 import Observation
 import UIKit
@@ -11,6 +12,8 @@ import UIKit
 @MainActor
 @Observable
 public final class TerminalModel {
+    /// Recovery supplied by the shell: retries the owning Mac and its attach.
+    public var reconnect: (@MainActor () async -> Void)?
     public let session: any TerminalSession
     public let artifactSource: any ArtifactSource
 
@@ -44,7 +47,7 @@ public final class TerminalModel {
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
-    public var uploader: (@MainActor (_ data: Data, _ name: String) async throws -> String)?
+    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)?
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
@@ -416,8 +419,7 @@ public final class TerminalModel {
             var paths: [String] = []
             for attachment in pending {
                 do {
-                    let data = try attachment.contents()
-                    paths.append(try await uploader(data, attachment.name))
+                    paths.append(try await uploader(try attachment.payload(), attachment.name))
                 } catch {
                     guard let self else { return }
                     self.isUploading = false
@@ -563,7 +565,8 @@ public struct ComposerAttachment: Identifiable, Sendable {
     public var thumbnail: UIImage?
     public var byteCount: Int?
     public var data: Data?
-    /// A local copy (picked videos), read at send.
+    /// A file on the phone (a picked video's local copy, a picked file),
+    /// streamed to the Mac at send without reading it whole.
     public var fileURL: URL?
 
     public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil, data: Data? = nil, fileURL: URL? = nil) {
@@ -584,9 +587,9 @@ public struct ComposerAttachment: Identifiable, Sendable {
         LocalFile(id: id.uuidString, name: name, data: data, isImage: kind == .image, fileURL: fileURL)
     }
 
-    func contents() throws -> Data {
-        if let data { return data }
-        if let fileURL { return try Data(contentsOf: fileURL, options: .mappedIfSafe) }
+    func payload() throws -> LinkUpload.Payload {
+        if let data { return .data(data) }
+        if let fileURL { return .file(fileURL) }
         throw Unreadable()
     }
 }

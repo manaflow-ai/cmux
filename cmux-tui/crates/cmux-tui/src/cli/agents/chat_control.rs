@@ -28,6 +28,7 @@ use super::super::app::{self, ActionName};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError};
 use super::chat;
+use cmux_json::JsonSet as _;
 
 /// The permission policies an agent may start a chat with.
 pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "deny-all"];
@@ -344,7 +345,7 @@ pub(in crate::cli) fn new(
         None,
     ) {
         Ok(run) => {
-            result["opened"] = json!(true);
+            result.set("opened", json!(true));
             for field in ["tab", "pane", "workspace"] {
                 if let Some(value) = run["result"].get(field).filter(|value| !value.is_null())
                     && let Some(result) = result.as_object_mut()
@@ -356,8 +357,8 @@ pub(in crate::cli) fn new(
         // The app took the run but did not answer in time: the tab may still come (a slow
         // agent tab create), so the chat stays and the receipt says so.
         Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
-            result["opened"] = json!("pending");
-            result["open_error"] = error;
+            result.set("opened", json!("pending"));
+            result.set("open_error", error);
         }
         Err(error) if new_workspace => {
             // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
@@ -367,8 +368,8 @@ pub(in crate::cli) fn new(
         Err(error) => {
             // The chat runs in that workspace and `chat send|read` reach it; the receipt
             // says why no tab shows it, so the caller can `agent open` it later.
-            result["opened"] = json!(false);
-            result["open_error"] = error;
+            result.set("opened", json!(false));
+            result.set("open_error", error);
         }
     }
 
@@ -376,10 +377,13 @@ pub(in crate::cli) fn new(
     // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
     if let Some(prompt) = &chat.prompt {
         let id = uuid::Uuid::new_v4().to_string();
-        result["prompt"] = match chat::acp::prompt(&session, prompt, &id, None, socket) {
-            Ok(_) => json!({"state": "accepted", "prompt_id": id}),
-            Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
-        };
+        result.set(
+            "prompt",
+            match chat::acp::prompt(&session, prompt, &id, None, socket) {
+                Ok(_) => json!({"state": "accepted", "prompt_id": id}),
+                Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
+            },
+        );
     }
     Ok(json!({
         "schema_version": 1,

@@ -100,6 +100,8 @@ public final class TerminalFeed {
     /// The pause between the keys of an answer: the agent's screen redraws after each.
     var keyPause: Duration = .milliseconds(300)
     var clock: any Clock<Duration> = ContinuousClock()
+    /// Bounds a silent notification ledger without closing the shared daemon channel.
+    var requestDeadline: Duration = .seconds(20)
 
     /// Pastes `text` into the terminal of `surface` and submits it with Return
     /// in one `send` on the Mac's `daemon` channel of `connection`, only while
@@ -374,7 +376,8 @@ public final class TerminalFeed {
                     if known.kind == item.kind, known.markdown == item.markdown, known.quote == item.quote,
                        known.agentName == item.agentName,
                        known.harness == item.harness, known.workspaceID == item.workspaceID,
-                       known.workspaceTitle == item.workspaceTitle, known.tabID == item.tabID { continue }
+                       known.workspaceTitle == item.workspaceTitle, known.tabTitle == item.tabTitle,
+                       known.tabID == item.tabID { continue }
                 }
                 history.append(item)
             }
@@ -449,6 +452,7 @@ public final class TerminalFeed {
         )
         item.opensTerminal = true
         item.macID = workspace.macID.isEmpty ? nil : workspace.macID
+        item.tabTitle = tab.title
         return item
     }
 

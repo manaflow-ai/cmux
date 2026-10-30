@@ -14,6 +14,8 @@
 //! comma-separated allowlist, the Chief's turns) lists exactly those tools
 //! and refuses every other call, from a script too.
 
+use cmux_json::JsonSet as _;
+
 mod action_tools;
 mod agent_dispatch_tools;
 mod agent_events_tool;
@@ -35,6 +37,7 @@ mod terminal_talk_tools;
 mod tests;
 mod transport;
 mod upstream;
+mod upstream_listing;
 mod v2_tools;
 mod watch;
 
@@ -183,6 +186,11 @@ pub(super) trait Backend {
     /// The app's focus from `snapshot.get` (placement.rs).
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
+    }
+    /// The terminal this server's client runs in (`CMUX_TUI_TERMINAL_ID`),
+    /// for placing it without an app (placement.rs `daemon_caller`).
+    fn caller_terminal(&self) -> Option<String> {
+        std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
@@ -871,6 +879,62 @@ impl<B: Backend> Server<B> {
         Ok(self.call_action(tool, &arguments))
     }
 
+    /// A terminal tool called with a `tab` and no `terminal`: the terminal that tab shows,
+    /// from `tab_get` (its `content_id`). Models name a terminal by the tab id they listed
+    /// (tests/tool-evals: 39 "needs terminal" errors in one 9-model panel). Other calls
+    /// pass unchanged.
+    fn terminal_of_tab<'a>(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &'a Map<String, Value>,
+    ) -> Result<std::borrow::Cow<'a, Map<String, Value>>, Value> {
+        // Only a tool that needs a terminal: `terminal_list` takes `tab` as a filter.
+        let needs_terminal = tool.needs_terminal();
+        let tab = arguments.get("tab").and_then(Value::as_str);
+        let Some(tab) = tab.filter(|_| needs_terminal && !arguments.contains_key("terminal"))
+        else {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        };
+        // A `<session>:tab_…` names another session: the terminal gets the same prefix.
+        let session = tab.rsplit_once(':').map(|(session, _)| session.to_owned());
+        let mut lookup = Map::new();
+        for key in ["tab", "session", "workspace", "screen", "pane"] {
+            if let Some(value) = arguments.get(key) {
+                lookup.insert(key.into(), value.clone());
+            }
+        }
+        let Some(tab_get) = v2_tools::find("tab_get") else {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        };
+        let answer = self.call_v2(tab_get, &lookup);
+        if answer["isError"] == true {
+            return Err(answer);
+        }
+        let record = &answer["structuredContent"];
+        let record = record.get("value").unwrap_or(record);
+        let Some(terminal) = record["content_id"].as_str().filter(|id| id.starts_with("term_"))
+        else {
+            return Err(tool_error(envelope(
+                v2_tools::invalid(format!(
+                    "{} needs terminal: that tab shows no terminal",
+                    tool.name
+                )),
+                "not_run",
+                None,
+            )));
+        };
+        let terminal = match session {
+            Some(session) => format!("{session}:{terminal}"),
+            None => terminal.to_owned(),
+        };
+        let mut with_terminal = arguments.clone();
+        for key in ["tab", "pane", "screen", "workspace"] {
+            with_terminal.remove(key);
+        }
+        with_terminal.insert("terminal".into(), Value::String(terminal));
+        Ok(std::borrow::Cow::Owned(with_terminal))
+    }
+
     /// One request from a running `cmux_exec` script: a tool call through
     /// `call`, so a script has the rights of a direct call, or a docs search.
     fn script_request(
@@ -887,7 +951,19 @@ impl<B: Backend> Server<B> {
                 )
             }
             code_mode::Request::Call { name, arguments } => {
-                let result = self.call(&json!({"name": name, "arguments": arguments}));
+                let mut result = self.call(&json!({"name": name, "arguments": arguments}));
+                // A guessed name (`context`, `terminal_send`) gets the tools
+                // a docs search for it finds, so the next call can be right
+                // (tests/tool-evals, 2026-10-27).
+                if let Err((_, message)) = &mut result
+                    && message.starts_with("unknown tool")
+                {
+                    let tools = tools.get_or_insert_with(|| self.list());
+                    let near = code_mode::nearest_names(tools, &name);
+                    if !near.is_empty() {
+                        message.push_str(&format!("; did you mean {}?", near.join(", ")));
+                    }
+                }
                 code_mode::script_answer(result, images)
             }
             code_mode::Request::Docs { query } => {
@@ -907,6 +983,10 @@ impl<B: Backend> Server<B> {
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
         let arguments = match self.place_beside(tool, arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let arguments = match self.terminal_of_tab(tool, &arguments) {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
@@ -1031,10 +1111,10 @@ fn fit(mut value: Value) -> Result<Value, Value> {
     {
         let keep = items.len() / 2;
         items.truncate(keep);
-        value["truncated"] = json!(true);
-        value["returned"] = json!(keep);
+        value.set("truncated", json!(true));
+        value.set("returned", json!(keep));
         if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
-            value["next_offset"] = json!(offset + keep as u64);
+            value.set("next_offset", json!(offset + keep as u64));
         }
         if size(&value) <= MAX_RESULT_BYTES {
             return Ok(value);
@@ -1058,7 +1138,7 @@ fn fit(mut value: Value) -> Result<Value, Value> {
 fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
     let mut envelope = json!({ "error": error, "state": state });
     if let Some(key) = idempotency_key {
-        envelope["idempotency_key"] = json!(key);
+        envelope.set("idempotency_key", json!(key));
     }
     envelope
 }

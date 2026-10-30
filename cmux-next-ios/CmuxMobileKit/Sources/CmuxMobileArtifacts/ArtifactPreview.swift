@@ -59,7 +59,7 @@ public struct ArtifactPreview: View {
     /// The loaded content wants the whole screen (images and videos, P4).
     private var wantsLargeSheet: Bool {
         switch content {
-        case .success(.image), .success(.file), .success(.quickLook): true
+        case .success(.image), .success(.file), .success(.quickLook), .success(.ownedFile): true
         default: false
         }
     }
@@ -81,6 +81,14 @@ public struct ArtifactPreview: View {
                         attempt += 1
                     }
                     .accessibilityIdentifier("artifact.retry")
+                    if let storage = error as? PreviewInsufficientSpace {
+                        // The file stays on the Mac: share its reference, never
+                        // pretend that a failed download produced a local file.
+                        ShareLink(item: storage.path) {
+                            Label("Share File Path", systemImage: "square.and.arrow.up")
+                        }
+                        .accessibilityIdentifier("artifact.shareRemotePath")
+                    }
                 }
                 .accessibilityIdentifier(Self.refusedIdentifier)
             case .success(let loaded) where loaded.isEmptyFile:
@@ -161,11 +169,15 @@ public struct ArtifactPreview: View {
         .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
             do {
                 let loaded = try await source.load(artifact)
+                try Task.checkCancellation()
                 content = .success(loaded)
                 // The share copy (up to the preview limit) is written off the main actor.
                 let artifact = artifact
-                shareItem = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
+                let item = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
+                try Task.checkCancellation()
+                shareItem = item
             } catch {
+                guard !Task.isCancelled else { return }
                 content = .failure(error)
                 shareItem = nil
             }
@@ -198,21 +210,12 @@ public struct ArtifactPreview: View {
         case .file(let url):
             AutoplayVideo(url: url)
         case .quickLook(let url):
-            if QuickLookPreview.canPreview(url) {
-                QuickLookPreview(url: url)
-                    .ignoresSafeArea(edges: .bottom)
-                    .accessibilityIdentifier("artifact.quickLook")
+            quickLook(url: url)
+        case .ownedFile(let file, let isVideo):
+            if isVideo {
+                AutoplayVideo(url: file.url, owner: file)
             } else {
-                // Nothing on the phone shows this type: hand it to another app.
-                ArtifactDeadEnd(headline: "No preview for this file", systemImage: artifact.systemImage, name: artifact.name,
-                                message: Self.sizeLine(url)) {
-                    ShareLink(item: url, preview: SharePreview(artifact.name)) {
-                        Label("Share or Open In…", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("artifact.share")
-                }
-                .accessibilityIdentifier("artifact.unpreviewable")
+                quickLook(url: file.url, owner: file)
             }
         case .web(let url):
             WebPreview(mode: .url(url))
@@ -236,11 +239,32 @@ public struct ArtifactPreview: View {
         }
     }
 
+    @ViewBuilder
+    private func quickLook(url: URL, owner: ManagedPreviewFile? = nil) -> some View {
+        if QuickLookPreview.canPreview(url) {
+            QuickLookPreview(url: url, owner: owner)
+                .ignoresSafeArea(edges: .bottom)
+                .accessibilityIdentifier("artifact.quickLook")
+        } else {
+            // Nothing on the phone shows this type: hand it to another app.
+            ArtifactDeadEnd(headline: "No preview for this file", systemImage: artifact.systemImage, name: artifact.name,
+                            message: Self.sizeLine(url)) {
+                ShareLink(item: url, preview: SharePreview(artifact.name)) {
+                    Label("Share or Open In…", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("artifact.share")
+            }
+            .accessibilityIdentifier("artifact.unpreviewable")
+        }
+    }
+
     /// What Share hands over: the loaded file under its own name (images, PDFs and
     /// text get a local copy), the page for a link; nothing for folders.
     nonisolated static func shareItem(for content: ArtifactContent, artifact: TerminalArtifact) -> URL? {
         switch content {
         case .file(let url), .quickLook(let url): return url
+        case .ownedFile(let file, _): return file.url
         case .web(let url): return url
         case .image(let data), .pdf(let data): return try? ArtifactLocalCopy.write(data, for: artifact)
         case .text(let text): return try? ArtifactLocalCopy.write(Data(text.utf8), for: artifact)
@@ -258,6 +282,7 @@ public struct ArtifactPreview: View {
 /// anything else Quick Look renders), embedded in the preview page.
 struct QuickLookPreview: UIViewControllerRepresentable {
     let url: URL
+    var owner: ManagedPreviewFile? = nil
 
     static func canPreview(_ url: URL) -> Bool { QLPreviewController.canPreview(url as NSURL) }
 
@@ -270,14 +295,20 @@ struct QuickLookPreview: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: QLPreviewController, context: Context) {
         guard context.coordinator.url != url else { return }
         context.coordinator.url = url
+        context.coordinator.owner = owner
         controller.reloadData()
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+    func makeCoordinator() -> Coordinator { Coordinator(url: url, owner: owner) }
 
     final class Coordinator: NSObject, QLPreviewControllerDataSource {
         var url: URL
-        init(url: URL) { self.url = url }
+        // QL may still request the file while its SwiftUI view is being removed.
+        var owner: ManagedPreviewFile?
+        init(url: URL, owner: ManagedPreviewFile?) {
+            self.url = url
+            self.owner = owner
+        }
 
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
         func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem { url as NSURL }
@@ -351,6 +382,7 @@ private struct ArtifactLoad: Hashable {
 /// A video that starts playing when it opens (system controls on tap).
 struct AutoplayVideo: View {
     let url: URL
+    var owner: ManagedPreviewFile? = nil
     @State private var player: AVPlayer?
 
     var body: some View {

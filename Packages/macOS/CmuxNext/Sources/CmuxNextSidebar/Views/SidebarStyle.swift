@@ -20,6 +20,12 @@ enum SidebarStyle {
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
+    /// The title inset for a disclosed tab, measured from its workspace title column. Tabs are
+    /// children of the workspace row, so this is deliberately larger than the old icon well gap.
+    static var tabChildIndent: CGFloat { Metrics.space6 }
+    /// Tab titles stay at the caption scale so the workspace remains the visual root of the list.
+    static var tabTitleFont: NSFont { Typography.caption }
+    static var tabDetailFont: NSFont { Typography.caption }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
@@ -43,6 +49,21 @@ enum SidebarStyle {
         guard iconSide > 0 else { return leading }
         if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
+    }
+    /// Workspace title geometry shared by realized rows and virtualized parents of tab rows.
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
+        let side: CGFloat
+        let swatch: Bool
+        switch icon {
+        case nil: side = 0; swatch = false
+        case .swatch: side = dotSize + Metrics.space1; swatch = true
+        case .symbol, .emoji, .favicon: side = iconBox; swatch = false
+        }
+        let leading = horizontalInset + CGFloat(treeDepth) * treeIndent
+        return titleTextX(leading: leading, iconSide: side, swatch: swatch) - WorkspaceRowView.labelInset
+    }
+    static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {
+        x + WorkspaceRowView.labelInset + indicatorSize + Metrics.space1
     }
     /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
     /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence

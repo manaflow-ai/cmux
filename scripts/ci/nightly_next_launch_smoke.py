@@ -31,7 +31,8 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       in_flight= ), read live from this workflow's runs (GITHUB_REPOSITORY, GITHUB_RUN_ID, GH_TOKEN). A
       scheduled tick skips such a build, so each build has one smoke at a time: on 2026-10-29 the smokes
       waited 45 minutes to 2 hours for a Mac and the 10-minute ticks queued up to three per build. A read
-      that fails prints a warning and in_flight= (the tick smokes, as before).
+      that fails prints a warning and in_flight=unknown; scheduled ticks skip dispatch until the next
+      successful read. Manual and pull-request runs still proceed.
 
   evidence --report report.json --out FILE [--app-log app.log] [--crash FILE]...
       The crash issue's body: the harness failures, the app's system-log errors, the crash
@@ -48,7 +49,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Mapping
 
-PASS, CRASH, CANNOT_RUN = "pass", "crash", "cannot-run"
+PASS, CRASH, CANNOT_RUN, UNKNOWN = "pass", "crash", "cannot-run", "unknown"
 ITEM = re.compile(r"<item>.*?</item>", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
@@ -278,10 +279,20 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "in-flight":
         try:
             run = read_in_flight(args.build, os.environ)
-        except Exception as error:  # noqa: BLE001 - fail open: the tick smokes, as before
-            print(f"::warning title=nightly-next launch smoke::could not read the in-flight smokes ({error})",
-                  file=sys.stderr)
-            run = None
+        except Exception as error:  # noqa: BLE001 - preserve manual/PR behavior, fail closed on schedule
+            message = f"could not read the in-flight smokes ({error}); scheduled dispatch is paused"
+            print(f"::warning title=nightly-next launch smoke::{message}", file=sys.stderr)
+            summary = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary:
+                try:
+                    with open(summary, "a", encoding="utf-8") as output:
+                        output.write("### cmux NEXT launch smoke: in-flight state unknown\n\n")
+                        output.write(f"{message}. The next scheduled tick will retry the read.\n")
+                except OSError as summary_error:
+                    print(f"::warning title=nightly-next launch smoke::could not write the step summary "
+                          f"({summary_error})", file=sys.stderr)
+            print(f"in_flight={UNKNOWN}")
+            return 0
         if run:
             print(f"::notice title=nightly-next launch smoke::run {run} already has a smoke of build {args.build} "
                   "queued or running; this tick does not start another", file=sys.stderr)

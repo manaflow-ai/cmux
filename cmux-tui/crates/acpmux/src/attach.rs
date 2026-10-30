@@ -36,6 +36,7 @@ use crate::client::Client;
 use crate::rpc::{RpcError, method};
 use anyhow::Context;
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -278,7 +279,7 @@ impl Sent {
         let (id, name) = (&self.id, &self.name);
         let mut upload = json!({"uploadId": id, "fileName": name});
         if let Some(token) = &self.owner {
-            upload["owned"] = json!(token);
+            upload.set("owned", json!(token));
         }
         let meta = json!({"acpmux": {"upload": upload}});
         match image_type(&self.head) {
