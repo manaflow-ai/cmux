@@ -196,8 +196,9 @@ export const isPending = (question: AgentQuestion): boolean => question.state.ki
 /// The first item's prompt, for notifications, previews and search.
 export const questionSummary = (question: AgentQuestion): string => question.items[0]?.prompt ?? "";
 
-/// The catalog key of the line an unanswered ask leaves (its `{prompt}` is `questionSummary`): how it
-/// ended when the record says (`CancelReason`), else "Not answered". The card and Copy read the same.
+/// The catalog key of the line Copy gives an unanswered ask (its `{prompt}` is `questionSummary`): how
+/// it ended when the record says (`CancelReason`), else "Not answered". The card says the same
+/// outcome (`question.outcome.*`) under the question.
 export const cancelledKey = (
   question: AgentQuestion,
 ): "question.skipped" | "question.stopped" | "question.cancelled" => {

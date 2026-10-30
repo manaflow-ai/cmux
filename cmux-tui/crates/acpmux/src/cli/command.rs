@@ -115,6 +115,9 @@ pub enum Command {
         /// Label the session when it is created (repeatable `key=value`).
         #[arg(long = "tag", value_name = "K=V")]
         tags: Vec<String>,
+        /// Create it on exactly the harness SESSION ran (profile, preset, model, effort).
+        #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
+        harness_from: Option<String>,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
@@ -179,11 +182,14 @@ pub enum Command {
     /// List pending permission requests across sessions, and how to answer them.
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
-    #[command(alias = "prompt", alias = "send-keys")]
     #[command(
-        after_help = "Examples:\n  acpmux send --no-wait ao-cli-ls 'rebase onto #27899'\n  acpmux send --tag area=acpmux 'base is green again; update your PRs'   every live session with the tag, --no-wait\n  acpmux send --tag area=acpmux --dry-run 'hello'                         list who would get it\n  acpmux send --status 01a18b33-75ca-7a62-a361-0f3c67b4402e"
+        alias = "prompt",
+        alias = "send-keys",
+        after_help = "A name several live sessions share is refused with the exact command for each."
     )]
     Send {
+        /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
+        /// the one live session that has it on this host or its peers; several are refused.
         #[arg(required_unless_present_any = ["status", "tag"])]
         session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
@@ -779,9 +785,6 @@ pub enum SessionCmd {
     /// Read one mesh lifecycle receipt without waiting.
     Receipt { message_id: String },
     /// Show session details.
-    #[command(
-        after_help = "Examples:\n  acpmux session info ao-cli-ls\n  acpmux session info ao-cli-ls --fields sessionId          just the id, for a script\n  acpmux session info review-27899 --fields status,turn.activity,stuckReason\n  acpmux --json session info ao-cli-ls --fields name,lane.state"
-    )]
     Info {
         session: String,
         /// Print only these comma-separated fields, one per line as `field<TAB>value` (a single
@@ -1156,6 +1159,12 @@ pub struct NewArgs {
     /// Thinking effort: default, low, medium, high, xhigh, max (Codex adds ultra).
     #[arg(long, short)]
     pub effort: Option<String>,
+    /// Start on exactly the harness SESSION ran (profile, preset, model, effort), for a session
+    /// that takes over SESSION's work. A successor named by a `succeeds=` or `area=` tag, its
+    /// name (`NAME-2`) or --report-to is warned about when its harness differs, and refused
+    /// when it would start on the bare default where SESSION ran a named profile.
+    #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
+    pub harness_from: Option<String>,
     /// Optional first prompt.
     pub prompt: Vec<String>,
     /// Label the new session (repeatable `key=value`).
@@ -1344,6 +1353,11 @@ mod help_contract_tests {
         ),
         ("acpmux README", include_str!("../../README.md")),
         ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+        ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
+        ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
+        ("docs/cli-harnesses.md", include_str!("../../docs/cli-harnesses.md")),
+        ("docs/cli-daemon.md", include_str!("../../docs/cli-daemon.md")),
+        ("docs/cli-work.md", include_str!("../../docs/cli-work.md")),
     ];
 
     fn shell_words(text: &str) -> Vec<String> {

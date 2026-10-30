@@ -222,38 +222,62 @@ impl Mux {
         ingress: &crate::JournalIngress,
         commit: &crate::JournalAppendCommit,
     ) {
-        use crate::journal_reducers::{
-            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
-        };
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
             && ingress.payload.get("format").and_then(Value::as_str)
                 != Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
         {
             return;
         }
+        let Some(deltas) = self.advance_agent_roster(Some(commit.sequence)) else { return };
+        for (delta, _) in deltas {
+            self.apply_roster_delta(delta, &ingress.kind);
+        }
+    }
+
+    /// Fold the journal into the roster through `through` (the journal head
+    /// when `None`) and save the snapshot with its cursor. Returns the
+    /// plugin deltas, each with its record's kind, or `None` when the roster
+    /// was already there or the tail could not be read.
+    fn advance_agent_roster(
+        &self,
+        through: Option<u64>,
+    ) -> Option<Vec<(crate::journal_reducers::RosterDelta, String)>> {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
+        };
         let _fold = self.agent_roster_fold.lock().unwrap();
         // Consume every intervening committed record under registry -> roster
         // lock order. Concurrent appends and delayed hook retries cannot jump
         // the cursor over a record that startup replay would have consumed.
         let (deltas, cursor, snapshot) = {
             let registry = self.workspace_registry.lock().unwrap();
+            let through = match through {
+                Some(through) => through,
+                None => match registry.session_journal_head() {
+                    Ok(head) => head,
+                    Err(error) => {
+                        eprintln!("cmux-tui: reading the journal head failed: {error}");
+                        return None;
+                    }
+                },
+            };
             let mut host = self.agent_roster.lock().unwrap();
-            if commit.sequence <= host.cursor {
-                return;
+            if through <= host.cursor {
+                return None;
             }
             let mut deltas = Vec::new();
-            while host.cursor < commit.sequence {
+            while host.cursor < through {
                 // Terminal output between agent events is skipped by the read:
                 // the roster ignores it, and this runs under the registry lock.
                 let (records, reached) = match registry.session_journal_without_output_after(
                     host.cursor,
-                    commit.sequence,
+                    through,
                     512,
                 ) {
                     Ok(page) => page,
                     Err(error) => {
                         eprintln!("cmux-tui: reading agent journal tail failed: {error}");
-                        return;
+                        return None;
                     }
                 };
                 for record in &records {
@@ -265,8 +289,12 @@ impl Mux {
                     if record.payload.get("format").and_then(Value::as_str)
                         == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
                     {
-                        deltas.extend(changes);
+                        deltas
+                            .extend(changes.into_iter().map(|delta| (delta, record.kind.clone())));
                     }
+                }
+                if reached <= host.cursor {
+                    break;
                 }
                 host.cursor = reached;
             }
@@ -282,8 +310,25 @@ impl Mux {
         ) {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
-        for delta in deltas {
-            self.apply_roster_delta(delta, &ingress.kind);
+        Some(deltas)
+    }
+
+    /// Fold the journal tail into the roster and save its cursor at the
+    /// head, so a start replays at most one maintenance tick of records.
+    /// Shutdown does not call it: it takes the registry lock, which a commit
+    /// stuck in admission can hold, and shutdown must stay bounded.
+    ///
+    /// Lawrence 2026-10-30: the cursor moved only with agent events, so a
+    /// quiet stretch left it 9,821 records behind on a nightly registry and
+    /// each start decoded 13 sealed segments (about 300 ms cold) to fold
+    /// records that change nothing. Same fold, locks and save as an agent
+    /// event's ([`Mux::fold_agent_roster`]); a plugin delta it meets first is
+    /// applied here, since the live fold then finds the record behind the
+    /// cursor.
+    pub(super) fn catch_up_agent_roster(&self) {
+        let Some(deltas) = self.advance_agent_roster(None) else { return };
+        for (delta, kind) in deltas {
+            self.apply_roster_delta(delta, &kind);
         }
     }
 

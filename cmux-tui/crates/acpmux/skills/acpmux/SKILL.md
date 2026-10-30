@@ -224,8 +224,10 @@ resolve): your policy answers those, and `ask` sends them to a person.
 ## 6. Other machines
 
 A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
-form. Say and pass that name: never ask the person for a session id, and never use a bare id
-from another machine (an id names a session only on the machine that runs it).
+form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
+host or its peers has it; when several do, the command refuses and prints the exact
+`HOST/NAME` command for each, so pick one and run it. Say and pass `HOST/NAME`: never ask the
+person for a session id.
 
 ```bash
 acpmux host status                               # each host: reachable, round trip, disk, load, build
