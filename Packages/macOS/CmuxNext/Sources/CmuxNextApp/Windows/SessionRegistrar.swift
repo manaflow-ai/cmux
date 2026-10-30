@@ -40,7 +40,8 @@ final class SessionRegistrar {
         observation = Task { [weak self] in
             for await _ in ObservationStream({ () -> [String] in
                 let store = machines.local.store
-                let link: String = machines.local.connection.map { String(describing: ObjectIdentifier($0)) } ?? ""
+                // connectionState changes on each reconnect; sync reads the connection epoch.
+                let link: String = String(describing: store.connectionState)
                 let home: [String] = [String(store.personal.revision), String(store.personal.isLoaded),
                                       String(store.isProvisional), link]
                 let daemons: [String] = machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
@@ -60,7 +61,8 @@ final class SessionRegistrar {
 
     private func sync() {
         let home = machines.local
-        guard home.store.personal.isLoaded, !home.store.isProvisional, let connection = home.connection else { return }
+        guard home.store.personal.isLoaded, !home.store.isProvisional, case .connected = home.store.connectionState,
+              let connection = home.connection else { return }
         var present = Set<String>()
         for daemon in machines.daemons where daemon.store.isLoaded {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }

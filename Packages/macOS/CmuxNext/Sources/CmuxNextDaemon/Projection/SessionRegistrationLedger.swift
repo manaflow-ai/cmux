@@ -3,20 +3,21 @@ import Foundation
 /// What the app sent to the home session registry for each connected session (`put-session`), and
 /// what to do when the daemon did not record it (P-AUSTIN B7a).
 ///
-/// - A refusal (the daemon answered `ok:false` and did not mark it retryable: a size or validation
+/// - A refusal (a `bad request:` answer the daemon does not mark retryable: a size or validation
 ///   error) fails the same way for the same record, so the record is not sent again until it
-///   changes or the home daemon restarts (a new connection). The caller shows the reason once per
-///   refused record: a machine that is not in the registry is not restored at the next launch.
+///   changes or the home connection is new (a new connection epoch: the daemon restarted). The
+///   caller shows the reason once per refused record: a machine that is not in the registry is not
+///   restored at the next launch.
 /// - A failure with no answer (not connected, closed, timed out, busy) retries the same record
 ///   with ``RetryPacer``'s capped, jittered backoff; when its timed retries are spent, the record
-///   waits for an event (a change of the record or a new connection).
+///   waits for an event (a change of the record or a new connection epoch), and the caller shows it.
 /// - An answer for a record that was replaced while it was in flight changes nothing.
 public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     /// What a failed `put-session` means for the next attempt.
     public enum Failure: Equatable, Sendable {
-        /// The daemon answered with a refusal (size, validation): the same record fails again.
+        /// A `bad request:` answer (size, validation): the same record fails again.
         case refused(String)
-        /// No answer (not connected, closed, timed out) or a refusal the daemon marks retryable.
+        /// No answer (not connected, closed, timed out), a store error, or a retryable refusal.
         case unreachable
     }
 
@@ -60,13 +61,13 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     }
 
     /// Whether `record` must be sent for `session` on `connection` now; when true it counts as in flight.
-    public mutating func shouldSend(session: String, record: Record, connection: SessionRegistrationConnection) -> Bool {
+    mutating func shouldSend(session: String, record: Record, connection: SessionRegistrationConnection) -> Bool {
         begin(session: session, record: record, connection: connection) != nil
     }
 
     /// ``shouldSend(session:record:connection:)`` with an object's identity as the connection
     /// (``SessionRegistrationConnection/init(object:)``).
-    public mutating func shouldSend(session: String, record: Record, connection object: ObjectIdentifier) -> Bool {
+    mutating func shouldSend(session: String, record: Record, connection object: ObjectIdentifier) -> Bool {
         shouldSend(session: session, record: record, connection: SessionRegistrationConnection(object: object))
     }
 
@@ -112,7 +113,7 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     }
 
     /// The daemon recorded `record`.
-    public mutating func succeeded(session: String, record: Record) {
+    mutating func succeeded(session: String, record: Record) {
         guard var entry = entries[session], entry.record == record else { return }
         entry.state = .recorded
         entry.pacer.reset()
@@ -121,12 +122,12 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     }
 
     /// The daemon did not record `record` (`error` from the request).
-    public mutating func failed(session: String, record: Record, error: any Error) -> Outcome {
+    mutating func failed(session: String, record: Record, error: any Error) -> Outcome {
         failed(session: session, record: record, failure: Self.classify(error))
     }
 
     /// The daemon did not record `record` (`failure`: ``classify(_:)`` of the request's error).
-    public mutating func failed(session: String, record: Record, failure: Failure) -> Outcome {
+    mutating func failed(session: String, record: Record, failure: Failure) -> Outcome {
         guard var entry = entries[session], entry.record == record else { return Outcome(refusal: nil, retryAfter: nil) }
         switch failure {
         case .refused(let reason):
@@ -148,6 +149,13 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
         guard var entry = entries[session], case .backingOff(waitingForEvent: false) = entry.state else { return }
         entry.state = .due
         entries[session] = entry
+    }
+
+    /// The current record of `session` got no answer and its timed retries are spent: only a changed
+    /// record or a new connection sends it again.
+    public func isWaitingForEvent(session: String) -> Bool {
+        if case .backingOff(waitingForEvent: true) = entries[session]?.state { return true }
+        return false
     }
 
     /// The daemon has recorded `session`'s current record.
@@ -175,8 +183,9 @@ extension RetryPolicy {
     public static let sessionRegistration = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 8)
 }
 
-/// The home connection a record went to: the owner's generation counter, compared by value, so a
-/// new connection after a daemon restart is never mistaken for the old one.
+/// The home connection a record went to: the home store's connection epoch, compared by value. A
+/// `DaemonConnection` reconnects in place after a daemon restart, so its epoch, not the object,
+/// tells a new connection from the old one.
 public struct SessionRegistrationConnection: Hashable, Sendable, ExpressibleByIntegerLiteral {
     public let generation: UInt64
 
@@ -190,7 +199,7 @@ public struct SessionRegistrationConnection: Hashable, Sendable, ExpressibleByIn
 
     /// An object's identity as the connection, for an owner that keeps the object alive as long as
     /// its entries: a freed object's address can be reused by a new one.
-    public init(object: ObjectIdentifier) {
+    init(object: ObjectIdentifier) {
         generation = UInt64(truncatingIfNeeded: UInt(bitPattern: object))
     }
 }

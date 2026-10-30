@@ -44,7 +44,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
                        send: @escaping @Sendable () async throws -> Void) -> Task<Void, Never>? {
         guard !stopped else { return nil }
         showPendingNotices()
-        let link = SessionRegistrationConnection(generation: 0)
+        let link = SessionRegistrationConnection(generation: UInt64(truncatingIfNeeded: epoch))
         guard let token = ledger.begin(session: session, record: record, connection: link) else { return nil }
         // task-owner: one put-session; its answer goes to the ledger on the main actor
         return Task { [weak self] in
@@ -60,6 +60,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     /// Forgets the sessions not in `sessions` (gone from the machine list) and their pending retries.
     public func retain(sessions: Set<String>) {
         ledger.retain(sessions: sessions)
+        pendingNotices = pendingNotices.filter { sessions.contains($0.key) }
         for (session, timer) in retries where !sessions.contains(session) {
             timer.cancel()
             retries[session] = nil
@@ -76,6 +77,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         guard !stopped else { return }
         guard let error else {
             ledger.succeeded(session: session, token: token)
+            if ledger.isRecorded(session: session) { pendingNotices[session] = nil }
             return
         }
         logger.error("put-session \(session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -84,7 +86,15 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
             pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: reason)
             showPendingNotices()
         }
-        guard let delay = outcome.retryAfter else { return }
+        guard let delay = outcome.retryAfter else {
+            // No answer and the timed retries are spent: the record waits for an event (a changed
+            // record or a new connection epoch), so the person sees that it is not saved (R9 R-L5).
+            if outcome.refusal == nil, ledger.isWaitingForEvent(session: session) {
+                pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: String(describing: error))
+                showPendingNotices()
+            }
+            return
+        }
         let timer = retries[session] ?? DemandTimer(owner: "SessionRegistration.retry")
         retries[session] = timer
         timer.schedule(after: delay) { @MainActor [weak self] in
@@ -94,7 +104,8 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         }
     }
 
-    private func showPendingNotices() {
+    /// Shows the notices no window could show yet (the owner calls it when a window appears).
+    public func showPendingNotices() {
         for (session, message) in pendingNotices where notice(session, message) {
             pendingNotices[session] = nil
         }

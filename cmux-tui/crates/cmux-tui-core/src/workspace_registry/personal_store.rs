@@ -32,8 +32,10 @@ pub const DEFAULT_PROFILE_ID: &str = "default";
 const MIGRATED_META_KEY: &str = "personal_migrated_v1";
 const REVISION_META_KEY: &str = "personal_revision";
 /// Longest accepted session transport or browser profile source JSON, in
-/// bytes. Each is a small object of short fields (a route, a profile folder),
-/// and the longest field is a path, at most 4096 bytes (`PATH_MAX`).
+/// bytes. Each is a small object of short fields (a route, a profile
+/// folder); its longest field is a path, and 4096 is `PATH_MAX` on Linux,
+/// where Cloud machines run (macOS has 1024). The value is unchanged from
+/// before; only the capability list needed its own bound.
 pub const MAX_PERSONAL_JSON_BYTES: usize = 4096;
 /// Longest capability token in a session record, in bytes. Every capability
 /// a daemon advertises matches `[a-z][a-z0-9._-]{0,63}` (the app's
