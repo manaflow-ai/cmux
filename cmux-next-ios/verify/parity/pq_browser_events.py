@@ -207,6 +207,18 @@ def open_tab(j):
     return "; ".join(out)
 
 
+def phone_menus(since):
+    """The page menus the phone got since `since` (its log: `menu <token> context [id:type, ...]`)."""
+    r = pq.rsh(f"xcrun simctl spawn {pq.load()['udid']} log show --style compact --start '{since}' "
+               "--predicate 'subsystem == \"dev.cmux.mobile\" AND category == \"browser-stream\"' "
+               "| grep ' context \\['", timeout=120)
+    return r.stdout.strip().splitlines()
+
+
+def reload_rows(j):
+    return [e for e in j.sim.find(label="Reload", kind="Button")]
+
+
 @t.flow("context-menu")
 def context_menu(j):
     """Long press: the page's own menu with only rows that act on the page. On a link every
@@ -216,6 +228,7 @@ def context_menu(j):
     a = open_page(j)
     name = a["name"]
     before = tab_count(name)
+    since = pq.rsh("date '+%Y-%m-%d %H:%M:%S'").stdout.strip()
     x, y = at(j, "MENULINK")
     j.sim.long_press(x, y, 1.2)
     none = j.sim.wait(label="No actions for this spot", timeout=30)
@@ -227,16 +240,27 @@ def context_menu(j):
     check(none, f"the link's menu is not the honest empty one; rows: {rows}")
     for dead in ("Open Link in New Tab", "Copy Link Address", "Inspect", "Speech", "Print…"):
         check(dead not in labels, f"{dead!r} is in the phone's menu")
-    j.sim.tap(201, 120)  # outside the menu: it closes, and the page's menu is cancelled
-    time.sleep(2)
-    # The page changes, then a long press on its empty area: Back, Forward, Reload.
+    # The page did send its link menu (an empty one also shows when none comes).
+    got = [line for line in phone_menus(since) if "50100:command" in line]
+    check(got, "the phone got no link menu from the page")
+    # Close it (a tap beside it), then change the page and long-press its empty area.
+    gx, gy = at(j, "GONEPAGE")
+    j.sim.tap(gx, gy + 260)
+    t0 = time.time()
+    while j.sim.find(label="No actions for this spot") and time.time() - t0 < 30:
+        time.sleep(0.5)
     j.sim.tap(*at(j, "PROMPTBTN"))
     ok = j.sim.wait(label="OK", kind="Button", timeout=30)
     check(ok, "no prompt to change the page with")
     j.sim.tap_el(ok)
     check(ocr_wait(j, "PROMPT", timeout=45) is not None, "the page did not change before the reload")
-    j.sim.long_press(201, 640, 1.2)
-    row = j.sim.wait(label="Reload", kind="Button", timeout=30)
+    toolbar = {tuple(e.frame) for e in reload_rows(j)}  # the phone's own Reload button
+    j.sim.long_press(gx, gy + 200, 1.2)
+    row = None
+    t0 = time.time()
+    while row is None and time.time() - t0 < 30:
+        row = next((e for e in reload_rows(j) if tuple(e.frame) not in toolbar), None)
+        time.sleep(0.5)
     j.sim.shot("context-menu-page")
     page_rows = [e.label for e in j.sim.find(kind="Button") if e.label][:16]
     check(row, f"no Reload in the page's menu; buttons: {page_rows}")
@@ -245,8 +269,9 @@ def context_menu(j):
     j.sim.shot("context-menu-reloaded")
     check(took is not None, "the page's Reload did not reload it")
     check(tab_count(name) == before, "the Mac's tab count changed")
-    return (f"link: the menu says 'No actions for this spot' (no Mac-only or tab-opening row); "
-            f"page: the menu's Reload reloaded it in {took:.1f} s (Mac tabs {before} -> {tab_count(name)})")
+    return (f"link: the page sent its menu ({got[-1].split(' context ')[-1][:90]}...) and the phone says "
+            f"'No actions for this spot' (no Mac-only or tab-opening row); page: the menu's Reload reloaded it "
+            f"in {took:.1f} s (Mac tabs {before} -> {tab_count(name)})")
 
 
 @t.flow("dialogs")
