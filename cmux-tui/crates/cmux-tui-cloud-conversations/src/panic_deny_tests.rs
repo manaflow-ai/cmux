@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::panic_free::JsonFields as _;
 use crate::testing::FakeBackend;
