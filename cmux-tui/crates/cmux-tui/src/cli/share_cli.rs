@@ -8,8 +8,9 @@ use serde_json::Value;
 
 /// The app action and its arguments for `share revoke|kick <ids…> [flags]`, or None for other words.
 /// The ids are the words right after the verb. They are base64url and may start with `-`, so a word
-/// counts as a flag only when it names one of these commands' own flags. An id given both ways
-/// (`share revoke s1 --share-id s2`) is refused rather than one of them silently winning.
+/// counts as a flag only when it names one of these commands' own flags. An id given more than once,
+/// in any form (`share revoke s1 --share-id s2`, `--share-id=s1 --share-id=s2`), is refused rather
+/// than one of them silently winning.
 pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<String>), String>> {
     let [scope, verb, rest @ ..] = command_args else { return None };
     if scope != "share" {
@@ -21,22 +22,39 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
         _ => return None,
     };
     let positional = rest.iter().take(names.len()).take_while(|arg| !is_flag(arg)).count();
-    if positional != names.len() {
-        return None;
+    let all_positional = positional == names.len();
+    let flags = if all_positional { &rest[positional..] } else { rest };
+    for name in names {
+        let given = flags.iter().filter(|flag| flag_name(flag) == *name).count()
+            + usize::from(all_positional);
+        if given > 1 {
+            return Some(Err(format!("share {verb}: {name} is given more than once")));
+        }
     }
-    let (ids, flags) = rest.split_at(positional);
-    if let Some(name) = names.iter().find(|name| flags.iter().any(|flag| flag_name(flag) == **name))
-    {
-        return Some(Err(format!(
-            "share {verb}: the id is given twice (positionally and as {name})"
-        )));
+    if !all_positional {
+        return None;
     }
     // `--share-id=ID`, not `--share-id ID`: the action parser reads a following word that starts
     // with `--` as the next flag, and an id may.
     let mut args: Vec<String> =
-        names.iter().zip(ids).map(|(name, id)| format!("{name}={id}")).collect();
+        names.iter().zip(&rest[..positional]).map(|(name, id)| format!("{name}={id}")).collect();
     args.extend(flags.iter().cloned());
     Some(Ok((format!("share {verb}"), args)))
+}
+
+/// The output switches (`--json`, `--jsonl`, `--quiet`) among `args`, taken out. The global
+/// scan reads a dash-led id as an option and its next word as that option's value, so a switch
+/// after such an id reaches the action's arguments instead of the CLI's output mode.
+pub(super) fn take_output_switches(args: &mut Vec<String>) -> Vec<String> {
+    let mut taken = Vec::new();
+    args.retain(|arg| {
+        let switch = matches!(arg.as_str(), "--json" | "--jsonl" | "--quiet");
+        if switch {
+            taken.push(arg.clone());
+        }
+        !switch
+    });
+    taken
 }
 
 /// The flags `share revoke` and `share kick` take; any other word, `-x…` ids included, is an id.
@@ -111,9 +129,24 @@ mod tests {
 
     #[test]
     fn an_id_given_twice_is_refused() {
-        for text in ["share revoke s1 --share-id s2", "share kick s1 g1 --guest-id=g2"] {
+        for text in [
+            "share revoke s1 --share-id s2",
+            "share kick s1 g1 --guest-id=g2",
+            "share revoke --share-id=s1 --share-id=s2",
+            "share kick --share-id s1 --guest-id g1 --guest-id g2",
+        ] {
             assert!(matches!(action(&words(text)), Some(Err(_))), "{text}");
         }
+        assert_eq!(action(&words("share revoke --share-id=s1")), None, "one flag goes on as typed");
+    }
+
+    #[test]
+    fn an_output_switch_after_a_dash_led_id_reaches_the_output_mode() {
+        let Some(Ok((_, mut args))) = action(&words("share revoke --a1b2 --json")) else {
+            panic!("share revoke names its id")
+        };
+        assert_eq!(take_output_switches(&mut args), words("--json"));
+        assert_eq!(args, words("--share-id=--a1b2"));
     }
 
     #[test]
