@@ -407,3 +407,54 @@ async fn a_closed_chat_answers_and_refuses_senders_and_keeps_its_threads() {
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     assert_eq!(threads["threads"][0]["threadId"], "from:lane-b/pr:5", "{threads}");
 }
+
+/// A review box (`review_box.rs`) has no inbox: another agent's message to its running review
+/// turn makes no inbox item and steers nothing in, notice or message. It queues behind the review
+/// as before the inbox, runs as its own turn once the review ends, and its sender gets that
+/// turn's answer. A steer-only one is refused. The same message to any other chat still goes to
+/// its inbox.
+#[tokio::test]
+async fn a_review_box_takes_no_inbox_message_and_no_steer_during_its_review() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "review-1").await;
+    c.request(method::MUX_TAG, json!({"sessionId": id, "set": {"review.target": "cmux:a..b"}}))
+        .await
+        .unwrap();
+    let gate = fifo("review");
+    let review = c
+        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
+        .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+
+    let msg = from_agent(&id, "r-1", "coord", "any news on #9?", json!({}));
+    let sent = c.send(method::SESSION_PROMPT, msg).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "r-1").await;
+    assert_eq!(accepted["queued"], true, "behind the review: {accepted}");
+    assert_ne!(accepted["inbox"], true, "no inbox item: {accepted}");
+    let only = json!({"promptId": "r-2", "fromAgent": "coord", "steer": true, "steerOnly": true});
+    let only = json!({"sessionId": id, "prompt": [{"type": "text", "text": "now"}], "_meta": {"acpmux": only}});
+    let refused = c.request(method::SESSION_PROMPT, only).await.unwrap_err();
+    assert!(format!("{refused:?}").contains("review box"), "{refused:?}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let all = prompts(&hub, &id);
+    assert!(notices(&hub, &id).is_empty(), "no notice: {all:?}");
+    assert!(!all.iter().any(|m| m["steer"] == true), "nothing steered into the review: {all:?}");
+
+    open(&gate).await;
+    let answered = answers(&mut c, &[review, sent]).await;
+    assert_eq!(answered[&sent]["stopReason"], "end_turn", "its own turn: {}", answered[&sent]);
+    let all = prompts(&hub, &id);
+    assert!(notices(&hub, &id).is_empty(), "{all:?}");
+    let turns: Vec<_> = all.iter().map(|m| m["turnId"].clone()).collect();
+    assert_eq!(turns.len(), 2, "the review, then the message: {all:?}");
+    assert_ne!(turns[0], turns[1], "{all:?}");
+
+    // Any other chat: the same message goes to its inbox.
+    let lane = new_session(&mut c, "lane").await;
+    let msg = from_agent(&lane, "r-3", "coord", "any news on #9?", json!({"class": "fyi"}));
+    c.send(method::SESSION_PROMPT, msg).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "r-3").await;
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    let _ = std::fs::remove_file(gate);
+}
