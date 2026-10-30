@@ -173,7 +173,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(prompts: string[]): Promise<Page> {
+  async function openChat(prompts: string[], viewport = { width: 900, height: 760 }): Promise<Page> {
     // acpmux's own resume of a failed subagent: its client, and the provenance its record carries.
     queue = prompts.map((prompt, i) => ({
       promptId: `q-${i + 1}`,
@@ -193,7 +193,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     }));
     seq = opening.length + queuedRecords().length;
     edits.length = 0;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const page = await browser!.newPage({ viewport });
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -607,6 +607,46 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const page = await openChat(["one", long, "three"]);
       const { moved, whole } = await openUnderPointer(page, "q-2", ["q-3"]);
       expect({ moved, whole }).toEqual({ moved: [], whole: { scrollTop: 0, inside: true } });
+      await page.close();
+    });
+
+    test("in a short pane a very long prompt opened under the pointer keeps the composer on screen and scrolls in the list", async () => {
+      // Review (Codex astra) at f73b4db: an uncapped hold pushed the composer stack past the pane.
+      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(30);
+      const page = await openChat([long], { width: 900, height: 420 });
+      const text = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text');
+      const at = (await text.boundingBox())!;
+      await page.mouse.move(at.x + 24, at.y + at.height / 2);
+      await settled(page);
+      await page.mouse.click(at.x + 24, at.y + at.height / 2);
+      await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text[data-open]').waitFor();
+      await page.evaluate(() => window.cmuxPaintFrame());
+      const drawn = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const box = document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
+        const l = list.getBoundingClientRect();
+        const row = document.querySelector<HTMLElement>('.acpmux-queued[data-prompt-id="q-1"]')!;
+        // The transcript keeps its least room above the stack (the pane's 44px header and 64px).
+        const main = document.querySelector<HTMLElement>(".acpmux-main")!.getBoundingClientRect();
+        // Scrolled to its end, the list shows the row's last line.
+        list.scrollTop = list.scrollHeight;
+        const r = row.getBoundingClientRect();
+        const lb = list.getBoundingClientRect();
+        return {
+          listInside: l.top >= 0 && l.bottom <= innerHeight,
+          composerInside: box.top >= 0 && box.bottom <= innerHeight,
+          transcriptKeepsRoom: l.top >= main.top + 44 + 64 - 1,
+          scrolls: list.scrollHeight > list.clientHeight + 1,
+          endReachable: Math.abs(r.bottom - lb.bottom) <= 8,
+        };
+      });
+      expect(drawn).toEqual({
+        listInside: true,
+        composerInside: true,
+        transcriptKeepsRoom: true,
+        scrolls: true,
+        endReachable: true,
+      });
       await page.close();
     });
 

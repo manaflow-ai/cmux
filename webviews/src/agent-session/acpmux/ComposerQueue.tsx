@@ -135,6 +135,21 @@ export function shownText(entry: QueuedEntry, t: Translate): string {
     .join("\n");
 }
 
+/// The most a held list may grow to: the room the pane leaves the composer's stack, that is the
+/// floating dock's max-height and the pane under its header (44px) less the transcript's least room
+/// (64px, bottomStack.css), whichever is less. Not the list's resting cap (--acpmux-queue-max): a
+/// row opened under the pointer may take the list past it, so nothing under the pointer moves.
+function heldCap(list: HTMLElement, now: number): number {
+  const view = list.ownerDocument.defaultView;
+  let cap = Infinity;
+  const dock = list.closest<HTMLElement>(".acpmux-dock");
+  const dockMax = dock ? parseFloat(view?.getComputedStyle(dock).maxHeight ?? "") : NaN;
+  if (dock && Number.isFinite(dockMax)) cap = Math.min(cap, now + dockMax - dock.getBoundingClientRect().height);
+  const main = list.closest<HTMLElement>(".acpmux-main");
+  if (main) cap = Math.min(cap, now + list.getBoundingClientRect().top - (main.getBoundingClientRect().top + 44 + 64));
+  return cap;
+}
+
 /** Row `id` of `list`, matched by its prompt id (no selector escaping: an id may hold any character). */
 function rowOf(list: HTMLElement | null | undefined, id: string): HTMLElement | undefined {
   return [...(list?.querySelectorAll<HTMLElement>(":scope > .acpmux-queued") ?? [])].find(
@@ -246,11 +261,19 @@ export function ComposerQueue({
     resized.current = undefined;
     const row = rowOf(current, was.id);
     if (!row) return;
-    const height = `${Math.max(0, was.list + row.getBoundingClientRect().height - was.row)}px`;
+    const want = Math.max(0, was.list + row.getBoundingClientRect().height - was.row);
+    // Never past the list's own cap, nor past the room the pane leaves the stack: a very long prompt
+    // in a short pane would otherwise push the composer off the pane. Past it, the list scrolls.
+    const height = Math.min(want, Math.max(was.list, heldCap(current, was.list)));
     // No max-height transition for this change (composerStates.css [data-held]).
     current.setAttribute("data-held", "");
-    current.style.maxHeight = height;
-    current.style.minHeight = height;
+    current.style.maxHeight = `${height}px`;
+    current.style.minHeight = `${height}px`;
+    // Capped, the opened row's end (its error, its last lines) scrolls into view inside the list.
+    if (height < want - 0.5) {
+      const end = offsets(current, row).bottom - current.clientHeight;
+      if (end > current.scrollTop) current.scrollTop = end;
+    }
   }, [open]);
   /** Fits the list to its rows, unless a row the pointer opened holds its height. */
   const fit = (current: HTMLElement) => {
