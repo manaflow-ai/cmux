@@ -75,10 +75,10 @@ describe("provider clients (fake HTTP)", () => {
         expect(req.headers.get("authorization")).toMatch(/^Bearer ey/)
         return ok({ token: "ghs_inst", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
       },
-      "https://api.github.com/repos/manaflow-ai/cmux/issues/9/comments": () => ok({ id: 1, html_url: "https://github.com/c/1" }, 201)
+      "https://api.github.com/repos/manaflow-ai/cmux/issues/9/comments": () => ok({ id: 1, html_url: "https://github.com/manaflow-ai/cmux/issues/9#issuecomment-1" }, 201)
     })
     const r = await github.call(e, f.http, { kind: "github_installation", installation_id: 42 }, "github.issue.comment", { repo: "manaflow-ai/cmux", issue: 9, body: "hi" })
-    expect(r.value).toEqual({ id: 1, url: "https://github.com/c/1" })
+    expect(r.value).toEqual({ id: 1, url: "https://github.com/manaflow-ai/cmux/issues/9#issuecomment-1" })
     expect(f.calls.at(-1)!.auth).toBe("Bearer ghs_inst")
   })
 
@@ -264,7 +264,7 @@ describe("connections end to end (workerd)", () => {
       "https://api.github.com/app/installations/99/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
       "https://api.github.com/repos/": (req) => {
         posts.push(new URL(req.url).pathname)
-        return ok({ id: 1, html_url: "https://github.com/c" }, 201)
+        return ok({ id: 1, html_url: "https://github.com/acme/web/issues/1#issuecomment-1" }, 201)
       }
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
@@ -322,9 +322,9 @@ describe("connections end to end (workerd)", () => {
     const state = new URL(connect.json.value.authorize_url).searchParams.get("state")!
     const fake = fakeHttp({
       "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 77, account: { login: "acme", type: "Organization" } }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 77, account: { login: "acme", type: "Organization" }, permissions: { issues: "write" } }] }),
       "https://api.github.com/app/installations/77/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
-      "https://api.github.com/repos/": () => ok({ id: 1 }, 201)
+      "https://api.github.com/repos/": () => ok({ id: 1, html_url: "https://github.com/acme/any/issues/1#issuecomment-1" }, 201)
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
     await inDO(connections, async (instance) => {
