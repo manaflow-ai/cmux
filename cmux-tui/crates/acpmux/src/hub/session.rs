@@ -179,6 +179,9 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The agent process's stderr as a stream: it carries a string control that runs across
+    /// lines, so a payload never reaches `stderr_tail`. Kept across turns, as the process is.
+    pub(super) stderr_stream: StdMutex<crate::stderr::StderrStream>,
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,

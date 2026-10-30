@@ -15,47 +15,38 @@ pub(crate) fn clean_stderr_lines(text: &str) -> Vec<String> {
     strip_ansi(text).lines().map(clean_stripped_line).collect()
 }
 
-/// [`clean_stderr_lines`] for stderr already split into lines (a session's stderr tail).
-pub(crate) fn clean_stderr_tail<'a>(lines: impl IntoIterator<Item = &'a String>) -> Vec<String> {
-    clean_stderr_lines(&lines.into_iter().map(String::as_str).collect::<Vec<_>>().join("\n"))
+/// One process's stderr, cleaned line by line as it arrives. A string control (DCS, OSC, SOS, PM,
+/// APC) may run across lines, so the control a line ends inside is carried to the next line: its
+/// payload never reads as text, however the stream is cut into lines, turns or buffers.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StderrStream {
+    open: Option<StringControl>,
+}
+
+impl StderrStream {
+    /// `line` as [`clean_stderr_line`] cleans it, read as the continuation of every line before it.
+    pub(crate) fn clean_line(&mut self, line: &str) -> String {
+        let opener = match self.open {
+            Some(StringControl::Osc) => "\x1b]",
+            Some(StringControl::Other) => "\x1bP",
+            None => "",
+        };
+        let (text, open) = strip(&format!("{opener}{line}"));
+        self.open = open;
+        clean_stripped_line(&text)
+    }
 }
 
 fn clean_stripped_line(line: &str) -> String {
     strip_tracing_prefix(line.trim()).trim().to_owned()
 }
 
-/// Whether `text` ends inside a string control (DCS, OSC, SOS, PM, APC) that has not reached its
-/// terminator yet: the lines after it are still that control's payload.
-pub(crate) fn ends_inside_string_control(text: &str) -> bool {
-    open_string_control(text).is_some()
-}
-
-/// The string control `text` ends inside, if any.
-pub(crate) fn open_string_control(text: &str) -> Option<StringControl> {
-    strip(text).1
-}
-
 /// A string control's kind, which decides its terminators: OSC ends at ST or BEL; DCS, SOS, PM
 /// and APC end only at ST (ECMA-48), so a BEL in their payload is payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum StringControl {
+enum StringControl {
     Osc,
     Other,
-}
-
-/// The byte offset just past the first terminator of `control` in `line` (C1 ST or ESC \\, and
-/// BEL for OSC), for a line that continues that open control; None when it has none.
-pub(crate) fn string_control_end(line: &str, control: StringControl) -> Option<usize> {
-    let mut chars = line.char_indices().peekable();
-    while let Some((at, ch)) = chars.next() {
-        match ch {
-            '\u{009c}' => return Some(at + ch.len_utf8()),
-            '\x07' if control == StringControl::Osc => return Some(at + 1),
-            '\x1b' if chars.peek().is_some_and(|&(_, next)| next == '\\') => return Some(at + 2),
-            _ => {}
-        }
-    }
-    None
 }
 
 fn strip_ansi(input: &str) -> String {
@@ -244,19 +235,24 @@ mod tests {
 
     #[test]
     fn a_string_control_spanning_lines_leaks_nothing() {
-        use super::{clean_stderr_lines, clean_stderr_tail, ends_inside_string_control};
+        use super::{StderrStream, clean_stderr_lines};
         // The payload's newlines go with it.
         assert_eq!(
             clean_stderr_lines("\x1bPsecret\nleaked \x1b\\visible error"),
             vec!["visible error"]
         );
         assert_eq!(clean_stderr_lines("\x1b]8;;https://x\ny\x07ok\nnext"), vec!["ok", "next"]);
-        let tail =
-            vec!["\x1b_Gpayload".to_owned(), "more payload\x1b\\request timed out".to_owned()];
-        assert_eq!(clean_stderr_tail(&tail), vec!["request timed out"]);
-        assert!(ends_inside_string_control("ok \x1bPsecret"));
-        assert!(!ends_inside_string_control("\x1bPsecret\x1b\\ok"));
-        assert!(!ends_inside_string_control("\x1b[31mplain"));
+        let mut stream = StderrStream::default();
+        let lines: Vec<String> = ["\x1b_Gpayload", "more payload", "end\x1b\\request timed out"]
+            .into_iter()
+            .map(|line| stream.clean_line(line))
+            .collect();
+        assert_eq!(lines, vec!["", "", "request timed out"]);
+        // A BEL does not end a DCS, however the lines fall.
+        let mut stream = StderrStream::default();
+        assert_eq!(stream.clean_line("\x1bPsecret"), "");
+        assert_eq!(stream.clean_line("\x07still-secret"), "");
+        assert_eq!(stream.clean_line("\x1b\\shown"), "shown");
     }
 
     #[test]
@@ -270,13 +266,9 @@ mod tests {
 
     #[test]
     fn only_osc_ends_at_bel() {
-        use super::{StringControl, ends_inside_string_control, string_control_end};
         assert_eq!(clean_stderr_line("\x1bPsecret\x07still-secret\x1b\\visible"), "visible");
         assert_eq!(clean_stderr_line("\x1b_Ga\x07b\u{009c}visible"), "visible");
         assert_eq!(clean_stderr_line("\x1b]title\x07visible"), "visible");
-        assert!(ends_inside_string_control("\x1bPsecret\x07more"));
-        assert_eq!(string_control_end("a\x07b\x1b\\c", StringControl::Other), Some(5));
-        assert_eq!(string_control_end("a\x07b", StringControl::Osc), Some(2));
     }
 
     #[test]

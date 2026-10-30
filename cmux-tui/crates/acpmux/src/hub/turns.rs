@@ -2,7 +2,6 @@
 
 use super::exit_reason::explains_exit;
 use super::*;
-use crate::stderr::clean_stderr_tail;
 use std::sync::atomic::Ordering;
 
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
@@ -980,9 +979,7 @@ impl Hub {
         {
             let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
             // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
-            if let Some(last) =
-                clean_stderr_tail(&tail).into_iter().rev().find(|line| explains_exit(line))
-            {
+            if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned() {
                 let agent = session.meta().harness;
                 e.message = format!("{} ({agent}): {last}", e.message);
             }
@@ -1325,8 +1322,7 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) =
-                        clean_stderr_tail(&tail).into_iter().rev().find(|line| explains_exit(line))
+                    if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned()
                     {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);

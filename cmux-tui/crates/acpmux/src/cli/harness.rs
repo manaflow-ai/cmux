@@ -1228,41 +1228,68 @@ async fn handshake(
 #[path = "harness_tests.rs"]
 mod tests;
 
-/// The last 64 KiB of a harness's stderr, for the doctor's "last harness output". Dropping the
-/// front could cut off a string control's opener and leave its payload looking like text, so the
-/// state at the cut is kept and the opener is put back when the text is read.
+/// The last 64 KiB of a harness's cleaned stderr, for the doctor's "last harness output". Bytes
+/// are cleaned a whole line at a time through one [`StderrStream`](crate::stderr::StderrStream),
+/// so a string control's payload stays hidden wherever the 64 KiB cut falls.
 #[derive(Default)]
 struct StderrTail {
-    bytes: Vec<u8>,
-    /// The string control the kept bytes start inside, if the cut fell in one.
-    open_at_start: Option<crate::stderr::StringControl>,
+    stream: crate::stderr::StderrStream,
+    /// The current line, not yet ended by a newline.
+    pending: Vec<u8>,
+    lines: std::collections::VecDeque<String>,
+    bytes: usize,
 }
 
 impl StderrTail {
     const CAP: usize = 64 * 1024;
 
     fn push(&mut self, chunk: &[u8]) {
-        self.bytes.extend_from_slice(chunk);
-        let len = self.bytes.len();
-        if len <= Self::CAP {
+        self.pending.extend_from_slice(chunk);
+        while let Some(end) = self.pending.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = self.pending.drain(..=end).collect();
+            self.take(&line[..end]);
+        }
+        // A line longer than the cap goes on in pieces. A piece never ends inside a UTF-8
+        // character or right after an ESC, so no sequence's start is split from its rest.
+        if self.pending.len() > Self::CAP {
+            let mut cut = match std::str::from_utf8(&self.pending) {
+                Ok(_) => self.pending.len(),
+                Err(error) if error.error_len().is_none() => error.valid_up_to(),
+                Err(_) => self.pending.len(),
+            };
+            if let Some(esc) = self.pending[..cut].iter().rposition(|&b| b == 0x1b)
+                && cut - esc <= 64
+            {
+                cut = esc;
+            }
+            let piece: Vec<u8> = self.pending.drain(..cut).collect();
+            self.take(&piece);
+        }
+    }
+
+    fn take(&mut self, line: &[u8]) {
+        let clean = self.stream.clean_line(&String::from_utf8_lossy(line));
+        if clean.is_empty() {
             return;
         }
-        let dropped: Vec<u8> = self.bytes.drain(..len - Self::CAP).collect();
-        let prefix = Self::opener(self.open_at_start);
-        let before = format!("{prefix}{}", String::from_utf8_lossy(&dropped));
-        self.open_at_start = crate::stderr::open_string_control(&before);
-    }
-
-    fn text(&self) -> String {
-        format!("{}{}", Self::opener(self.open_at_start), String::from_utf8_lossy(&self.bytes))
-    }
-
-    fn opener(control: Option<crate::stderr::StringControl>) -> &'static str {
-        match control {
-            Some(crate::stderr::StringControl::Osc) => "\x1b]",
-            Some(crate::stderr::StringControl::Other) => "\x1bP",
-            None => "",
+        self.bytes += clean.len() + 1;
+        self.lines.push_back(clean);
+        while self.bytes > Self::CAP
+            && let Some(old) = self.lines.pop_front()
+        {
+            self.bytes -= old.len() + 1;
         }
+    }
+
+    /// The kept lines, the unfinished one last.
+    fn text(&self) -> String {
+        let mut text: Vec<&str> = self.lines.iter().map(String::as_str).collect();
+        let mut stream = self.stream.clone();
+        let rest = stream.clean_line(&String::from_utf8_lossy(&self.pending));
+        if !rest.is_empty() {
+            text.push(&rest);
+        }
+        text.join("\n")
     }
 }
 
@@ -1278,19 +1305,30 @@ mod stderr_tail_tests {
             tail.push(&[b'A'; 4096]);
         }
         tail.push(b"secret\x1b\\error: request timed out\n");
-        let lines = crate::stderr::clean_stderr_lines(&tail.text());
-        let shown: Vec<&String> = lines.iter().filter(|line| !line.is_empty()).collect();
-        assert_eq!(shown, vec!["error: request timed out"]);
+        assert_eq!(tail.text(), "error: request timed out");
     }
 
     #[test]
-    fn plain_output_is_kept_as_is() {
+    fn a_cut_between_esc_and_its_next_byte_reads_the_sequence_whole() {
         let mut tail = StderrTail::default();
-        for _ in 0..20 {
-            tail.push(&[b'x'; 4096]);
+        let mut long = vec![b'x'; StderrTail::CAP];
+        long.push(0x1b);
+        tail.push(&long);
+        tail.push(b"]8;;https://x\x07after\nerror: boom\n");
+        let text = tail.text();
+        assert!(text.ends_with("after\nerror: boom"), "{text:?}");
+        assert!(!text.contains("https"), "{text:?}");
+    }
+
+    #[test]
+    fn the_kept_text_stays_under_the_cap() {
+        let mut tail = StderrTail::default();
+        for _ in 0..40 {
+            tail.push(&[b'x'; 4095]);
+            tail.push(b"\n");
         }
-        tail.push(b"\nerror: boom\n");
-        assert!(tail.text().ends_with("error: boom\n"));
+        tail.push(b"error: boom\n");
         assert!(tail.text().len() <= StderrTail::CAP);
+        assert!(tail.text().ends_with("error: boom"));
     }
 }
