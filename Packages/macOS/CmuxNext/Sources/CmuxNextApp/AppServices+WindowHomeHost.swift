@@ -9,6 +9,9 @@ extension AppServices: WindowHomeHost {
     func windowHomeApplied(_ connection: DaemonConnection) async { _ = await daemon.appliedThroughReply(on: connection, after: "create window home") }
     func windowHomeMembers(_ window: String) -> [String] { windows.registry.members(of: window) }
     func windowHomeOpenOwner(of workspace: String) -> String? { windows.openOwner(of: workspace) }
+    func windowHomeIsOpen(_ window: String) -> Bool { windows.registry.value.window(window)?.isOpen == true }
+    var windowHomeWindows: [String: [String]] { windows.membersByWindow }
+    func windowHomeClose(_ workspace: String) { windows.discard([workspace]) }
     func windowHomeWorkspace(_ id: String) -> WorkspaceModel? { workspace(id: id) }
     func windowHomeShow(_ workspace: String, in window: String) { windows.show(workspaceID: workspace, inWindow: window) }
     func windowHomeClaim(_ workspace: String, window: String) { windows.claimNew(workspaceID: workspace, window: window) }

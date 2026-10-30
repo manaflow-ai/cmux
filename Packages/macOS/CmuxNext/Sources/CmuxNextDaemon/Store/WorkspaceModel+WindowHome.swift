@@ -11,9 +11,11 @@ extension WorkspaceModel {
     /// The page tab of a docked Home (`HomeDock.page`).
     public static let homeDockPage = "home-dock"
 
-    /// A window's own Home: not the store's home workspace, and it holds Home's page tab.
+    /// A window's own Home: not the store's home workspace, and a pane's first tab is Home's page
+    /// (the pinned dock keeps its page first; before the dock it is its pane's only tab). Reads one
+    /// tab per pane, so an observer of it does not follow every tab of the workspace.
     public var isWindowHome: Bool {
-        kind != "home" && screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == Self.homeDockPage } } }
+        kind != "home" && screens.contains { $0.panes.contains { $0.tabs.first?.page == Self.homeDockPage } }
     }
 
     /// The store's home workspace or a window's own Home.

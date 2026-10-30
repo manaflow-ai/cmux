@@ -46,6 +46,8 @@ extension HomeService {
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
+                // Each window's own Home is docked on every connect too (cmux#27880).
+                if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {

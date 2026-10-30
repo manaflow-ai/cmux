@@ -15,6 +15,11 @@ public protocol WindowHomeHost: AnyObject {
     /// The workspaces window `window` lists, and the open window that lists `workspace`.
     func windowHomeMembers(_ window: String) -> [String]
     func windowHomeOpenOwner(of workspace: String) -> String?
+    /// Whether window `window` is registered and open, and each registered window's workspaces.
+    func windowHomeIsOpen(_ window: String) -> Bool
+    var windowHomeWindows: [String: [String]] { get }
+    /// Closes `workspace` on its daemon (a window Home its window no longer has a place for).
+    func windowHomeClose(_ workspace: String)
     func windowHomeWorkspace(_ id: String) -> WorkspaceModel?
     /// Shows `workspace` in window `window`, taking it there; never in another window.
     func windowHomeShow(_ workspace: String, in window: String)
@@ -42,6 +47,10 @@ public final class WindowHomes {
     private weak var host: (any WindowHomeHost)?
     /// Window Homes being made, by window id, so a second click joins the first.
     private var making: [String: Task<WorkspaceModel?, Never>] = [:]
+    /// One dock owner per window Home (``HomeDock`` keeps its move in flight), and the window
+    /// Homes whose close was sent, so a sync meanwhile does not send it again.
+    private var docks: [String: HomeDock] = [:]
+    private var closing: Set<String> = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     public init(host: any WindowHomeHost) { self.host = host }
@@ -87,6 +96,7 @@ public final class WindowHomes {
         // Claimed first, so the reconcile that places it puts it in this window and selects it there.
         host.windowHomeClaim(key.rawValue, window: window)
         do {
+            defer { if !host.windowHomeIsOpen(window) { close(key.rawValue) } }
             try await host.windowHomeHold(key.rawValue) {
                 try await connection.createWorkspace(name: HomeStrings.title, key: key)
                 await host.windowHomeApplied(connection)
@@ -98,13 +108,53 @@ public final class WindowHomes {
         } catch {
             logger.error("window home: \(String(describing: error), privacy: .public)")
             host.windowHomeDropClaim(key.rawValue)
+            // A workspace made without its page would stay as an empty "Home" row.
+            close(key.rawValue)
             return nil
         }
-        guard let home = host.windowHomeWorkspace(key.rawValue) else { return nil }
-        if let resource = home.resourceID {
-            let step = await HomeDock().ensure(connection, store: store, home: resource, dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
-            logger.info("window home \(key.rawValue, privacy: .public): \(step, privacy: .public)")
-        }
+        // The window closed while its Home was made: the Home went elsewhere, and is closed.
+        guard host.windowHomeIsOpen(window), let home = host.windowHomeWorkspace(key.rawValue) else { return nil }
+        await ensureDock(home, connection)
         return home
+    }
+
+    /// Every window Home's page in its pinned chat dock, on each connect as the store's Home: a
+    /// dock move a quit or a reconnect cut off is made then.
+    public func ensureDocks(_ connection: DaemonConnection) async {
+        guard let host else { return }
+        for home in host.windowHomeStore.workspaces where home.isWindowHome { await ensureDock(home, connection) }
+    }
+
+    private func ensureDock(_ home: WorkspaceModel, _ connection: DaemonConnection) async {
+        guard let host, let resource = home.resourceID else { return }
+        let dock = docks[home.id] ?? HomeDock()
+        docks[home.id] = dock
+        let step = await dock.ensure(connection, store: host.windowHomeStore, home: resource, dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
+        logger.info("window home \(home.id, privacy: .public): \(step, privacy: .public)")
+    }
+
+    /// After a window membership change (`previous`: each window's workspaces before it): a
+    /// window Home that moved from another of this app's windows into one with a Home already (its
+    /// window closed into another, without window records, or its closed group was released)
+    /// closes, so no window holds a second, hidden one. A window Home no window of this app held
+    /// before (another client's) is never closed here.
+    public func closeSurplus(previous: [String: [String]]) {
+        guard let host else { return }
+        // Only a window whose membership changed can have gained a Home.
+        for (window, members) in host.windowHomeWindows where previous[window] != members {
+            let homes = members.compactMap { host.windowHomeWorkspace($0) }.filter(\.isAnyHome)
+            guard homes.count > 1 else { continue }
+            let keep = homes.first { $0.kind == "home" }
+                ?? homes.first { previous[window]?.contains($0.id) == true } ?? homes[0]
+            for home in homes where home !== keep && home.isWindowHome
+                && previous.contains(where: { $0.key != window && $0.value.contains(home.id) }) { close(home.id) }
+        }
+        closing = closing.filter { host.windowHomeWorkspace($0) != nil }
+        docks = docks.filter { host.windowHomeWorkspace($0.key) != nil }
+    }
+
+    private func close(_ workspace: String) {
+        guard let host, host.windowHomeWorkspace(workspace) != nil, closing.insert(workspace).inserted else { return }
+        host.windowHomeClose(workspace)
     }
 }

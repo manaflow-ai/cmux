@@ -49,6 +49,8 @@ struct HomePerWindowTests {
             }, within: .seconds(60), report: { "windows \(services.windows.controllers.map(\.state.id))" })
             let windowB = try #require(services.windows.controller(for: idB))
 
+            // A double click: the second joins the Home the first is making.
+            Self.show(services, in: windowB)
             Self.show(services, in: windowB)
             try await PasswordManagerRouteTests.until({
                 Self.isWindowHome(windowB.state.workspaceID.flatMap(services.workspace(id:)))
