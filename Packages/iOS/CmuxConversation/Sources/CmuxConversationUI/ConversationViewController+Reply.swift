@@ -386,10 +386,15 @@ extension ConversationViewController {
     /// each line added to or removed from the draft in the same frame as
     /// the field, keeping the bottom bubble 16.7 pt above it, and jumps it
     /// to the risen keyboard's layout at once (iOS 26.5 and 27.0).
-    /// `followsBottom` false keeps the reader's scroll position (a status or
-    /// tapback landing while they read further up).
-    func layoutReplyOverlay(followsBottom: Bool = true) {
+    /// The thread stays at its end only when the reader was there (or
+    /// `followsBottom` says so: opening, a reply of mine); a reader scrolled
+    /// up keeps their place through header, field and keyboard changes.
+    func layoutReplyOverlay(followsBottom: Bool? = nil) {
         guard let overlay = replyOverlay else { return }
+        let content = overlay.content
+        let wasAtBottom = content.bounds.height == 0
+            || content.contentOffset.y >= content.contentSize.height - content.bounds.height - 1
+        let followsBottom = followsBottom ?? wasAtBottom
         overlay.frame = view.bounds
         overlay.blur.frame = overlay.bounds
         overlay.dim.frame = overlay.bounds
@@ -457,7 +462,7 @@ extension ConversationViewController {
     /// delivery status lands the same way.
     func refreshReplyThread() {
         guard let overlay = replyOverlay, overlay.isUserInteractionEnabled, let rootID = overlay.rootID else { return }
-        guard store.messages.contains(where: { $0.id == rootID }) else {
+        guard store.messages.contains(where: { $0.id == rootID && !$0.isUnsent }) else {
             // The root was unsent or left the loaded window: nothing to reply to.
             exitReplyMode()
             return
@@ -478,11 +483,17 @@ extension ConversationViewController {
         let sentByMe = thread.contains { !known.contains($0.id) && $0.senderID == store.meID }
         let content = overlay.content
         let atBottom = content.contentOffset.y >= content.contentSize.height - content.bounds.height - 1
+        let focused = focusedThreadMessageID(in: overlay)
         populate(overlay, rootID: rootID, followsBottom: sentByMe || atBottom)
         overlay.hiddenMessageIDs = Set(overlay.content.subviews.compactMap { ($0 as? MessageCell)?.model?.message.id })
         refreshReplyBacking(hiddenOnly: true)
-        // The rows were rebuilt: VoiceOver finds its place again.
-        UIAccessibility.post(notification: .layoutChanged, argument: nil)
+        // The rows were rebuilt: VoiceOver stays on the message it was reading.
+        if let focused {
+            // Elements live on the content view (MessageCellAccessibility); a
+            // message that left the thread hands focus back to VoiceOver.
+            let cell = overlay.content.subviews.lazy.compactMap { $0 as? MessageCell }.first { $0.model?.message.id == focused }
+            UIAccessibility.post(notification: .layoutChanged, argument: cell.map { $0.contentView.accessibilityElements?.first ?? $0 })
+        }
         guard !UIAccessibility.isReduceMotionEnabled else { return }
         let fieldTop = overlay.content.convert(CGPoint(x: 0, y: fieldFrame.minY), from: view).y
         let rows = overlay.content.subviews.compactMap { view -> ReplyThreadRow? in
@@ -504,6 +515,17 @@ extension ConversationViewController {
         let motion = ReplyThreadMotion(rows: rows, animatingOut: false, viewHeight: view.bounds.height, scale: traitCollection.displayScale)
         overlay.motion = motion
         motion.start()
+    }
+
+    /// The thread message VoiceOver is on, if its focus is inside the thread.
+    private func focusedThreadMessageID(in overlay: ReplyThreadOverlay) -> String? {
+        guard UIAccessibility.isVoiceOverRunning,
+              let focused = UIAccessibility.focusedElement(using: .notificationVoiceOver) else { return nil }
+        let container = (focused as? UIAccessibilityElement)?.accessibilityContainer as? UIView ?? focused as? UIView
+        for case let cell as MessageCell in overlay.content.subviews where container?.isDescendant(of: cell) == true {
+            return cell.model?.message.id
+        }
+        return nil
     }
 
     private static let threadHeadingKey = "\u{0}heading"
