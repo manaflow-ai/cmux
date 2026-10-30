@@ -44,8 +44,9 @@ merge is not a review. Mark it in the reviewer label:
 `Review (<reviewer>; carried): SHIP at <new head sha>`. The checkers
 (`scripts/ci/review_receipt.py`, next-autoland) treat a first line as carried when
 the label says carried, or when the line says "carried from" or "carried over". A
-carried SHIP counts only behind an independent SHIP. Do not use those words in a
-real review's first line.
+carried SHIP counts only while the newest independent verdict on the PR is a
+SHIP. Do not use "carry", "carries", "carried" or "carrying" in a real review's
+label, or "carried from" / "carried over" on its first line.
 
 ## Adversarial review
 
