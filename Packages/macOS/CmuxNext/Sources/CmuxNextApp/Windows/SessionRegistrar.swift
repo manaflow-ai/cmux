@@ -1,5 +1,8 @@
+import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -14,8 +17,11 @@ import Observation
 final class SessionRegistrar {
     private unowned let machines: MachineRegistry
     private var observation: Task<Void, Never>?
-    /// Sessions recorded in this app run, with what was sent.
-    private var recorded: [String: SessionSnapshot] = [:]
+    /// What was sent for each session and its answer (`SessionRegistrationLedger`): a refusal is
+    /// shown once and not sent again unchanged; a failure with no answer backs off.
+    private var ledger = SessionRegistrationLedger<SessionSnapshot>()
+    /// One-shot backoff deadlines of failed sends with no answer, per session.
+    private var retries: [String: DemandTimer] = [:]
     private var importing: Set<String> = []
     /// This Mac's name, resolved off the main actor (`MacName`).
     private var computerName: String?
@@ -35,14 +41,14 @@ final class SessionRegistrar {
         Task { [weak self] in
             let name = await MacName().displayName()
             self?.computerName = name
-            self?.recorded.removeAll()
             self?.sync()
         }
         let machines = machines
         observation = Task { [weak self] in
             for await _ in ObservationStream({ () -> [String] in
                 [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
-                 String(machines.local.store.isProvisional)]
+                 String(machines.local.store.isProvisional),
+                 machines.local.connection.map { String(describing: ObjectIdentifier($0)) } ?? ""]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
                     + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
                     + machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
@@ -52,7 +58,11 @@ final class SessionRegistrar {
         }
     }
 
-    func stop() { observation?.cancel() }
+    func stop() {
+        observation?.cancel()
+        for retry in retries.values { retry.cancel() }
+        retries.removeAll()
+    }
 
     private func sync() {
         let home = machines.local
@@ -61,16 +71,21 @@ final class SessionRegistrar {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
             let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
                                            transport: transport(daemon))
-            if recorded[session] != snapshot {
-                recorded[session] = snapshot
+            if ledger.shouldSend(session: session, record: snapshot, connection: ObjectIdentifier(connection)) {
                 let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
                                                 transport: snapshot.transport, capabilities: snapshot.capabilities)
-                // A refused or failed put is logged by `send` and forgotten here, so the next sync
-                // (any registry, daemon or machine change) sends it again instead of leaving the
-                // machine out of the registry for the rest of the launch (P-AUSTIN B7a).
-                home.send("put-session", onFailure: { [weak self] _ in
-                    if self?.recorded[session] == snapshot { self?.recorded[session] = nil }
-                }) { _ = try await $0.putSession(request) }
+                let machine = machineName(daemon) ?? identity.session
+                // task-owner: one put-session; its answer goes to the ledger on the main actor
+                Task { [weak self] in
+                    do {
+                        _ = try await connection.putSession(request)
+                        self?.ledger.succeeded(session: session, record: snapshot)
+                    } catch {
+                        home.logger.error("put-session \(session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                        self?.notRecorded(session, snapshot, machine: machine,
+                                          failure: SessionRegistrationLedger<SessionSnapshot>.classify(error))
+                    }
+                }
             }
             let record = home.store.personal.session(session)
             if daemon !== home, record?.migrated == false, !importing.contains(session) {
@@ -82,6 +97,29 @@ final class SessionRegistrar {
                 }
             }
         }
+    }
+
+    /// A `put-session` the daemon did not record: a refusal is shown once (the machine is not saved
+    /// for restore); a failure with no answer is sent again after the ledger's backoff.
+    private func notRecorded(_ session: String, _ snapshot: SessionSnapshot, machine: String?,
+                             failure: SessionRegistrationLedger<SessionSnapshot>.Failure) {
+        let outcome = ledger.failed(session: session, record: snapshot, failure: failure)
+        if let reason = outcome.refusal { Self.showNotSaved(machine: machine, reason: reason) }
+        guard let delay = outcome.retryAfter else { return }
+        let timer = retries[session] ?? DemandTimer(owner: "SessionRegistrar.retry")
+        retries[session] = timer
+        timer.schedule(after: delay) { @MainActor [weak self] in
+            self?.ledger.retryDue(session: session)
+            self?.sync()
+        }
+    }
+
+    /// The machine is left out of the session registry, so the next launch does not restore it.
+    private static func showNotSaved(machine: String?, reason: String) {
+        let message = WindowStrings.machineNotSavedForRestore(machine: machine, reason: reason)
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        CmuxToastCenter.shared.show(CmuxToast(id: "session-registrar.not-saved", message: message, duration: .seconds(12)),
+                                    in: window)
     }
 
     /// A remote daemon's shared groups and sidebar order, as the one-time
