@@ -68,13 +68,18 @@ export function ThemePicker({
     cancelDwell();
     // The same theme again is no new preview: no bridge round trip, no hero re-render.
     if (name === showing.current) return;
+    // No preview left to show: end the one in effect under its own owner.
+    if (name === null) return end();
     showing.current = name;
     owner.current = {};
     onPreview(name, owner.current);
   };
+  // A save that settles late passes the owner it started under: a newer preview (and the pointer's
+  // pending dwell in a reopened list) belongs to someone else and is left alone.
   const end = (expectedOwner?: object) => {
-    cancelDwell();
-    if (showing.current !== null && (expectedOwner === undefined || owner.current === expectedOwner)) {
+    if (expectedOwner !== undefined && owner.current !== expectedOwner) return;
+    if (expectedOwner === undefined) cancelDwell();
+    if (showing.current !== null) {
       const currentOwner = owner.current;
       showing.current = null;
       owner.current = null;

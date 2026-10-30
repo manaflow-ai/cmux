@@ -71,6 +71,17 @@ describe("FontPicker", () => {
     expect(ops(page!.provider, "cmux.settings.set")).toEqual([]);
   });
 
+  test("highlighting the default after a preview ends it, so Escape has nothing left to revert", async () => {
+    const search = await open();
+    await fire(search, "keydown", { key: "ArrowDown" });
+    await fire(search, "keydown", { key: "ArrowDown" });
+    expect(ops(page!.provider, "cmux.settings.preview").length).toBe(1);
+    await fire(search, "keydown", { key: "ArrowUp" });
+    expect(ops(page!.provider, "cmux.settings.preview.end")).toEqual([{ key: "terminal.fontFamily" }]);
+    await fire(search, "keydown", { key: "Escape" });
+    expect(ops(page!.provider, "cmux.settings.preview.end")).toHaveLength(1);
+  });
+
   test("a late save cannot end a newer preview after the picker reopens", async () => {
     const search = await open();
     let resolveSave!: () => void;

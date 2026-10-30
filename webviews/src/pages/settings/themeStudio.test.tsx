@@ -143,6 +143,38 @@ test("a late theme save cannot end a newer preview after the picker reopens", as
   expect(ops(page.provider, "cmux.settings.preview.end").length).toBe(endsBeforeSave);
 });
 
+test("a late theme save leaves the pointer's pending preview in the reopened picker alone", async () => {
+  const { DWELL_MS } = await import("./components/ThemePicker");
+  page = await renderPage({ path: "/settings/theme" });
+  let resolveSave!: () => void;
+  page.store.set = (() => new Promise<void>((resolve) => (resolveSave = resolve))) as typeof page.store.set;
+  const button = theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!;
+  await click(button);
+  const search = document.querySelector<HTMLElement>(".theme-search")!;
+  await fire(search, "keydown", { key: "ArrowDown" });
+  await fire(search, "keydown", { key: "ArrowDown" });
+  await fire(search, "keydown", { key: "Enter" });
+  await click(button);
+  const row = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!.closest("li")!;
+  const names = [...document.querySelectorAll<HTMLElement>("[data-theme-option]")].map((el) =>
+    el.getAttribute("data-theme-option")!,
+  );
+  const hovered = names.at(-1)!;
+  const previews = () => ops(page!.provider, "cmux.settings.preview");
+  const before = previews().length;
+  jest.useFakeTimers();
+  await act(async () => {
+    for (const type of ["pointerenter", "pointermove", "mousemove", "mouseenter"])
+      row(hovered).dispatchEvent(new window.MouseEvent(type, { bubbles: type.endsWith("move"), cancelable: true }));
+  });
+  resolveSave();
+  await act(async () => {});
+  await act(async () => void jest.advanceTimersByTime(DWELL_MS));
+  await act(async () => {});
+  jest.useRealTimers();
+  expect(previews().slice(before)).toEqual([{ key: "appearance.appTheme", value: hovered }]);
+});
+
 test("a pointer passing over themes previews nothing until it rests; the arrow keys preview at once", async () => {
   const { DWELL_MS } = await import("./components/ThemePicker");
   page = await renderPage({ path: "/settings/theme" });
