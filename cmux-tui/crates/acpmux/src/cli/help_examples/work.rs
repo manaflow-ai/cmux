@@ -231,10 +231,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Post a rule every session reads",
                 "acpmux forum announce --key builds \"No local builds; use cmux-ci test\"",
             ),
-            (
-                "Post a rule and message every live session now",
-                "acpmux forum announce --key base --urgent \"Stop merging: base is red\"",
-            ),
             ("End the rule on a key", "acpmux forum announce --key base --retire"),
         ],
     ),

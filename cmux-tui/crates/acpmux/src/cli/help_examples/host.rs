@@ -92,16 +92,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "host ticket full-access",
-        &[
-            (
-                "Stop a paired machine running chats in Full access",
-                "acpmux host ticket full-access mini-2 off",
-            ),
-            (
-                "Ask to let a paired machine run in Full access",
-                "acpmux host ticket full-access mini-2 on",
-            ),
-        ],
+        &[(
+            "Stop a paired machine running chats in Full access",
+            "acpmux host ticket full-access mini-2 off",
+        )],
     ),
     (
         "host join",
@@ -119,24 +113,24 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "host consent",
-        &[
-            ("Request screen consent through the daemon", "acpmux host consent grant --screen"),
-            ("Revoke control consent", "acpmux host consent revoke --control"),
-        ],
+        &[(
+            "Turn screen consent off (the daemon takes it only from the cmux app)",
+            "acpmux host consent revoke --screen",
+        )],
     ),
     (
         "host consent grant",
-        &[
-            ("Request screen consent through the daemon", "acpmux host consent grant --screen"),
-            ("Request control consent", "acpmux host consent grant --control"),
-        ],
+        &[(
+            "Turn control consent on (the daemon takes it only from the cmux app)",
+            "acpmux host consent grant --control",
+        )],
     ),
     (
         "host consent revoke",
-        &[
-            ("Revoke control consent", "acpmux host consent revoke --control"),
-            ("Revoke screen consent", "acpmux host consent revoke --screen"),
-        ],
+        &[(
+            "Turn screen consent off (the daemon takes it only from the cmux app)",
+            "acpmux host consent revoke --screen",
+        )],
     ),
     (
         "host setup",
@@ -212,7 +206,9 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "host approvals add",
         &[(
             "Let a Mac's cmux app allow this machine's prompts",
-            "acpmux host approvals add --id mac-a1b2c3 --key 04a1b2c3d4 --name \"Studio Mac\"",
+            "acpmux host approvals add --id mac-a1b2c3 --name \"Studio Mac\" --key \
+             046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296\
+             4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
         )],
     ),
     (

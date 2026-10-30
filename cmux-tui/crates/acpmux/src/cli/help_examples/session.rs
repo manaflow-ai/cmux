@@ -117,10 +117,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "session allow",
-        &[
-            ("Pick a deny option on the pending request", "acpmux session allow coord reject_once"),
-            ("Allow the pending request (from the cmux app)", "acpmux session allow coord"),
-        ],
+        &[(
+            "Pick a deny option; only the cmux app may pick an allow",
+            "acpmux session allow coord reject_once",
+        )],
     ),
     (
         "session deny",
@@ -131,13 +131,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "session answer",
-        &[
-            ("Print coord's pending questions and the command", "acpmux session answer coord"),
-            (
-                "Answer one question with an option label",
-                "acpmux session answer coord --answer \"Which base branch?=feat-cmux-next\"",
-            ),
-        ],
+        &[(
+            "Print coord's pending questions and the command that answers them",
+            "acpmux session answer coord",
+        )],
     ),
     (
         "session export",
