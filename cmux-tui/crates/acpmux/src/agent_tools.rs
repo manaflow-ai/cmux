@@ -896,6 +896,8 @@ impl AgentTools {
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
@@ -915,6 +917,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     crate::owner_only::create_dir_all(dir)?;
     crate::owner_only::restrict(dir)?;

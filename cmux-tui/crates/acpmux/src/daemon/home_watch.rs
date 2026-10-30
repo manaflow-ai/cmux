@@ -20,8 +20,11 @@
 //! old, now missing path (`config::autostart_refusal`).
 //!
 //! Once the loss is reported the shutdown removes nothing at the old paths except the socket
-//! it bound, and writes nothing under the old home (`config::mark_home_lost`): either may be
-//! another daemon's now.
+//! it bound, and the daemon process writes nothing under the old home (`config::mark_home_lost`):
+//! either may be another daemon's now. Its agent hosts are other processes: they end with
+//! their record (`agent_host` `watch_record`); one still starting when the home is replaced may
+//! write its record into the replacement, as on a daemon without this watch. A renamed
+//! ancestor (above) also leaves an unadopted host running until its folder changes.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
