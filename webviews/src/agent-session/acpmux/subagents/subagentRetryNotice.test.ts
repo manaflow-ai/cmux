@@ -60,9 +60,9 @@ test("the person's own prompts are no resume", () => {
 });
 
 test("a queue listing gives the entry its resume, and another agent's message never has one", () => {
-  const [entry] = mergeQueue([], [{ promptId: "p-1", prompt: named.slice(0, 200) }]);
+  const [entry] = mergeQueue([], [{ promptId: "p-1", prompt: `${named.slice(0, 120)}…` }]);
   expect(entry?.retry).toEqual({ name: "Cap huge-blue deputy context cost", agentId: "af0cbece62b15d0e1" });
-  const [message] = mergeQueue([], [{ promptId: "p-2", prompt: named.slice(0, 200), fromAgent: "coordinator" }]);
+  const [message] = mergeQueue([], [{ promptId: "p-2", prompt: `${named.slice(0, 120)}…`, fromAgent: "coordinator" }]);
   expect(message?.message?.name).toBe("coordinator");
   expect(message?.retry).toBeUndefined();
 });
