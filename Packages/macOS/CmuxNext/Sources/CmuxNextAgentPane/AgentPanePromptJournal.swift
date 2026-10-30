@@ -79,6 +79,9 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         /// trimmed: a failed row keeps its Retry for the whole run, and a forgotten id would go
         /// unmarked. One person's prompts in one run stay small.
         var sent: Set<String> = []
+        /// The record that put each entry in this run, so a failed write takes back only its own
+        /// (a disconnect may clear the entry's holder while the write runs).
+        var records: [String: UUID] = [:]
         var generation = 0
     }
 
@@ -114,6 +117,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return false
         }
         var kept = false
+        let record = UUID()
         var replaced: (entry: Entry, holder: Holder?, index: Int)?
         var dropped: [(entry: Entry, holder: Holder?)] = []
         let onDisk = change { state in
@@ -125,6 +129,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             state.entries.append(entry)
             state.holders[key] = .page(owner)
+            state.records[key] = record
             while state.entries.count > Self.maximumEntries {
                 let out = state.entries.removeFirst()
                 let outKey = Self.key(out.daemon, out.promptId)
@@ -136,32 +141,39 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
         guard onDisk else {
             afterFailedWrite.withLock { $0 }?()
-            takeBack(entry, owner: owner, replaced: replaced, dropped: dropped)
+            takeBack(entry, record: record, replaced: replaced, dropped: dropped)
             throw NotWritten()
         }
         return kept
     }
 
-    /// Undoes a record whose write failed, while it is still that record's: the entry it replaced
-    /// (in its place) and those it pushed out are kept again, and the result is written (best
-    /// effort), so a later write never drops them or keeps the prompt that did not go.
-    private func takeBack(_ entry: Entry, owner: UUID, replaced: (entry: Entry, holder: Holder?, index: Int)?,
+    /// Undoes record `record` after its write failed, while no later record of the prompt
+    /// replaced it, whoever holds it now (a disconnect may have made it left over): it is removed,
+    /// the entry it replaced (in its place) and those it pushed out are kept again, and the result
+    /// is written (best effort), so neither a later write nor the next connection's claim keeps or
+    /// sends the prompt that did not go.
+    private func takeBack(_ entry: Entry, record: UUID, replaced: (entry: Entry, holder: Holder?, index: Int)?,
                           dropped: [(entry: Entry, holder: Holder?)]) {
         change { state in
             let key = Self.key(entry.daemon, entry.promptId)
-            guard state.holders[key] == .page(owner),
-                  let index = state.entries.lastIndex(where: { $0 == entry }) else { return false }
+            guard state.records[key] == record else { return false }
+            state.records[key] = nil
+            guard let index = state.entries.lastIndex(where: { Self.key($0.daemon, $0.promptId) == key }) else {
+                // A daemon's close took it out already (the page owns it: Retry).
+                return false
+            }
             state.entries.remove(at: index)
             state.holders[key] = nil
+            let live = { (holder: Holder?) in holder.flatMap { state.ended.contains($0.owner) ? nil : $0 } }
             for out in dropped.reversed() {
                 let outKey = Self.key(out.entry.daemon, out.entry.promptId)
                 guard !state.entries.contains(where: { Self.key($0.daemon, $0.promptId) == outKey }) else { continue }
                 state.entries.insert(out.entry, at: 0)
-                state.holders[outKey] = out.holder
+                state.holders[outKey] = live(out.holder)
             }
             if let replaced {
                 state.entries.insert(replaced.entry, at: min(replaced.index, state.entries.count))
-                state.holders[key] = replaced.holder
+                state.holders[key] = live(replaced.holder)
             }
             return true
         }
@@ -186,6 +198,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         change { state in
             let key = Self.key(daemon, promptId)
             state.holders[key] = nil
+            state.records[key] = nil
             let before = state.entries.count
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             return state.entries.count != before
