@@ -94,3 +94,34 @@ async fn peer_loop_never_consumes_the_daemons_pending_shutdown() {
         .await
         .expect("peer loop stole the main daemon's shutdown permit");
 }
+
+#[tokio::test(start_paused = true)]
+async fn drop_saves_throttled_row_changes_before_grace_ends() {
+    // A daemon that stops inside the grace window still has, on disk, the row
+    // change whose save was throttled before the drop.
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pg");
+    let mut config = Config::default();
+    config.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&config.store, dir.path()).unwrap();
+    let hub = Hub::new(config, store);
+    let peer = Peer::new("remote", "ws://127.0.0.1:1", None, None, hub.peer_notices.clone());
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    let rows = vec![json!({"sessionId":"live", "name":"live", "status":"ready"})];
+    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows));
+    // Within the save throttle of the list's save: not written yet.
+    hub.apply_peer_notice(
+        &peer.name,
+        peer.generation,
+        PeerNotice::SessionChanged {
+            session: json!({"sessionId":"live", "name":"renamed", "status":"ready"}),
+            kind: "status".into(),
+            seq: 1,
+        },
+    );
+    send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
+    hub.stop_idle_reaper();
+    tokio::time::advance(Duration::from_secs(11)).await;
+    tokio::task::yield_now().await;
+    let saved = std::fs::read_to_string(dir.path().join("peers/remote.json")).unwrap();
+    assert!(saved.contains("renamed"), "{saved}");
+}
