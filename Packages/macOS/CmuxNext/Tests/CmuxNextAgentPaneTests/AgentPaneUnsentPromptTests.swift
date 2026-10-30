@@ -308,11 +308,11 @@ struct AgentPaneUnsentPromptTests {
         let journal = AgentPanePromptJournal(url: url)
         let pane = try await Self.pane(daemon, journal: journal)
         let owner = try #require(pane.transport.promptRelay?.owner)
-        journal.afterFailedWrite.withLock { $0 = { journal.connectionEnded(owner: owner, byDaemon: false) } }
+        journal.whileRecordWrites.withLock { $0 = { journal.connectionEnded(owner: owner, byDaemon: false) } }
         pane.transport.gestures.record()
         let result = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-10")])
         try #require(result?.rawValue == "transport.prompt_not_kept")
-        journal.afterFailedWrite.withLock { $0 = nil }
+        journal.whileRecordWrites.withLock { $0 = nil }
         #expect(journal.entries().isEmpty, "the refused prompt was left over: \(journal.entries().map(\.promptId))")
 
         let next = try await Self.pane(daemon, journal: journal)
@@ -320,59 +320,26 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.prompts(daemon, peer: 1).isEmpty, "the next connection sent a prompt that was refused")
     }
 
-    /// A record whose own write is overtaken: another pane's record writes a newer snapshot that
-    /// holds it, then a later write fails. The first record is on disk, so it is kept and sent;
-    /// the later failure is not its own.
-    @Test func aRecordOvertakenByANewerWriteIsNotRefusedForALaterFailure() throws {
+    /// Another change while a record writes (a daemon's close hands its page's prompt back): the
+    /// record is kept, and the file holds the journal as it is after both, never a prompt that
+    /// change took out.
+    @Test func aChangeWhileARecordWritesIsOnDiskWithIt() async throws {
         let url = Self.journalURL()
-        let folder = url.deletingLastPathComponent()
-        defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
-            try? FileManager.default.removeItem(at: folder)
-        }
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let journal = AgentPanePromptJournal(url: url)
         let entry = { (id: String) in
             AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: id, params: "{}", at: journal.now())
         }
         let other = UUID()
-        let fired = Mutex(false)
-        journal.beforeWrite.withLock {
-            $0 = {
-                guard fired.withLock({ let first = !$0; $0 = true; return first }) else { return }
-                // B's record writes a snapshot that holds A's; then B's acknowledgement fails to write.
-                #expect((try? journal.record(entry("p-b"), owner: other)) == true)
-                try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
-                journal.forget(daemon: Self.daemon, promptId: "p-b")
-            }
-        }
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(try journal.record(entry("p-b"), owner: other))
+        journal.whileRecordWrites.withLock { $0 = { journal.connectionEnded(owner: other, byDaemon: true) } }
         let kept = try journal.record(entry("p-a"), owner: UUID())
-        journal.beforeWrite.withLock { $0 = nil }
-        #expect(kept, "a record a newer snapshot holds on disk was refused for another write's failure")
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
-        #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId).contains("p-a"))
-    }
-
-    /// A record whose own write is overtaken by a change that takes it out again (a daemon's close
-    /// hands it to the page): the newer snapshot on disk does not hold it, so it was not kept and
-    /// does not go.
-    @Test func aRecordANewerSnapshotLeftOutIsNotReportedKept() throws {
-        let url = Self.journalURL()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let journal = AgentPanePromptJournal(url: url)
-        let entry = AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: "p-c", params: "{}", at: journal.now())
-        let fired = Mutex(false)
-        journal.beforeWrite.withLock {
-            $0 = {
-                guard fired.withLock({ let first = !$0; $0 = true; return first }) else { return }
-                journal.forget(daemon: Self.daemon, promptId: "p-c")
-            }
-        }
-        #expect(throws: AgentPanePromptJournal.NotWritten.self, "a prompt the disk does not hold was reported kept") {
-            try journal.record(entry, owner: UUID())
-        }
-        journal.beforeWrite.withLock { $0 = nil }
-        #expect(AgentPanePromptJournal(url: url).entries().isEmpty)
+        journal.whileRecordWrites.withLock { $0 = nil }
+        await journal.settle()
+        #expect(kept)
+        #expect(journal.entries().map(\.promptId) == ["p-a"])
+        #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId) == ["p-a"],
+                "the file kept a prompt the daemon's close took out")
     }
 
     /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot

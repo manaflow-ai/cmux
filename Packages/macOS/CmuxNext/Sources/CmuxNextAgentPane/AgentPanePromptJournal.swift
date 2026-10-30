@@ -75,13 +75,11 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         var holders: [String: Holder] = [:]
         /// Connections that ended: they record and claim nothing more.
         var ended: Set<UUID> = []
-        /// The daemon and promptId of each prompt the relay sent in this run (never on disk). Never
-        /// trimmed: a failed row keeps its Retry for the whole run, and a forgotten id would go
-        /// unmarked. One person's prompts in one run stay small.
-        var sent: Set<String> = []
-        /// The record that put each entry in this run, so a failed write takes back only its own
-        /// (a disconnect may clear the entry's holder while the write runs).
-        var records: [String: UUID] = [:]
+        /// How many sends of each prompt (daemon and promptId) the relay made in this run (never on
+        /// disk); a send that did not go is taken off. Never trimmed: a failed row keeps its Retry
+        /// for the whole run, and a forgotten id would go unmarked. One person's prompts in one run
+        /// stay small.
+        var sent: [String: Int] = [:]
         var generation = 0
     }
 
@@ -89,14 +87,12 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     let url: URL
     let now: @Sendable () -> Date
     private let state = Mutex(State())
-    /// The newest generation written (a write of an older one is skipped: it would put back what a
-    /// newer change took out), and the newest that reached the disk with its entries.
-    private let written = Mutex((attempted: 0, onDisk: 0, entries: [Entry]()))
+    /// The newest generation written; a write of an older one is skipped (it would put back what a
+    /// newer change took out). Held for a whole record, so records write one at a time.
+    private let written = Mutex(0)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
-    /// Runs after a record's failed write, before it is taken back (tests: a disconnect in between).
-    let afterFailedWrite = Mutex<(@Sendable () -> Void)?>(nil)
-    /// Runs between a change and its write (tests: another change written in between).
-    let beforeWrite = Mutex<(@Sendable () -> Void)?>(nil)
+    /// Runs while a record writes, before its file write (tests: a change made meanwhile).
+    let whileRecordWrites = Mutex<(@Sendable () -> Void)?>(nil)
 
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
@@ -105,93 +101,78 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
 
-    /// The record of a prompt did not reach the disk (an unwritable folder, a full disk): it is
-    /// taken back, and the caller does not send the prompt.
+    /// The record of a prompt did not reach the disk (an unwritable folder, a full disk): nothing
+    /// of it is kept, and the caller does not send the prompt.
     struct NotWritten: Error {}
 
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
     /// the main thread. False when it is not kept (too large, or the connection ended). Throws when
-    /// it could not be written: the journal keeps what it had, an earlier record of the same
-    /// prompt (the pane's Retry) included.
+    /// it could not be written: the journal is left as it was, an earlier record of the same prompt
+    /// (the pane's Retry) included. Nothing of the record is in memory before it is on disk, so no
+    /// other change ever sees, claims or writes a record that did not reach the disk.
     func record(_ entry: Entry, owner: UUID) throws(NotWritten) -> Bool {
         guard entry.params.utf8.count <= Self.maximumParamsBytes else {
             Self.logger.info("agent pane prompt not journaled: too large")
             return false
         }
-        var kept = false
-        let record = UUID()
-        var replaced: (entry: Entry, holder: Holder?, index: Int)?
-        var dropped: [(entry: Entry, holder: Holder?)] = []
-        let onDisk = change(holding: entry) { state in
-            guard !state.ended.contains(owner) else { return false }
-            let key = Self.key(entry.daemon, entry.promptId)
-            if let index = state.entries.firstIndex(where: { Self.key($0.daemon, $0.promptId) == key }) {
-                replaced = (state.entries[index], state.holders[key], index)
+        return try written.withLock { last throws(NotWritten) -> Bool in
+            // What the journal would hold with the record; the state is not changed yet.
+            let proposed = state.withLock { state -> [Entry]? in
+                load(&state)
+                guard !state.ended.contains(owner) else { return nil }
+                var with = state
+                Self.apply(entry, owner: owner, to: &with)
+                return with.entries
             }
-            state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
-            state.entries.append(entry)
-            state.holders[key] = .page(owner)
-            state.records[key] = record
-            while state.entries.count > Self.maximumEntries {
-                let out = state.entries.removeFirst()
-                let outKey = Self.key(out.daemon, out.promptId)
-                dropped.append((out, state.holders[outKey]))
-                state.holders[outKey] = nil
+            guard let proposed else { return false }
+            whileRecordWrites.withLock { $0 }?()
+            guard writeFile(proposed) else { throw NotWritten() }
+            // On disk: it goes into the state as it is now (other changes may have come in
+            // meanwhile), and that is written too when it differs from what was.
+            let (generation, entries, kept) = state.withLock { state -> (Int, [Entry], Bool) in
+                let kept = !state.ended.contains(owner)
+                if kept { Self.apply(entry, owner: owner, to: &state) }
+                state.generation += 1
+                return (state.generation, state.entries, kept)
             }
-            kept = true
-            return true
+            last = generation
+            if entries != proposed { writeFile(entries) }
+            return kept
         }
-        guard onDisk else {
-            afterFailedWrite.withLock { $0 }?()
-            takeBack(entry, record: record, replaced: replaced, dropped: dropped)
-            throw NotWritten()
-        }
-        return kept
     }
 
-    /// Undoes record `record` after its write failed, while no later record of the prompt
-    /// replaced it, whoever holds it now (a disconnect may have made it left over): it is removed,
-    /// the entry it replaced (in its place) and those it pushed out are kept again, and the result
-    /// is written (best effort), so neither a later write nor the next connection's claim keeps or
-    /// sends the prompt that did not go.
-    private func takeBack(_ entry: Entry, record: UUID, replaced: (entry: Entry, holder: Holder?, index: Int)?,
-                          dropped: [(entry: Entry, holder: Holder?)]) {
-        change { state in
-            let key = Self.key(entry.daemon, entry.promptId)
-            guard state.records[key] == record else { return false }
-            state.records[key] = nil
-            guard let index = state.entries.lastIndex(where: { Self.key($0.daemon, $0.promptId) == key }) else {
-                // A daemon's close took it out already (the page owns it: Retry).
-                return false
-            }
-            state.entries.remove(at: index)
-            state.holders[key] = nil
-            let ended = state.ended
-            let live = { (holder: Holder?) in holder.flatMap { ended.contains($0.owner) ? nil : $0 } }
-            for out in dropped.reversed() {
-                let outKey = Self.key(out.entry.daemon, out.entry.promptId)
-                guard !state.entries.contains(where: { Self.key($0.daemon, $0.promptId) == outKey }) else { continue }
-                state.entries.insert(out.entry, at: 0)
-                state.holders[outKey] = live(out.holder)
-            }
-            if let replaced {
-                state.entries.insert(replaced.entry, at: min(replaced.index, state.entries.count))
-                state.holders[key] = live(replaced.holder)
-            }
-            return true
+    /// The record of `entry` from connection `owner`: it replaces an earlier one of the same
+    /// prompt, and the oldest go past ``maximumEntries``.
+    private static func apply(_ entry: Entry, owner: UUID, to state: inout State) {
+        let key = key(entry.daemon, entry.promptId)
+        state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
+        state.entries.append(entry)
+        state.holders[key] = .page(owner)
+        while state.entries.count > maximumEntries {
+            let dropped = state.entries.removeFirst()
+            state.holders[Self.key(dropped.daemon, dropped.promptId)] = nil
         }
     }
 
     /// Notes that the relay sends prompt `promptId` to `daemon`. True when it sent that id there
     /// before in this run: the pane's Retry, which goes as a resend.
     func sendsAgain(daemon: String, promptId: String) -> Bool {
-        state.withLock { !$0.sent.insert(Self.key(daemon, promptId)).inserted }
+        state.withLock { state in
+            let key = Self.key(daemon, promptId)
+            let before = state.sent[key, default: 0]
+            state.sent[key] = before + 1
+            return before > 0
+        }
     }
 
-    /// A first send ``sendsAgain(daemon:promptId:)`` noted did not go: its next send is a first
-    /// one again, not a resend.
+    /// A send ``sendsAgain(daemon:promptId:)`` noted did not go: it is taken off, so a prompt no
+    /// send of which went goes as a first send again (another connection's send stays counted).
     func didNotSend(daemon: String, promptId: String) {
-        state.withLock { _ = $0.sent.remove(Self.key(daemon, promptId)) }
+        state.withLock { state in
+            let key = Self.key(daemon, promptId)
+            guard let count = state.sent[key] else { return }
+            state.sent[key] = count > 1 ? count - 1 : nil
+        }
     }
 
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk
@@ -201,7 +182,6 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         change { state in
             let key = Self.key(daemon, promptId)
             state.holders[key] = nil
-            state.records[key] = nil
             let before = state.entries.count
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             return state.entries.count != before
@@ -273,20 +253,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
-    /// Applies `body` (true when the entries changed) and writes the result when they did. False
-    /// when that write failed.
-    @discardableResult
-    /// `holding`: a skipped write is on disk only while the newer snapshot on disk still holds it.
-    private func change(holding: Entry? = nil, _ body: (inout State) -> Bool) -> Bool {
+    /// Applies `body` (true when the entries changed) and writes the result when they did.
+    private func change(_ body: (inout State) -> Bool) {
         let snapshot = state.withLock { state -> (Int, [Entry])? in
             load(&state)
             guard body(&state) else { return nil }
             state.generation += 1
             return (state.generation, state.entries)
         }
-        guard let (generation, entries) = snapshot else { return true }
-        beforeWrite.withLock { $0 }?()
-        return write(entries, generation: generation, holding: holding)
+        guard let (generation, entries) = snapshot else { return }
+        write(entries, generation: generation)
     }
 
     /// Reads the file once; an unreadable one is an empty journal.
@@ -301,28 +277,26 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
     }
 
-    /// Writes generation `generation` of the entries. True when it is on disk: written now, or
-    /// skipped as older than the newest written while a write as new as it reached the disk,
-    /// whatever became of the writes after that one, and (`holding`, a record's entry) that newer
-    /// snapshot still holds the entry: a change in between may have taken it out.
-    @discardableResult
-    private func write(_ entries: [Entry], generation: Int, holding: Entry? = nil) -> Bool {
+    /// Writes generation `generation` of the entries, unless a newer one was written.
+    private func write(_ entries: [Entry], generation: Int) {
         written.withLock { last in
-            guard generation > last.attempted else {
-                return last.onDisk >= generation && holding.map(last.entries.contains) ?? true
-            }
-            last.attempted = generation
-            do {
-                let data = try Self.encoder.encode(Document(entries: entries))
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data.write(to: url, options: [.atomic])
-                last.onDisk = generation
-                last.entries = entries
-                return true
-            } catch {
-                Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
-                return false
-            }
+            guard generation > last else { return }
+            last = generation
+            writeFile(entries)
+        }
+    }
+
+    /// Writes the file; false when it could not be written. Called with `written` held.
+    @discardableResult
+    private func writeFile(_ entries: [Entry]) -> Bool {
+        do {
+            let data = try Self.encoder.encode(Document(entries: entries))
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: [.atomic])
+            return true
+        } catch {
+            Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
