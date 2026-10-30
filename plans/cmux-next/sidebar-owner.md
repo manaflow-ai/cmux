@@ -653,3 +653,5 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 t
 
 - Motion-only continuation of #28205, with placement decision paused in #27786. Leo: "but what is the desired behaviiour? do we know? we can pause on it, but at least unfuck the animation idk". Existing rows snap to final slots; only the inserted row fades and its chosen icon grows/fades after attachment. Top placement stays unchanged. Frame tests require every existing row in every sample, full visibility, stationary rows above, and final geometry below. The gallery draws icons at 2x in light and dark.
+
+- Exact-head Astra review correction: icon entrance and reuse retain the configured opacity (including archived dimming), and animation proofs require an awake display. No placement or motion-default change in this correction.

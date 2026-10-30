@@ -89,13 +89,14 @@ final class SidebarIconView: NSView {
     /// they scroll into realization or during a nonanimated reload.
     func animateEntrance(spring: MotionSpring) {
         guard let layer, window != nil else { return }
+        let targetOpacity = Float(alphaValue)
         layer.removeAnimation(forKey: "workspace-icon-scale")
         layer.removeAnimation(forKey: "workspace-icon-opacity")
         guard Motion.sidebar.animates(.newWorkspace), Motion.sidebar.animatesMovement,
               Motion.canAnimate(in: self) else {
             Motion.withoutAnimation {
                 layer.transform = CATransform3DIdentity
-                layer.opacity = 1
+                layer.opacity = targetOpacity
             }
             return
         }
@@ -104,7 +105,7 @@ final class SidebarIconView: NSView {
             layer.opacity = 0
         }
         _ = Motion.sidebar.set(layer, "transform.scale", to: 1.0, spring: spring, from: 0.72)
-        _ = Motion.sidebar.set(layer, "opacity", to: 1.0, spring: spring, from: 0.0)
+        _ = Motion.sidebar.set(layer, "opacity", to: targetOpacity, spring: spring, from: 0.0)
         if let scale = layer.animation(forKey: "transform.scale") {
             layer.removeAnimation(forKey: "transform.scale")
             layer.add(scale, forKey: "workspace-icon-scale")
@@ -121,7 +122,7 @@ final class SidebarIconView: NSView {
         layer?.removeAnimation(forKey: "workspace-icon-opacity")
         Motion.withoutAnimation {
             layer?.transform = CATransform3DIdentity
-            layer?.opacity = 1
+            layer?.opacity = Float(alphaValue)
         }
     }
 

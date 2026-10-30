@@ -70,7 +70,9 @@ struct WorkspaceRowInsertionFramesTests {
         })
     }
 
-    @Test(arguments: Placement.allCases)
+    @Test(.enabled("needs an awake display for per-frame evidence") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    }, arguments: Placement.allCases)
     func everyDisplayFrameKeepsExistingRowsVisibleAndAtTheirFinalSlot(_ placement: Placement) throws {
         let initial = [1, 2, 3, 4, 5, 6]
         let (model, list, _, restore) = try Self.sidebar(initial)

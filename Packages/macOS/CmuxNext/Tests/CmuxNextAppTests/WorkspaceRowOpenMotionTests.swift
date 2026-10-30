@@ -29,7 +29,9 @@ struct WorkspaceRowOpenMotionTests {
             + (layer.sublayers ?? []).flatMap { animations(under: $0) }
     }
 
-    @Test(arguments: [false, true])
+    @Test(.enabled("needs an awake display and animations on") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    }, arguments: [false, true])
     func aNewWorkspaceIconGrowsAndFadesInUnlessMotionIsReduced(reduceMotion: Bool) throws {
         let model = SidebarModel(sections: Self.sections(nil, includeSecond: false))
         let sidebar = Self.sidebar(model)
@@ -75,4 +77,15 @@ struct WorkspaceRowOpenMotionTests {
         #expect(row.icon.layer?.opacity == 1)
         #expect(row.icon.layer?.transform.m11 == 1)
     }
+
+    @Test func reusingAnArchivedWorkspaceKeepsItsIconDimmed() {
+        let key = SidebarRowKey.workspace(WorkspaceID("archived"))
+        let row = WorkspaceRowView(key: key)
+        row.icon.configure(icon: .symbol("star", tint: nil))
+        row.icon.alphaValue = SidebarStyle.archivedAlpha
+        row.prepareForReuse(key: key)
+        #expect(abs((row.icon.layer?.opacity ?? 0) - Float(SidebarStyle.archivedAlpha)) < 0.001)
+        #expect(row.icon.alphaValue == SidebarStyle.archivedAlpha)
+    }
+
 }
