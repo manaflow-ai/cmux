@@ -120,7 +120,7 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
                                          for key, value in old_sections.items()
                                          if key != SECTION)
                 if publication_lost or other_section_lost:
-                    return legacy_publish(repo, number, line, snapshot, pause)
+                    return legacy_publish(repo, number, line, snapshot, pause, text)
             for method, path, payload in writes:
                 status_api(method, path, payload)
                 time.sleep(pause)
@@ -132,21 +132,31 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
             # reports no write even though this publication was lost. Keep a
             # standalone legacy comment as the lossless overflow path.
             if not has_publication_line(snapshot, line):
-                return legacy_publish(repo, number, line, snapshot, pause)
+                return legacy_publish(repo, number, line, snapshot, pause, text)
             return did
     return did + " (unconfirmed: another writer kept replacing the comment)"
 
 
-def legacy_publish(repo: str, number: int, line: str, comments: list[dict], pause: float) -> str:
+def legacy_publish(repo: str, number: int, line: str, comments: list[dict], pause: float,
+                   history: str = "") -> str:
     """Lossless fallback when the shared status comment has no room for all builds."""
+    lines = [item for item in history.splitlines() if item.startswith("- ")]
+    if line not in lines:
+        lines.append(line)
     old = pr_status.bot_comments(comments, MARKER)
     if old:
-        body = updated_body(old[0]["body"], line)
-        if body is None:
+        body = old[0]["body"]
+        changed = False
+        for item in lines:
+            updated = updated_body(body, item)
+            if updated is not None:
+                body, changed = updated, True
+        if not changed:
             return "unchanged"
         status_api("PATCH", f"repos/{repo}/issues/comments/{old[0]['id']}", {"body": body})
     else:
-        status_api("POST", f"repos/{repo}/issues/{number}/comments", {"body": updated_body(None, line)})
+        body = f"{MARKER}\nShipped in:\n" + "\n".join(lines) + "\n"
+        status_api("POST", f"repos/{repo}/issues/{number}/comments", {"body": body})
     time.sleep(pause)
     return "written"
 

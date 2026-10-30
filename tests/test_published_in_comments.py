@@ -167,6 +167,32 @@ class PublishedInTests(unittest.TestCase):
         self.assertEqual([method for method, _, _ in calls], ["GET", "POST"])
         self.assertIn(new, calls[-1][2]["body"])
 
+    def test_overflow_fallback_keeps_accumulated_publication_history(self):
+        history = [module.build_line(f"v{i}", f"https://x/{i}", str(i) * 40) for i in range(30)]
+        new = module.build_line("v30", "https://x/30", "3" * 40)
+        comments = [{
+            "id": 1,
+            "body": module.pr_status.render({
+                "tour": "x" * 70000,
+                "published": "Shipped in:\n" + "\n".join(history),
+            }),
+            "user": {"login": "github-actions[bot]"},
+        }]
+        calls = []
+
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments
+
+        # Simulate a concurrent status overwrite that leaves plan() with no
+        # write while the accumulated publication text still has all history.
+        with patch.object(module.pr_status, "plan", return_value=[]), \
+             patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
+        fallback = calls[-1][2]["body"]
+        self.assertTrue(all(item in fallback for item in history + [new]))
+
     def test_duplicate_legacy_is_deleted_when_status_already_has_line(self):
         line = module.build_line("v1", "https://x/v1", "a" * 40)
         comments = [
