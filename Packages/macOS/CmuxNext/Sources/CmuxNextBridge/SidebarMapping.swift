@@ -67,7 +67,6 @@ public struct SidebarMapping {
                                 tabTitle: ((TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
-                                autoNamesWorkspaces: Bool? = nil,
                                 rowSource: RowSource? = nil,
                                 workspaceFilter: (WorkspaceModel) -> Bool = { _ in true },
                                 harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
@@ -83,7 +82,7 @@ public struct SidebarMapping {
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
                                      newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle,
-                                     notificationText: notificationText, iconAsset: iconAsset, autoNamesWorkspaces: autoNamesWorkspaces, harnessIcons: harnessIcons()) }
+                                     notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons()) }
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
                 }
             if let group = section.group {
@@ -116,14 +115,11 @@ public struct SidebarMapping {
     /// `muted`: the workspace is in `notifications.mutedWorkspaces`. `notificationText` is the
     /// text of a tab's unread notification (`DaemonStore.notificationText(for:)`).
     /// `iconAsset` draws a stored image or SVG icon, as in `sections`.
-    /// `autoNamesWorkspaces` defaults to the live `workspaces.autoName` setting. Reading it
-    /// here lets the row feed observe changes, including rows projected into the pinned band.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil },
-                    autoNamesWorkspaces: Bool? = nil,
                     harnessIcons: HarnessIconLookup = .none) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
@@ -209,31 +205,6 @@ public struct SidebarMapping {
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs, harnessIcons: harnessIcons), front: front,
                             notification: row.notificationText)
-        // Agent-session workspaces use the chat's readable title or a short task summary before
-        // the daemon's lane/session id. The routing name is never the row's best title.
-        // Title metadata follows the session identity rather than the branding filter used by
-        // the row's icon/status mark. BYO and newly added harnesses still get readable titles.
-        if autoNamesWorkspaces ?? DesignSettings.shared.sidebarSections.autoNamesWorkspaces,
-           let face, let ref = face.agentSession {
-            let turns = AgentTurnStateStore.shared
-            // Resolve every title and task fact from the same front chat. A branded working
-            // agent in another tab must not lend its prompt to this row.
-            let prompt = turns.detail(for: ref)?.prompt ?? face.agent?.lastPrompt
-            let taskSummary = prompt.flatMap { prompt in
-                prompt.split(whereSeparator: \.isNewline).lazy.compactMap { line -> String? in
-                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard trimmed.lowercased().hasPrefix("title:") else { return nil }
-                    let value = trimmed.dropFirst("title:".count).trimmingCharacters(in: .whitespacesAndNewlines)
-                    return value.isEmpty ? nil : String(value)
-                }.first
-            }
-            let agent = face
-            row.title = Self.agentRowTitle(workspaceTitle: row.title, workspaceName: workspace.name,
-                                           workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
-                                           explicitWorkspaceTitle: workspace.title, sessionName: ref.session,
-                                           chatTitle: turns.generatedTitle(for: ref), explicitChatTitle: agent.name,
-                                           taskSummary: taskSummary)
-        }
         return row
     }
 
