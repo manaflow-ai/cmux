@@ -173,18 +173,22 @@ def summary_entry(subject):
 
 # PR bodies are read only while the release is cut. The same deterministic extraction is used for
 # every nightly: an explicit Changelog line wins, then the first prose in Summary, then the title.
-CHANGELOG_LINE = re.compile(r"^(?:[-*+]\s*)?(?:Added|Changed|Fixed|Removed)\s*:\s*(?P<text>.+?)\s*$", re.I)
+CHANGELOG_LINE = re.compile(r"^(?:[-*+]\s*)?(?:Added|Changed|Fixed|Removed)\s*:\s*(?P<text>.*?)\s*$", re.I)
 HEADING = re.compile(r"^#{1,6}\s*(?P<name>[^#].*?)\s*#*\s*$")
 MARKDOWN_LINK = re.compile(r"\[([^]]+)\]\([^)]*\)")
 MARKDOWN_LINK_URL = re.compile(r"\[([^]]+)\]\(([^)\s]+)\)")
 INLINE_MARKUP = re.compile(r"[`*_~]")
 HTML_COMMENT = re.compile(r"<!--.*?(?:-->|$)", re.S)
-PUBLIC_URL = re.compile(r"https?://(?:www\.)?(?:github\.com/manaflow-ai(?:/|$)|cmux\.com(?:/|$))", re.I)
+# Only known public destinations are stripped to their labels; an org can also own private repos.
+PUBLIC_URL = re.compile(r"https?://(?:www\.)?(?:github\.com/manaflow-ai/cmux(?:/|$)|cmux\.com(?:/|$))", re.I)
+PUBLIC_PROSE = re.compile(r"(?:[^\W_]|[\s.,!?…。！？:;'\"“”‘’«»()—–+*`~%\-])+")
 UNSAFE_DESCRIPTION = re.compile(
     r"(?:\b(?:https?|file|ssh|git|ftp)://|(?<!\w)//|deeplink/agent|\b(?:aid-[a-z0-9-]{8,}|"
     r"(?:session|agent)[_-](?:id[_-])?[a-z0-9_-]{8,}|[a-f0-9]{16,}|"
     r"[0-9a-f]{8}-[0-9a-f-]{17,})\b|"
     r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b|"
+    r"\b\d{1,3}(?:\.\d{1,3}){3}\b|"
+    r"\b(?:cmux-platform|cmux-lawrence|cmux\d+|blacksmith)\b|"
     r"\b(?:cmux\d+s?-|gcp-|aws-|austin-|cosmic-|air-|big-|huge-|blacksmith)[a-z0-9-]+\b)",
     re.I,
 )
@@ -236,8 +240,8 @@ def _safe_description(text):
         if not PUBLIC_URL.match(url):
             return False
     prose = MARKDOWN_LINK_URL.sub(r"\1", text)
-    return (bool(prose) and not UNSAFE_DESCRIPTION.search(prose)
-            and not any(pattern.search(text) for pattern, _ in validate.INTERNAL))
+    return (bool(PUBLIC_PROSE.fullmatch(prose)) and not UNSAFE_DESCRIPTION.search(prose)
+            and not any(pattern.search(prose) for pattern, _ in validate.INTERNAL))
 
 
 def _validated_description(text):
@@ -261,6 +265,8 @@ def _candidate_description(text):
 
 
 def _plain_line(text):
+    if not _safe_description(text):
+        return ""
     text = MARKDOWN_LINK.sub(r"\1", text)
     text = INLINE_MARKUP.sub("", text)
     text = re.sub(r"\s+", " ", text).strip(" -")
@@ -292,6 +298,8 @@ def pr_description(body, fallback=""):
             continue
         if section == "changelog":
             line = line.lstrip("-*+ ")
+            if DESCRIPTION_PLACEHOLDER.fullmatch(line):
+                return fallback
             match = CHANGELOG_LINE.match(line)
             if match:
                 description = _candidate_description(match["text"])
@@ -611,6 +619,9 @@ def summary_whats_new_digest(args, lines):
                  "summary": {"en": sentence(description or (title_tail(full, title) if title != full else full))},
                  "platforms": ["macos"], "audience": "all", "docs": "https://cmux.com/docs/changelog"}
         problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
+        if problems:
+            entry["summary"] = {"en": sentence(title)}
+            problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
         if problems:
             print(f"whats-new summary: dropped {entry['id']}:\n" + "\n".join(problems), file=sys.stderr)
             continue

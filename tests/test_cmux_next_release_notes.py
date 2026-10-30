@@ -41,7 +41,6 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(
             notes.pr_description("## Summary\n\nTabs restore e.g. pinned panes after restart."),
             "Tabs restore e.g. pinned panes after restart.",
-            "Tabs restore e.g. pinned panes etc. after restart.",
         )
         self.assertEqual(
             notes.pr_description("## Summary\n\nChoose “Keep tabs.” after restart."),
@@ -86,6 +85,9 @@ class ReleaseNotesTests(unittest.TestCase):
         for text in (
             "Tabs restore e.g. pinned panes after restart.",
             "Tabs restore i.e. reopen after restart.",
+            "Tabs restore e.g. pinned panes etc. after restart.",
+            "Tabs restore e.g. pinned panes, i.e. saved panes, etc. after restart.",
+            "'Tabs stay put.'",
             '"Tabs stay put."',
             "“Tabs stay put.”",
             'Choose "Keep tabs." after restart.',
@@ -112,10 +114,13 @@ class ReleaseNotesTests(unittest.TestCase):
             "See //10.0.0.1/private for details.",
             "See [the run](https://private.example/run) for details.",
             "The value is session_id_abcdefghij.",
+            "See [the run](https://cmux.com.private.example/run) for details.",
+            "See [the run](https://github.com/manaflow-ai-private/cmux) for details.",
         )
         for text in unsafe:
-            with self.subTest(text=text):
-                self.assertEqual(notes.pr_description("## Summary\n" + text, "Tabs stay put"), "Tabs stay put.")
+            for prefix in ("## Summary\n", "## Changelog\nFixed: "):
+                with self.subTest(text=text, prefix=prefix):
+                    self.assertEqual(notes.pr_description(prefix + text, "Tabs stay put"), "Tabs stay put.")
 
     def test_public_links_remain_allowed(self):
         import importlib.util
@@ -183,7 +188,7 @@ class ReleaseNotesTests(unittest.TestCase):
         fixture = os.path.join(self.repo, "pr-fixture.json")
         with open(fixture, "w") as out:
             json.dump({"bodies": {
-                "123": "<!-- generated -->\n## Changelog\n\nFixed: [Tabs](https://example.test/tabs) keep their position after restart. More detail. Even more detail.",
+                "123": "<!-- generated -->\n## Changelog\n\nFixed: [Tabs](https://cmux.com/tabs) keep their position after restart. More detail. Even more detail.",
                 "124": "## Summary\n\nInternal database cutoff plumbing.",
             }, "files": {}}, out)
         notes_dir = os.path.join(self.repo, "pr-notes")
@@ -214,7 +219,11 @@ class ReleaseNotesTests(unittest.TestCase):
         invalid += [
             "- fix: keep tabs in place",  # Plain copy is still a commit subject after stripping the bullet.
             "- fix(tabs): keep tabs in place",
-            "Tabs restore e.g. pinned panes, i.e. saved panes, etc. after restart.",
+            "Fixed: none", "Fixed: N/A", "Fixed: n/a", "Fixed:", "N/A", "Summary: N/A",
+            "The run is on cmux12s-mac-mini.",
+            "See //10.0.0.1/private for details.",
+            "See [the run](https://private.example/run) for details.",
+            "The value is session_id_abcdefghij.",
         ]
         for description in invalid:
             for section in ("## Summary\n", "## Changelog\nFixed: "):

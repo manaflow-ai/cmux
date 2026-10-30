@@ -88,6 +88,20 @@ class ValidateTests(unittest.TestCase):
         document["entries"][0]["summary"]["en"] = "One. Two. Three."
         self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document), "more than 2 sentences")
 
+    def test_summary_quotes_abbreviations_and_ellipses(self):
+        for text in (
+            "'Tabs stay put.'",
+            "Tabs restore e.g. pinned panes etc. after restart.",
+            "Tabs wait... then restore after restart.",
+        ):
+            with self.subTest(text=text):
+                document = nightly_document()
+                document["entries"][0]["summary"]["en"] = text
+                self.assertEqual(validate.validate_document("1.0.0-nightly.42.json", document), [])
+        document = nightly_document()
+        document["entries"][0]["summary"]["en"] = "'One.' 'Two.' 'Three.'"
+        self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document), "more than 2 sentences")
+
     def test_length_limits(self):
         document = nightly_document()
         document["entries"][0]["title"]["en"] = "x" * 61

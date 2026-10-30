@@ -62,7 +62,7 @@ INTERNAL = [
     (re.compile(r"\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){2,}\b"), "a decision codename"),
     (re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum)\b", re.I), "a placeholder"),
 ]
-SENTENCE_END = re.compile(r"[.!?。！？](?=\s|$)")
+SENTENCE_END = re.compile(r"[.!?。！？](?=[)'\"”’»]*\s|[)'\"”’»]*$)")
 ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
 # Conductor-quality notes (2026-10-20): text written for people, never a commit subject such as
 # "fix(sidebar): ..." or "sidebar: ...". See release-notes/next/WRITING.md.
@@ -75,7 +75,8 @@ def sentence_end_count(text):
     count = 0
     for match in SENTENCE_END.finditer(text):
         index = match.start()
-        if (index and text[index - 1] == ".") or (index + 1 < len(text) and text[index + 1] == "."):
+        if text[index] == "." and ((index and text[index - 1] == ".") or
+                                   (index + 1 < len(text) and text[index + 1] == ".")):
             continue
         if ABBREVIATED_SENTENCE.search(text[:index + 1]):
             continue
