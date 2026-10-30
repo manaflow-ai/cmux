@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -168,6 +169,25 @@ import Testing
         services.daemon.store.apply(snapshot: Self.tree(left: [Self.home], right: [Self.link]))
         #expect(Self.listed(pane) == [Self.home])
         #expect(OutboundTab.count(in: pane) == 0, "the hold outlived the tab's departure")
+    }
+
+    /// Review of #27789 at 28ad8d1c: an unfocused subagent's tab (a third or later, a tab in the right
+    /// column, AgentTabs.selectInPane) used selectWhenReported, which a script run that may not change
+    /// the view refuses, so the tab stayed hidden behind the one shown. The keep-focus path shows it in
+    /// every run and moves no keyboard focus: the chat keeps it.
+    @Test func anUnfocusedSubagentsTabIsShownWithoutTheRunsViewPermission() throws {
+        let (services, pane, state) = try Self.pane()
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        services.daemon.store.apply(snapshot: Self.tree(left: [Self.home, Self.link]))
+        let home = try #require(pane.pane.tabs.first { $0.surface == Self.home })
+        let link = try #require(pane.pane.tabs.first { $0.surface == Self.link })
+        pane.selectWhenReportedKeepingFocus(surface: Self.home)
+        #expect(pane.stripModel.selectedID?.rawValue == home.id)
+        let script = ActionRunScope(origin: .script, allowsViewChange: false)
+        ActionRunScope.$current.withValue(script) { pane.selectWhenReported(surface: Self.link) }
+        #expect(pane.stripModel.selectedID?.rawValue == home.id, "fixture: the old path selects nothing in such a run")
+        ActionRunScope.$current.withValue(script) { pane.selectWhenReportedKeepingFocus(surface: Self.link) }
+        #expect(pane.stripModel.selectedID?.rawValue == link.id, "the unfocused subagent's tab stayed hidden")
     }
 
     /// An open refused at once, or a move cancelled before it named its tab, holds nothing.
