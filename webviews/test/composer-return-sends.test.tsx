@@ -499,6 +499,32 @@ for (const outcome of ["resolve", "reject", "edited"] as const) {
   });
 }
 
+// Review of #26545 at 02c58d02: the command cancels a file still being read, and its loading node
+// then leaves the text. That is no edit of the person's: the command's success still clears the draft.
+test("an asynchronous owned command with a file still being read clears its draft when it succeeds", async () => {
+  let settle!: () => void;
+  const accepted = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const page = await composer(chat(), "/continue codex", () => accepted);
+  const file = new File([PNG], "pending.png", { type: "image/png" });
+  Object.defineProperty(file, "arrayBuffer", { value: () => new Promise<ArrayBuffer>(() => {}) });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  expect(host.querySelector(LOADING)).not.toBeNull();
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  // The loading node goes once its read is cancelled.
+  for (let turn = 0; turn < 5 && host.querySelector(LOADING); turn += 1)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector(LOADING)).toBeNull();
+  await act(async () => settle());
+  expect(page.field.textContent).toBe("");
+  expect(page.sent).toEqual([]);
+});
+
 test("Return after Dictation (keyCode 229, no composition) steers the running turn, never adds a line", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   // Dictation's text came in and its composition ended a while ago; then Return.

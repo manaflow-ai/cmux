@@ -1141,7 +1141,11 @@ export function Composer({
           return false;
         }
         if (accepted instanceof Promise) {
-          const written = field.current?.value() ?? "";
+          // The draft as the command took it, without the places of the reads it cancels: their
+          // nodes leave the text after this (inlineAttachments.tsx), which is no edit of the person's.
+          const dropped = new Set(pending.map((item) => item.id));
+          const asTaken = (value: string) => withoutInlineTokens(value, (id) => dropped.has(id));
+          const written = asTaken(field.current?.value() ?? "");
           holdForAttachments.cancel();
           // Accepted commands consume staged files before their async work starts. A pending read
           // must not leak into the next prompt while the command waits.
@@ -1155,7 +1159,7 @@ export function Composer({
           accepted.then(
             () => {
               sending.current = false;
-              if (field.current?.value() === written) edit("", 0);
+              if (asTaken(field.current?.value() ?? "") === written) edit("", 0);
               sentAt.current = Date.now();
             },
             () => {
