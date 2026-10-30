@@ -109,7 +109,9 @@ lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `st
 WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
 sub-sessions and sessions with only a generated name are hidden and counted on the last line;
 `--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
-adds AGENT, STATUS and LAST (the last prompt). A peer whose link is down never drops out: its
+adds AGENT, STATUS, the usage columns (LAUNCHER, autocompact CAP, CTX, CMP compactions, SUBS
+live/started, TOK24H, $24H; `?` when acpmux could not read one, never 0) and LAST (the last
+prompt). A peer whose link is down never drops out: its
 rows read `unknown`, and an `UNKNOWN <peer>` line says its sessions are last known. Scripts
 read `acpmux --json ls`, which is the daemon's rows, unchanged.
 
@@ -344,7 +346,7 @@ acpmux session queue list NAME                                # one row per queu
 acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
 acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
-acpmux ls --all --wide                                        # every session, every column
+acpmux ls --all --wide                                        # every session, every column (with usage)
 acpmux ls --live --host cosmic-gray                           # filters, text and --json alike (--host local: this machine)
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
@@ -454,6 +456,8 @@ and printing the title; env `ACPMUX_TITLE_COMMAND` wins) makes it; unset, `_acpm
 uses the harness's cheap model (Haiku for Claude, a small Codex model where available)
 with no tools, MCP or session file. A harness or manual title always wins, a chat titled
 before this (or adopted) keeps its title, and `titles.generate: false` turns it off.
+A chat started under a name (`acpmux new -n`, a lane) is titled the same way and keeps
+its name; only a rename before a title settles stops the request.
 The daemon logs the title model, elapsed time, and estimated input/output token cost for
 each generated title.
 
