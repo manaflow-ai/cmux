@@ -95,7 +95,12 @@ pub(crate) fn run<C: ControlPlane>(
             if let Some(token) = open_token {
                 server.request_frame_link(&carrier, token);
             }
-            Ok(carrier_json(&carrier))
+            // The owner answer of this link: the connect_info read for it
+            // (the info cache drops it when the link goes down or is
+            // revoked, and on sign-out). A failed read is not the owner.
+            let owns =
+                super::info::connect_info(server, &id).is_ok_and(|info| info.caller_owns_vm());
+            Ok(carrier_json(&carrier, owns))
         }
         DISCONNECT => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?;
@@ -109,7 +114,7 @@ pub(crate) fn run<C: ControlPlane>(
     }
 }
 
-fn carrier_json(carrier: &Carrier) -> Value {
+fn carrier_json(carrier: &Carrier, owns: bool) -> Value {
     json!({
         "machine": carrier.target,
         "carrier": carrier.id,
@@ -118,6 +123,7 @@ fn carrier_json(carrier: &Carrier) -> Value {
         // TODO(fd passing): the supervisor passes a socketpair fd once the app
         // host can; until then the client dials the link's local socket.
         "socket": carrier.socket.to_string_lossy(),
+        "vm_kind": if owns { "owner" } else { "team" },
     })
 }
 
