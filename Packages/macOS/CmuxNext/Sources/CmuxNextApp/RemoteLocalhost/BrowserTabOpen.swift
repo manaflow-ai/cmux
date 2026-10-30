@@ -181,9 +181,10 @@ extension BrowserTabOpen {
 extension BrowserTabOpen {
     /// Asks the Cloud app server for `machine`'s browser route again (#25595): ``CloudBrowserRoute``
     /// calls it when the route a tab had is gone (the link dropped or was replaced) and on the first
-    /// request of a tab restored after a relaunch. Only for a machine on the app server's link that
-    /// runs: `cloud.browser.open` connects the link, which would start a paused machine, and a page
-    /// must never do that. Each answer gets the checks of a page's request, for this machine.
+    /// request of a tab restored after a relaunch. Only for a machine with a connected daemon on
+    /// the app server's link: `cloud.browser.open` connects the link, which would start a paused
+    /// machine, and a page must never do that. Each answer gets the checks of a page's request,
+    /// for this machine.
     static func refetch(machine: String, name: String, services: AppServices) -> CloudBrowserRoute.Fetch {
         let ops = services.cloud.appOps
         return { [weak services] host, port in
@@ -206,10 +207,10 @@ extension BrowserTabOpen {
         }
     }
 
-    /// Whether a page may ask for its machine's route: the machine's record says it runs, or its
-    /// daemon is connected (a click resumed it and the record still reads paused until the next
-    /// list). Neither: the machine is paused or gone, and asking would start it.
-    nonisolated static func mayRefetch(live: Bool, connected: Bool) -> Bool { live || connected }
+    /// Only a connected daemon permits a page to ask for its route. The machine record can still
+    /// say running after idle pause, or paused after a click resumes it; neither is authoritative
+    /// for a background request that must never start the VM.
+    nonisolated static func mayRefetch(live _: Bool, connected: Bool) -> Bool { connected }
 
     /// The store of a proxied tab restored after a relaunch (``ProxiedBrowserTabs/restore``): its
     /// machine's route is fetched on the page's first request, once the machine is listed, linked
