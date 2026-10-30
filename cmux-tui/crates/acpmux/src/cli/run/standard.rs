@@ -76,7 +76,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags } => {
+        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags, harness_from } => {
             orchestrate::ensure(
                 connect(true).await?,
                 &name,
@@ -87,6 +87,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 policy,
                 effort,
                 tags,
+                harness_from,
                 json_out,
             )
             .await
@@ -444,6 +445,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
+            launch::successor_meta(&args, &mut meta);
             meta["argv"] = json!(crate::cli::entry::original_args());
             if let Some(prompt) = &launch.file_prompt {
                 meta["promptFileText"] = json!(prompt);
@@ -536,12 +538,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // legitimately return the same raw id as a local session; using the raw id
             // here would send prompts, info and lifecycle controls to the local chat.
             let route_id = id.as_str();
-            // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
-            if reused.is_none()
-                && let Some(w) =
-                    v.pointer("/_meta/acpmux/admission/warning").and_then(Value::as_str)
-            {
-                eprintln!("acpmux: warning: {w}");
+            if reused.is_none() {
+                launch::print_new_warnings(&v);
             }
             let name = v
                 .pointer("/_meta/acpmux/name")

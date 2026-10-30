@@ -534,6 +534,7 @@ pub(crate) async fn ensure(
     policy: Option<String>,
     effort: Option<String>,
     tags: Vec<String>,
+    harness_from: Option<String>,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -578,6 +579,9 @@ pub(crate) async fn ensure(
             if !tags.as_object().is_none_or(|m| m.is_empty()) {
                 meta["tags"] = tags;
             }
+            if let Some(p) = &harness_from {
+                meta[crate::hub::lineage::successor::HARNESS_FROM_FIELD] = json!(p);
+            }
             meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             match (&host, cwd) {
@@ -586,6 +590,7 @@ pub(crate) async fn ensure(
                 (None, c) => p["cwd"] = json!(c.unwrap_or(std::env::current_dir()?)),
             }
             let v = client.request(method::SESSION_NEW, p).await?;
+            crate::cli::run::launch::print_new_warnings(&v);
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             (client.request(method::MUX_INFO, json!({"sessionId": id})).await?, true)
         }

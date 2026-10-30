@@ -43,9 +43,8 @@ async fn start(c: &mut TestClient, meta: Value) -> Result<Value, String> {
 #[tokio::test]
 async fn a_bare_default_successor_of_a_named_profile_is_refused() {
     let (_hub, mut c) = setup_profiles().await;
-    start(&mut c, json!({"name": "dep-fleet", "harness": "fake-sr2", "tags": {"area": "fleet"}}))
-        .await
-        .unwrap();
+    let tags = json!({"area": "fleet", "role": "deputy"});
+    start(&mut c, json!({"name": "dep-fleet", "harness": "fake-sr2", "tags": tags})).await.unwrap();
     // Tonight's relaunch: only area and role tags, no -m.
     for meta in [
         json!({"name": "dep-fleet-2", "tags": {"area": "fleet", "role": "deputy"}}),
@@ -58,6 +57,12 @@ async fn a_bare_default_successor_of_a_named_profile_is_refused() {
         assert!(err.contains("ran fake-sr2"), "{meta}: {err}");
         assert!(err.contains("--harness-from dep-fleet"), "{meta}: {err}");
     }
+    // The same area alone is a sibling (a coordinator's helpers share one), not a successor:
+    // made on the default, with a warning.
+    let s =
+        start(&mut c, json!({"name": "fleet-helper", "tags": {"area": "fleet"}})).await.unwrap();
+    assert_eq!(s["_meta"]["acpmux"]["harness"], "fake", "{s}");
+    assert_eq!(s["_meta"]["acpmux"]["successor"]["via"], "area=fleet", "{s}");
     // `-m fake` starts on the default on purpose: made, with a warning.
     let s =
         start(&mut c, json!({"name": "dep-fleet-2", "harness": "fake", "tags": {"area": "fleet"}}))
