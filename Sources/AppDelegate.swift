@@ -15675,9 +15675,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Focused browser web content owns document-editing command equivalents
-        // (copy/cut/select-all/italic). Yield them so e.g. Cmd+I italicizes in web
-        // writing apps (Notion, Google Docs, …) instead of opening Show
-        // Notifications. This special-cases only the editing collision: the action
+        // (copy/cut/paste/select-all/bold/italic/underline/link). Yield them so e.g.
+        // Cmd+I italicizes and Cmd+B bolds in web writing apps (Notion, Google
+        // Docs, Gmail, …) instead of opening Show Notifications or toggling the
+        // sidebar (issues #6776, #27619). This special-cases only the editing collision: the action
         // stays generally available, so non-colliding custom bindings (e.g.
         // Cmd+Shift+I) still open notifications from a browser pane. Gated to the
         // actual web view owning first responder — not just the browser being the

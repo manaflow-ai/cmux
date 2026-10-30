@@ -841,6 +841,9 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case paste
     case selectAll
     case italic
+    case bold
+    case underline
+    case insertLink
 
     var shortcut: StoredShortcut {
         switch self {
@@ -892,6 +895,37 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 34
+            )
+        case .bold:
+            // Cmd+B is Bold in Google Docs, Gmail, Notion and Slack. Chrome gives the
+            // page this key before its own menus; cmux does the same, and Toggle
+            // Sidebar runs through the main-menu fallback only when the page leaves
+            // the key unhandled (issue #27619).
+            return StoredShortcut(
+                key: "b",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 11
+            )
+        case .underline:
+            return StoredShortcut(
+                key: "u",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 32
+            )
+        case .insertLink:
+            return StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 40
             )
         }
     }
