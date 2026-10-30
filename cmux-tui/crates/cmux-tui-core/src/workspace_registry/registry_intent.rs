@@ -191,6 +191,16 @@ impl RegistryConnection {
         self.intent_sink.get().filter(|sink| sink.accepts())
     }
 
+    /// Keep an indeterminate receipt, as a request that gave up on it does.
+    #[cfg(test)]
+    pub(crate) fn hold_unsettled_for_test(
+        &self,
+        pending: PendingRegistryReceipt,
+        settle: Option<SettleState>,
+    ) {
+        self.hold_unsettled(pending, settle);
+    }
+
     fn hold_unsettled(&self, pending: PendingRegistryReceipt, settle: Option<SettleState>) {
         self.unsettled
             .lock()
