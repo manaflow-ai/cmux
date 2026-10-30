@@ -40,7 +40,7 @@ struct ChiefCallsPage: View {
             } header: {
                 Text("OpenAI API key")
             } footer: {
-                Text("OpenAI bills your account. Your key stays in this iPhone's Keychain.")
+                Text("Calls go from this iPhone straight to OpenAI with your key, and OpenAI bills your account. The key stays in this iPhone’s Keychain, for this cmux account only.")
             }
 
             if keys.hasKey, !replacing, let callChief {

@@ -349,8 +349,10 @@ extension LiveCoordinator {
 
     /// Retry the Mac represented by the global connection banner.
     public func retryConnection() {
-        if store.isOffline || focused.link.phase == .macOffline || focused === idleSession { retry() }
-        else { retry(macID: focused.macID) }
+        guard !store.isOffline, let macID = banner?.identity else { retry(); return }
+        // An offline Mac needs refreshed discovery, not a dial of stale presence.
+        if sessions[macID]?.link.phase == .macOffline { retry(); return }
+        retry(macID: macID)
     }
 
     /// Retry for a Mac (the Workspaces Retry and Reconnect): pairs the link
