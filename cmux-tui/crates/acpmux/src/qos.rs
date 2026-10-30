@@ -127,6 +127,8 @@ pub fn background<T>(work: impl FnOnce() -> T) -> T {
 pub(crate) fn clamp_setter() -> Option<imp::ClampFn> {
     imp::clamp_fn()
 }
+#[cfg(target_os = "macos")]
+pub(crate) use imp::POSIX_SPAWN_SETEXEC;
 
 /// The argv and environment an in-place re-exec runs with: this process's
 /// own, plus [`CLAMPED_ENV`], so the new image does not do it again.
@@ -148,7 +150,8 @@ mod imp {
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_THREAD: libc::c_int = 3;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
-    const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
+    /// `POSIX_SPAWN_SETEXEC`: posix_spawn replaces the calling process, as execve does.
+    pub(crate) const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
     /// `POSIX_SPAWN_PROC_CLAMP_UTILITY` (spawn_private.h): the clamp takes its own small
     /// numbers, not a `qos_class_t` (0x11 is accepted and does nothing; a fleet-mini probe).
     const POSIX_SPAWN_PROC_CLAMP_UTILITY: u64 = 1;

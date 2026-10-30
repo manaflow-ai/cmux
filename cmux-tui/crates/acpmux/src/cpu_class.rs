@@ -32,7 +32,9 @@ pub enum CpuClass {
     /// The daemon's own class: nothing changes at spawn.
     #[default]
     Normal,
-    /// `PRIO_DARWIN_BG` on macOS.
+    /// macOS: the posix_spawn QoS clamp at background, set at the harness's exec (the harness and
+    /// everything it starts at background priority); `PRIO_DARWIN_BG` only where this macOS has
+    /// no clamp setter.
     Background,
 }
 
@@ -89,19 +91,25 @@ impl CpuClass {
         #[cfg(target_os = "macos")]
         if self == Self::Background {
             match ClampedExec::new(cmd.as_std(), env) {
-                // SAFETY: the hook runs in the child between fork and exec, where std would call
-                // execvp next; it calls posix_spawn with SETEXEC in its place, with every
-                // argument built before the fork. libsystem's posix_spawn (xnu
-                // libsyscall/wrappers/spawn/posix_spawn.c) fills a stack descriptor and makes the
-                // __posix_spawn syscall: no allocation, no lock, the same as its execve wrapper
-                // (both consult only a filter hook that is NULL on customer installs). It
-                // returns only the call's error.
+                // SAFETY: the hook runs in the forked child of a multithreaded process, where
+                // std would call execvp next; it calls posix_spawn with SETEXEC in its place,
+                // every argument built before the fork. Apple does NOT document posix_spawn as
+                // async-signal-safe, so this rests on its implementation, not on a contract. Read
+                // in xnu libsyscall/wrappers/spawn/posix_spawn.c (apple-oss-distributions/xnu
+                // main, 2026-10-30): it fills a descriptor on the stack, reads only attribute
+                // pointers ours leaves NULL, consults `posix_spawn_with_filter` ("always NULL on
+                // customer installs"), then makes the __posix_spawn syscall: no allocation, no
+                // lock, as its execve wrapper (same filter check), which std calls here anyway.
+                // Accepted because the alternative, a posix_spawn in the parent, loses the cwd
+                // pin check and tokio's `Child` (#28442). It returns only the call's error.
                 Some(exec) => unsafe {
                     cmd.pre_exec(move || Err(exec.exec()));
                 },
-                // No clamp setter on this macOS: the harness is lowered as before.
+                // No clamp setter on this macOS (every supported macOS has it): the harness is
+                // lowered as before, with its exec throttled.
                 // SAFETY: one setpriority(2) call on itself: async-signal-safe.
                 None => unsafe {
+                    note_no_clamp();
                     cmd.pre_exec(|| {
                         libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG);
                         Ok(())
@@ -122,13 +130,25 @@ const PRIO_DARWIN_BG: libc::c_int = 0x1000;
 /// `POSIX_SPAWN_PROC_CLAMP_BACKGROUND` (spawn_private.h): the clamp's own number for background.
 #[cfg(target_os = "macos")]
 const CLAMP_BACKGROUND: u64 = 2;
-/// `POSIX_SPAWN_SETEXEC`: posix_spawn replaces the calling process, as execve does.
 #[cfg(target_os = "macos")]
-const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
+use crate::qos::POSIX_SPAWN_SETEXEC;
+
+/// Says once that harnesses start darwinbg, their exec throttled (no clamp setter here).
+#[cfg(target_os = "macos")]
+fn note_no_clamp() {
+    static NOTED: std::sync::Once = std::sync::Once::new();
+    NOTED.call_once(|| {
+        tracing::warn!(
+            "no posix_spawn QoS clamp on this macOS: background harnesses start darwinbg, their \
+             exec throttled"
+        );
+    });
+}
 
 /// The harness's exec under the background clamp, built before the fork: a posix_spawn with
 /// `POSIX_SPAWN_SETEXEC` (same pid, descriptors, process group and folder, as the execvp it takes
-/// the place of) of the resolved program, its arguments and its complete environment.
+/// the place of) of the resolved program, its arguments and its complete environment. A file the
+/// kernel cannot exec (ENOEXEC: a script with no `#!`) runs with /bin/sh, as execvp runs it.
 #[cfg(target_os = "macos")]
 struct ClampedExec {
     /// None: no such program on the harness's PATH; the exec fails with ENOENT, as execvp would.
@@ -137,6 +157,9 @@ struct ClampedExec {
     _envp: Vec<std::ffi::CString>,
     argv_ptrs: Vec<*mut libc::c_char>,
     envp_ptrs: Vec<*mut libc::c_char>,
+    /// `sh <path> <args…>` for ENOEXEC (its strings: `_sh_argv`).
+    _sh_argv: Vec<std::ffi::CString>,
+    sh_argv_ptrs: Vec<*mut libc::c_char>,
     attr: libc::posix_spawnattr_t,
 }
 
@@ -170,6 +193,14 @@ impl ClampedExec {
             v.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect()
         };
         let (argv_ptrs, envp_ptrs) = (ptrs(&argv), ptrs(&envp));
+        let sh_argv: Vec<CString> = match &path {
+            Some(path) => [c"sh".to_owned(), path.clone()]
+                .into_iter()
+                .chain(argv.iter().skip(1).cloned())
+                .collect(),
+            None => Vec::new(),
+        };
+        let sh_argv_ptrs = ptrs(&sh_argv);
         let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
         // SAFETY: initializes `attr`, which `drop` destroys; the setters take the initialized
         // attribute and constants.
@@ -184,7 +215,16 @@ impl ClampedExec {
                 return None;
             }
         }
-        Some(Self { path, _argv: argv, _envp: envp, argv_ptrs, envp_ptrs, attr })
+        Some(Self {
+            path,
+            _argv: argv,
+            _envp: envp,
+            argv_ptrs,
+            envp_ptrs,
+            _sh_argv: sh_argv,
+            sh_argv_ptrs,
+            attr,
+        })
     }
 
     /// Replaces this (forked) process with the harness; returns only the error.
@@ -192,20 +232,28 @@ impl ClampedExec {
         let Some(path) = &self.path else {
             return std::io::Error::from_raw_os_error(libc::ENOENT);
         };
+        let mut rc = self.spawn(path.as_ptr(), &self.argv_ptrs);
+        if rc == libc::ENOEXEC {
+            rc = self.spawn(c"/bin/sh".as_ptr(), &self.sh_argv_ptrs);
+        }
+        std::io::Error::from_raw_os_error(if rc == 0 { libc::EINVAL } else { rc })
+    }
+
+    /// One posix_spawn in place of this process; its error code (it returns only on failure).
+    fn spawn(&self, path: *const libc::c_char, argv: &[*mut libc::c_char]) -> libc::c_int {
         let mut pid: libc::pid_t = 0;
         // SAFETY: the path, vectors and attribute were built before the fork and are
         // NUL-terminated; with SETEXEC a successful call does not return.
-        let rc = unsafe {
+        unsafe {
             libc::posix_spawn(
                 &mut pid,
-                path.as_ptr(),
+                path,
                 std::ptr::null(),
                 &self.attr,
-                self.argv_ptrs.as_ptr(),
+                argv.as_ptr(),
                 self.envp_ptrs.as_ptr(),
             )
-        };
-        std::io::Error::from_raw_os_error(if rc == 0 { libc::EINVAL } else { rc })
+        }
     }
 }
 
@@ -218,9 +266,12 @@ impl Drop for ClampedExec {
 }
 
 /// The program path execvp would run for `program` with `env`'s PATH: `program` itself when it
-/// names a path (relative to the folder the child starts in), else the first executable file of
-/// that name in the PATH's folders. `Some(None)`:
-/// not found (the exec then fails with ENOENT, as execvp's would); None: a NUL in it.
+/// names a path, else the first executable file of that name in the PATH's folders. A path
+/// under a relative PATH folder stays relative: the child execs it from the folder it changed
+/// into, after the cwd pin's check there (`cwd_pin.rs`), never through `cwd`'s name, which a
+/// folder swapped after the check could redirect; `cwd` is only where the parent looks for it.
+/// `Some(None)`: not found (the exec then fails with ENOENT, as execvp's would); None: a NUL in
+/// it.
 #[cfg(target_os = "macos")]
 fn resolve(
     program: &std::ffi::OsStr,
@@ -234,17 +285,13 @@ fn resolve(
         return cstring(std::path::Path::new(program)).map(Some);
     }
     let path = env.iter().find(|(k, _)| k == "PATH").map_or("/usr/bin:/bin", |(_, v)| v.as_str());
-    // A relative PATH folder is the child's: under the folder it starts in.
-    let found = std::env::split_paths(path)
-        .map(|dir| match cwd {
-            Some(cwd) if dir.is_relative() => cwd.join(dir),
-            _ => dir,
-        })
-        .map(|dir| dir.join(program))
-        .find(|candidate| {
-            std::fs::metadata(candidate)
-                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        });
+    let found = std::env::split_paths(path).map(|dir| dir.join(program)).find(|candidate| {
+        let seen = match cwd {
+            Some(cwd) if candidate.is_relative() => cwd.join(candidate),
+            _ => candidate.clone(),
+        };
+        std::fs::metadata(seen).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    });
     match found {
         Some(found) => cstring(&found).map(Some),
         None => Some(None),

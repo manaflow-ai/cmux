@@ -58,7 +58,8 @@ pub(crate) fn harness_command(
         owned
     };
     let mut env = resolved_profile_env(profile)?;
-    let remote_environment = env.remove(REMOTE_ENV_POLICY_KEY).as_deref() == Some("1");
+    let remote_environment = remote_environment(profile);
+    env.remove(REMOTE_ENV_POLICY_KEY);
     // Internal projection marker, never profile-controlled. A hosted agent
     // reconstructs the command's complete environment from this removal.
     env.remove(REMOTE_ENV_CLEARED_KEY);
@@ -336,11 +337,18 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
 }
 
 /// The complete environment `cmd`, made by [`harness_command`] for `profile`, starts its
-/// process with: a remote profile's command clears the daemon's (`apply_remote_base`).
+/// process with: a remote profile's command clears the daemon's (`apply_remote_base`). It reads
+/// no secret again: whether the env was cleared is [`remote_environment`], the same fact
+/// `harness_command` decided by (review 1 of #28442).
 pub(crate) fn harness_env(cmd: &Command, profile: &HarnessProfile) -> Vec<(String, String)> {
-    let cleared = resolved_profile_env(profile)
-        .is_ok_and(|env| env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"));
-    command_env_with(cmd, !cleared)
+    command_env_with(cmd, !remote_environment(profile))
+}
+
+/// Whether `profile` runs a remote-origin harness, whose env starts cleared. Read from the raw
+/// key, never through a secret lookup: acpmux sets it to the literal `1` after it removed any
+/// profile value (`hub/spawn.rs`). A value that is a reference counts as remote (fail closed).
+fn remote_environment(profile: &HarnessProfile) -> bool {
+    profile.env.get(REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1" || v.contains("${"))
 }
 
 /// The full environment of an `env_clear` command, for a remote durable
