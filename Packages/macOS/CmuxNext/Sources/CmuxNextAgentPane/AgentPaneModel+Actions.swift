@@ -5,10 +5,11 @@ extension AgentPaneModel {
     /// Device card: a computer on the tailnet or in ~/.ssh/config, enrolled with its daemon kept
     /// current, or a new Cloud VM), and a started chat's Move to Cloud and Bring Back Local (the tab
     /// menu's same actions, on this tab). webviews environments.ts CONNECT_ACTIONS names the same
-    /// seven.
+    /// seven. Also the machine header's Reconnect (`machine.reconnect`), which the host runs on
+    /// this tab's own machine only (the strip's red machine, picked).
     static let connectActions: Set<String> = [
         "remote.connect", "newCloudMachine", "palette.openCloudPane", "palette.mobileConnect", "device.add", "cloudMove",
-        "cloudBringBack",
+        "cloudBringBack", "machine.reconnect",
     ]
     /// The arguments a connect action runs with.
     static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
