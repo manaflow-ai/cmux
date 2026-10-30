@@ -1,6 +1,7 @@
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
 import React, {
+  Activity,
   lazy,
   memo,
   Suspense,
@@ -543,6 +544,7 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
+import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 
@@ -4462,8 +4464,16 @@ const denyWithFeedback =
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
 /// behind the page, which stays, and the pick lands on it (harnessSwitch keeps picks made while a
 /// switch runs). Enter asks the same agent in the same folder, the same switch, which then shows.
-export function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?: string }) {
-  return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
+export function NewTabComposerChips({
+  snapshot,
+  cwd,
+  onAddAgent,
+}: {
+  snapshot: AcpmuxSnapshot;
+  cwd?: string;
+  onAddAgent?(): void;
+}) {
+  return <DefaultComposerChips snapshot={snapshot} cwd={cwd} onAddAgent={onAddAgent} startsChat />;
 }
 
 /// The chat's own composer chips, as the pane draws them under a chat (tests drive them directly).
@@ -4478,17 +4488,20 @@ function DefaultComposerChips({
   snapshot,
   cwd,
   permissionAccess,
+  onAddAgent,
   startsChat = false,
 }: {
   snapshot: AcpmuxSnapshot;
   /// The folder a chat the chips start opens in (the New Tab page's project).
   cwd?: string;
   permissionAccess?: ComposerPermissionAccess;
+  onAddAgent?(): void;
   /// The chips belong to a page with no chat yet: a model, mode or effort pick starts one first.
   startsChat?: boolean;
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
-  const addAgent = useHarnessesPage();
+  const harnessesPage = useHarnessesPage();
+  const addAgent = onAddAgent ?? harnessesPage;
   const signIn = useSignIn();
   // acpmux has answered with its harnesses: only then can the chip say none is installed.
   const harnessesListed = useHarnessesListed();
@@ -5963,8 +5976,22 @@ function AcpmuxPane() {
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
   // Add harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
+  const setupContinuation = useRef<((harness: string) => void) | undefined>(undefined);
+  const setupStart = useRef<{ harness: string; resume: (harness: string) => void } | undefined>(undefined);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
-  useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
+  useEffect(() => {
+    setupContinuation.current = undefined;
+    setupStart.current = undefined;
+    setHarnessesOpen(false);
+  }, [snapshot.sessionId]);
+  useEffect(() => {
+    if (harnessesOpen) return;
+    const start = setupStart.current;
+    setupStart.current = undefined;
+    // Child effects reconnect first, including the attachment waiter's scope effect. Queueing
+    // the send before revealing Activity would let that effect discard the pending send.
+    start?.resume(start.harness);
+  }, [harnessesOpen]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
   const harnessFolder = snapshot.summary?.cwd ?? startFolder;
   const retryHarness = pickerCatalog.harnesses.find(
@@ -6965,7 +6992,17 @@ function AcpmuxPane() {
     [showToolRow],
   );
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
-  useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
+  useEffect(
+    () =>
+      quick
+        ? undefined
+        : registerHarnessesPage(() => {
+            setupContinuation.current = undefined;
+            setupStart.current = undefined;
+            setHarnessesOpen(true);
+          }),
+    [quick],
+  );
   // `/btw` opens a read-only side session beside the chat; the Debug toggle is an explicit
   // kill switch, and the Quick Composer has none.
   const sideSessions = useSideSessions();
@@ -9386,6 +9423,9 @@ function AcpmuxPane() {
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
+  // the reload hold in the parent until the page is visible and its own effects reconnect.
+  useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
   useEffect(() => {
     if (inspectorOpen || diffView || artifact || imageView || harnessesOpen || showNewTab || replaying) {
       clearWorkflowSideTab();
@@ -10704,6 +10744,37 @@ function AcpmuxPane() {
       </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
+  const harnessesPage = (
+    <HarnessesScreen
+      catalog={pickerCatalog}
+      acpmux={snapshot.catalog}
+      {...(harnessFolder ? { cwd: harnessFolder } : {})}
+      callNative={harnessesNative}
+      checking={harnessesChecking}
+      refreshCatalog={pickerState.refresh}
+      onClose={() => {
+        setupContinuation.current = undefined;
+        setupStart.current = undefined;
+        setHarnessesOpen(false);
+      }}
+      {...(setupContinuation.current
+        ? {
+            onStartChat: (harness: string) => {
+              const resume = setupContinuation.current;
+              setupContinuation.current = undefined;
+              setupStart.current = resume ? { harness, resume } : undefined;
+              setHarnessesOpen(false);
+            },
+          }
+        : {})}
+      onStart={() => {
+        setupContinuation.current = undefined;
+        setupStart.current = undefined;
+        setHarnessesOpen(false);
+        setNewTab(undefined);
+      }}
+    />
+  );
   const pane = !knowsWhatItIs ? (
     // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
     <ShortcutsContext.Provider value={shortcuts}>
@@ -10756,143 +10827,141 @@ function AcpmuxPane() {
             />
           )}
           {showNewTab && folderAskView}
-          {harnessesOpen ? (
-            <HarnessesScreen
-              catalog={pickerCatalog}
-              acpmux={snapshot.catalog}
-              {...(harnessFolder ? { cwd: harnessFolder } : {})}
-              callNative={harnessesNative}
-              checking={harnessesChecking}
-              refreshCatalog={pickerState.refresh}
-              onClose={() => setHarnessesOpen(false)}
-              onStart={() => {
-                setHarnessesOpen(false);
-                setNewTab(undefined);
-              }}
-            />
+          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+            <>
+              {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
+              <Activity mode={harnessesOpen ? "hidden" : "visible"}>
+                <NewTabScreen
+                  onSetup={(resume) => {
+                    setupContinuation.current = resume;
+                    setHarnessesOpen(true);
+                  }}
+                  onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
+                  onImportFile={importFile}
+                  importError={importError}
+                  importSandboxed={sandbox.mode === "sandboxed"}
+                  onCommands={(harness, cwd) => {
+                    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
+                      () => undefined,
+                    );
+                  }}
+                  key={newTabGeneration}
+                  environments={preview}
+                  // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
+                  onLeaveDraft={(text, attachments) => {
+                    // A Sandboxed send from the page already took its prompt (or held it back).
+                    const handed = newTabSandboxSent.current;
+                    newTabSandboxSent.current = false;
+                    const view = sandbox.view();
+                    if (handed || !view || sandboxRetryable(view)) return;
+                    heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
+                    setSandboxDraftMoved(true);
+                  }}
+                  {...(sandboxOffered || sandboxPickedNotOffered
+                    ? {
+                        runMode: sandboxModeRows,
+                        // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
+                        // the prompt and attachments put back in its composer.
+                        onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
+                          const started = sandboxPickedNotOffered
+                            ? sandboxNotNow
+                            : startSandbox(text, attachments.length, harness);
+                          if (started !== false) newTabSandboxSent.current = true;
+                          if (typeof started !== "string") return started;
+                          heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+                          setSandboxDraftMoved(true);
+                          sandbox.refuse(text, started);
+                          return true;
+                        },
+                      }
+                    : {})}
+                  onConnect={connectMachine}
+                  onRefreshMachines={() => void directClient.current?.refreshPeers()}
+                  onNewWorktree={(cwd) => {
+                    let folder: string | undefined;
+                    return newWorktree(callNative, cwd, (used) => {
+                      folder = used;
+                    }).then(() => folder);
+                  }}
+                  accessory={<DictationMic dictation={dictation} />}
+                  upload={uploadFiles}
+                  dictating={isWaitingForWords(dictation.state)}
+                  dictationField={newTabDictationField}
+                  notice={
+                    <>
+                      <DictationNotice dictation={dictation} />
+                      {sandboxUncheckedNotice && sandboxUnchecked}
+                    </>
+                  }
+                  // The host answers only for a page on this Mac; another machine's keeps the refusal.
+                  {...(!quick ? { localPaths } : {})}
+                  template={screenTemplate(shownTemplate(newTab))}
+                  {...(newTab.widgets ? { widgets: true } : {})}
+                  pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
+                  {...(newTab.headlineOff ? { headlineOff: true } : {})}
+                  {...(newTab.allChats === false ? { allChats: false } : {})}
+                  {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
+                  {...(newTab.weather ? { weather: newTab.weather } : {})}
+                  onEditWidgets={(edit) =>
+                    editNewTabWidgets(edit, {
+                      callNative,
+                      show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
+                    })
+                  }
+                  snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  omnibar={newTab.omnibar}
+                  location={newTab.location}
+                  lastAgent={newTab.lastAgent}
+                  home={newTab.home}
+                  {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+                  knownProjects={newTabKnownProjects}
+                  {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
+                  // The field takes keys from its first render (the host's buffer hands them over at
+                  // once); only a submit waits for acpmux (`whenHandshaken`).
+                  inputToken={newTab.inputToken}
+                  {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+                  {...(startFolder ? { startCwd: startFolder } : {})}
+                  onPromptTyped={onNewTabPromptTyped}
+                  {...(!handshaken ? { startPending: true } : {})}
+                  {...(newTabChatsPending ? { chatsPending: true } : {})}
+                  {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
+                  projects={newTabProjects}
+                  onBrowseProject={() =>
+                    callNative<{ cwd?: string }>("project.browse").then(
+                      (result) => result?.cwd,
+                      () => undefined,
+                    )
+                  }
+                  chips={registryChips ?? NewTabComposerChips}
+                  focusField={newTab.focusesField !== false}
+                  {...withSubmitAfterHandshake(
+                    newTabScreenActions({
+                      callNative,
+                      cwd: newTab.cwd,
+                      chatCwd: startFolder,
+                      requestFolder,
+                      startsHere: () => !directClient.current?.startsOnSend,
+                      leave: () => setNewTab(undefined),
+                      selectSession,
+                      showAllChats,
+                      runShell: (command, cwd) => {
+                        if (cwd) setProjectDraft(cwd);
+                        shellRuns.start(command, cwd ? { cwd } : {});
+                      },
+                    }),
+                  )}
+                />
+              </Activity>
+              {harnessesOpen && harnessesPage}
+            </>
+          ) : harnessesOpen ? (
+            harnessesPage
           ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
-            />
-          ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
-            <NewTabScreen
-              onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
-              onImportFile={importFile}
-              importError={importError}
-              importSandboxed={sandbox.mode === "sandboxed"}
-              onCommands={(harness, cwd) => {
-                void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
-                  () => undefined,
-                );
-              }}
-              key={newTabGeneration}
-              environments={preview}
-              // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
-              onLeaveDraft={(text, attachments) => {
-                // A Sandboxed send from the page already took its prompt (or held it back).
-                const handed = newTabSandboxSent.current;
-                newTabSandboxSent.current = false;
-                const view = sandbox.view();
-                if (handed || !view || sandboxRetryable(view)) return;
-                heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
-                setSandboxDraftMoved(true);
-              }}
-              {...(sandboxOffered || sandboxPickedNotOffered
-                ? {
-                    runMode: sandboxModeRows,
-                    // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
-                    // the prompt and attachments put back in its composer.
-                    onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
-                      const started = sandboxPickedNotOffered
-                        ? sandboxNotNow
-                        : startSandbox(text, attachments.length, harness);
-                      if (started !== false) newTabSandboxSent.current = true;
-                      if (typeof started !== "string") return started;
-                      heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
-                      setSandboxDraftMoved(true);
-                      sandbox.refuse(text, started);
-                      return true;
-                    },
-                  }
-                : {})}
-              onConnect={connectMachine}
-              onRefreshMachines={() => void directClient.current?.refreshPeers()}
-              onNewWorktree={(cwd) => {
-                let folder: string | undefined;
-                return newWorktree(callNative, cwd, (used) => {
-                  folder = used;
-                }).then(() => folder);
-              }}
-              accessory={<DictationMic dictation={dictation} />}
-              upload={uploadFiles}
-              dictating={isWaitingForWords(dictation.state)}
-              dictationField={newTabDictationField}
-              notice={
-                <>
-                  <DictationNotice dictation={dictation} />
-                  {sandboxUncheckedNotice && sandboxUnchecked}
-                </>
-              }
-              // The host answers only for a page on this Mac; another machine's keeps the refusal.
-              {...(!quick ? { localPaths } : {})}
-              template={screenTemplate(shownTemplate(newTab))}
-              {...(newTab.widgets ? { widgets: true } : {})}
-              pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
-              {...(newTab.headlineOff ? { headlineOff: true } : {})}
-              {...(newTab.allChats === false ? { allChats: false } : {})}
-              {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-              {...(newTab.weather ? { weather: newTab.weather } : {})}
-              onEditWidgets={(edit) =>
-                editNewTabWidgets(edit, {
-                  callNative,
-                  show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
-                })
-              }
-              snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
-              omnibar={newTab.omnibar}
-              location={newTab.location}
-              lastAgent={newTab.lastAgent}
-              home={newTab.home}
-              {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
-              knownProjects={newTabKnownProjects}
-              {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
-              // The field takes keys from its first render (the host's buffer hands them over at
-              // once); only a submit waits for acpmux (`whenHandshaken`).
-              inputToken={newTab.inputToken}
-              {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
-              {...(startFolder ? { startCwd: startFolder } : {})}
-              onPromptTyped={onNewTabPromptTyped}
-              {...(!handshaken ? { startPending: true } : {})}
-              {...(newTabChatsPending ? { chatsPending: true } : {})}
-              {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
-              projects={newTabProjects}
-              onBrowseProject={() =>
-                callNative<{ cwd?: string }>("project.browse").then(
-                  (result) => result?.cwd,
-                  () => undefined,
-                )
-              }
-              chips={registryChips ?? NewTabComposerChips}
-              focusField={newTab.focusesField !== false}
-              {...withSubmitAfterHandshake(
-                newTabScreenActions({
-                  callNative,
-                  cwd: newTab.cwd,
-                  chatCwd: startFolder,
-                  requestFolder,
-                  startsHere: () => !directClient.current?.startsOnSend,
-                  leave: () => setNewTab(undefined),
-                  selectSession,
-                  showAllChats,
-                  runShell: (command, cwd) => {
-                    if (cwd) setProjectDraft(cwd);
-                    shellRuns.start(command, cwd ? { cwd } : {});
-                  },
-                }),
-              )}
             />
           ) : showNewTab ? (
             <NewTabPage
