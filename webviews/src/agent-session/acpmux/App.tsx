@@ -194,7 +194,7 @@ import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
-import { runningBackgroundTasks } from "./summary/sessionSummary";
+import { transcriptBackgroundTasks } from "./summary/sessionSummary";
 import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
 import { environmentToSave } from "./inspector/EnvironmentSection";
@@ -5836,7 +5836,11 @@ function AcpmuxPane() {
   // arrives). The one registry for the pane: the Inspector, the card, the tray and the counts all
   // read it. The tray shows a registry command between turns while the hook knows it runs; a quiet
   // chat sends no `_acpmux/process/list`.
-  const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  const transcriptTasks = useMemo(() => transcriptBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  const transcriptRunning = useMemo(
+    () => transcriptTasks.filter((task) => task.state === "running"),
+    [transcriptTasks],
+  );
   const inspectorOn = useHeaderState().inspector;
   const inspectorOpened = useInspectorOpen(shownSessionId);
   const processRegistry = useProcessRegistry(
@@ -5867,8 +5871,8 @@ function AcpmuxPane() {
   // The Background tasks panel's commands, the ended ones too, and its groups: only while it is open.
   const panelCommands = useMemo(
     () =>
-      backgroundOpen ? backgroundCommands(processRegistry.processes, transcriptRunning, processRegistry.listed) : [],
-    [backgroundOpen, processRegistry, transcriptRunning],
+      backgroundOpen ? backgroundCommands(processRegistry.processes, transcriptTasks, processRegistry.listed) : [],
+    [backgroundOpen, processRegistry, transcriptTasks],
   );
   const backgroundDismissed = backgroundPanel?.dismissed;
   const backgroundList = useMemo(
@@ -6716,7 +6720,8 @@ function AcpmuxPane() {
     covered: environmentCovered || workflowSideTab !== undefined,
     onUncover: uncoverChat,
     onBeforeOpen: clearWorkflowSideTab,
-    beside: artifact?.opened,
+    // The Background tasks column takes the side panel's room too (backgroundTasks.css).
+    beside: `${artifact?.opened ?? ""}:${backgroundOpen}`,
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });

@@ -433,6 +433,8 @@ function StopSlot({
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
   const stopsAgents = useContext(StopsAgents);
+  // Its target ended: a later running period of the same agent or command starts with a live button.
+  if (!target && state !== "idle") setState("idle");
   if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
     return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });

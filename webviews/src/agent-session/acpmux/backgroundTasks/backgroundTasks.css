@@ -42,6 +42,7 @@
     inset 0 1px 0 var(--agent-border);
 }
 .acpmux-shell:has(> .acpmux-bg) > .acpmux-artifact {
+  height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
   max-height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
   align-self: flex-start;
 }

@@ -279,9 +279,12 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
   return [...launched, ...endedOnly];
 }
 
+/// The chat's background shells, the ended ones too (the Background tasks panel lists them).
+export const transcriptBackgroundTasks = (rows: readonly AcpmuxRow[]) => backgroundTasks(rows, tools(rows));
+
 /// The chat's background shells still running (the running turn's line counts them, WorkingFor.tsx).
 export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
-  backgroundTasks(rows, tools(rows)).filter((task) => task.state === "running");
+  transcriptBackgroundTasks(rows).filter((task) => task.state === "running");
 
 /// What the chat made. With `repository` (the chat folder's `owner/name`, or null when it has
 /// none), the Inspector's Changes: its pull requests include the ones the agent only named in a
