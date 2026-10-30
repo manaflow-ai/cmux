@@ -137,6 +137,35 @@ class PublishedInTests(unittest.TestCase):
         self.assertTrue(all(line in bodies for line in (old, first, concurrent)))
         self.assertEqual(module.pr_status.parse(comments[0]["body"])["checks"], "x" * size)
 
+    def test_duplicate_shared_comments_consolidate_without_retrying_unchanged_edit(self):
+        line = module.build_line("v1", "https://x/v1", "a" * 40)
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"checks": "green"}),
+             "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": module.pr_status.render({"review": "SHIP"}),
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        writes = []
+
+        def api(method, path, payload=None):
+            if method == "GET":
+                return [dict(comment) for comment in comments]
+            writes.append(method)
+            if method == "PATCH":
+                comments[0]["body"] = payload["body"]
+            elif method == "DELETE":
+                comments.pop()
+            else:
+                self.fail(f"unexpected write: {method}")
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, line, comments.copy(), 7.5), "written")
+            self.assertEqual(module.publish("o/r", 7, line, comments.copy(), 7.5), "unchanged")
+        self.assertEqual(writes, ["PATCH", "DELETE"])
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(module.pr_status.parse(comments[0]["body"]),
+                         {"checks": "green", "review": "SHIP", "published": "Shipped in:\n" + line})
+
     def test_standalone_migration_edits_without_new_timeline_entry(self):
         line = module.build_line("v1", "https://x/v", "a" * 40)
         comments = [{"id": 2, "body": module.MARKER + "\nShipped in:\n" + line,
