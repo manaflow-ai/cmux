@@ -140,23 +140,42 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
         argv[at] = "skill".into();
     }
+    // `acpmux stop NAME` stops that session (`session stop`), never the daemon (`daemon stop`).
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "stop") {
+        *word = "session".into();
+        argv.insert(at + 1, "stop".into());
+    }
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let mut grammar = Cli::command().name(name).bin_name(name);
+    let mut grammar = crate::cli::help_examples::attach(Cli::command()).name(name).bin_name(name);
+    let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,
-        // A flag another command takes says which, and what this one does instead.
-        Err(e) => match crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name) {
-            Some(refusal) => {
-                let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
-                errors::exit_with(&refusal.into(), json_out)
+        // A flag another command takes says which, and what this one does instead; a root word
+        // a command group takes names that command; under --json any other is the envelope.
+        Err(e) => {
+            let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
+                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
+                .or_else(|| {
+                    json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten()
+                });
+            match refusal {
+                Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                None => e.exit(),
             }
-            None => e.exit(),
-        },
+        }
     };
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
+    if let Some(Command::New(_)) = &cli.command
+        && let Some((_, new)) = matches.subcommand()
+        && let Some(refusal) =
+            crate::cli::unknown_command::stdin_dash(&grammar, new, &argv, at, name)
+    {
+        errors::exit_with(&refusal.into(), json_out)
+    }
     let command = cli.command.map(flatten).map(|c| match c {
         Command::New(mut a) if run_alias => {
             a.quiet = true;

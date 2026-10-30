@@ -11,6 +11,7 @@ export type HarnessStatus = "ready" | "signIn" | "unavailable" | "notInstalled" 
 /// which needs no Node. `/bin/sh`: the host runs the command in the user's login shell, which may
 /// not be a POSIX one (fish).
 const npmOrNative = (npmPackage: string, native: string) =>
+  // l10n-allow: a shell command Install runs, never shown as text
   `/bin/sh -c 'if command -v npm >/dev/null 2>&1; then npm install -g ${npmPackage}; else ${native}; fi'`;
 
 /// The command that installs a harness's CLI, run in place by Install (the rest open their setup
