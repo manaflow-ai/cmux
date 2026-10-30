@@ -265,6 +265,34 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.mux(sent[1])?["resend"] as? Bool == true, "a Retry must say so, so acpmux runs the prompt id at most once")
     }
 
+    /// A prompt whose record the host could not write (an unwritable folder, a full disk) does not
+    /// go: a crash before acpmux's acknowledgement would lose it for good. The page is told it was
+    /// not sent, so it offers Retry, and the Retry goes once the journal can be written.
+    @Test func aPromptWhoseRecordIsNotWrittenIsNotSent() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // A file where the journal's folder goes: every write of the journal fails.
+        try Data().write(to: folder)
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let journal = AgentPanePromptJournal(url: url)
+        let pane = try await Self.pane(daemon, journal: journal)
+        pane.transport.gestures.record()
+        let result = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-6")])
+        try #require(result?.rawValue == "transport.prompt_not_kept", "a prompt that is not on disk went without its crash protection")
+        await Self.barrier(pane, id: 2)
+        #expect(Self.prompts(daemon, peer: 0).isEmpty, "the daemon got a prompt the host could not keep")
+        #expect(await pane.inbox.frame(containing: #""id":1"#).contains("transport.prompt_not_kept"))
+        #expect(journal.entries().isEmpty)
+
+        try FileManager.default.removeItem(at: folder)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-6")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 }, "the Retry did not go once the journal could be written")
+    }
+
     /// The page cannot send `resend` itself: only the host sends a prompt again, and only one it
     /// recorded from a frame every page rule let through.
     @Test func thePageCannotMarkAPromptAsAResend() async throws {
