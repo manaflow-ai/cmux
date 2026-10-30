@@ -5,7 +5,7 @@ export type TrustRefusalOwner<Client> = {
   client: Client;
   generation: number;
   sessionId?: string;
-  cancelEpoch: number;
+  cancelEpoch?: number;
 };
 
 export function routeCurrentTrustRefusal<Client>(
@@ -17,7 +17,7 @@ export function routeCurrentTrustRefusal<Client>(
   if (
     rendered?.client === current.client &&
     rendered.generation === current.generation &&
-    rendered.cancelEpoch === current.cancelEpoch &&
+    (rendered.cancelEpoch === undefined || current.cancelEpoch === undefined || rendered.cancelEpoch === current.cancelEpoch) &&
     rendered.sessionId === current.sessionId &&
     deliver()
   )

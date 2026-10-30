@@ -57,14 +57,31 @@ function slowPeer() {
 }
 
 let latest: ReturnType<typeof useFolderTrustAsk> | undefined;
-function Chat(props: { trust: TrustSource; sessionId: string; blockSend?: boolean; cwd?: string }) {
+function Chat(props: {
+  trust: TrustSource;
+  sessionId?: string;
+  blockSend?: boolean;
+  cwd?: string;
+  authority?: () => unknown;
+  visit?: () => unknown;
+  /// Runs after React commits this render and before its effects: the client moving on meanwhile.
+  onCommit?: () => void;
+}) {
   latest = useFolderTrustAsk(
     props.trust,
-    { sessionId: props.sessionId, cwd: props.cwd ?? peerFolder, prompts: 0 },
+    {
+      sessionId: props.sessionId,
+      cwd: props.cwd ?? peerFolder,
+      prompts: 0,
+      ...(props.authority ? { authority: props.authority } : {}),
+      ...(props.visit ? { visit: props.visit } : {}),
+    },
     true,
     false,
     props.blockSend,
   );
+  const { onCommit } = props;
+  React.useLayoutEffect(() => onCommit?.());
   return null;
 }
 const open = (trust: TrustSource, sessionId: string) =>
@@ -192,6 +209,106 @@ for (const change of ["chat", "folder"] as const) {
   });
 }
 
+// Astra review of #25287 (P2): the folder choice can release a held retry while the client has
+// already selected another chat (or connection) and React still shows the old one. The render's
+// own checks pass then; the release must recheck the live visit and authority before replaying.
+for (const moved of ["visit", "authority"] as const) {
+  test(`a released trust retry is not sent once the live ${moved} has moved to another chat`, async () => {
+    const { source } = slowPeer();
+    let liveVisit = "original";
+    let liveAuthority = "connection-1";
+    const visit = () => liveVisit;
+    const authority = () => liveAuthority;
+    const moveOn = () => {
+      if (moved === "visit") liveVisit = "other";
+      else liveAuthority = "connection-2";
+    };
+    const render = (blockSend: boolean, onCommit?: () => void) =>
+      act(async () =>
+        root.render(
+          <Chat
+            key={`live-${moved}`}
+            trust={source}
+            sessionId="original"
+            visit={visit}
+            authority={authority}
+            blockSend={blockSend}
+            onCommit={onCommit}
+          />,
+        ),
+      );
+    await render(true);
+    let resent = 0;
+    await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resent++));
+    await act(async () => latest!.trust());
+    expect(resent).toBe(0);
+    // The folder choice completes in the same render the client moves to another chat.
+    await render(false, moveOn);
+    expect(resent).toBe(0);
+  });
+}
+
+// Review at 72a044be (P2): fresh chats have no session id, so a retry held in one fresh chat must
+// not be sent in the next fresh chat the pane shows once the folder choice lets go.
+test("a fresh chat's held trust retry is not sent in another fresh chat", async () => {
+  const { source } = slowPeer();
+  let liveVisit = "fresh-a";
+  const visit = () => liveVisit;
+  const render = (blockSend: boolean) =>
+    act(async () =>
+      root.render(<Chat key="fresh-chats" trust={source} visit={visit} cwd={peerFolder} blockSend={blockSend} />),
+    );
+  await render(true);
+  let resent = 0;
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resent++));
+  await act(async () => latest!.trust());
+  expect(resent).toBe(0);
+  liveVisit = "fresh-b";
+  await render(false);
+  expect(resent).toBe(0);
+});
+
+// Review at bee1fdb9 (P2): an established chat keeps its held retry across visits. Each selection
+// moves the client's generation, so A → B → A is a new visit of the same chat.
+test("an established chat's held trust retry survives leaving and coming back", async () => {
+  const { source } = slowPeer();
+  let generation = 1;
+  const visit = () => JSON.stringify([generation, "chat-a"]);
+  const render = (sessionId: string) =>
+    act(async () => root.render(<Chat key="established-retry" trust={source} sessionId={sessionId} visit={visit} />));
+  await render("chat-a");
+  const sent: string[] = [];
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => sent.push("a")));
+  generation += 1;
+  await render("chat-b");
+  generation += 1;
+  await render("chat-a");
+  await act(async () => latest!.trust());
+  await render("chat-a");
+  expect(sent).toEqual(["a"]);
+});
+
+// Review at 74163885 (P2): a refusal in fresh chat B must not overwrite fresh chat A's held retry;
+// back in A, Trust still sends A's prompt.
+test("each fresh chat keeps its own held trust retry", async () => {
+  const { source } = slowPeer();
+  let liveVisit = "fresh-a";
+  const visit = () => liveVisit;
+  const render = () =>
+    act(async () => root.render(<Chat key="fresh-retries" trust={source} visit={visit} cwd={peerFolder} />));
+  await render();
+  const sent: string[] = [];
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => sent.push("a")));
+  liveVisit = "fresh-b";
+  await render();
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => sent.push("b")));
+  liveVisit = "fresh-a";
+  await render();
+  await act(async () => latest!.trust());
+  await render();
+  expect(sent).toEqual(["a"]);
+});
+
 test("a throwing trust retry shows the failed trust question instead of escaping React", async () => {
   const { source } = slowPeer();
   await open(source, "throwing-retry");
@@ -206,34 +323,4 @@ test("a throwing trust retry shows the failed trust question instead of escaping
   expect(attempts).toBe(1);
   expect(latest!.ask).toMatchObject({ cwd: peerFolder, state: "failed" });
   expect(latest!.blocked?.reason).toBe("trust.answerFirst");
-});
-
-test("a refusal binds a previously unknown folder without dropping its retry", async () => {
-  const { source } = slowPeer();
-  function Folderless() {
-    latest = useFolderTrustAsk(source, { sessionId: "folderless-retry", prompts: 0 }, true, false);
-    return null;
-  }
-  await act(async () => root.render(<Folderless />));
-  let resent = 0;
-  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resent++));
-  await act(async () => latest!.trust());
-  expect(resent).toBe(1);
-});
-
-test("canceling one chat does not invalidate another chat's retained refusal", async () => {
-  const { source } = slowPeer();
-  const show = (sessionId: string) =>
-    act(async () => root.render(<Chat key="per-chat-cancel" trust={source} sessionId={sessionId} />));
-  let resentA = 0;
-  let resentB = 0;
-  await show("cancel-chat-a");
-  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resentA++));
-  await show("cancel-chat-b");
-  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resentB++));
-  await act(async () => latest!.cancelResend());
-  await show("cancel-chat-a");
-  await act(async () => latest!.trust());
-  expect(resentA).toBe(1);
-  expect(resentB).toBe(0);
 });
