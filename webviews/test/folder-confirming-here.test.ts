@@ -27,3 +27,10 @@ test("a stale render's visit never matches a chat", () => {
   expect(visitOf(undefined)).toEqual({});
   expect(visitOf("v")).toEqual({ visit: "v" });
 });
+
+// Review at bee1fdb9 (P2): an established chat's question or saving answer is its own across visits.
+test("an established chat keeps its scope across visits", () => {
+  const held = { sessionId: "chat-a", visit: JSON.stringify([1, "chat-a"]) };
+  expect(inThisVisit(held, "chat-a", JSON.stringify([3, "chat-a"]))).toBe(true);
+  expect(inThisVisit(held, "chat-b", JSON.stringify([3, "chat-a"]))).toBe(false);
+});

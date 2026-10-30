@@ -268,6 +268,26 @@ test("a fresh chat's held trust retry is not sent in another fresh chat", async 
   expect(resent).toBe(0);
 });
 
+// Review at bee1fdb9 (P2): an established chat keeps its held retry across visits. Each selection
+// moves the client's generation, so A → B → A is a new visit of the same chat.
+test("an established chat's held trust retry survives leaving and coming back", async () => {
+  const { source } = slowPeer();
+  let generation = 1;
+  const visit = () => JSON.stringify([generation, "chat-a"]);
+  const render = (sessionId: string) =>
+    act(async () => root.render(<Chat key="established-retry" trust={source} sessionId={sessionId} visit={visit} />));
+  await render("chat-a");
+  const sent: string[] = [];
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => sent.push("a")));
+  generation += 1;
+  await render("chat-b");
+  generation += 1;
+  await render("chat-a");
+  await act(async () => latest!.trust());
+  await render("chat-a");
+  expect(sent).toEqual(["a"]);
+});
+
 // Review at 74163885 (P2): a refusal in fresh chat B must not overwrite fresh chat A's held retry;
 // back in A, Trust still sends A's prompt.
 test("each fresh chat keeps its own held trust retry", async () => {
