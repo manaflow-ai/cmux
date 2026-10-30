@@ -46,6 +46,22 @@ struct AgentPaneHandoffPromptTests {
         #expect(gestures.redeem(again, connection: 1, pick: prompt("handoff-4-p-1")))
     }
 
+    /// A Retry keeps the id its prompt went with, so a trust refusal's hold for a labelled prompt
+    /// reserves under the label (App.tsx's failed-row Trust): Trust's resend under that same id
+    /// redeems it, once, and a ticket under one label never allows the id under two.
+    @Test func aTicketReservedUnderTheLabelAllowsItsResend() throws {
+        let gestures = AgentPaneUserGestures(now: { 1000 })
+        gestures.record()
+        let held = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "handoff-2-p-1"]]]))
+        #expect(held.params == ["promptId": .string("p-1")])
+        let ticket = try #require(gestures.reserve(connection: 1, intent: held))
+        #expect(!gestures.redeem(ticket, connection: 1, pick: prompt("handoff-1-handoff-2-p-1")))
+        gestures.record()
+        let again = try #require(gestures.reserve(connection: 1, intent: held))
+        #expect(gestures.redeem(again, connection: 1, pick: prompt("handoff-2-p-1")))
+        #expect(!gestures.redeem(again, connection: 1, pick: prompt("handoff-2-p-1")))
+    }
+
     @Test func theAskNamesTheStoresSessionIdsOnly() {
         #expect(AgentPaneRequest(body: ["method": "cloud.handoffTurn", "params": ["sessionId": "019a-ab_c.d:e"]]) == .cloudHandoffTurn(sessionId: "019a-ab_c.d:e"))
         #expect(AgentPaneRequest(body: ["method": "cloud.handoffTurn", "params": ["sessionId": "a b"]]) == .unsupported("cloud.handoffTurn"))

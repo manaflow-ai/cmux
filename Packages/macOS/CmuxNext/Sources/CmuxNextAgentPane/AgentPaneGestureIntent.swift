@@ -91,6 +91,12 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
             guard let scalar = AgentPaneJSONScalar(value) else { return nil }
             params[key] = scalar
         }
+        // A prompt's ticket names its own id, as its frame's pick does (``AgentPaneGesturePick``): a
+        // Retry keeps the id its prompt went with, so the hold a trust refusal takes for it may name a
+        // hand-off turn's label (`handoff-<turn>-<id>`).
+        if method == "session/prompt", case .string(let id)? = params["promptId"] {
+            params["promptId"] = .string(AgentPaneHandoffPrompt.ownID(id))
+        }
         self.method = method
         self.params = params
     }
