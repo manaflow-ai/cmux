@@ -226,7 +226,7 @@ class ExpectedCommitTests(unittest.TestCase):
         # A recovered/resolver-behind build may stamp OTHER while the run reports HEAD.
         with self.assertRaisesRegex(check.Unknown, "does not prove"):
             self.resolve({}, run_record(status="completed"))
-        self.assertEqual(self.api_calls, [RUN])
+        self.assertEqual(self.api_calls, [])
 
     def test_without_notes_a_run_still_going_is_unknown(self) -> None:
         with self.assertRaisesRegex(check.Unknown, "in_progress"):

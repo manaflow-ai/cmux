@@ -179,19 +179,10 @@ def expected_commit(repo: str, build: str, notes_base: str, api=None, fetch=fetc
     head = signed_notes_head(build, notes_base, fetch)
     if head:
         return head, "its signed release notes"
-    try:
-        run = (api or fix_forward.gh_api)(f"repos/{repo}/actions/runs/{run_id}")
-    except Exception as error:  # noqa: BLE001 - any read error is no answer this tick
-        detail = (getattr(error, "stderr", "") or "").strip() or str(error).strip() or type(error).__name__
-        raise Unknown(f"build {build} has no signed release notes and run {run_id} could not be read: {detail}") from None
-    status = run.get("status") if isinstance(run, dict) else None
-    if status != "completed":
-        raise Unknown(f"build {build} has no signed release notes yet and run {run_id} is {status}")
-    commit = fix_forward.build_commit(lambda path, *rest, **kwargs: run, repo, build)
-    if not commit:
-        raise Unknown(f"build {build} has no signed release notes and run {run_id} is not a nightly-next "
-                      f"publishing run of {repo}")
-    return commit, f"the head of its nightly-next run {run_id} (it has no signed release notes)"
+    # The workflow head is not proof of the artifact source: nightly.yml may resolve an older
+    # build_sha, and recovery builds deliberately have no signed notes. Waiting for a trusted
+    # signed source record avoids rejecting a valid DMG (or accepting a mismatched one).
+    raise Unknown(f"build {build} has no signed release notes; its artifact source is not proven")
 
 
 def _summary(line: str) -> None:
