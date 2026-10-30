@@ -8,10 +8,13 @@
 //! [`PAGE_TURNS`] prompts, or once it has read [`PAGE_BYTES`] and holds one; it never reads more
 //! than [`PAGE_MAX_BYTES`]. Only the lines of the page are parsed, each once.
 //!
-//! [`ClaudePage::start`] is the offset of the page's first line: the next older page ends there,
-//! so paging from it back to 0 reads every turn once, and nothing twice. A page starts at a
-//! prompt's line unless one turn is bigger than [`PAGE_MAX_BYTES`]; then it is that turn's newest
-//! part, shown as a turn with no prompt.
+//! [`ClaudePage::start`] is where the next older page ends, always before the page's own end, so
+//! paging from it back to 0 reads every turn once, and nothing twice. A page starts at a prompt's
+//! line unless one turn is bigger than [`PAGE_MAX_BYTES`]; then it is that turn's newest part,
+//! shown as a turn with no prompt. A single line bigger than a page is never parsed: the page that
+//! reaches its cap inside it is empty and ends its cursor there, inside the line, and the next
+//! page drops the rest of that line as it drops a last line still being written.
+//! [`newest_claude_page`] pages back past such empty pages, up to [`SCAN_MAX_BYTES`].
 //!
 //! Subagent transcripts are their own files, read on their own when one is opened
 //! (`hub/subagent_transcript.rs`); a page never reads them.
@@ -30,6 +33,9 @@ pub const PAGE_TURNS: usize = super::MAX_TURNS;
 pub const PAGE_BYTES: u64 = 8 << 20;
 /// The most one page reads, prompt or not.
 pub const PAGE_MAX_BYTES: u64 = 16 << 20;
+/// The most [`newest_claude_page`] and [`newest_prompt_start`] read, over all the pages they
+/// try: what adopting read before pages.
+pub const SCAN_MAX_BYTES: u64 = 64 << 20;
 /// One backwards read.
 const CHUNK: u64 = 1 << 20;
 
@@ -37,8 +43,8 @@ const CHUNK: u64 = 1 << 20;
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ClaudePage {
     pub turns: Vec<PastTurn>,
-    /// The offset of the page's first line: where the next older page ends. 0 when nothing is
-    /// older.
+    /// Where the next older page ends: the offset of the page's first line, or a point inside a
+    /// line bigger than a page. 0 when nothing is older.
     pub start: u64,
     /// How many bytes of the file the page read.
     pub read: u64,
@@ -46,7 +52,8 @@ pub struct ClaudePage {
 
 /// The page of `file` (a Claude Code transcript) that ends at `end` (the file's end when `None`,
 /// else a [`ClaudePage::start`]), with at most `want` turns. A last line still being written (no
-/// line break yet) is left for a later read. Empty when the file cannot be read.
+/// line break yet) is left for a later read, as is the rest of a line `end` falls inside. Empty
+/// when the file cannot be read. It never reads more than [`PAGE_MAX_BYTES`] and a step.
 pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
     let Ok(mut f) = File::open(file) else { return ClaudePage::default() };
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
@@ -60,18 +67,21 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
     // read whose first line may begin before `pos`.
     let mut pos = end;
     let mut head: Vec<u8> = Vec::new();
-    let mut newest = true;
+    // Bytes after the last break read so far are dropped: a line still being written, or the
+    // rest of a line `end` falls inside.
+    let mut skip = true;
+    // A whole line was read (parsed or not).
+    let mut whole = false;
     let start = 'scan: loop {
         if pos == 0 {
             // `head` begins the file: its line is whole.
             if let Some(record) = parse(&head) {
                 if is_prompt(&record) {
-                    prompts += 1;
                     oldest_prompt = Some(0);
                 }
                 lines.push((0, record));
             }
-            break 'scan if prompts >= want { oldest_prompt.unwrap_or(0) } else { 0 };
+            break 'scan 0;
         }
         let take = CHUNK.min(pos);
         pos -= take;
@@ -80,16 +90,18 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
             return ClaudePage::default();
         }
         buf.extend_from_slice(&head);
-        // The newest read drops a last line with no break yet: it is still being written.
-        if newest {
+        if skip {
             match memchr::memrchr(b'\n', &buf) {
                 Some(i) => {
                     buf.truncate(i + 1);
-                    newest = false;
+                    skip = false;
                 }
-                // All of it is that last line: read on for its start.
+                // All of it is that line: read on for its start, within the page's cap.
                 None => {
                     head = Vec::new();
+                    if end - pos >= PAGE_MAX_BYTES {
+                        break 'scan pos;
+                    }
                     continue;
                 }
             }
@@ -104,6 +116,7 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
             let body_end = line_end - 1;
             let line_start = memchr::memrchr(b'\n', &buf[..body_end]).map_or(0, |i| i + 1);
             let offset = pos + line_start as u64;
+            whole = true;
             if let Some(record) = parse(&buf[line_start..body_end]) {
                 let prompt = is_prompt(&record);
                 lines.push((offset, record));
@@ -126,8 +139,9 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
             break 'scan prompt;
         }
         if read >= PAGE_MAX_BYTES {
-            // One turn bigger than a page: its newest part, from the oldest whole line read.
-            break 'scan oldest_prompt.unwrap_or(pos + head.len() as u64);
+            // One turn bigger than a page: its newest part, from the oldest whole line read. With
+            // no whole line, one line bigger than a page: the next page goes on from inside it.
+            break 'scan oldest_prompt.unwrap_or(if whole { pos + head.len() as u64 } else { pos });
         }
     };
     let mut turns: Vec<PastTurn> = Vec::new();
@@ -150,6 +164,38 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
     }
     turns.retain(|t| !t.prompt.is_empty() || !t.tools.is_empty() || !t.answer.is_empty());
     ClaudePage { turns, start, read: end - pos }
+}
+
+/// The newest page of `file` that holds turns: pages that hold none (the end of a line bigger
+/// than a page) are paged past, reading at most [`SCAN_MAX_BYTES`] in all. `read` counts every
+/// page read.
+pub fn newest_claude_page(file: &Path, want: usize) -> ClaudePage {
+    let mut page = claude_page(file, None, want);
+    let mut read = page.read;
+    while page.turns.is_empty() && page.start > 0 && read < SCAN_MAX_BYTES {
+        page = claude_page(file, Some(page.start), want);
+        read += page.read;
+    }
+    page.read = read;
+    page
+}
+
+/// Where following `file` from its newest turns starts (`hub/watch.rs`): the start of the newest
+/// page that begins at a prompt, so the first turn followed has its prompt. None when no page
+/// does within [`SCAN_MAX_BYTES`]; then the caller reads as before.
+pub fn newest_prompt_start(file: &Path, want: usize) -> Option<u64> {
+    let (mut end, mut read) = (None, 0);
+    loop {
+        let page = claude_page(file, end, want);
+        read += page.read;
+        if page.turns.first().is_some_and(|t| !t.prompt.is_empty()) {
+            return Some(page.start);
+        }
+        if page.start == 0 || read >= SCAN_MAX_BYTES {
+            return None;
+        }
+        end = Some(page.start);
+    }
 }
 
 /// A line that can add to a turn: a `user` or `assistant` record. Others (progress, snapshots,
@@ -278,6 +324,60 @@ mod tests {
         // The older page holds the prompt.
         let older = claude_page(&file, Some(page.start), 30);
         assert_eq!(prompts(&older), ["prompt 0"]);
+    }
+
+    #[test]
+    fn a_turn_bigger_than_a_page_is_followed_from_its_prompt() {
+        let file = scratch("one-turn-watch");
+        let mut f = std::io::BufWriter::new(File::create(&file).unwrap());
+        writeln!(f, "{}", prompt(0)).unwrap();
+        writeln!(f, "{}", answer(0)).unwrap();
+        let at = f.get_ref().metadata().unwrap().len() + f.buffer().len() as u64;
+        writeln!(f, "{}", prompt(1)).unwrap();
+        let filler = "y".repeat(1 << 20);
+        for _ in 0..20 {
+            writeln!(f, "{}", json!({"type": "progress", "data": filler})).unwrap();
+        }
+        writeln!(f, "{}", answer(1)).unwrap();
+        drop(f);
+        // The newest page has no prompt; the one before it starts at prompt 1.
+        assert!(claude_page(&file, None, 1).turns[0].prompt.is_empty());
+        assert_eq!(newest_prompt_start(&file, 1), Some(at));
+    }
+
+    /// One complete line bigger than a page, after turns: each page moves back, and the newest
+    /// page with turns is the one before it.
+    #[test]
+    fn a_line_bigger_than_a_page_is_paged_past() {
+        let file = scratch("big-line");
+        transcript(&file, 5, 4);
+        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
+        writeln!(f, "{}", json!({"type": "progress", "data": "z".repeat(20 << 20)})).unwrap();
+        drop(f);
+        let len = std::fs::metadata(&file).unwrap().len();
+        let page = claude_page(&file, None, 30);
+        assert!(page.turns.is_empty());
+        assert!(page.start < len, "a page moves back: {} of {len}", page.start);
+        assert!(page.read <= PAGE_MAX_BYTES + CHUNK, "read {}", page.read);
+        let newest = newest_claude_page(&file, 30);
+        let want: Vec<String> = (0..5).map(|n| format!("prompt {n}")).collect();
+        assert_eq!(prompts(&newest), want);
+        assert_eq!(newest.start, 0);
+    }
+
+    /// A last line still being written that is bigger than a page: the page stays within its cap.
+    #[test]
+    fn an_unfinished_line_bigger_than_a_page_keeps_the_cap() {
+        let file = scratch("big-partial");
+        transcript(&file, 5, 4);
+        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
+        write!(f, "{{\"type\":\"progress\",\"data\":\"{}", "z".repeat(20 << 20)).unwrap();
+        drop(f);
+        let len = std::fs::metadata(&file).unwrap().len();
+        let page = claude_page(&file, None, 30);
+        assert!(page.read <= PAGE_MAX_BYTES + CHUNK, "read {}", page.read);
+        assert!(page.start < len);
+        assert_eq!(prompts(&newest_claude_page(&file, 30)).len(), 5);
     }
 
     #[test]

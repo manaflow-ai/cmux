@@ -152,10 +152,13 @@ impl Hub {
             return;
         }
         let file = watching.file.clone();
+        // The newest page that starts at a prompt, so the first turn followed opens as a turn.
         let start = tokio::task::spawn_blocking(move || {
-            crate::adopt_replay::claude_page(&file, None, crate::adopt_replay::PAGE_TURNS).start
+            crate::adopt_replay::newest_prompt_start(&file, crate::adopt_replay::PAGE_TURNS)
         })
         .await
+        .ok()
+        .flatten()
         .unwrap_or(0);
         if start == 0 {
             return;

@@ -484,7 +484,7 @@ impl Hub {
         let read = tokio::task::spawn_blocking(move || {
             if fam == "claude" {
                 let page =
-                    crate::adopt_replay::claude_page(&file, None, crate::adopt_replay::PAGE_TURNS);
+                    crate::adopt_replay::newest_claude_page(&file, crate::adopt_replay::PAGE_TURNS);
                 (page.turns, page.start)
             } else {
                 (crate::adopt_replay::read(&fam, &file), 0)
