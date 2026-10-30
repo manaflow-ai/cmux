@@ -4,12 +4,44 @@ is reported as failed with its valid count, never as a median over the opens tha
 
 from __future__ import annotations
 
+import importlib.util
 import sys
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+HERE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE))
 import chat_open_summary as cos  # noqa: E402
+
+
+def load_bench():
+    """chat-open-bench.py with its macOS-only helpers stubbed (bench_memory loads libproc), so its
+    open and diagnostics run on any host."""
+    def merged(base, extra):
+        out = dict(base)
+        for key, value in extra.items():
+            out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+        return out
+
+    stubs = {"bench_memory": types.SimpleNamespace(merged=merged),
+             "idle_cost_load": types.SimpleNamespace(), "bench_power": types.SimpleNamespace(wipe_state=None)}
+    spec = importlib.util.spec_from_file_location("chat_open_bench", HERE / "chat-open-bench.py")
+    module = importlib.util.module_from_spec(spec)
+    with mock.patch.dict(sys.modules, stubs), mock.patch.object(sys, "argv", ["chat-open-bench.py", "--app", "/x.app"]):
+        spec.loader.exec_module(module)
+    return module
+
+
+class FakeApp:
+    def __init__(self, replies):
+        self.replies = replies
+        self.calls = []
+
+    def action(self, action, *, focus=False, **args):
+        self.calls.append((action, focus, args))
+        return self.replies.get(action, {})
 
 
 def open_(first, empty=0.0, **extra):
@@ -52,6 +84,37 @@ class SummaryTests(unittest.TestCase):
     def test_error_and_empty_cases_fail(self):
         self.assertFalse(cos.summarize([{"error": "arm: None"}])["complete"])
         self.assertFalse(cos.summarize([])["complete"])
+
+
+class OpenTests(unittest.TestCase):
+    """The bench's open shows the chat it opens (agent.openSessionWorkspace alone never switches to
+    its workspace, so no agent pane was made and every open timed out with no frames)."""
+
+    def setUp(self):
+        self.bench = load_bench()
+
+    def test_open_shows_the_new_workspace(self):
+        app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "workspace.selectLast"])
+        self.assertEqual(reply, {"created": ["ws_1"]})
+
+    def test_a_refused_open_shows_nothing(self):
+        app = FakeApp({"agent.openSessionWorkspace": {"error": "daemon offline"}})
+        reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace"])
+        self.assertEqual(reply, {"error": "daemon offline"})
+
+    def test_new_workspaces_go_last(self):
+        # selectLast shows the open's workspace only when new ones go to the bottom (default: top).
+        self.assertEqual(self.bench.CONFIG["workspaces"]["newPlacement"], "bottom")
+
+    def test_why_names_the_marks_that_ran(self):
+        # marks_ms names every mark (null when it did not run): only `order` says which ran.
+        line = self.bench.why({"timed_out": True, "frames": [], "frame_count": 0, "order": ["action"],
+                               "marks_ms": {"action": 0.0, "pane_made": None, "page_painted": None}})
+        self.assertIn("marks=['action']", line)
+        self.assertNotIn("pane_made", line)
 
 
 if __name__ == "__main__":
