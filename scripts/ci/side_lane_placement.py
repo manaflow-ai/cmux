@@ -209,7 +209,7 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
              for runner in carriers}
     if len(hosts) <= 1:
         return math.inf
-    if seen is None:
+    if seen is None or getattr(seen, "stale", False):
         return None
     return float(getattr(seen, "owned", {}).get(route, 0.0))
 
