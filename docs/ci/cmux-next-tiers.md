@@ -117,9 +117,26 @@ A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
 `cmux-next.yml` counts as one only when, against the pull request's base
 (`--base-rev HEAD^1`), its change leaves every Mac job and every job one needs as
 it was: `on:` paths or `run-name`, or a job that runs only on Linux and that no Mac
-job needs (the `checks` job, a dispatch request). A changed Mac job, path routing,
-placement, the web bundles job, a top-level key, or a base that cannot be read runs
-every tier, as before (#28459 changed only `on:` paths and queued both Mac jobs). ci.yml's
+job needs (the `checks` job, a dispatch request). A job that never runs on a pull
+request adds no tier either: its `if:` requires a push, a dispatch, a branch ref or a
+dispatch input, or a job that does (the DEV landing compile, the fast Release gate, the
+nightly requests). The base push runs it. A change to one of the Mac jobs
+`WORKFLOW_JOB_TIERS` lists runs that job's own tiers:
+
+| job changed | tiers it runs |
+| --- | --- |
+| `swift-test` | swift test on every CmuxNext test target, with the generated-files check it folds in |
+| `daemon-test` | the daemon suites, with the generated-files check |
+| `generated-files` | generated |
+| `release-compile` | native and the Mac Release compile |
+| `app-compile-fleet` | native |
+| `cmux-scheme-compile` | native and the scheme compile |
+
+Before this, a change to the DEV compile's steps ran swift test, the daemon suites
+and every compile (#5424). The router runs every tier, as before, for: a change to a
+listed job's `if:`, a job added or removed, path routing, placement, the web bundles
+job, the fast tier or the canary, a top-level key, or a base that cannot be read
+(#28459 changed only `on:` paths and queued both Mac jobs). ci.yml's
 guards run actionlint and the CI unit tests. When the router itself changes,
 `Routing replay (router changes)` replays the last 30 merged PRs' changed files
 through the base router and the PR's own (`scripts/ci/cmux_next_route_replay.py`)

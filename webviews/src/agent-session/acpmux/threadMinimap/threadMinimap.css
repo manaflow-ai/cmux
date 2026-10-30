@@ -28,6 +28,11 @@
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
+  /* Keep rail hover transforms and highlight opacity in their own compositing surface. The
+     transcript scroller has an edge mask; without a stable boundary Chromium can re-raster the
+     masked transcript whenever the rail's lit ticks or glass card changes (#25766). */
+  isolation: isolate;
+  will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
 .acpmux-minimap__strip {
@@ -135,10 +140,10 @@
    be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
    and fades in ease-out over the micro step, staggered down the rows on screen by their place in the
    rail's room (--acpmux-minimap-row from --acpmux-minimap-first, over --acpmux-minimap-rows), so the
-   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. It runs once per mounted
-   tick and stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a
-   negative place and starts at once. None under Reduce Motion (the system's, the app's motion gate,
-   or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
+   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. Only the initial visible
+   ticks and newly appended prompts enter; virtualization remounts draw immediately. It stops at its
+   end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place and starts
+   at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
 .acpmux-minimap__tick {
   --acpmux-minimap-stagger: clamp(
     0ms,
@@ -150,11 +155,11 @@
    Motion on with the rail mounted stops the entrance for every tick added after (the rail's own
    `data-reduce` is read only at mount, hover and focus). */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__bar {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__bar {
     animation: acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards;
     animation: acpmux-minimap-tick-in var(--cmux-motion-micro) var(--acpmux-minimap-spring) var(--acpmux-minimap-stagger) backwards;
   }
-  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__dot {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__dot {
     animation: acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards;
   }
 }
