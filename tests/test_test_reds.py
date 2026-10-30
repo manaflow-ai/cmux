@@ -19,6 +19,14 @@ FIXTURES = ROOT / "tests/fixtures/test_reds"
 # results, the crash and the job's error lines.
 HEAD_26346 = FIXTURES / "26346-head-run-40620080851.log"
 BASE_26346 = FIXTURES / "26346-base-run-40626248565.log"
+# `bun test` reds, trimmed to the bun run: fast checks run 41057297193 (job 124067944438, feat-cmux-next ad6de25e,
+# chat-unavailable.test.ts run from the repo root, 3 fails) and run 41056184399 (job 124064196820, a pasteWall
+# toBeLessThan fail), as the job logs print them. Run 41060421706 printed bun's raw output for throwaway tests: a
+# toBe, a toBeLessThan, a timeout, an error between tests, a file that cannot load, and a run killed mid-file.
+BUN_CHAT_UNAVAILABLE = FIXTURES / "bun-chat-unavailable-run-41057297193.log"
+BUN_PASTE_WALL = FIXTURES / "bun-paste-wall-run-41056184399.log"
+BUN_RAW = FIXTURES / "bun-raw-run-41060421706.log"
+BUN_RAW_KILLED = FIXTURES / "bun-raw-killed-run-41060421706.log"
 
 
 def log(*lines):
@@ -591,6 +599,160 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
 
     def test_a_job_that_names_no_webview_test_is_not_this_classifiers(self):
         self.assertIsNone(reds.classify_web([log("error: oxlint found 3 problems")], [replay()]))
+
+
+UNAVAILABLE = "test/chat-unavailable.test.ts"
+
+
+def bun_run(*files, recap=True, counts=True):
+    """A raw `bun test` log as Actions prints it: each file is (name, [(test, error or None, timeout ms or None)]);
+    a test with no error passed."""
+    lines, failures = [], []
+    for name, tests in files:
+        lines.append(f"##[group]{name}:")
+        for test, error, *timeout in tests:
+            if error:
+                lines += [f"error: {error}", "", f"      at <anonymous> (/home/runner/work/cmux/webviews/{name}:9:5)"]
+                lines.append(f"(fail) {test} [12.34ms]")
+                if timeout and timeout[0]:
+                    lines.append(f"  ^ this test timed out after {timeout[0]}ms.")
+                failures.append(f"(fail) {test} [12.34ms]")
+            else:
+                lines.append(f"(pass) {test} [0.51ms]")
+        lines.append("##[endgroup]")
+    if recap and failures:
+        lines += ["", f"{len(failures)} tests failed:", *failures]
+    if counts:
+        lines += ["", " 4 pass", f" {len(failures)} fail", " 9 expect() calls",
+                  f"Ran {4 + len(failures)} tests across {len(files)} files. [1.02s]"]
+    return log(*lines)
+
+
+class BunTestReds(unittest.TestCase):
+    """A raw `bun test` log (cmux-ci test, fast checks) is judged per test like Swift's: before, test_reds.py read no
+    bun output and exited 2 on it, so every bun red was compared with the base by hand."""
+
+    def test_the_chat_unavailable_red_on_ad6de25e_compares_by_name_wherever_bun_ran(self):
+        head = BUN_CHAT_UNAVAILABLE.read_text()
+        found = reds.read(head)
+        self.assertEqual(sorted(found.failed), [
+            f"{UNAVAILABLE} > ChatUnavailableState > a chat never seen here is not found, never deleted",
+            f"{UNAVAILABLE} > ChatUnavailableState > a deleted chat names the machine it was on, not the tab's",
+            f"{UNAVAILABLE} > ChatUnavailableState > every case keeps the session id and Resume; Close Tab on all but "
+            "deleted (Remove from Sidebar)"])
+        self.assertEqual(set(found.messages.values()), {"expect(received).toContain(expected)"})
+        self.assertEqual((found.crashes, found.truncated), ([], []))
+        # The base ran it from webviews/: the same tests by name.
+        base = head.replace("##[group]webviews/test/", "##[group]test/")
+        verdict = reds.classify(head, base, "fast checks", "feat-cmux-next")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, sorted(found.failed))
+
+    def test_the_paste_wall_red_is_its_own_when_the_base_passes_it(self):
+        head = BUN_PASTE_WALL.read_text()
+        name = ("test/reopened-chat-history.test.ts > a reopened pasteWall chat shows its history under the composer, "
+                "with no blank band")
+        found = reds.read(head)
+        self.assertEqual(found.failed, {name})
+        self.assertEqual(found.messages[name], "expect(received).toBeLessThan(expected)")
+        passing = head.replace("(fail) a reopened pasteWall", "(pass) a reopened pasteWall").replace(" 1 fail", " 0 fail")
+        verdict = reds.classify(head, passing, "fast checks", "feat-cmux-next")
+        self.assertTrue(verdict.own)
+        self.assertEqual(verdict.reasons, [f"1 failing test(s) pass or do not run on feat-cmux-next: {name} "
+                                           "(expect(received).toBeLessThan(expected))"])
+        self.assertFalse(reds.classify(head, head, "fast checks").own)
+
+    def test_bun_raw_output_names_each_failure_with_its_error(self):
+        found = reds.read(BUN_RAW.read_text())
+        red, load = "test/zz-capture/red.test.ts > chat unavailable > ", "test/zz-capture/load.test.ts > "
+        self.assertEqual(found.messages, {
+            red + "shows the notice": "expect(received).toBe(expected)",
+            red + "pasteWall settles at the bottom": "expect(received).toBeLessThan(expected)",
+            red + "reads the slow history": "timed out after 50ms",
+            "test/zz-capture/unhandled.test.ts > waits": "late failure outside a test",
+        })
+        self.assertEqual(found.failed, set(found.messages) | {
+            load + "unhandled error: Cannot find module './does-not-exist' from 'test/zz-capture/load.test.ts'"})
+        self.assertEqual((found.crashes, found.truncated), ([], []))
+
+    def test_a_bun_run_killed_mid_file_is_a_crash_and_cut_short(self):
+        killed = BUN_RAW_KILLED.read_text()
+        found = reds.read(killed)
+        self.assertEqual(found.failed, {"test/zz-capture/slow.test.ts > first"})
+        self.assertEqual(found.crashes, ["the test process crashed (signal 9)"])
+        self.assertEqual(found.truncated, ["a bun test run printed no ` N pass` / ` N fail` summary after its last result"])
+        self.assertTrue(reds.classify(killed, killed, "fast checks").own)
+
+    def test_the_same_bun_failure_on_both_sides_is_a_base_red_and_a_new_one_is_its_own(self):
+        both = (UNAVAILABLE, [("chat > shows the notice", "expect(received).toBe(expected)"), ("chat > opens", None)])
+        head = bun_run(both, ("test/b.test.ts", [("b > rests", "expect(received).toEqual(expected)")]))
+        verdict = reds.classify(bun_run(both), bun_run(both))
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, [f"{UNAVAILABLE} > chat > shows the notice"])
+        verdict = reds.classify(head, bun_run(both))
+        self.assertTrue(verdict.own)
+        self.assertEqual(verdict.reasons, ["1 failing test(s) pass or do not run on the base: "
+                                           "test/b.test.ts > b > rests (expect(received).toEqual(expected))"])
+        self.assertEqual(verdict.shared, [f"{UNAVAILABLE} > chat > shows the notice"])
+
+    def test_the_command_line_judges_a_bun_log_instead_of_exiting_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head, base = Path(tmp, "head.log"), Path(tmp, "base.log")
+            head.write_text(bun_run((UNAVAILABLE, [("chat > a", "boom")])))
+            base.write_text(bun_run((UNAVAILABLE, [("chat > a", "boom"), ("chat > b", "bang")])))
+            run = lambda h, b: subprocess.run([sys.executable, str(ROOT / "scripts/ci/test_reds.py"), "classify",
+                                               "--head", str(h), "--base", str(b), "--json"],
+                                              capture_output=True, text=True)
+            done = run(head, base)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads(done.stdout)["shared"], [f"{UNAVAILABLE} > chat > a"])
+            self.assertEqual(run(base, head).returncode, 1)
+
+    def test_timing_is_stripped_the_recap_is_not_counted_twice_and_a_timeout_is_its_message(self):
+        found = reds.read(bun_run((UNAVAILABLE, [("chat > slow", "timed out", 5000), ("chat > a", "boom")])))
+        self.assertEqual(found.failed, {f"{UNAVAILABLE} > chat > slow", f"{UNAVAILABLE} > chat > a"})
+        self.assertEqual(found.messages[f"{UNAVAILABLE} > chat > slow"], "timed out after 5000ms")
+        self.assertEqual(found.messages[f"{UNAVAILABLE} > chat > a"], "boom")
+        # A failure only the recap names (it failed before its file's header printed) keeps its bare name.
+        recap_only = log("1 tests failed:", "(fail) crashed before its header [3.00ms]", " 0 pass", " 1 fail")
+        self.assertEqual(reds.read(recap_only).failed, {"crashed before its header"})
+
+    def test_an_unhandled_error_between_tests_is_a_failure_named_by_its_error(self):
+        unhandled = log(f"##[group]{UNAVAILABLE}:", "# Unhandled error between tests", "-------------------------------",
+                        "error: Cannot find module './gone'", "-------------------------------", "",
+                        " 0 pass", " 1 fail", " 1 error")
+        self.assertEqual(reds.read(unhandled).failed, {f"{UNAVAILABLE} > unhandled error: Cannot find module './gone'"})
+        other = unhandled.replace("./gone", "./missing")
+        self.assertTrue(reds.classify(unhandled, other).own)
+        self.assertFalse(reds.classify(unhandled, unhandled).own)
+
+    def test_a_cut_short_bun_run_is_never_a_base_red(self):
+        tests = (UNAVAILABLE, [("chat > a", "boom"), ("chat > b", None)])
+        for cut in (bun_run(tests, recap=False, counts=False), bun_run(tests, counts=False),
+                    # a second run that never finished after a whole first one
+                    bun_run(tests) + "\n" + log("##[group]test/c.test.ts:", "(pass) c > d [1.00ms]")):
+            with self.subTest(cut=cut[-80:]):
+                verdict = reds.classify(cut, cut, "fast checks")
+                self.assertTrue(verdict.own)
+                self.assertIn("printed no ` N pass` / ` N fail` summary", verdict.reasons[0])
+
+    def test_a_bun_crash_or_a_killed_runner_after_a_whole_run_is_never_a_base_red(self):
+        whole = bun_run((UNAVAILABLE, [("chat > a", "boom")]))
+        for end in ("panic(main thread): Segmentation fault at address 0x0",
+                    "oh no: Bun has crashed. This indicates a bug in Bun, not your code.",
+                    "##[error]Process completed with exit code 137.", "bash: line 1: 4242 Killed                  bun test"):
+            with self.subTest(end=end):
+                crashed = whole + "\n" + log(end)
+                verdict = reds.classify(crashed, crashed, "fast checks")
+                self.assertTrue(verdict.own, verdict.reasons)
+                self.assertIn("crashed", verdict.reasons[0])
+
+    def test_the_webview_wrappers_comparison_is_unchanged(self):
+        # web_failures hands read() its log without result lines: a wrapper log of bun output with no counts (as in
+        # web_job) is judged as before, by classify_web's own rules.
+        head_shard = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertEqual(reds.web_failures(head_shard).truncated, [])
+        self.assertFalse(reds.classify_web([head_shard], [head_shard]).own)
 
 
 if __name__ == "__main__":

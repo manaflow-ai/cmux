@@ -19,6 +19,9 @@ red was other tests. A job-level comparison hid a real crash. So:
    or a summary counts fewer tests than ran) is the head's own red: an unreadable red fails closed.
 4. No base log, or one that names no failing test while the head's does, excuses nothing.
 
+It reads Swift Testing, XCTest, cargo test, unittest, pytest and `bun test` output (a bun failure is `FILE > TEST`;
+a bun run that printed no closing ` N pass` / ` N fail` counts after its last result was cut short).
+
     test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
 
 prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2 when
@@ -110,11 +113,15 @@ NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests di
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
 BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
-# `bun test` itself (a raw run, or a file's log inside run-webviews-tests.sh): a header per file (a `##[group]` one in
-# Actions), a `(pass)` or `(fail) <describe> > <test> [1.23ms]` line per test, the failure's `error:` printed above its
-# line and a timeout note below it, a closing recap of the failures (`N tests failed:`, with no headers) and the
-# ` N pass` / ` N fail` counts that end each run.
-BUN_FILE = re.compile(r"^(?:##\[group\])?(\S+\.(?:test|spec)\.[cm]?[jt]sx?):$")
+# `bun test` itself (a raw run, or a file's log inside run-webviews-tests.sh): a header per file (`::group::FILE:` in
+# Actions, which the job log shows as `##[group]FILE:`), a `(pass)` or `(fail) <describe> > <test> [1.23ms]` line per
+# test, the failure's `error:` printed above its line and a timeout note below it, a closing recap of the failures
+# (`N tests failed:`, with no headers) and the ` N pass` / ` N fail` counts that end each run.
+BUN_FILE = re.compile(r"^(?:##\[group\]|::group::)?(\S+\.(?:test|spec)\.[cm]?[jt]sx?):$")
+# A header's path from wherever bun ran (the repo root, the package, `./`): relative to its package, as
+# webviews_test_results.py names it.
+BUN_PACKAGE = re.compile(r"^(?:\./)*(?:\S*?/)?(?:webviews|web)/|^(?:\./)+")
+BUN_ABSOLUTE = re.compile(r"(?<=['\"(])/\S*?/(?:webviews|web)/")
 BUN_TEST = re.compile(r"^\((pass|fail)\) (.+?)(?: \[[0-9.]+m?s\])?$")
 BUN_ERROR = re.compile(r"^error: (.+)$")
 BUN_TIMED_OUT = re.compile(r"^\s*\^ this test timed out after (\d+)ms")
@@ -297,7 +304,7 @@ def read_bun(lines: list[str], result: Result) -> None:
         if BUN_RECAP.match(text):
             recap, last = True, None
         elif match := BUN_FILE.match(text):
-            file, said, last, recap = match.group(1), "", None, False
+            file, said, last, recap = BUN_PACKAGE.sub("", match.group(1)), "", None, False
         elif match := BUN_TEST.match(text):
             result.ran, counted, last = True, False, None
             name = match.group(2)
@@ -310,7 +317,8 @@ def read_bun(lines: list[str], result: Result) -> None:
             unhandled = True
         elif match := BUN_ERROR.match(text):
             if unhandled:
-                fail(f"{file} > unhandled error: {match.group(1)}" if file else f"unhandled error: {match.group(1)}", "")
+                said_where = BUN_ABSOLUTE.sub("", match.group(1))  # the checkout's path differs from run to run
+                fail(f"{file} > unhandled error: {said_where}" if file else f"unhandled error: {said_where}", "")
                 unhandled = False
             elif not said:
                 said = match.group(1)
