@@ -33,9 +33,19 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
   if (!saved?.trim()) return typed;
   if (!typed.trim()) return saved;
   if (typed.includes(saved)) return typed;
+  if (saved.includes(typed)) return saved;
   // Already merged once (a second load, the host's own merge): the same text again.
   if (saved.endsWith(`\n\n${typed}`)) return saved;
-  return `${saved}\n\n${typed}`;
+  const overlap = longestBoundaryOverlap(saved, typed);
+  return overlap >= 2 ? `${saved}${typed.slice(overlap)}` : `${saved}\n\n${typed}`;
+}
+
+function longestBoundaryOverlap(first: string, second: string): number {
+  const limit = Math.min(first.length, second.length);
+  for (let length = limit; length > 0; length -= 1) {
+    if (first.endsWith(second.slice(0, length))) return length;
+  }
+  return 0;
 }
 
 /**
