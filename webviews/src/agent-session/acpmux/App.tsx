@@ -5159,13 +5159,7 @@ function AcpmuxPane() {
     auth: sessionAuth,
     pending: authPending,
     recheck: recheckSession,
-  } = useSessionAuth(
-    authQuery,
-    readAuth,
-    authEpoch,
-    healthRecheck,
-    authObservation,
-  );
+  } = useSessionAuth(authQuery, readAuth, authEpoch, healthRecheck, authObservation);
   const targetSignInHealth: HarnessHealth | undefined =
     !snapshot.sessionId &&
     !!healthHarness &&

@@ -139,7 +139,9 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
     const daemon = await page.evaluate(
       () => (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog,
     );
-    expect(daemon.some(({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt")).toBe(false);
+    expect(daemon.some(({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt")).toBe(
+      false,
+    );
   }
 
   describe("unsent draft", () => {
@@ -173,7 +175,9 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
         () => (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog,
       );
       expect(daemon.some(({ method }) => method === "acpmux _acpmux/session/auth")).toBe(true);
-      expect(daemon.some(({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt")).toBe(false);
+      expect(daemon.some(({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt")).toBe(
+        false,
+      );
       await page.close();
     });
 
@@ -216,7 +220,9 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       expect(await page.locator('[data-harness-notice="signedOut"]').count()).toBe(0);
       await page.locator(".acpmux-composer-prompt .ProseMirror").click();
       await page.keyboard.press("Enter");
-      expect((await page.locator(".acpmux-composer-prompt .ProseMirror").innerText()).trim()).toBe("conflicting health draft");
+      expect((await page.locator(".acpmux-composer-prompt .ProseMirror").innerText()).trim()).toBe(
+        "conflicting health draft",
+      );
       const sent = await page.evaluate(() =>
         (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.some(
           ({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt",
