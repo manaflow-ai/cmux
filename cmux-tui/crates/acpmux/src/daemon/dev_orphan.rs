@@ -22,6 +22,12 @@
 //! platform but macOS, nor a daemon run from outside an app bundle (a
 //! checkout's binary, `CMUX_NEXT_ACPMUX_BIN`): no bundle names it a DEV one.
 //!
+//! The app counts as alive while anything accepts a connect on its socket:
+//! the watch cannot tell the app from another process that binds that path
+//! after it quits. A same-tag DEV rebuilt elsewhere is that case, and it is
+//! covered by the executable check; another program binding the app's
+//! private socket path is not.
+//!
 //! When the executable is gone, the shutdown ends the daemon's hosted agents
 //! too: no build of it is left to adopt them. When the app only quit (its
 //! executable is still there), it is the SIGTERM handoff: the agents keep
@@ -130,7 +136,16 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
     // that replaced it in between, and the watch would hold that one.
     let facts = std::env::current_exe().ok().and_then(|exe| {
         let executable = Executable::open(&exe);
-        dev_app_socket(&exe).map(|socket| (socket, executable))
+        if let Some(socket) = dev_app_socket(&exe) {
+            return Some((socket, executable));
+        }
+        // The bundle went away during the startup, before its Info.plist was read: an app
+        // bundle that names an app socket and whose executable is already gone is watched too
+        // (it reads as gone at once), or nothing would ever stop this daemon.
+        bundle_gone_at_start(&exe, &executable)
+            .then(app_socket_env)
+            .flatten()
+            .map(|socket| (socket, executable.gone_at_start()))
     });
     async move {
         match facts {
@@ -152,17 +167,25 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
 /// (`scripts/install-cmux-tui-client.sh`, `scripts/cmux-next/bundle-cmux-tui.sh`), which leaves
 /// this file with no name. A write in place is therefore not a new build, and a size or mtime
 /// check would stop a live app's daemon, and end its agents, after a touch or a re-sign.
-pub(crate) struct Executable(Option<std::fs::File>);
+pub(crate) struct Executable(Option<std::fs::File>, bool);
 
 impl Executable {
     pub(crate) fn open(path: &Path) -> Self {
-        Self(std::fs::File::open(path).ok())
+        Self(std::fs::File::open(path).ok(), false)
+    }
+
+    /// One already gone when the daemon started (`bundle_gone_at_start`): always gone.
+    fn gone_at_start(self) -> Self {
+        Self(self.0, true)
     }
 
     /// Whether no name links to the file any more (deleted, or replaced by a new file at its
     /// name). A write in place keeps it (see the type's doc). One that could not be opened at
     /// the start is never gone.
     pub(crate) fn gone(&self) -> bool {
+        if self.1 {
+            return true;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -223,9 +246,22 @@ fn dev_app_socket(exe: &Path) -> Option<PathBuf> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let socket = std::env::var_os("CMUX_SOCKET_PATH").filter(|path| !path.is_empty())?;
+    let socket = app_socket_env()?;
     let bundle = containing_app_bundle(exe)?;
-    is_dev_bundle(&bundle_id(&bundle)?).then(|| PathBuf::from(socket))
+    is_dev_bundle(&bundle_id(&bundle)?).then_some(socket)
+}
+
+/// The app's control socket this daemon was started with (`CMUX_SOCKET_PATH`).
+fn app_socket_env() -> Option<PathBuf> {
+    std::env::var_os("CMUX_SOCKET_PATH").filter(|path| !path.is_empty()).map(PathBuf::from)
+}
+
+/// On macOS, whether this executable sat in an app bundle that is gone already: its
+/// Info.plist cannot be read and the executable has no name left (or could not be opened).
+fn bundle_gone_at_start(exe: &Path, executable: &Executable) -> bool {
+    cfg!(target_os = "macos")
+        && containing_app_bundle(exe).is_some_and(|bundle| bundle_id(&bundle).is_none())
+        && (executable.0.is_none() || executable.gone())
 }
 
 /// Whether the app accepts a connection on its control socket. The
@@ -322,8 +358,9 @@ mod tests {
         let third = Executable::open(&exe);
         std::fs::remove_file(&exe).unwrap();
         assert!(third.gone(), "deleted");
-        // Not opened at the start: never gone.
+        // Not opened at the start: never gone, unless its bundle was already gone then.
         assert!(!Executable::open(&dir.join("missing")).gone());
+        assert!(Executable::open(&dir.join("missing")).gone_at_start().gone());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
