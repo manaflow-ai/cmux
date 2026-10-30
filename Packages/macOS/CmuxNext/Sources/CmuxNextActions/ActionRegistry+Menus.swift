@@ -98,7 +98,9 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
         if menuItem.isHidden { return false }
         // A standalone key window claims the run: its close items stay
         // enabled (they close it), actions on main window content are off.
-        let invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)
+        var invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)
+        // A row scoped to its target's machine (``scopeMenuAction``) validates against that machine, as it runs.
+        invocation.targetMachineID = payload.targetMachineID
         // A main menu toggle reads as the change it makes for the focused target (Pin
         // Workspace or Unpin Workspace, PINNED-ITEMS-END-TO-END); no target title, the
         // catalog's. Context menu items (an ActionMenuPayload) are decorated when built.
