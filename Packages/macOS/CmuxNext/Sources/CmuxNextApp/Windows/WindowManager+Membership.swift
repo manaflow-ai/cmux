@@ -238,6 +238,8 @@ extension WindowManager {
     /// Files a held Cloud workspace into a window of its kind: an ephemeral one opens an incognito
     /// window; a normal one joins the most recent open normal window, else opens one.
     func fileHeldWorkspace(_ workspaceID: String, select: Bool) {
+        // Placed meanwhile (opening its machine's other workspace re-ran reconcile): it stays there.
+        guard registry.value.owner(of: workspaceID) == nil else { return }
         if EphemeralWorkspaces.isEphemeral(workspaceID, self) {
             openWindow(workspaces: [workspaceID], incognito: true, behind: !select)
         } else if let normal = registry.value.mostRecentOpen(incognito: false), let state = states[normal] {
