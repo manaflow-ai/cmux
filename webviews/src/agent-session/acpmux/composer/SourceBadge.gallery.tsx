@@ -179,6 +179,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/composer/SourceBadge.tsx#SourceBadge",
     "agent-session/acpmux/composer/VideoAttachmentTile.tsx#VideoAttachmentTile",
     "agent-session/acpmux/conversation/UserBubble.tsx#SentImages",
+    "agent-session/acpmux/conversation/InlinePromptContent.tsx#InlinePromptContent",
+    "agent-session/acpmux/conversation/InlinePromptContent.tsx#PromptFile",
   ],
   styles: () =>
     Promise.all([
@@ -236,6 +238,34 @@ export default componentEntry<Props>({
                       text="Why does the sidebar overlap the toolbar here?"
                     />
                   </div>
+                  {/* A prompt whose attachments the composer placed in its text: each keeps its badge in order. */}
+                  <div className="cv-user" style={{ marginTop: 16 }}>
+                    <UserBubble
+                      row={{
+                        id: `placed-${design}`,
+                        version: 1,
+                        kind: "user",
+                        at: 2,
+                        inlineParts: [
+                          { kind: "text" as const, text: "Compare this screenshot " },
+                          { kind: "image" as const, ...fixtures.images[1]!, placed: true as const },
+                          { kind: "text" as const, text: " with the numbers " },
+                          ...fixtures.chips
+                            .filter((chip) => chip.kind === "link" && !chip.video)
+                            .map((chip) => ({
+                              kind: "file" as const,
+                              name: chip.name,
+                              mimeType: chip.mimeType,
+                              size: chip.size,
+                              uri: `file://${chip.path}`,
+                              placed: true as const,
+                              ...(chip.source ? { source: chip.source } : {}),
+                            })),
+                        ],
+                      }}
+                      text="Compare this screenshot with the numbers"
+                    />
+                  </div>
                 </TurnActionsContext.Provider>
               </ImageViewerContext.Provider>
             </div>
@@ -248,7 +278,7 @@ export default componentEntry<Props>({
       props: { design: "before" },
     },
     corner: {
-      note: "Shipped. The source app's own 16px icon in the tile's top-right corner (a web image from Google Chrome, a Screenshot capture, cmux's Attach Screenshot, a screen recording's poster), on the file glyph's corner for a file from Finder; the fourth image's source is unknown, so it wears none. In the composer the × takes that corner while the pointer is on the tile. The tooltip names the source (\"From Google Chrome · github.com\").",
+      note: "Shipped. The source app's own 16px icon in the tile's top-right corner (a web image from Google Chrome, a Screenshot capture, cmux's Attach Screenshot, a screen recording's poster), on the file glyph's corner for a file from Finder, in the legacy bands and in a prompt whose attachments sit in its text; the fourth image's source is unknown, so it wears none. In the composer the × takes that corner while the pointer is on the tile. The tooltip names the source (\"From Google Chrome · github.com\").",
       props: { design: "corner" },
     },
     small: {

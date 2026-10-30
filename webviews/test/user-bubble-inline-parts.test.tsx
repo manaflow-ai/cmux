@@ -56,6 +56,7 @@ const { FindReveal } = await import("../src/agent-session/acpmux/conversation/ch
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { clearImageEntries } = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
+const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/SourceBadge");
 
 const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
@@ -453,6 +454,56 @@ try {
     expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
     expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("unique pasted match");
   });
+  for (const attachmentView of ["inline", "strip"] as const) {
+    test(`${attachmentView}: a placed sent file and image keep their source's badge`, async () => {
+      clearImageEntries();
+      resetTranscriptDisclosure();
+      resetSourceIcons();
+      const asked: string[] = [];
+      (dom.window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
+        "attachment.sourceIcon": async (params: Record<string, unknown>) => {
+          asked.push(String(params.bundleId));
+          return { src: "data:image/png;base64,iVBORw0KGgo=" };
+        },
+      };
+      await act(async () => setComposerSettings({ attachmentView }));
+      await render(
+        prompt(`sourced-${attachmentView}`, "compare with the numbers", [
+          { kind: "text", text: "compare " },
+          {
+            kind: "image",
+            id: `sourced-shot-${attachmentView}`,
+            mimeType: "image/png",
+            name: "shot.png",
+            placed: true,
+            source: { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" },
+          },
+          { kind: "text", text: " with the numbers " },
+          {
+            kind: "file",
+            name: "build-times.csv",
+            mimeType: "text/csv",
+            size: 18_400,
+            uri: "file:///Users/sample/build-times.csv",
+            placed: true,
+            source: { name: "Finder", bundleId: "com.apple.finder" },
+          },
+        ]),
+      );
+      // The host's icon answers land a tick later.
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      const band = attachmentView === "inline" ? "[data-inline-content]" : "[data-inline-attachment-strip]";
+      const file = host.querySelector<HTMLElement>(`${band} .cv-user__inline-file .acpmux-file-chip`)!;
+      expect(file).not.toBeNull();
+      expect(file.querySelector(".acpmux-source-badge img")?.getAttribute("alt")).toBe("From Finder");
+      expect(file.getAttribute("title")).toBe("/Users/sample/build-times.csv\nFrom Finder");
+      const image = host.querySelector<HTMLElement>(`${band} .cv-user__inline-image .cv-user__sourced`)!;
+      expect(image).not.toBeNull();
+      expect(image.querySelector(".acpmux-source-badge img")?.getAttribute("alt")).toBe("From Screenshot");
+      expect(asked.sort()).toEqual(["com.apple.finder", "com.apple.screenshot.launcher"]);
+      await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    });
+  }
 } finally {
   afterAll(() => {
     act(() => root.unmount());
