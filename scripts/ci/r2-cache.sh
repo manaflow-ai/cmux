@@ -33,7 +33,14 @@ if [[ "$dir" == *$'\n'* ]]; then
   exit 2
 fi
 
-namespace="v1/${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
+# CI_CACHE_R2_PLATFORM (<os>-<arch>) names the namespace of a save made on another runner than
+# the build it caches: nightly.yml's save-nightly-app-caches saves the Mac build's caches on Linux.
+platform="${CI_CACHE_R2_PLATFORM:-${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}}"
+if ! valid_name "$platform"; then
+  echo "r2-cache: platform has characters outside [A-Za-z0-9._-]: $platform" >&2
+  exit 2
+fi
+namespace="v1/$platform"
 set_output() { if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "$1=$2" >> "$GITHUB_OUTPUT"; fi; }
 
 fetch() { # <relative object path> <destination file>

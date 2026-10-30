@@ -109,7 +109,12 @@ cmp -s "$P/bin/tool" "$WORK/collected/products/bin/tool" || { echo "FAIL: a coll
 [ "$(wc -l < "$WORK/bundle.log")" -eq 4 ] || { echo "FAIL: bundle-sources must run once per collected Mach-O file"; cat "$WORK/bundle.log"; exit 1; }
 grep -q -- "^debug-files bundle-sources -o $WORK/collected/sources/bin/tool $P/bin/tool$" "$WORK/bundle.log" \
   || { echo "FAIL: bundle-sources must read the original path (its sources resolve there)"; cat "$WORK/bundle.log"; exit 1; }
-grep -q '^::warning' "$WORK/out" || { echo "FAIL: a failed source bundle must leave a warning"; cat "$WORK/out"; exit 1; }
+grep -q 'no source bundle for bin/big-endian' "$WORK/out" || { echo "FAIL: a failed source bundle must be logged"; cat "$WORK/out"; exit 1; }
+grep -q '^::warning' "$WORK/out" && { echo "FAIL: one failed bundle among good ones is not a warning"; cat "$WORK/out"; exit 1; }
+printf '#!/usr/bin/env bash\nexit 1\n' > "$WORK/broken-cli"; chmod +x "$WORK/broken-cli"
+python3 "$COLLECT" "$P" "$WORK/broken" --sentry-cli "$WORK/broken-cli" > "$WORK/out" 2>&1 \
+  || { echo "FAIL: a broken sentry-cli must not fail the collection"; cat "$WORK/out"; exit 1; }
+grep -q '^::warning' "$WORK/out" || { echo "FAIL: no source bundle at all must leave a warning"; cat "$WORK/out"; exit 1; }
 python3 "$COLLECT" "$P" "$WORK/plain" > "$WORK/out" 2>&1 || { echo "FAIL: collecting without sentry-cli must succeed"; exit 1; }
 [ -d "$WORK/plain/sources" ] && [ -z "$(ls -A "$WORK/plain/sources")" ] || { echo "FAIL: without sentry-cli, sources/ is empty"; exit 1; }
 echo "PASS: the dSYM collector keeps what sentry-cli uploads and bundles sources where they exist"

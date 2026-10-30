@@ -224,6 +224,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
        -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
+  /^  upload-nightly-dsyms:/ { job="dsyms"; next }
   /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
@@ -238,7 +239,10 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
   job == "app" && /name: cmux-nightly-unsigned-app/ { saw_app_artifact=1 }
   job == "app" && /tar -C "\$products" -czf "\$RUNNER_TEMP\/cmux-nightly-unsigned\.tar\.gz" cmux\.app/ { saw_app_only_archive=1 }
-  job == "app" && /^      - name: Upload dSYMs to Sentry/ { saw_app_dsym_upload=1 }
+  # The build collects the dSYMs of the unsigned build; upload-nightly-dsyms (which holds the
+  # Sentry token the reused build mini must not) uploads them. The signing jobs never do.
+  job == "app" && /^      - name: Collect dSYMs and their sources for upload-nightly-dsyms/ { saw_app_dsym_upload=1 }
+  job == "dsyms" && /^      - name: Upload dSYMs to Sentry/ { saw_dsym_job_upload=1 }
   job == "publish" && /build-nightly-ghostty-cli-helper/ { saw_publish_needs_helper=1 }
   job == "publish" && /build-nightly-app/ { saw_publish_needs_app=1 }
   job == "publish" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_publish_xcode=1 }
@@ -247,7 +251,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /path: nightly-inputs\/app/ { saw_app_download_path=1 }
   job == "publish" && /tar -C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
-  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
+  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_dsym_job_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
   exit 1
@@ -796,12 +800,16 @@ done
 # measures two full builds and used to exceed the bound on every warm run.
 # Prune it before measuring, then save explicitly on a miss using the bound
 # step's verdict instead of rescanning the directory with hashFiles.
+# build-nightly-app holds no R2 key: in its place it packs the cache under
+# that same gate, and save-nightly-app-caches saves it from the handoff.
 if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="app"; next }
+  /^  save-nightly-app-caches:/ { job="appsave"; next }
   /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
   job && /^      - name: Bound Xcode compilation cache size/ { step="bound"; bound[job]=NR; next }
   job && /^      - name: Save Xcode compilation cache/ { step="save"; save[job]=NR; next }
+  job == "app" && /^      - name: Pack the Xcode compilation cache for save-nightly-app-caches/ { step="save"; save[job]=NR; next }
   job && /^      - name:/ { step="" }
   step == "bound" && /^        id: compilation-cache-bound$/ { bound_id[job]=1 }
   step == "bound" && /python3 scripts\/ci\/prune-xcode-compilation-cache\.py "\$cache_path" \\$/ { prune[job]=NR }
@@ -809,6 +817,8 @@ if ! awk '
   step == "bound" && /cache_kib=\$\(du -sk "\$cache_path"/ { measure[job]=NR }
   step == "bound" && /echo "save=/ && /GITHUB_OUTPUT/ { verdict[job]=1 }
   step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { save_action[job]=1 }
+  job == "app" && step == "save" && /run: scripts\/ci\/handoff-archive\.sh pack build-universal\/CompilationCache\.noindex / { save_action[job]=1 }
+  job == "appsave" && step == "save" && /^        if: needs\.build-nightly-app\.outputs\.compilation_cache == '\''success'\''$/ { save_gate[job]=1 }
   step == "save" && /^        if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
   step == "save" && /hashFiles/ { rescan[job]=1 }
   END {
@@ -817,6 +827,7 @@ if ! awk '
       j = jobs[i]
       if (!(bound[j] && bound_id[j] && prune[j] && prune_nonfatal[j] && measure[j] && prune[j] < measure[j] && verdict[j] && save[j] && save[j] > bound[j] && save_action[j] && save_gate[j] && !rescan[j])) exit 1
     }
+    if (!(save["appsave"] && save_action["appsave"] && save_gate["appsave"] && !rescan["appsave"])) exit 1
     exit 0
   }
 ' "$WORKFLOW_FILE"; then
@@ -992,9 +1003,11 @@ done
 
 if ! awk '
   /^  build-nightly-app:/ { job="app"; next }
+  /^  upload-nightly-dsyms:/ { job="dsyms"; next }
   /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
   job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
-  job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
+  job == "app" && /^      - name: Collect dSYMs and their sources for upload-nightly-dsyms/ { step="dsym"; next }
+  job == "dsyms" && /^    if: needs\.decide\.outputs\.build_only != '\''true'\'' && / { saw_dsym_job_gate=1 }
   job == "app" && /^      - name: Archive unsigned nightly app/ { step="archive"; next }
   job == "app" && /^      - name: Upload unsigned nightly app/ { step="upload"; next }
   job == "app" && /^      - name:/ { step="" }
@@ -1002,7 +1015,7 @@ if ! awk '
   step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
   step == "archive" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_archive_gate=1 }
   step == "upload" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_upload_gate=1 }
-  END { exit !(saw_cold_gate && saw_dsym_gate && saw_archive_gate && saw_upload_gate) }
+  END { exit !(saw_cold_gate && saw_dsym_gate && saw_dsym_job_gate && saw_archive_gate && saw_upload_gate) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: build-only must allow a cold cache and skip dSYMs plus unused app archive/upload"
   exit 1

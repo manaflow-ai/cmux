@@ -1229,6 +1229,14 @@ jobs:
     outputs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
+      # What save-nightly-app-caches and upload-nightly-dsyms read: each handoff step's outcome
+      # (`success` only when its old step would have run and the pack and upload worked), and
+      # the cache key and R2 namespace of this runner, which the Linux save cannot compute.
+      compilation_cache: ${{ steps.compilation-cache-handoff.outcome }}
+      compilation_cache_key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
+      cache_platform: ${{ runner.os }}-${{ runner.arch }}
+      swift_packages: ${{ steps.swift-packages-handoff.outcome }}
+      sentry_difs: ${{ steps.sentry-difs-handoff.outcome }}
     # !cancelled(): a failed or skipped picker leaves its outputs empty and the build takes the
     # literal label below; it never skips the build.
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
@@ -1242,9 +1250,11 @@ jobs:
     # other trusted mini (cmuxs-mac-mini-6) builds team dev builds as the same
     # user, so it keeps seeding but never builds the shipped app. Its
     # job-started hook admits only main's own push and schedule jobs. Not the
-    # pull request pool: this job holds the ci-cache-writer R2 keys and the
-    # Sentry token, and its app is what build-sign-notarize-nightly signs and
-    # ships. runner_label_policy.py holds both variables to those shapes.
+    # pull request pool: its app is what build-sign-notarize-nightly signs and
+    # ships. runner_label_policy.py holds both variables to those shapes. It
+    # holds no secret: the R2 cache saves and the Sentry upload run in
+    # save-nightly-app-caches and upload-nightly-dsyms on a literal ephemeral
+    # label, from this run's artifacts (tests/test_ci_fork_runner_routing.py).
     # ci-owned-pool-rescue.yml watches the run (owned_pool_rescue.py,
     # NIGHTLY_WORKFLOW_PATH): when the mini does not take the job within its
     # budget, or refuses it at job start, the failed jobs are re-run, and
@@ -1261,7 +1271,6 @@ jobs:
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
-    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
     # cancelled at 45 minutes mid-compile), so the budget must fit a cold
@@ -1500,33 +1509,49 @@ jobs:
           fi
           echo "save=${save}" >> "$GITHUB_OUTPUT"
 
-      - name: Save Xcode compilation cache
+      # The cache saves hold the R2 write keys, so they run in save-nightly-app-caches on a
+      # literal ephemeral label; this reused runner only packs and uploads what they save. Each
+      # pack keeps the `if:` of the save it replaced and runs where it ran, so a later failure
+      # still saves. Neither step can fail the build (a save never decides a nightly).
+      - name: Pack the Xcode compilation cache for save-nightly-app-caches
+        id: compilation-cache-pack
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
-        uses: ./.github/actions/cache-save
-        env:
-          # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
+        continue-on-error: true
+        run: scripts/ci/handoff-archive.sh pack build-universal/CompilationCache.noindex "$RUNNER_TEMP/handoff/compilation-cache"
 
-      - name: Save Swift packages
-        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
-        uses: ./.github/actions/cache-save
-        env:
-          # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+      - name: Hand the Xcode compilation cache to save-nightly-app-caches
+        id: compilation-cache-handoff
+        if: steps.compilation-cache-pack.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+          name: nightly-compilation-cache-handoff
+          path: ${{ runner.temp }}/handoff/compilation-cache
+          # Already zstd: an outer deflate only costs this runner's time.
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          # A re-run of this job replaces the failed attempt's copy.
+          overwrite: true
+
+      - name: Pack Swift packages for save-nightly-app-caches
+        id: swift-packages-pack
+        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: scripts/ci/handoff-archive.sh pack .spm-cache "$RUNNER_TEMP/handoff/swift-packages"
+
+      - name: Hand Swift packages to save-nightly-app-caches
+        id: swift-packages-handoff
+        if: steps.swift-packages-pack.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-swift-packages-handoff
+          path: ${{ runner.temp }}/handoff/swift-packages
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       # The fast arm64 build bundles the client it just compiled. Full builds
       # take the published client in build-sign-notarize-nightly instead: the
@@ -1614,14 +1639,176 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload dSYMs to Sentry
+      # The Sentry token stays off this runner: collect what the dSYM upload reads (and the
+      # sources it bundles, which exist only here) for upload-nightly-dsyms. Same place and
+      # `if:` as the upload it replaced; like it, never a reason to fail the nightly.
+      - name: Collect dSYMs and their sources for upload-nightly-dsyms
+        id: sentry-difs-pack
         if: needs.decide.outputs.build_only != 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          bundle=()
+          if cli="$(./scripts/ensure-sentry-cli.sh)"; then
+            bundle=(--sentry-cli "$cli")
+          else
+            echo "::warning title=Sentry source bundles skipped::sentry-cli could not be installed; this nightly's dSYMs go to Sentry without source context."
+          fi
+          python3 scripts/ci/collect-sentry-difs.py build-universal/Build/Products/Release "$RUNNER_TEMP/sentry-difs" ${bundle[@]+"${bundle[@]}"}
+          scripts/ci/handoff-archive.sh pack "$RUNNER_TEMP/sentry-difs" "$RUNNER_TEMP/handoff/sentry-difs"
+
+      - name: Hand dSYMs to upload-nightly-dsyms
+        id: sentry-difs-handoff
+        if: steps.sentry-difs-pack.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-sentry-difs-handoff
+          path: ${{ runner.temp }}/handoff/sentry-difs
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  # The two jobs that hold what build-nightly-app must not: it runs on the pinned trusted
+  # mini, a reused machine a variable picks. Each runs on a literal ephemeral label no
+  # variable can move, reads only this run's handoff artifacts and the build's outputs, and
+  # nothing in the nightly needs either one: signing and publishing read what they read before.
+  save-nightly-app-caches:
+    name: Save the nightly app's build caches
+    needs: [decide, build-nightly-app]
+    # !cancelled(): the packs ran where the saves used to, so a build that fails later still saves.
+    if: "!cancelled() && (needs.build-nightly-app.outputs.compilation_cache == 'success' || needs.build-nightly-app.outputs.swift_packages == 'success')"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the cache scripts and lockfile at the build ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/cache-save/
+            scripts/ci/r2-cache.sh
+            scripts/ci/handoff-archive.sh
+            scripts/ci/swiftpm-cache-layout
+            cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          sparse-checkout-cone-mode: false
+
+      - name: Download the Xcode compilation cache
+        if: needs.build-nightly-app.outputs.compilation_cache == 'success'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-compilation-cache-handoff
+          path: ${{ runner.temp }}/handoff/compilation-cache
+
+      - name: Unpack the Xcode compilation cache
+        if: needs.build-nightly-app.outputs.compilation_cache == 'success'
+        run: |
+          set -euo pipefail
+          scripts/ci/handoff-archive.sh unpack "$RUNNER_TEMP/handoff/compilation-cache" build-universal/CompilationCache.noindex
+          rm -rf "$RUNNER_TEMP/handoff/compilation-cache"
+
+      # Key, path and backend are the build's; CI_CACHE_R2_PLATFORM keeps the build runner's
+      # R2 namespace (this Linux runner's would be Linux-X64).
+      - name: Save Xcode compilation cache
+        if: needs.build-nightly-app.outputs.compilation_cache == 'success'
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+          CI_CACHE_R2_PLATFORM: ${{ needs.build-nightly-app.outputs.cache_platform }}
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          path: build-universal/CompilationCache.noindex
+          key: ${{ needs.build-nightly-app.outputs.compilation_cache_key }}
+
+      - name: Download Swift packages
+        if: needs.build-nightly-app.outputs.swift_packages == 'success'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-swift-packages-handoff
+          path: ${{ runner.temp }}/handoff/swift-packages
+
+      - name: Unpack Swift packages
+        if: needs.build-nightly-app.outputs.swift_packages == 'success'
+        run: |
+          set -euo pipefail
+          scripts/ci/handoff-archive.sh unpack "$RUNNER_TEMP/handoff/swift-packages" .spm-cache
+          rm -rf "$RUNNER_TEMP/handoff/swift-packages"
+
+      # The key is the build's restore key, from the same commit's lockfile.
+      - name: Save Swift packages
+        if: needs.build-nightly-app.outputs.swift_packages == 'success'
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+          CI_CACHE_R2_PLATFORM: ${{ needs.build-nightly-app.outputs.cache_platform }}
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          path: .spm-cache
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+
+  upload-nightly-dsyms:
+    name: Upload the nightly's dSYMs to Sentry
+    needs: [decide, build-nightly-app]
+    # The handoff succeeds only where the old upload ran: every build step passed and build_only is off.
+    if: needs.decide.outputs.build_only != 'true' && needs.build-nightly-app.outputs.sentry_difs == 'success'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the upload scripts at the build ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/upload-sentry-dsyms.sh
+            scripts/ensure-sentry-cli.sh
+            scripts/ci/handoff-archive.sh
+          sparse-checkout-cone-mode: false
+
+      # Like the upload it replaces, a failure here only costs symbolication.
+      - name: Download the collected dSYMs
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-sentry-difs-handoff
+          path: ${{ runner.temp }}/handoff/sentry-difs
+
+      - name: Unpack the collected dSYMs
+        id: unpack
+        if: steps.download.outcome == 'success'
+        continue-on-error: true
+        run: scripts/ci/handoff-archive.sh unpack "$RUNNER_TEMP/handoff/sentry-difs" "$RUNNER_TEMP/sentry-difs"
+
+      - name: Upload dSYMs to Sentry
+        if: steps.unpack.outcome == 'success'
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
           SENTRY_PROJECT: cmuxterm-macos
         # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
-        run: ./scripts/upload-sentry-dsyms.sh build-universal/Build/Products/Release/
+        # products/ holds what the build's upload read; sources/ the bundles of the sources it would add.
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sentry-difs/products" "$RUNNER_TEMP/sentry-difs/sources"
+          ./scripts/upload-sentry-dsyms.sh "$RUNNER_TEMP/sentry-difs/products" "$RUNNER_TEMP/sentry-difs/sources"
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
