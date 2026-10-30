@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-28T22:53:37Z",
+  "pools": {
+    "blacksmith-6vcpu-macos-15": {
+      "queued": 0,
+      "running": 1,
+      "reserved_queued": 0,
+      "oldest_queued_minutes": 0
+    },
+    "blacksmith-6vcpu-macos-26": {
+      "queued": 0,
+      "running": 1,
+      "reserved_queued": 0,
+      "oldest_queued_minutes": 0
+    },
+    "glaeda-gui-std-xcode-26.6": {
+      "queued": 0,
+      "running": 1,
+      "reserved_queued": 0,
+      "oldest_queued_minutes": 0,
+      "committed": 1
+    },
+    "glaeda-ios-sim": {
+      "queued": 0,
+      "running": 1,
+      "reserved_queued": 0,
+      "oldest_queued_minutes": 0,
+      "committed": 1
+    },
+    "glaeda-side-std-xcode-26.6": {
+      "queued": 1,
+      "running": 2,
+      "reserved_queued": 0,
+      "oldest_queued_minutes": 2,
+      "committed": 3
+    },
+    "glaeda-std-xcode-26.6": {
+      "queued": 1,
+      "running": 4,
+      "reserved_queued": 0,
+      "oldest_queued_minutes": 2,
+      "committed": 5
+    }
+  },
+  "settings": {
+    "lane": "blacksmith-6vcpu-macos-26",
+    "overflow": "",
+    "order": "",
+    "max_queued": "",
+    "queue_rounds": "2"
+  },
+  "wait_p90_seconds": {
+    "glaeda-session-std-xcode-26.6": 437,
+    "glaeda-side-std-xcode-26.6": 1975
+  },
+  "starved": [],
+  "unserved": []
+}

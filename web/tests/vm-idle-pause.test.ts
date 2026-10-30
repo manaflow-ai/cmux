@@ -28,12 +28,13 @@ import {
   type VmIdleProbe,
 } from "../services/vms/idlePause";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
+import { VmDatabaseError } from "../services/vms/errors";
 import { pauseBudgetVm, pauseGoVm } from "../services/vms/goPause";
 import { enforceVmIdlePause } from "../services/vms/idlePauseJob";
 import { parseCreateIdlePause, parseIdlePauseBody } from "../services/vms/idlePauseRoute";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, vmRepositoryLiveShape, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { execVm, pauseVm, setVmIdlePause } from "../services/vms/workflows";
+import { execVm, getVm, pauseVm, resizeVm, setVmIdlePause } from "../services/vms/workflows";
 import { runChild } from "./helpers/run-child";
 
 // Idle auto-pause (pilot blocker 1a). The decision is pure and pinned here: a
@@ -561,6 +562,16 @@ function cronFakes(
     // Like the live query: running machines only.
     // Like the live query: running machines, and any live row still holding an idle pause claim.
     idlePauseCandidates: () => Effect.sync(() => rows.filter((r) => r.status === "running" || (r.status !== "destroyed" && r.providerMetadata?.cmuxIdlePauseClaim !== undefined))),
+    recordIdleDecision: (input: { id: string; providerVmId: string; checkId: string; decision: { at: number; outcome: string; reason: string; run: { checked: number; elapsedMs: number } } }) => Effect.sync(() => {
+      update(input.id, (row) => {
+        if (row.providerVmId !== input.providerVmId) return row;
+        const previous = row.providerMetadata?.cmuxIdleLastDecision as { at: number; checkId: string } | undefined;
+        if (previous && previous.at > input.decision.at) return row;
+        if (previous && previous.at === input.decision.at && previous.checkId !== input.checkId) return row;
+        return { ...row, providerMetadata: { ...row.providerMetadata, cmuxIdleLastDecision: { ...input.decision, checkId: input.checkId },
+          cmuxIdleProbedAt: Math.max(Number(row.providerMetadata?.cmuxIdleProbedAt) || 0, input.decision.at) } };
+      });
+    }),
     recordIdleObservation: (input: { id: string; providerVmId: string; observation: VmIdleObservation | null; probedAt: number; epoch?: number }) => Effect.sync(() => {
       recorded.observations.push({ id: input.id, observation: input.observation });
       recorded.probedAt.push({ id: input.id, probedAt: input.probedAt });
@@ -730,7 +741,7 @@ function cronFakes(
   }));
   ctx.userPause = userPause;
   ctx.reconcilerSees = reconcilerSees;
-  return { recorded, layer, resume, repo, providerState, userPause, reconcilerSees };
+  return { recorded, layer, resume, repo, provider, providerState, userPause, reconcilerSees };
 }
 
 function byId<T extends { readonly id: string }>(items: readonly T[]): T[] {
@@ -1000,6 +1011,68 @@ describe("API activity", () => {
   });
 });
 
+describe("resize activity fences", () => {
+  test("a resize fences an overdue cron candidate before provider preflight", async () => {
+    const now = Date.now();
+    const candidate = machineRow({ createdAt: new Date(now), providerMetadata: {
+      networkIpv4: "10.192.0.5",
+      cmuxIdleObservation: { providerVmId: VM, idleSince: now - 31 * MIN, observedAt: now - 5 * MIN, cpuBusyMs: CPU0 },
+    } });
+    const rows = [candidate];
+    const { repo, provider, recorded } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
+    // The cron selected this row before the resize began; its re-read sees live state.
+    const cronLayer = Layer.mergeAll(
+      Layer.succeed(VmRepository, { ...repo, idlePauseCandidates: () => Effect.succeed([candidate]) }),
+      Layer.succeed(VmProviderGateway, provider),
+    );
+    let preflightChecks = 0;
+    const resizeLayer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+      Layer.succeed(VmProviderGateway, {
+        ...provider,
+        getStatus: () => enforceVmIdlePause({ now: () => now }).pipe(
+          Effect.provide(cronLayer),
+          Effect.orDie,
+          Effect.tap((summary) => Effect.sync(() => {
+            preflightChecks += 1;
+            expect(summary).toMatchObject({ paused: 0, claim_refused: 1 });
+          })),
+          Effect.as("running" as const),
+        ),
+        getStats: () => Effect.succeed({ state: "awake" as const, sampledAt: Date.now(), cpus: 2, memoryTotalMb: 4096, diskTotalMb: 32768 }),
+        resize: () => Effect.void,
+      }),
+    );
+    await Effect.runPromise(resizeVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"],
+      providerVmId: VM, cpu: 2 }).pipe(Effect.provide(resizeLayer)));
+    expect(preflightChecks).toBe(1);
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.apiActivity).toHaveLength(1);
+    expect(vmLastApiActivityFromRow(rows[0])).toBeGreaterThanOrEqual(now);
+  });
+
+  test("a resize stops before provider work when its activity write fails", async () => {
+    const { repo, provider } = cronFakes([machineRow({ createdAt: new Date() })], () => "fails");
+    let providerCalls = 0;
+    const failure = new VmDatabaseError({ operation: "recordVmApiActivity", cause: new Error("unavailable") });
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, { ...repo, recordVmApiActivity: () => Effect.fail(failure) }),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+      Layer.succeed(VmProviderGateway, {
+        ...provider,
+        getStatus: () => Effect.sync(() => { providerCalls += 1; return "running" as const; }),
+        getStats: () => Effect.sync(() => { providerCalls += 1; return { state: "awake" as const, sampledAt: Date.now(), cpus: 2, memoryTotalMb: 4096 }; }),
+        resize: () => Effect.sync(() => { providerCalls += 1; }),
+      }),
+    );
+    const result = await Effect.runPromise(resizeVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"],
+      providerVmId: VM, cpu: 2 }).pipe(Effect.provide(layer), Effect.either));
+    expect(result).toMatchObject({ _tag: "Left", left: failure });
+    expect(providerCalls).toBe(0);
+  });
+});
+
 describe("no private address", () => {
   test("a row without a private address is unknown: not probed, never paused, observation cleared", async () => {
     const fresh = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
@@ -1034,7 +1107,7 @@ describe("pause, resume and the idle stretch", () => {
     const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
     expect(await runAt(T0)).toMatchObject({ paused: 1 });
     expect(rows[0].status).toBe("paused");
-    expect(omit(omit(rows[0].providerMetadata, "cmuxIdleEpoch"), "cmuxPauseIntentEpoch")).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
+    expect(omit(omit(omit(omit(rows[0].providerMetadata, "cmuxIdleEpoch"), "cmuxPauseIntentEpoch"), "cmuxIdleLastDecision"), "cmuxIdleProbedAt")).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
     // Opened a minute later; the next runs see an idle machine.
     resume("row-1", T0 + MIN);
     expect(await runAt(T0 + 5 * MIN)).toMatchObject({ paused: 0, idle: 1 });
@@ -1062,8 +1135,6 @@ describe("pause, resume and the idle stretch", () => {
   test("a pause is skipped when the row moved since the candidate read", async () => {
     const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const rereads: Array<(row: CloudVmRow) => CloudVmRow | null> = [
-      // An attach or a resume moved updatedAt.
-      (row) => ({ ...row, updatedAt: new Date(row.updatedAt.getTime() + 1) }),
       // An exec landed.
       (row) => ({ ...row, providerMetadata: { ...row.providerMetadata, cmuxLastApiActivityAt: T0 } }),
       // Paused or replaced meanwhile.
@@ -1075,10 +1146,44 @@ describe("pause, resume and the idle stretch", () => {
       const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
       const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }), { reread });
       const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
-      expect(summary).toMatchObject({ checked: 1, paused: 0, active: 1, errors: 0 });
+      expect(summary).toMatchObject({ checked: 1, paused: 0, claim_refused: 1, errors: 0 });
       expect(recorded.paused).toEqual([]);
-      expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+      expect(recorded.observations).toEqual([]);
     }
+  });
+
+  test("an updatedAt-only write does not block an otherwise fenced idle pause", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const rows = [row];
+    const { recorded, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      // A display rename, resource retry, or provider metadata merge can move
+      // updatedAt without changing the idle fence or the probe's address.
+      reread: (current) => ({ ...current, updatedAt: new Date(current.updatedAt.getTime() + 1) }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 1, active: 0 });
+    expect(recorded.paused).toEqual([VM]);
+  });
+
+  test("a changed probe address refuses the claim without clearing the idle stretch", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const rows = [row];
+    const { recorded, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      reread: (current) => ({
+        ...current,
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+        providerMetadata: { ...current.providerMetadata, networkIpv4: "10.192.0.6" },
+      }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, claim_refused: 1 });
+    expect(recorded.paused).toEqual([]);
+    expect(rows[0].providerMetadata?.cmuxIdleObservation).toEqual(observation);
+    expect(epochOf(rows[0])).toBe(epochOf(row));
+    expect(recorded.observations).toEqual([]);
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "claim_refused", reason: "private_address_changed" });
   });
 });
 
@@ -1123,7 +1228,7 @@ describe("overlapping probes", () => {
     await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     // A's write lost: the row keeps what it had, not A's re-stamped stretch.
     expect(rows[0].providerMetadata.cmuxIdleObservation).toEqual(carried);
-    expect(rows[0].providerMetadata.cmuxIdleProbedAt).toBeUndefined();
+    expect(rows[0].providerMetadata.cmuxIdleProbedAt).toBe(T0); // Diagnostics advance scheduling, not the idle observation.
   });
 });
 
@@ -1729,6 +1834,134 @@ describe("idle pause SQL", () => {
   const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
   const repo = vmRepositoryLiveShape;
 
+  for (const operation of ["setting", "observation", "cleared observation", "activity", "decision"] as const) {
+    dbTest(`idle metadata stays an object after repeated ${operation} writes`, async () => {
+      const id = randomUUID();
+      const vmId = `fs-json-${id}`;
+      const initial = { networkIpv4: "10.192.0.5", cmuxIdleEpoch: 0, preserved: { value: "keep" } };
+      // Bind the serialized JSON as text so the driver cannot serialize it a second time.
+      await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, provider_vm_id, image_id, status, provider_metadata)
+        values (${id}, ${owner}, ${owner}, 'freestyle', ${vmId}, 'sh-test', 'running', ${JSON.stringify(initial)}::text::jsonb)`;
+      try {
+        for (const index of [0, 1]) {
+          const at = T0 + index * MIN;
+          const common = { id, providerVmId: vmId };
+          if (operation === "setting") await run(repo.setIdlePauseMinutes!({ ...common, minutes: 30 }));
+          else if (operation === "activity") expect(await run(repo.recordVmApiActivity!({ ...common, at }))).toBe(true);
+          else if (operation === "decision") await run(repo.recordIdleDecision!({ ...common, checkId: `json-${index}`,
+            decision: { at, outcome: "idle", reason: "idle", run: { checked: 1, elapsedMs: 1 } } }));
+          else expect(await run(repo.recordIdleObservation!({ ...common, epoch: index, probedAt: at,
+            observation: operation === "cleared observation" ? null : { providerVmId: vmId, idleSince: T0, observedAt: at, cpuBusyMs: CPU0 },
+          }))).toBe(true);
+          const [stored] = await sql<{ kind: string; metadata: Record<string, unknown> }[]>`
+            select jsonb_typeof(provider_metadata) as kind, provider_metadata as metadata from cloud_vms where id = ${id}`;
+          expect(stored.kind).toBe("object");
+          expect(stored.metadata).toMatchObject({ networkIpv4: initial.networkIpv4, preserved: initial.preserved });
+          expect(stored.metadata.cmuxIdleEpoch).toBe(operation === "decision" ? 0 : index + 1);
+          if (operation === "activity") {
+            expect(stored.metadata.cmuxLastApiActivityAt).toBe(at);
+            expect(await run(repo.recordVmApiActivity!({ ...common, at: at + 30_000 }))).toBe(false);
+          }
+        }
+      } finally {
+        await sql`delete from cloud_vms where id = ${id}`;
+      }
+    });
+  }
+
+  dbTest("resize reservations invalidate an overdue candidate before the cron claims it", async () => {
+    for (const kind of ["compute", "disk"] as const) {
+      const id = randomUUID();
+      const vmId = `fs-resize-${id}`;
+      const scope = `resize-idle-${id}`;
+      const now = Date.now();
+      const metadata = { networkIpv4: "10.192.0.5", cmuxIdleEpoch: 2,
+        cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 },
+        cmuxIdleObservation: { providerVmId: vmId, idleSince: now - 31 * MIN, observedAt: now - 5 * MIN, cpuBusyMs: CPU0 } };
+      await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, provider_vm_id, image_id, status, provider_metadata)
+        values (${id}, ${scope}, ${scope}, 'freestyle', ${vmId}, 'sh-test', 'running', ${JSON.stringify(metadata)}::text::jsonb)`;
+      try {
+        const lookup = { userId: scope, billingTeamId: scope, providerVmId: vmId, provider: "freestyle" as const };
+        const candidate = await run(repo.findUserVm(lookup));
+        expect(candidate).not.toBeNull();
+        const common = { id, userId: scope, billingTeamId: scope, providerVmId: vmId };
+        const reserved = kind === "compute"
+          ? await run(repo.reserveVmComputeResize!({ ...common, current: metadata.cmuxResourceReservation,
+            requested: { vcpus: 4, memoryMb: 4096 },
+            resourcePool: { capacity: { vcpus: 20, memoryMb: 40960 }, legacyReservation: { vcpus: 32, memoryMb: 65536 }, planId: "pro" } }))
+          : await run(repo.reserveVmResize!({ ...common, currentDiskMb: 32768, storageMb: 65536 }));
+        expect(reserved).not.toBeNull();
+        const { provider, recorded } = cronFakes([], () => ({ exitCode: 0, stdout: probeLine() }));
+        const layer = Layer.mergeAll(
+          Layer.succeed(VmRepository, { ...repo, idlePauseCandidates: () => Effect.succeed([candidate!]) }),
+          Layer.succeed(VmProviderGateway, provider),
+        );
+        const summary = await run(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
+        expect(summary).toMatchObject({ paused: 0, claim_refused: 1 });
+        expect(recorded.paused).toEqual([]);
+        const current = (await run(repo.findUserVm(lookup)))!;
+        expect(epochOf(current)).toBeGreaterThan(epochOf(candidate!));
+        expect(vmLastApiActivityFromRow(current)).toBeGreaterThanOrEqual(now);
+        expect(current.providerMetadata?.cmuxIdleObservation).toEqual(metadata.cmuxIdleObservation);
+      } finally {
+        await sql`delete from cloud_vms where id = ${id}`;
+      }
+    }
+  });
+
+  dbTest("diagnostics preserve populated lifecycle state and newer decisions, including tied timestamps", async () => {
+    const original = await read();
+    try {
+      const observation = { providerVmId, idleSince: T0 - MIN, observedAt: T0, cpuBusyMs: CPU0 };
+      const preserved = { ...original.metadata, cmuxIdleEpoch: 7, cmuxIdlePauseClaim: 7,
+        cmuxIdleObservation: observation, cmuxLastApiActivityAt: T0 - 2 * MIN };
+      await sql`update cloud_vms set provider_metadata = ${JSON.stringify(preserved)}::text::jsonb where id = ${rowId}`;
+      const before = await read();
+      const decision = { at: T0, outcome: "idle" as const, reason: "idle", run: { checked: 2, elapsedMs: 100 } };
+      const write = (checkId: string, value = decision) => run(repo.recordIdleDecision!({
+        id: rowId, providerVmId, decision: value, checkId,
+      }));
+      await write("check-a");
+      let row = await read();
+      expect(row.updatedAt).toEqual(before.updatedAt);
+      expect(row.metadata).toMatchObject(preserved);
+      expect(row.metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
+      expect(row.metadata.cmuxIdleProbedAt).toBe(T0);
+      await write("older", { ...decision, at: T0 - 1 });
+      await write("check-a", { ...decision, at: T0 - 1 });
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
+      await run(repo.recordIdleDecision!({ id: rowId, providerVmId: "replaced", decision, checkId: "replacement" }));
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
+      // A and B have indistinguishable check times: the first stored check (A) wins.
+      const competing = { ...decision, reason: "other", run: { checked: 1, elapsedMs: 20 } };
+      await write("check-b", competing);
+      await write("check-a", { ...decision, run: { checked: 99, elapsedMs: 500 } });
+      await write("check-b", { ...competing, run: { checked: 3, elapsedMs: 50 } });
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a", run: { checked: 99, elapsedMs: 500 } });
+      // A later check wins, then finalizes. A delayed initial write tied with it cannot replace it either.
+      const later = { ...decision, at: T0 + 1 };
+      await write("check-later", later);
+      await write("check-later", { ...later, run: { checked: 3, elapsedMs: 50 } });
+      await write("check-delayed", { ...later, reason: "delayed_initial" });
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...later, checkId: "check-later", run: { checked: 3, elapsedMs: 50 } });
+      // Run totals can also retry an initial write that failed while its timestamp is still newer.
+      await write("check-retry", { ...decision, at: T0 + 2 });
+      expect((await read()).metadata.cmuxIdleLastDecision).toMatchObject({ at: T0 + 2, checkId: "check-retry" });
+      // A paused row still records diagnostics without restoring its idle observation.
+      await sql`update cloud_vms set status = 'paused', provider_metadata = provider_metadata - 'cmuxIdleObservation' where id = ${rowId}`;
+      await run(repo.recordIdleDecision!({ id: rowId, providerVmId, decision: { ...decision, at: T0 + 3, outcome: "paused" }, checkId: "paused" }));
+      row = await read();
+      expect(row.status).toBe("paused");
+      expect(row.metadata.cmuxIdleObservation).toBeUndefined();
+      expect(row.metadata.cmuxIdleEpoch).toBe(7);
+      expect(row.metadata.cmuxIdlePauseClaim).toBe(7);
+      expect(row.updatedAt).toEqual(before.updatedAt);
+      expect(row.metadata.cmuxIdleLastDecision).toMatchObject({ outcome: "paused" });
+    } finally {
+      await sql`update cloud_vms set status = ${original.status}, provider_metadata = ${JSON.stringify(original.metadata)}::text::jsonb where id = ${rowId}`;
+    }
+  });
+
   dbTest("a create stores its idle pause with the row, and a same-key retry keeps the first one", async () => {
     const create = (idlePauseMinutes: 0 | 120 | undefined) => run(repo.beginCreate({
       userId: owner, billingTeamId: owner, billingPlanId: "pro", provider: "freestyle", image: "sh-test",
@@ -2148,5 +2381,111 @@ describe("legacy daemon fallback", () => {
     expect(summary).toMatchObject({ checked: 1, paused: 1, unknown: 0 });
     expect(recorded.paused).toEqual([VM]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "idle" }]);
+  });
+});
+
+
+describe("idle pause diagnostics", () => {
+  test("each decision is readable through status without changing the activity fence", async () => {
+    const rows = [machineRow()];
+    const before = rows[0].updatedAt;
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].updatedAt).toEqual(before);
+    expect(epochOf(rows[0])).toBe(1); // Only the observation advances it.
+    const entry = await Effect.runPromise(getVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"], providerVmId: VM }).pipe(Effect.provide(layer)));
+    expect(entry).toMatchObject({ idlePause: {
+      minutes: 30, lastCheckedAt: T0, idleSince: T0, lastApiActivityAt: null, privateAddressKnown: true,
+      lastDecision: { at: T0, outcome: "idle", reason: "idle", run: { checked: 1 } },
+    } });
+    expect(typeof entry.idlePause.lastDecision?.run.elapsedMs).toBe("number");
+  });
+
+  test("a failed diagnostics write does not cancel checks of other machines", async () => {
+    const rows = [machineRow({ providerMetadata: { cmuxIdlePauseMinutes: 0 } }), machineRow({ id: "row-2", providerVmId: "fs-2" })];
+    const { repo, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
+    let failedWrites = 0;
+    const unreliableRepo: VmRepositoryShape = { ...repo, recordIdleDecision: (input) => {
+      if (input.id !== "row-1") return repo.recordIdleDecision!(input);
+      failedWrites += 1;
+      return Effect.fail(new VmDatabaseError({ operation: "recordIdleDecision", cause: new Error("simulated write failure") }));
+    } };
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(
+      Effect.provideService(VmRepository, unreliableRepo), Effect.provide(layer),
+    ));
+    expect(failedWrites).toBe(2); // The injected layer must handle both writes.
+    expect(summary).toMatchObject({ checked: 2, off: 1, idle: 1 });
+    expect(rows[1].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "idle", run: { checked: 2 } });
+  });
+
+  test("status handles missing and malformed diagnostics and exposes only the documented fields", async () => {
+    const rows = [machineRow({ providerMetadata: {} })];
+    const { layer } = cronFakes(rows, () => "fails");
+    const read = () => Effect.runPromise(getVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"], providerVmId: VM }).pipe(Effect.provide(layer)));
+    expect((await read()).idlePause).toEqual({ minutes: 30, lastCheckedAt: null, idleSince: null,
+      lastApiActivityAt: null, privateAddressKnown: false, lastDecision: null });
+    for (const invalid of [null, {}, { at: T0, outcome: "invented", reason: "idle", run: { checked: 1, elapsedMs: 2 } }]) {
+      rows[0] = { ...rows[0], providerMetadata: { cmuxIdleLastDecision: invalid } };
+      expect((await read()).idlePause.lastDecision).toBeNull();
+    }
+    rows[0] = { ...rows[0], providerMetadata: { cmuxIdleLastDecision: {
+      at: T0, outcome: "idle", reason: "idle", internal: "omit", run: { checked: 1, elapsedMs: 2, internal: "omit" },
+    } } };
+    expect((await read()).idlePause.lastDecision).toEqual({ at: T0, outcome: "idle", reason: "idle", run: { checked: 1, elapsedMs: 2 } });
+  });
+
+  test.each([
+    ["off", { cmuxIdlePauseMinutes: 0 }, probeLine(), "off"],
+    ["unknown", { networkIpv4: "" }, probeLine(), "unknown:address"],
+    ["unknown", {}, "garbled", "unknown:probe"],
+    ["active", {}, probeLine({ busy_terminals: 1 }), "active:busy_terminals"],
+  ] as const)("stores %s with its reason", async (outcome, metadata, stdout, reason) => {
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", ...metadata } })];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ at: T0, outcome, reason, run: { checked: 1 } });
+  });
+
+  test("a rejected claim has its own outcome and fence reason instead of reporting guest activity", async () => {
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: {
+      providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0,
+    } } })];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
+    });
+    expect(await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer))))
+      .toMatchObject({ paused: 0, claim_refused: 1, active: 0 });
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "claim_refused", reason: "api_activity_changed" });
+    expect(rows[0].providerMetadata?.cmuxIdleProbedAt).toBe(T0);
+  });
+
+  test("provider errors and a lost observation fence remain visible", async () => {
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: {
+      providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0,
+    } } })];
+    const failing = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { pauseFails: "refused", statusFailures: 1 });
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(failing.layer)));
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "error", reason: "check_failed" });
+    const fresh = [machineRow()];
+    const overlapping = cronFakes(fresh, () => ({ exitCode: 0, stdout: probeLine() }), {
+      duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
+    });
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(overlapping.layer)));
+    expect(fresh[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "aborted", reason: "observation_fence_changed" });
+  });
+
+  test("a paused row still records the check and all checked rows carry final run counts", async () => {
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: {
+      providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0,
+    } } }), machineRow({ id: "row-2", providerVmId: "fs-2" })];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "paused", reason: "idle_timeout" });
+    for (const row of rows) {
+      expect(row.providerMetadata?.cmuxIdleProbedAt).toBe(T0);
+      const decision = row.providerMetadata?.cmuxIdleLastDecision as { run: { checked: number; elapsedMs: number } };
+      expect(decision).toMatchObject({ run: { checked: 2 } });
+      expect(typeof decision.run.elapsedMs).toBe("number");
+    }
   });
 });
