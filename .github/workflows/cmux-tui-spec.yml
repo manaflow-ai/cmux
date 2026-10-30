@@ -15,6 +15,9 @@ on:
       - ".github/scripts/cmux-tui-clippy-changed.py"
       - ".github/scripts/test_cmux_tui_clippy_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - "scripts/cmux-next/rust_panic_ratchet.py"
+      - "scripts/cmux-next/rust-panic-baseline.json"
+      - "plans/cmux-next/rust-panic-free.md"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -24,6 +27,9 @@ on:
       - ".github/scripts/cmux-tui-clippy-changed.py"
       - ".github/scripts/test_cmux_tui_clippy_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - "scripts/cmux-next/rust_panic_ratchet.py"
+      - "scripts/cmux-next/rust-panic-baseline.json"
+      - "plans/cmux-next/rust-panic-free.md"
   workflow_dispatch:
     inputs:
       commit:
