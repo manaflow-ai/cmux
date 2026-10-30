@@ -11,6 +11,8 @@ import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
+import enum CmuxNextLayout.ChatColumnPlacement
+import struct CmuxNextLayout.MainPaneLayout
 
 extension InternalPageID {
     /// The native New Tab page (`tabs.nativeNewTabPage`, ``NativeNewTabView``).
@@ -143,7 +145,16 @@ extension NewTabPage {
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
         // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
         if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
-        let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
+        let placed = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
+        // A page beside a lone chat, the main pane: the pick takes the page's place, then the chat docks left and the
+        // pick's pane is the column on its right, as for a link (Leo 2026-10-30: "not to fucking open it up in the
+        // main fucking pane").
+        let docksChat = !keep && MainPaneLayout.isOn(services: services)
+            && ChatColumnPlacement.resolve(from: pane, services: services, ignoringPages: true) == .dockChat
+        let closePage: @MainActor (SurfaceID) -> Void = !docksChat ? placed : { [weak pane] surface in
+            placed(surface)
+            if let pane { MainPaneLayout.dockChat(of: pane, keeping: surface, focus: true, services: services) }
+        }
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the
@@ -174,9 +185,14 @@ extension NewTabPage {
     /// with another tab (a lone page has nothing to keep in view, so it is replaced in place), and it is no split's (a split's page, which lists Open
     /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
     /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
+    /// A page in the chat dock (the main pane, ``ChatColumnPlacement/keepsNewTabPage(in:)``) opens a terminal
+    /// or browser beside the chat whatever the toggle says: nothing but agent tabs opens in the main pane (Leo
+    /// 2026-10-30: "I'm obviously saying not to fucking open it up in the main fucking pane").
     static func opensBeside(_ key: String, in pane: PaneController, mainPane: Bool = true) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        let fromDock = mainPane && ChatColumnPlacement.keepsNewTabPage(in: pane)
+        guard AgentPaneTunables.newTabPicksFollowLinks.value || fromDock, tabs.newTabPages[page]?.page.openTabs == nil,
+              pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
         return pane.services.linkOpener.target(from: pane, mainPane: mainPane) != .pane(pane.layoutPaneID)
     }
 

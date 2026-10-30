@@ -162,8 +162,10 @@ enum TabLifecycle {
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation, slot: slot)
         case .agent, .page:
-            // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
-            if user, let controller {
+            // The docked agent chat gets no tools: a chat or page from it opens in the strip (ChatColumnPlacement),
+            // except a person's New Tab page, which opens in the dock, the main pane (Leo 2026-10-30: "IF I'M
+            // FOCUSED ON THE MAIN PANE OPEN IT THERE"). What is picked on it opens beside the chat (NewTabPage.replace).
+            if user, let controller, !(kind == .page && ChatColumnPlacement.keepsNewTabPage(in: controller)) {
                 // Nil: Home's pinned dock alone opened the page in a new column beside it.
                 guard let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services) else { return }
                 if strip !== controller { return strip.newTabPage() }

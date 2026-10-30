@@ -5,8 +5,9 @@ import CmuxNextLayout
 import Foundation
 
 extension ChatColumnPlacement {
-    /// What a person's new tab from `controller`'s pane becomes.
-    @MainActor static func resolve(from controller: PaneController, services: AppServices) -> ChatColumnPlacement {
+    /// What a person's new tab from `controller`'s pane becomes. `ignoringPages`: New Tab pages in the
+    /// chat's pane are left out, so a lone chat with a page beside it is still alone (a pick from the page).
+    @MainActor static func resolve(from controller: PaneController, services: AppServices, ignoringPages: Bool = false) -> ChatColumnPlacement {
         guard let content = controller.workspace,
               content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
@@ -16,10 +17,17 @@ extension ChatColumnPlacement {
             screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane }
         }
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed) { column in
-            guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
+            guard column.root.panes.count == 1,
+                  let tabs = content.panes[column.root.panes[0]]?.pane.tabs.filter({ !ignoringPages || !services.agentTabs.isNewTabPage($0.id) }),
                   tabs.count == 1 else { return false }
             return isChat(tabs[0], services: services)
         }
+    }
+
+    /// Whether a person's New Tab page from `controller`'s pane opens there (``keepsNewTabPage(from:columns:)``).
+    @MainActor static func keepsNewTabPage(in controller: PaneController) -> Bool {
+        guard let screen = controller.workspace?.layoutModel.screen(containing: controller.layoutPaneID) else { return false }
+        return keepsNewTabPage(from: controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID))
     }
 
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.

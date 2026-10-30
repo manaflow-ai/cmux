@@ -72,17 +72,12 @@ final class LinkOpener {
     /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
-    /// `fromChat`: what a chat opens (a link clicked in it, a chat or session it opens) goes where
-    /// ``ChatOpenDestination`` says: the pane already on its right when there is one, never a new pane beside it.
+    /// `fromChat`: what a chat opens (a link clicked in it, a chat or session it opens) goes to the pane
+    /// already on its right when there is one, never a new pane beside it, and never the chat's own pane.
     func target(from source: PaneController, mainPane: Bool = true, fromChat: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
         // Leo 2026-10-30: "stupid to not reuse the existing opened fucking right pane". Found up front, so the tab
         // is made there directly: no tab in the chat's pane first, no new pane (and no move) to the right.
-        if fromChat {
-            switch ChatOpenDestination.current {
-            case .rightPane: if let right = existingRight(of: source) { return .pane(right) }
-            case .chatPane: return .pane(source.layoutPaneID)
-            }
-        }
+        if fromChat, let right = existingRight(of: source) { return .pane(right) }
         if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
             switch side {
             case .tab(let pane): return .pane(pane)

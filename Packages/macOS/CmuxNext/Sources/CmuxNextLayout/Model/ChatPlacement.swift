@@ -37,6 +37,15 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
         return .dockChat
     }
 
+    /// Whether a person's New Tab page from `pane` opens in `pane` itself although its new tabs go
+    /// elsewhere: `pane` is the chat dock (not Home's pinned one), the main pane. Leo 2026-10-30: "IF I'M
+    /// FOCUSED ON THE MAIN PANE OPEN IT THERE". The page is an agent tab, so the dock still holds only
+    /// agent tabs; what is picked on it opens beside the chat.
+    public nonisolated static func keepsNewTabPage(from pane: PaneID, columns: [LayoutColumn]) -> Bool {
+        guard let dock = columns.first(where: { $0.root.contains(pane) })?.dock else { return false }
+        return dock.role == .agentChat && !dock.isPinned
+    }
+
     /// `screen`'s columns in strip order. A screen stored as one split tree
     /// is one implicit column.
     public nonisolated static func columns(of screen: LayoutScreen, containing pane: PaneID) -> [LayoutColumn] {

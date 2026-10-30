@@ -242,7 +242,7 @@ extension AgentTabStore {
         }
         tabs.rightPaneTab = { [weak services] chat in
             guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane),
-                  let id = services.linkOpener.existingRight(of: source), ChatOpenDestination.current == .rightPane,
+                  let id = services.linkOpener.existingRight(of: source),
                   let right = source.workspace?.panes[id], right.daemon === source.daemon else { return nil }
             return right.selectedTab?.id ?? right.pane.tabs.first?.id
         }
