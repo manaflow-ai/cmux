@@ -36,6 +36,32 @@ const BOTTOM_SLACK = 24;
 /// opening a task early in a long transcript mounts no more than one window either way.
 export type Range = { start: number; end?: number };
 
+/// The most rows mounted at once while the reader pages up or down: one window gained, one kept.
+export const MOUNTED = 2 * WINDOW;
+
+type Hold = { id?: string; edge: number; fromBottom: number; settled: boolean };
+
+/// The first row the reader sees (its bottom edge below the view's top) and where that edge sits.
+function capture(view: HTMLElement, settled: boolean): Hold {
+  const fromBottom = view.scrollHeight - view.scrollTop;
+  const top = view.getBoundingClientRect().top;
+  for (const row of view.querySelectorAll<HTMLElement>("[data-row-id]")) {
+    const edge = row.getBoundingClientRect().bottom - top;
+    if (edge > 0) return { id: row.dataset.rowId, edge, fromBottom, settled };
+  }
+  return { edge: 0, fromBottom, settled };
+}
+
+/// Puts the held row's bottom edge back where it was; with that row gone, the distance from the bottom.
+function restore(view: HTMLElement, hold: Hold) {
+  const row = hold.id ? view.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(hold.id)}"]`) : null;
+  if (!row) {
+    view.scrollTop = view.scrollHeight - hold.fromBottom;
+    return;
+  }
+  view.scrollTop += row.getBoundingClientRect().bottom - view.getBoundingClientRect().top - hold.edge;
+}
+
 export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range {
   const newest = Math.max(0, rows.length - WINDOW);
   const at = anchor === undefined ? -1 : rows.findIndex((row) => row.id === anchor);
@@ -50,6 +76,7 @@ export function SubagentTranscript({
   running,
   anchor,
   onLoadOlder,
+  notice,
 }: {
   rows: readonly AcpmuxRow[];
   running: boolean;
@@ -57,6 +84,8 @@ export function SubagentTranscript({
   anchor?: string;
   /// Set while older history can be read (a workflow agent's transcript): reaching the top reads it.
   onLoadOlder?: () => Promise<unknown>;
+  /// A line above the rows (a workflow agent's transcript: Loading, or why it is short).
+  notice?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -77,11 +106,12 @@ export function SubagentTranscript({
     if (rows.length < count) setRange(windowRange(rows));
   }
   const atBottom = useRef(anchor === undefined);
-  // Rows being added above: how far the reader is from the bottom, which nothing added above changes.
-  // Each render puts the scroll back that far from the bottom (a no-op while nothing grew), so rows
-  // added, or older text merged into the first row (a workflow page's chunks), never move what the
-  // reader sees. `settled` once the rows are in: the next render applies it and lets go.
-  const grown = useRef<{ fromBottom: number; settled: boolean } | undefined>(undefined);
+  // While the mounted window moves (rows added above, rows unmounted above, older text merged into a
+  // row): the row the reader is on and where its bottom edge sat in the view. Each render puts that
+  // edge back where it was (a no-op once it is), so nothing the reader sees moves; with that row gone
+  // (rows replaced), the distance from the bottom holds instead. `settled` once the rows are in: the
+  // next render applies it and lets go.
+  const held = useRef<Hold | undefined>(undefined);
   const placed = useRef(false);
   const first = Math.min(range.start, Math.max(0, rows.length - 1));
   const last = range.end === undefined || range.end >= rows.length ? undefined : range.end;
@@ -100,10 +130,10 @@ export function SubagentTranscript({
       else view.scrollTop = view.scrollHeight;
       return;
     }
-    // Older rows mounted above: hold what the reader sees where it was.
-    if (grown.current !== undefined) {
-      view.scrollTop = view.scrollHeight - grown.current.fromBottom;
-      if (grown.current.settled) grown.current = undefined;
+    // The window moved: hold what the reader sees where it was.
+    if (held.current !== undefined) {
+      restore(view, held.current);
+      if (held.current.settled) held.current = undefined;
       return;
     }
     if (atBottom.current && last === undefined) view.scrollTop = view.scrollHeight;
@@ -136,15 +166,18 @@ export function SubagentTranscript({
       observer.observe(sentinel);
       observers.push(observer);
     };
+    // Each move keeps at most MOUNTED rows: a window gained at one end unmounts as many at the other.
     if (first > 0)
       watch(top.current, "200px 0px 0px 0px", () => {
-        grown.current = { fromBottom: view.scrollHeight - view.scrollTop, settled: true };
-        setRange((now) => ({ ...now, start: Math.max(0, first - WINDOW) }));
+        held.current = capture(view, true);
+        const start = Math.max(0, first - WINDOW);
+        const end = last ?? rows.length;
+        setRange(end - start > MOUNTED ? { start, end: start + MOUNTED } : { start, end: last });
       });
     else if (loadOlder && rows.length > 0)
       watch(top.current, "200px 0px 0px 0px", () => {
-        const hold = { fromBottom: view.scrollHeight - view.scrollTop, settled: false };
-        grown.current = hold;
+        const hold = capture(view, false);
+        held.current = hold;
         // The older page's rows are set before the read settles, so the render that draws them comes
         // after this: it holds the scroll once more, then lets go.
         void loadOlder()
@@ -154,9 +187,16 @@ export function SubagentTranscript({
           });
       });
     if (last !== undefined)
-      watch(bottom.current, "0px 0px 200px 0px", () =>
-        setRange((now) => (last + WINDOW >= rows.length ? { start: now.start } : { ...now, end: last + WINDOW })),
-      );
+      watch(bottom.current, "0px 0px 200px 0px", () => {
+        held.current = capture(view, true);
+        const end = last + WINDOW;
+        // The window that reaches the newest row follows it from then on.
+        setRange(
+          end >= rows.length
+            ? { start: Math.max(first, rows.length - MOUNTED) }
+            : { start: Math.max(first, end - MOUNTED), end },
+        );
+      });
     return () => observers.forEach((observer) => observer.disconnect());
   }, [first, last, rows.length, loadOlder]);
 
@@ -169,6 +209,7 @@ export function SubagentTranscript({
         atBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= BOTTOM_SLACK;
       }}
     >
+      {notice && <p className="acpmux-bg__notice">{notice}</p>}
       {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
       {shown.map((row) => (
         <TranscriptRow key={row.id} row={row} version={row.version} />
@@ -195,14 +236,6 @@ const TranscriptRow = memo(
     if (row.kind === "user" && row.text)
       return (
         <p className="acpmux-bg__prompt" data-row-id={row.id}>
-          {row.text}
-        </p>
-      );
-    // A workflow agent's transcript states (summary/useWorkflowTranscript.ts): Loading, or why it is
-    // short or unavailable.
-    if (row.kind === "notice" && row.text)
-      return (
-        <p className="acpmux-bg__notice" data-row-id={row.id}>
           {row.text}
         </p>
       );

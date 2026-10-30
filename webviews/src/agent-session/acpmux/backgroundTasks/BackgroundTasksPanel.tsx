@@ -171,13 +171,17 @@ export function BackgroundTasksPanel({
             )}
           </div>
           {drill?.workflow && workflow && (
-            <WorkflowAgentTranscript
-              key={`${stack.length}:${drill.agentId}`}
-              pane={drill.agentId}
-              agent={drilled?.workflow}
-              running={drilled?.state === "running"}
-              reads={workflow}
-            />
+            // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
+            // them with no subagents); should one, it opens and stops as anywhere else in the panel.
+            <NestedAgents.Provider value={nested}>
+              <WorkflowAgentTranscript
+                key={`${stack.length}:${drill.agentId}`}
+                pane={drill.agentId}
+                agent={drilled?.workflow}
+                running={drilled?.state === "running"}
+                reads={workflow}
+              />
+            </NestedAgents.Provider>
           )}
           {drill && !drill.workflow && (
             <NestedAgents.Provider value={nested}>
@@ -231,14 +235,25 @@ function WorkflowAgentTranscript({
     reads.read,
     reads.connection,
   );
-  // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it.
-  const rows = useMemo(() => transcript.rows?.slice(1) ?? [], [transcript.rows]);
+  // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it. The
+  // hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
+  // the window is taken from the agent's rows when they arrive, never from the notice.
+  const rows = useMemo(
+    () => (transcript.rows?.slice(1) ?? []).filter((row) => row.kind !== "notice"),
+    [transcript.rows],
+  );
+  const notice = transcript.rows?.find((row) => row.kind === "notice")?.text;
   // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
   const loader = useRef(transcript.loadOlder);
   loader.current = transcript.loadOlder;
   const loadOlder = useCallback(() => loader.current(), []);
   return (
-    <SubagentTranscript rows={rows} running={running} onLoadOlder={transcript.canLoadOlder ? loadOlder : undefined} />
+    <SubagentTranscript
+      rows={rows}
+      running={running}
+      notice={notice}
+      onLoadOlder={transcript.canLoadOlder ? loadOlder : undefined}
+    />
   );
 }
 
