@@ -97,6 +97,42 @@ struct BrowserCLIDialogTests {
         }
     }
 
+    /// A dialog that opens after the action's script returned blocks the
+    /// post-action snapshot instead. The response reports the dialog, not a
+    /// snapshot timeout. The page's own `getComputedStyle` opens it, so it comes
+    /// up during the snapshot on every run, with no timing involved.
+    @Test func dialogOpenedDuringThePostActionSnapshotIsReported() async throws {
+        try await withPanel { panel, params in
+            panel.webView.loadHTMLString(
+                """
+                <script>
+                const original = window.getComputedStyle;
+                window.getComputedStyle = function (element) {
+                  if (window.armed) { window.armed = false; document.title = String(confirm('later')); }
+                  return original(element);
+                };
+                </script>
+                <button id="btn" onclick="window.armed = true">ask</button>
+                """,
+                baseURL: nil
+            )
+            var click: [String: Any] = params
+            click["selector"] = "#btn"
+            click["snapshot_after"] = true
+            let clicked = try await request("browser.click", click)
+            #expect(clicked["ok"] as? Bool == true, "\(clicked)")
+            let result = try #require(clicked["result"] as? [String: Any])
+            let dialog = try #require(result["dialog"] as? [String: Any], "\(result)")
+            #expect(dialog["type"] as? String == "confirm")
+            #expect(dialog["message"] as? String == "later")
+            #expect(result["post_action_snapshot_error"] == nil, "\(result)")
+            #expect(panel.pendingJavaScriptDialogs.count == 1)
+
+            let accepted = try await request("browser.dialog.accept", params)
+            #expect(accepted["ok"] as? Bool == true)
+        }
+    }
+
     @Test func queuedDialogsAreFIFOAndTeardownCancelsTheRest() async throws {
         try await withPanel { panel, params in
             var answers: [String] = []
@@ -290,7 +326,7 @@ struct BrowserCLIDialogTests {
         )
     }
 
-    private func request(_ method: String, _ params: [String: String]) async throws -> [String: Any] {
+    private func request(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
         let data = try JSONSerialization.data(withJSONObject: ["id": 1, "method": method, "params": params])
         let line = String(decoding: data, as: UTF8.self)
         let controller = TerminalController.shared
