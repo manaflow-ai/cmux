@@ -695,20 +695,44 @@ export function Composer({
         // Save the destination before changing sessions. Even an immediate navigation during its
         // attachment read leaves the chips durable there. The source stays intact on any refusal.
         writePersistedDraft(target, text);
-        const ready = keptAttachments ? keptAttachments.write(target, chips).then(() => undefined) : Promise.resolve();
+        const signature = (items: ComposerAttachment[]) => JSON.stringify(items);
+        const ready = (
+          keptAttachments
+            ? keptAttachments.write(target, chips).then((reply) => {
+                const held = Array.isArray(reply?.held) ? reply.held : [];
+                // Metadata-only chips have no content file; the acknowledgement names bytes and text.
+                if (chips.some((chip) => (chip.data || chip.text) && !held.includes(chip.id)))
+                  throw new Error("draft contents were not retained"); // l10n-allow: TrustAsk renders localized failure copy.
+              })
+            : Promise.resolve()
+        ).then(() => {
+          if (
+            persistedSession.current !== source ||
+            (field.current?.value() ?? textRef.current) !== text ||
+            signature(attachmentsRef.current.filter((chip) => !chip.shellRun)) !== signature(chips)
+          )
+            throw new Error("draft changed during recovery"); // l10n-allow: leaves edits intact for an explicit retry.
+        });
         return {
           ready,
           cancel: () => {
             if (draftTransfer.current === transfer) draftTransfer.current = undefined;
-            // The source was never cleared. Remove the speculative destination copy so a later
-            // opening of an unselected session cannot resurrect the held prompt.
-            writePersistedDraft(target, "");
-            void keptAttachments?.write(target, []).catch(() => undefined);
+            // A selection may already have rendered the destination and moved a pending intake.
+            // Keep that destination's durable copy; no cancellation sends or replays a prompt.
           },
           commit: () => {
             transfer.committed = true;
             if (source) {
-              writePersistedDraft(source, "");
+              // Edits made while select() attached the destination remain the source's draft.
+              const stillSource = persistedSession.current === source;
+              const sourceText = stillSource ? (field.current?.value() ?? textRef.current) : readPersistedDraft(source);
+              if (sourceText === text) writePersistedDraft(source, "");
+              if (
+                stillSource &&
+                signature(attachmentsRef.current.filter((chip) => !chip.shellRun)) !== signature(chips)
+              )
+                return;
+              // The destination write acknowledged every payload before the source is cleared.
               void keptAttachments?.write(source, []).catch(() => undefined);
             } else unsentDraft.current?.push("");
           },
