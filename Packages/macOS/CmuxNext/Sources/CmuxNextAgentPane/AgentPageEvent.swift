@@ -8,7 +8,7 @@ public import Foundation
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command`, `stopTurn`, `focusLocation` or `transport`.
+    /// `command`, `stopTurn`, `sideQuestion`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
     let deliveryID: UInt64?
@@ -76,6 +76,11 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         var value: [String: Any] = ["id": id]
         if let menuItemId { value["menuItemId"] = menuItemId }
         return AgentPageEvent(kind: "tabRowToolInvoked", value: JSONValue(foundation: value) ?? .null)
+    }
+
+    /// The palette's side-question command, carrying the session selected when it was invoked.
+    public static func sideQuestion(_ sessionId: String) -> AgentPageEvent {
+        AgentPageEvent(kind: "sideQuestion", value: .string(sessionId))
     }
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).

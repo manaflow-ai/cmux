@@ -1,8 +1,22 @@
+import CmuxNextDesign
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-struct AgentPaneTabRowToolsTests {
+@MainActor struct AgentPaneTabRowToolsTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// A page that loads again starts without the old page's native tools: no stale button stays,
+    /// and none sends an old id to the new page.
+    @Test func aPageThatLoadsAgainDropsItsNativeTools() async {
+        let model = AgentPaneModel(host: NoHost())
+        model.setTabRowTools([PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review")])
+        #expect(model.tabRowTools.map(\.id) == ["review"])
+        _ = await model.respond(to: .ready)
+        #expect(model.tabRowTools.isEmpty, "the old page's native tools survived its reload")
+    }
     @Test func decodesToolsAndNestedMenus() {
         let raw: [String: Any] = [
             "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,

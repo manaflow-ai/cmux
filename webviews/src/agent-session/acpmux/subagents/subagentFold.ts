@@ -5,7 +5,7 @@ import {
   markPullRequestCommandVersion,
   markTranscriptSummaryVersion,
 } from "../summary/transcriptPullRequests";
-import { childRows, type ChildEntry } from "./childRows";
+import { ChildRowView, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
@@ -62,6 +62,8 @@ export type Subagent = {
   workflowAgents?: ReadonlyMap<number, WorkflowAgent>;
   /// A Claude workflow Claude Code paused: its agents stopped, and a resume by `runId` runs it again.
   paused?: boolean;
+  /// Monotonic event sequence for progress, including usage-only workflow updates.
+  progressVersion?: number;
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
   /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
@@ -147,8 +149,8 @@ export class SubagentFold {
   private readonly pendingReplySummaries = new Set<string>();
   /// The latest assistant message id per child, so a steer's new stream settles the prior reply.
   private readonly replyMessageIds = new Map<string, string>();
-  /// Each subagent view's rows, while its version holds.
-  private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
+  /// Each subagent's incremental source fold and drawn rows, while its version holds.
+  private readonly drawn = new Map<string, { version: number; view: ChildRowView; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
   /// The subagents spawned since the current turn started, which its stop ends.
   private turn = new Set<string>();
@@ -574,7 +576,8 @@ export class SubagentFold {
       const version = this.versions.get(id) ?? 0;
       let drawn = this.drawn.get(id);
       if (drawn?.version !== version) {
-        drawn = { version, rows: childRows(id, entries, this.agents, version) };
+        const view = drawn?.view ?? new ChildRowView(id);
+        drawn = { version, view, rows: view.update(entries, this.agents, version) };
         this.drawn.set(id, drawn);
       }
       // Publish revisions from the first chunk, avoiding the unversioned O(rows) fallback.
@@ -777,6 +780,7 @@ export class SubagentFold {
       change.workflowAgents,
       change.workflowAgentsFull === true,
     );
+    if (!spawn) agent.progressVersion = event.seq;
     if (change.reason === "paused") agent.paused = true;
     applyRetry(agent, change);
     const state = text(change.state);

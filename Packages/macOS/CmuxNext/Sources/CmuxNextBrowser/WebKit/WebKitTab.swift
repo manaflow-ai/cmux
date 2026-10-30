@@ -8,7 +8,7 @@ public import WebKit
 /// A browser tab backed by one `WKWebView`.
 @MainActor
 @Observable
-public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
+public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, BrowserCacheBypassingReload {
     public let id: BrowserTabID
     public let profileID: BrowserProfileID
     public let engineKind: BrowserEngineKind = .webkit

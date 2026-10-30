@@ -550,6 +550,9 @@ export type ProcessBackgroundResult = {
   backgrounded: boolean;
 } & Record<string, unknown>;
 
+/** What another agent's message asks of the session it goes to. */
+export type PromptClass = ("block" | "question" | "result" | "fyi");
+
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 
@@ -586,12 +589,29 @@ export type QueuedPromptSummary = {
    * Kept across a restart and by their own edit.
    */
   author: (QueuedAuthor | null);
+  /**
+   * What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
+   * `result` when it named none; null for the person's own prompt and from a peer on an older
+   * acpmux.
+   */
+  class: (PromptClass | null);
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
    * app draws it as a received message waiting for the turn, not as a composer row.
    */
   fromAgent: (string | null);
+  /**
+   * That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
+   * draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
+   */
+  fromHarness: (string | null);
+  /**
+   * The sending session's id when the daemon bound it (its caller token, a peer daemon's word
+   * on its own proven caller, the mesh relay's sender, a lane's report), null otherwise
+   * (`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.
+   */
+  fromSessionId: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
@@ -1124,8 +1144,14 @@ export type SessionSummary = {
 export interface SessionsParams {
   /** A previous reply's `nextCursor`: the page starts after that session. */
   cursor?: (string | null);
+  /** `_acpmux/sessions` only: exclude these statuses before pagination. */
+  excludeStatus?: (string[] | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /** `_acpmux/sessions` only: exclude peer sessions before pagination. */
+  localOnly?: (boolean | null);
+  /** `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans. */
+  orderBy?: (string | null);
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
    * (its name, e.g. `huge-blue`). Empty is no filter.

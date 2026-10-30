@@ -105,6 +105,18 @@ extension AgentPaneView {
         String(localized: "agentPane.sessionInfo.needsFocus", defaultValue: "Opening Session Info requires focus.", bundle: .module)
     }
 
+    /// Why a page command's palette row (``AgentPageCommand``, its title) is greyed out: the focused
+    /// chat does not offer it now.
+    static func pageCommandUnavailable(_ title: String) -> String {
+        String(format: String(localized: "agentPane.pageCommand.unavailable", defaultValue: "%@ isn't available in this chat.",
+                              bundle: .module), title)
+    }
+
+    /// Shown when automation would run a page command (its title) without an explicit focus request.
+    static func pageCommandNeedsFocus(_ title: String) -> String {
+        String(format: String(localized: "agentPane.pageCommand.needsFocus", defaultValue: "%@ requires focus.", bundle: .module), title)
+    }
+
     /// Shown when Toggle Session Info runs with Session Info turned off in Settings.
     static var sessionInfoOff: String {
         String(localized: "agentPane.sessionInfo.off", defaultValue: "Session Info is turned off in Settings.", bundle: .module)

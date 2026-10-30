@@ -71,6 +71,7 @@ export function assertResourceName(name: string, allowUnprefixed = false): void 
 type LiveVm = { vm: Vm; vmId: string; name: string; ledger: Ledger };
 const liveVms = new Map<string, LiveVm>();
 let signalCleanupInstalled = false;
+let signalCleanupStarted = false;
 
 /** Remembers a VM this process created until deleteVm runs; a signal deletes what is left. */
 export function trackLiveVm(entry: LiveVm): void {
@@ -80,19 +81,33 @@ export function trackLiveVm(entry: LiveVm): void {
   // finally blocks do not run when a signal ends the process (a local `timeout`, Ctrl-C).
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.once(signal, () => {
-      void deleteLiveVms().finally(() => process.exit(128 + (signal === "SIGINT" ? 2 : signal === "SIGHUP" ? 1 : 15)));
+      if (signalCleanupStarted) return;
+      signalCleanupStarted = true;
+      void deleteLiveVms()
+        .catch((error) => console.error(`image VM signal cleanup incomplete: ${String(error)}`))
+        .finally(() => process.exit(128 + (signal === "SIGINT" ? 2 : signal === "SIGHUP" ? 1 : 15)));
     });
   }
 }
 
-/** Deletes every tracked VM by id (ledger-recorded); returns the ids it deleted. */
+/** Try every tracked VM, retry failed deletes once, and report any exact ids still live. */
 export async function deleteLiveVms(): Promise<string[]> {
-  const ids: string[] = [];
+  const deleted: string[] = [];
+  const failed: string[] = [];
   for (const entry of [...liveVms.values()]) {
-    await deleteVm(entry.vm, entry.vmId, entry.name, entry.ledger);
-    ids.push(entry.vmId);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await deleteVm(entry.vm, entry.vmId, entry.name, entry.ledger);
+        deleted.push(entry.vmId);
+        break;
+      } catch {
+        if (attempt === 0) await sleep(250);
+        else failed.push(entry.vmId);
+      }
+    }
   }
-  return ids;
+  if (failed.length) throw new Error(`image VM cleanup failed; still tracked: ${failed.join(", ")}`);
+  return deleted;
 }
 
 /** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
@@ -118,13 +133,19 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
 }
 
 export async function deleteVm(vm: Vm, vmId: string, name: string, ledger: Ledger): Promise<void> {
-  liveVms.delete(vmId);
   try {
     await vm.delete();
-    ledger.record(vmId, "vm", name, "deleted");
   } catch (error) {
-    ledger.record(vmId, "vm", name, `delete-failed ${String(error).slice(0, 80)}`);
+    // A prior delete may have succeeded before its response was lost.
+    if ((error as { status?: unknown } | null)?.status !== 404) {
+      ledger.record(vmId, "vm", name, `delete-failed ${String(error).slice(0, 80)}`);
+      throw error;
+    }
   }
+  // Retire only after the provider has answered deleted/already-gone AND
+  // the ledger records that outcome. A failed ledger write remains retryable.
+  ledger.record(vmId, "vm", name, "deleted");
+  liveVms.delete(vmId);
 }
 
 /** Polls a trivial exec until the guest answers; returns ms since t0. */
