@@ -2153,9 +2153,8 @@ class ReservedLaneLabels(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
                                                    retry_runner="blacksmith-6vcpu-macos-26")),
                          "blacksmith-6vcpu-macos-26")
-        # A person's re-run reuses attempt 1's placement; its idle reading is stale, so it takes the
-        # side route, never the reserved label (review of #25158).
-        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "glaeda-side-std-xcode-26.6")
+        # A person's re-run cannot reuse the owned label; it falls to Blacksmith.
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "blacksmith-6vcpu-macos-26")
         for actor in ("someone", "github-actions[bot]", "cmux-bot[bot]"):
             with self.subTest(actor=actor):
                 self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor)),
