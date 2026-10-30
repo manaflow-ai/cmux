@@ -369,7 +369,8 @@ import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { chatImages, type ChatImage } from "./conversation/chatImages";
+import type { ChatImage } from "./conversation/chatImages";
+import { chatGallery } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
@@ -6031,10 +6032,17 @@ function AcpmuxPane() {
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
   const openImage = useCallback((src: string, alt: string, path?: string) => {
-    const images = chatImages(turnRowsRef.current);
-    const index = images.findIndex((image) => image.src === src);
+    const images = chatGallery(turnRowsRef.current).flatMap((item): ChatImage[] => {
+      if (item.kind === "render") return [];
+      return [{ src: item.kind === "image" ? item.src : item.source, alt: item.kind === "image" ? item.alt : "" }];
+    });
+    const index = images.findIndex((image) => image.src === src || (path !== undefined && image.src === path));
     if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0 });
-    else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
+    else
+      setImageView({
+        images: images.map((image, i) => (i === index ? { ...image, src, alt, ...(path ? { path } : {}) } : image)),
+        index,
+      });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).

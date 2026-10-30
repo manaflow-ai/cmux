@@ -61,4 +61,33 @@ await requireBrowserLane("chat-gallery-tool-media-browser.test.ts", async () => 
         await page.close();
       }
     });
+
+  for (const colorScheme of ["dark", "light"] as const)
+    test(`tool image viewer steps through reply images (${colorScheme})`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 720 }, colorScheme });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      try {
+        const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+        await page.goto(base + galleryFrame("agent-pane.chat-gallery", {
+          variant: "tool-outputs", colorScheme, width: 760, height: 720,
+        }));
+        await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
+        const gallery = page.locator(".acpmux-chat-gallery");
+        expect(await gallery.locator("[data-gallery-kind]").count()).toBe(2);
+        const toolSource = await gallery.locator('[data-gallery-kind="tool"] img').getAttribute("src");
+        const replySource = await gallery.locator('[data-gallery-kind="image"] img').getAttribute("src");
+        expect(toolSource).toBeTruthy();
+        expect(replySource).toBeTruthy();
+        await gallery.locator('[data-gallery-kind="tool"] [data-open-image]').click();
+        const viewer = page.locator(".acpmux-image-viewer");
+        await viewer.waitFor();
+        expect(await viewer.locator(".acpmux-image-viewer-image").getAttribute("src")).toBe(toolSource);
+        await viewer.getByRole("button", { name: /next/i }).click();
+        expect(await viewer.locator(".acpmux-image-viewer-image").getAttribute("src")).toBe(replySource);
+        expect(errors).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
 });
