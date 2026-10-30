@@ -50,7 +50,8 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
             self.connection = connection
             generation &+= 1
         }
-        guard let token = ledger.begin(session: session, record: record, connection: generation) else { return }
+        let link = SessionRegistrationConnection(generation: generation)
+        guard let token = ledger.begin(session: session, record: record, connection: link) else { return }
         // task-owner: one put-session; its answer goes to the ledger on the main actor
         Task { [weak self] in
             do {
