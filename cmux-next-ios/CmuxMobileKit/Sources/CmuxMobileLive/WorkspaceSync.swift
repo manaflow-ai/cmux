@@ -15,7 +15,11 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "daemon")
 public final class WorkspaceSync {
     public private(set) var tree: DaemonTree?
     public private(set) var identity: String?
-    public private(set) var lastError: String?
+    public private(set) var lastError: String? {
+        didSet { if lastError != oldValue { onErrorChanged?() } }
+    }
+    /// Updates explicit diagnostics when a later refresh fails or recovers.
+    @ObservationIgnored var onErrorChanged: (@MainActor () -> Void)?
 
     @ObservationIgnored public var onTree: (@MainActor (DaemonTree) -> Void)?
     /// Metadata-only changes; consumers can update just these workspace rows.
@@ -51,10 +55,8 @@ public final class WorkspaceSync {
     /// only activity time the daemon gives.
     @ObservationIgnored private(set) var activity: [Int: Date] = [:]
     /// Each surface's last title on this connection: a title set again to the
-    /// same text (a shell prompt does it constantly) is not activity, and
-    /// re-listing for it republished every workspace to the store.
+    /// same text is not activity.
     @ObservationIgnored private var titles: [Int: String] = [:]
-    /// Title events dropped as repeats (tests).
     @ObservationIgnored private(set) var titleEventsIgnored = 0
     @ObservationIgnored public private(set) var macID = ""
     /// Counts bound `daemon` channels: names the current connection (a new
@@ -82,7 +84,11 @@ public final class WorkspaceSync {
         connectionSerial += 1
         activity = [:]
         titles = [:]
-        guard let channel else { return }
+        guard let channel else {
+            lastError = nil
+            identity = nil
+            return
+        }
         await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
     }
 
@@ -216,19 +222,15 @@ public final class WorkspaceSync {
         guard event != .other else { return }
         let entry = QueuedEvent(event: event, sequence: sequence)
         // Snapshot coverage must be checked before title dedupe/activity state changes.
-        // A discarded replay cannot suppress the next real title or reorder a workspace.
         guard !isBeforeSnapshot(entry) else { return }
         switch event {
         case .titleChanged(let surface, let title):
-            // A title set again to the same text is not activity, and applying it
-            // republished the workspace for nothing.
             guard titles.updateValue(title, forKey: surface) != title else {
                 titleEventsIgnored += 1
                 return
             }
             activity[surface] = Date()
         case .resubscribe:
-            // Title events may have been lost: the next one is news whatever it says.
             titles = [:]
         default:
             break
@@ -280,7 +282,7 @@ public final class WorkspaceSync {
                         var agentChanged = false
                         switch event {
                         case .titleChanged:
-                            // Stamped as activity when it arrived (`enqueue`).
+                            // Activity is stamped after snapshot coverage in enqueue.
                             break
                         case .agentChanged(let surface, let state, let agent, let updatedAt, let harnessSession):
                             if updatedAt == nil, agents.bySurface[surface]?.state != state { activity[surface] = Date() }
