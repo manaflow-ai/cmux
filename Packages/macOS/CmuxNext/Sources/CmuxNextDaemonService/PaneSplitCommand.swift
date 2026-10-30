@@ -21,7 +21,8 @@ public struct PaneSplitCommand: Sendable {
     /// a running action's scope gets one ticket, the failure, and the write
     /// barrier that `action.run` waits for before it answers.
     public func send(on daemon: DaemonService) async throws -> SurfaceCreated {
-        let pane = pane, direction = direction, options = options, swapTowards = swapTowards
+        let direction = direction, options = options, swapTowards = swapTowards
+        let pane = try await Self.target(daemon.store.paneTarget(self.pane), on: daemon)
         return try await daemon.perform("split") { connection in
             let created = try await connection.split(pane, direction: direction, options: options)
             if let swapTowards { try await connection.swapPane(pane, with: .direction(swapTowards)) }
@@ -53,8 +54,11 @@ public struct PaneSplitCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
+        // The target at send time: a second Cmd-D pressed on the pane a first one still shows
+        // provisionally waits for the daemon's pane (#26695); its client-only handle is refused.
+        let target = daemon.store.paneTarget(pane)
         let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
-            try await connection.split(pane, direction: direction, options: sent)
+            try await connection.split(try await Self.target(target, on: daemon), direction: direction, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
@@ -62,6 +66,16 @@ public struct PaneSplitCommand: Sendable {
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             return created
         }
+    }
+
+    /// The daemon pane a create aimed at `target` (``DaemonStore/paneTarget(_:)``, taken in the
+    /// press's turn) names: its pane, or for a stand-in (a pane an earlier create still shows
+    /// provisionally) the daemon's pane once it took the stand-in over
+    /// (``DaemonStore/daemonPane(confirming:)``). Throws when the stand-in's create was refused or cancelled.
+    @MainActor
+    public static func target(_ target: PaneTarget, on daemon: DaemonService) async throws -> PaneID {
+        guard let target = await daemon.store.daemonPane(confirming: target) else { throw StandInPaneGone() }
+        return target
     }
 
     /// The optimistic split (cx-wb5.72). It was off while keys typed after Cmd+D could be lost;
@@ -79,6 +93,12 @@ public struct PaneSplitCommand: Sendable {
 
 /// An optimistic split whose pane the person closed before the daemon made it (CancelledCreation).
 public struct PaneSplitCancelled: Error, CustomStringConvertible {
+    public var description: String { "the pane closed before the daemon made it" }
+}
+
+/// A create aimed at a stand-in pane whose own create was refused, cancelled or cut off (#26695):
+/// no daemon pane took the stand-in over, so there is nothing to aim at.
+public struct StandInPaneGone: Error, CustomStringConvertible {
     public var description: String { "the pane closed before the daemon made it" }
 }
 

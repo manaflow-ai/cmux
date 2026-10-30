@@ -139,7 +139,8 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard store.tab(surface: surface) != nil,
               !store.intentLog.entries.contains(where: { $0.createdSurface == surface }) else { return }
         let waiting = store.intentLog.entries.first { entry in
-            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind, target == pane,
+            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind,
+                  target == pane || ProvisionalSplit.shownTarget(target, in: store) == pane,
                   provisional.kind == .browser, provisional.isFrontendOwned else { return false }
             return provisional.browserEngine == engine
         }
@@ -174,7 +175,8 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard store.tab(surface: surface) != nil,
               !store.intentLog.entries.contains(where: { $0.createdSurface == surface }) else { return }
         let waiting = store.intentLog.entries.first { entry in
-            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind, target == pane,
+            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind,
+                  target == pane || ProvisionalSplit.shownTarget(target, in: store) == pane,
                   provisional.kind == .conversation, let wanted = provisional.conversation else { return false }
             return wanted.agentSession?.host == asked?.agentSession?.host && wanted.agentSession?.session == asked?.agentSession?.session
                 && wanted.page == asked?.page && wanted.route == asked?.route

@@ -71,6 +71,29 @@ struct InstantCreateIntentTests {
         #expect(shown.screens.flatMap(\.panes).flatMap(\.tabs).map(\.surface) == [SurfaceID(rawValue: 12)])
     }
 
+    /// Cmd-T right after Cmd-N, on the new workspace's pane (#26695): the tab stays shown once the
+    /// daemon's workspace brings its own pane, in that pane, and never vanishes for a round trip.
+    @Test func newTabOnAPendingWorkspaceStaysShownInTheDaemonsPane() throws {
+        let store = Self.store()
+        let key = WorkspaceKey.generate()
+        let workspace = ProvisionalWorkspace(key: key, name: "2", tab: Self.page())
+        let transaction = ClientTransactionID.generate()
+        store.intend(.createWorkspace(provisional: workspace, index: nil), transaction: transaction)
+        let tab = ProvisionalTab().terminal(.generate(), cwd: nil)
+        store.intend(.createTab(pane: workspace.pane, provisional: tab), transaction: .generate())
+        #expect(store.pane(workspace.pane)?.tabs.map(\.surface).contains(tab.surface) == true)
+        let pane = PaneID(rawValue: 10)
+        let created = WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 9), key: key, name: "2",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 11), active: true, activePane: pane, layout: .leaf(pane),
+                                     panes: [PaneSnapshot(id: pane, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 12), kind: .conversation)])])])
+        store.noteSettledAtNextSnapshot(transaction)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [Self.base, created]))
+        #expect(store.daemonHandle(showing: workspace.pane) == pane)
+        #expect(store.pane(pane)?.tabs.map(\.surface) == [SurfaceID(rawValue: 12), tab.surface], "the tab never left")
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     @Test func refusedNewWorkspaceLeavesNothing() {
         let store = Self.store()
         let key = WorkspaceKey.generate()
@@ -271,6 +294,98 @@ struct InstantCreateIntentTests {
         #expect(screen.panes.map(\.handle) == [Self.pane, daemon, second.handle], "the second column left once the first was confirmed")
         #expect(screen.columns.last?.layout.paneIDs == [second.handle])
         #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A second Cmd-D on the pane a first one still shows (#26695): the command must name the daemon's
+    /// pane, never the stand-in's handle, which the daemon refuses (`unknown pane`); the refusal took
+    /// the second split back and the pane vanished. The target is named in the press's turn and
+    /// resolves once an event batch (the usual path, under `applyDepth`) brings the daemon's pane.
+    @Test func createOnAPendingSplitNamesTheDaemonsPaneOnceItsBatchLands() async throws {
+        let store = Self.store()
+        let first = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: .generate())
+        let target = store.paneTarget(first.handle)
+        let resolved = Task { await store.daemonPane(confirming: target) }
+        try await Self.waitForWaiter(in: store)
+        let daemon = PaneID(rawValue: 9)
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: daemon, index: 1,
+            entity: PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: first.paneID),
+                                 tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7))]),
+            clientTransactionID: nil)))])
+        #expect(await resolved.value == daemon, "the create names the daemon's pane, not the stand-in")
+        #expect(await store.daemonPane(confirming: store.paneTarget(Self.pane)) == Self.pane, "a daemon pane is sent as is")
+    }
+
+    /// The stand-in's own split refused: a create aimed at it gets no pane (and fails like a refusal),
+    /// never a wait that does not end.
+    @Test func createOnARefusedSplitGetsNoPane() async throws {
+        let store = Self.store()
+        let first = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: transaction)
+        let target = store.paneTarget(first.handle)
+        let resolved = Task { await store.daemonPane(confirming: target) }
+        try await Self.waitForWaiter(in: store)
+        store.rejectIntent(transaction)
+        #expect(await resolved.value == nil)
+    }
+
+    /// A wait whose task is cancelled (its window closed) ends with no pane at once, not when the
+    /// stand-in settles, so it never sends a stale create.
+    @Test func cancelledCreateOnAPendingSplitStopsWaiting() async throws {
+        let store = Self.store()
+        let first = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: .generate())
+        let target = store.paneTarget(first.handle)
+        let resolved = Task { await store.daemonPane(confirming: target) }
+        try await Self.waitForWaiter(in: store)
+        resolved.cancel()
+        #expect(await resolved.value == nil)
+        #expect(store.standInWaiters.isEmpty)
+    }
+
+    /// A split cancelled before the daemon made its pane (closed while pending): a create aimed at
+    /// its stand-in gets no pane, never the daemon's pane that is about to close.
+    @Test func createOnACancelledSplitGetsNoPane() async throws {
+        let store = Self.store()
+        let first = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: transaction)
+        let target = store.paneTarget(first.handle)
+        let marked = store.intentLog.markCloseWhenCreated(transaction)
+        #expect(marked)
+        _ = store.apply(batch: [Self.paneAdded(PaneID(rawValue: 9), for: first, sequence: 1)])
+        #expect(await store.daemonPane(confirming: target) == nil)
+    }
+
+    /// Cmd-T right after Cmd-D, on the pane the split still shows (#26695): the new tab stays shown
+    /// once the daemon's pane takes the stand-in over under a new handle, in that pane.
+    @Test func newTabOnAPendingSplitStaysShownInTheDaemonsPane() throws {
+        let store = Self.store()
+        let first = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: .generate())
+        let tab = ProvisionalTab().terminal(.generate(), cwd: nil)
+        store.intend(.createTab(pane: first.handle, provisional: tab), transaction: .generate())
+        #expect(store.pane(first.handle)?.tabs.map(\.surface).contains(tab.surface) == true)
+        let daemon = PaneID(rawValue: 9)
+        _ = store.apply(batch: [Self.paneAdded(daemon, for: first, sequence: 1)])
+        #expect(store.pane(daemon)?.tabs.map(\.surface) == [SurfaceID(rawValue: 7), tab.surface], "the tab never left")
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    private static func paneAdded(_ daemon: PaneID, for provisional: ProvisionalPane, sequence: UInt64) -> DaemonEventEnvelope {
+        DaemonEventEnvelope(sequence: sequence, event: .paneAdded(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: daemon, index: 1,
+            entity: PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: provisional.paneID),
+                                 tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7))]),
+            clientTransactionID: nil)))
+    }
+
+    /// Lets the waiting task run until its wait is queued, so the test drives the queued path.
+    private static func waitForWaiter(in store: DaemonStore) async throws {
+        for _ in 0..<100 where store.standInWaiters.isEmpty { await Task.yield() }
+        try #require(store.standInWaiters.count == 1, "the create waits for the stand-in's daemon pane")
     }
 
     /// A conversation tab's split (`conversation-tab-split-v1`): the daemon's `pane-added`, carrying

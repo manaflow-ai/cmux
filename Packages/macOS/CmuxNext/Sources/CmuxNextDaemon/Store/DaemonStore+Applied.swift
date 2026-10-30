@@ -67,5 +67,7 @@ extension DaemonStore {
         let all = drainAppliedWaiters
         drainAppliedWaiters = false
         runAppliedWaiters(nil, all: all)
+        // A batch applies under `applyDepth`, so its lifts leave the stand-in waiters to this flush.
+        runStandInWaiters(all: all)
     }
 }

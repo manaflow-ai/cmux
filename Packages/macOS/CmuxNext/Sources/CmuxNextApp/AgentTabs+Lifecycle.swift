@@ -100,10 +100,16 @@ extension AgentTabStore {
         if let spare, let newTab { adoptSpare(spare, key: key, page: newTab.page) }
         let pending = AgentTabPending(key: key, surface: snapshot.surface)
         if remote { remoteCreations[key] = pending }
+        // A pane an earlier create still shows provisionally (a split pressed on a split in flight), named now,
+        // before any await: the tab or split goes to the daemon's pane that takes it over (#26695).
+        let target = store.paneTarget(pane)
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
             do {
                 guard let self else { throw CancellationError() }
-                let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
+                guard let target = await store.daemonPane(confirming: target) else {
+                    throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
+                }
+                let (created, sequence) = try await create(target, daemon, record, idempotencyKey, transaction,
                                                            splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
                                                                                           splitID: sendsSplitID ? $0.1.splitID : nil) })
                 // Closed first (CancelledCreation): nothing moves to the store's tab, which the store

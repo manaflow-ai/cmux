@@ -53,11 +53,12 @@ public struct NewColumnCommand: Sendable {
         let pane = pane, width = width, left = left, sent = options
         let intent = Intent.splitPane(pane: pane, direction: .right, ratio: 0.5, provisional: provisional)
         // The target at send time: a stand-in (a create pressed on a create in flight) has become the
-        // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
+        // daemon's pane by then (``PaneSplitCommand/target(_:on:)``; creates of one workspace go
         // out in order, each once the store holds the one before).
-        let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
+        let named = daemon.store.paneTarget(pane)
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await PaneSplitCommand.target(named, on: daemon) }
         let send = daemon.intendNow("new-pane-right", intent, transaction: transaction) { connection in
-            try await connection.newColumn(beside: await target(), left: left, width: width, options: sent)
+            try await connection.newColumn(beside: try await target(), left: left, width: width, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
