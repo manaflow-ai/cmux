@@ -44,7 +44,7 @@ fn screenshot_out_is_made_absolute_except_stdout() {
 #[test]
 fn space_mutations_use_the_catalog_actions_and_name_targets() {
     for (words, action, target, args) in [
-        (&["space", "new", "Work"][..], "space create", None, json!({"name": "Work"})),
+        (&["space", "new", "Work"][..], "space.new", None, json!({"name": "Work"})),
         (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), json!({})),
         (
             &["space", "rename", "Work", "Office"][..],

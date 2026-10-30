@@ -189,7 +189,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
         let words = rest.iter().map(String::as_str).collect::<Vec<_>>();
         let (action, action_args): (&str, Vec<String>) = match words.as_slice() {
-            ["new", name] => ("space create", vec!["--name".into(), (*name).into()]),
+            ["new", name] => ("space.new", vec!["--name".into(), (*name).into()]),
             ["switch", name] => ("space switch", vec!["--target".into(), format!("room:{name}")]),
             ["rename", old, new] => (
                 "space rename",
@@ -216,10 +216,13 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 )
             }
             _ => {
-                return Err(UsageError::new("space takes list, new, switch, rename, move or close"));
+                return Err(UsageError::new(
+                    "space takes list, new, switch, rename, move or close",
+                ));
             }
         };
-        return run_action(action, &action_args, ActionName::Cli).map(Some);
+        let action_name = if action == "space.new" { ActionName::Any } else { ActionName::Cli };
+        return run_action(action, &action_args, action_name).map(Some);
     }
     // The session host owns history reads and edits (`history.*`), so they
     // work with the app quit; the other `history` words are app actions.
