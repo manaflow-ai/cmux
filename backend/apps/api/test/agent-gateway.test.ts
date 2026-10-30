@@ -126,7 +126,9 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     expect(done).toMatchObject({ ok: true, replayed: true, value: { id: expect.any(Number), url: expect.stringContaining("issuecomment-") } })
     expect((await gateway.dispatchIssueComment({ ...input, body: "changed" })).error?.code).toBe("idempotency.conflict")
     await inDO(s.connection, async (instance) => {
-      expect(instance.ctx.storage.sql.exec("SELECT status FROM external_calls").toArray()).toHaveLength(1)
+      // OAuth completion has its own ledger row; only the approved comment must be
+      // written once across execution, replay, and the changed-argument refusal.
+      expect(instance.ctx.storage.sql.exec("SELECT status FROM external_calls WHERE op = ?", "github.issue.comment").toArray()).toEqual([{ status: "done" }])
       expect(JSON.stringify(instance.ctx.storage.sql.exec("SELECT * FROM external_calls").toArray())).not.toContain("ghs_synthetic")
     })
     expect(JSON.stringify(done)).not.toContain("ghs_synthetic")
