@@ -187,8 +187,8 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
   expect(attaches).toBe(1);
   expect(mount.querySelector('[data-action="test-state"]')?.textContent).toContain('"resuming":true');
 
-  // fixed-wait: exercise two real 1 s recovery intervals so both transient reads are retried.
   await act(async () => {
+    // fixed-wait: exercise two real 1 s recovery intervals so both transient reads are retried.
     await new Promise((resolve) => setTimeout(resolve, 2_400));
   });
   expect(listReads).toBeGreaterThanOrEqual(3);
@@ -262,4 +262,90 @@ test("a nonretryable inventory refusal ends recovery without repeated polls", as
   expect(state).toContain('"resuming":false');
   expect(state).toContain('"error":');
   await act(async () => root.render(null));
+}, 10_000);
+
+test("an old chat's late inventory refusal leaves the new recovery running", async () => {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  let refuseOldRead!: (reply: unknown) => void;
+  const oldRead = new Promise((resolve) => {
+    refuseOldRead = resolve;
+  });
+  let listReads = 0;
+  let rechecks = 0;
+  const inventory = {
+    ok: true,
+    value: {
+      signedIn: true,
+      loaded: true,
+      complete: true,
+      account: ["user", null],
+      machines: [
+        { id: "vm-old", name: "Old machine", stage: "paused" },
+        { id: "vm-new", name: "New machine", stage: "paused" },
+      ],
+    },
+  };
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            if (method === "cloudMachine.attach") return { ok: true, value: {} };
+            if (method === "cloudMachine.list" && ++listReads === 1) return oldRead;
+            return inventory;
+          },
+        },
+      },
+    },
+  });
+  const recheck = async () => {
+    rechecks += 1;
+  };
+  function Recovery({ machine }: { machine: string }) {
+    const recovery = useCloudChatRecovery({
+      cloud: { id: machine, account: ["user", null] },
+      session: `chat-${machine}`,
+      active: true,
+      recheck,
+    });
+    return (
+      <div>
+        <button data-action="switch-wake" onClick={recovery.resume}>
+          Resume
+        </button>
+        <span data-action="switch-state">
+          {JSON.stringify({
+            state: recovery.state,
+            resuming: recovery.resuming,
+            error: recovery.error,
+          })}
+        </span>
+      </div>
+    );
+  }
+  const wake = () => mount.querySelector<HTMLButtonElement>('[data-action="switch-wake"]')!.click();
+  const state = () => JSON.parse(mount.querySelector('[data-action="switch-state"]')!.textContent!);
+  try {
+    await act(async () => root.render(<Recovery machine="vm-old" />));
+    await act(async () => wake());
+    expect(listReads).toBe(1);
+    await act(async () => root.render(<Recovery machine="vm-new" />));
+    await act(async () => wake());
+    expect(state()).toEqual({ state: "paused", resuming: true });
+    const readsBeforeRefusal = listReads;
+    const rechecksBeforeRefusal = rechecks;
+    await act(async () => {
+      refuseOldRead({ ok: false, error: { code: "auth.forbidden", retryable: false, origin: "native" } });
+    });
+    expect(state()).toEqual({ state: "paused", resuming: true });
+    await act(async () => {
+      // fixed-wait: the regression can cancel the new chat's real 1 s retry timer.
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+    });
+    expect(listReads).toBeGreaterThan(readsBeforeRefusal);
+    expect(rechecks).toBeGreaterThan(rechecksBeforeRefusal);
+    expect(state()).toEqual({ state: "paused", resuming: true });
+  } finally {
+    await act(async () => root.render(null));
+  }
 }, 10_000);
