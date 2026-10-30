@@ -10,11 +10,16 @@ import { CategoryBar, ItemCard, ItemRow } from "./items";
 import type { StoreTab } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
 import { useUiDirection } from "../../ui/UiProvider";
+import { useLasting } from "../../ui/lasting";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const tabRefs = useRef<Partial<Record<StoreTab, HTMLButtonElement>>>({});
   const { t } = strings;
+  // A lost owner link shows nothing until it lasts past the grace (a launch, a daemon restart:
+  // the store re-reads once the link is back); then the disconnected state.
+  const down = snap.connection === "disconnected";
+  const downLasting = useLasting(down);
   const tabs: StoreTab[] = ["discover", "installed"];
   const direction = useUiDirection() === "rtl" ? -1 : 1;
   const moveTab = (event: KeyboardEvent<HTMLButtonElement>, tab: StoreTab) => {
@@ -81,7 +86,7 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
-      {snap.connection === "disconnected" ? (
+      {down && !downLasting ? null : down ? (
         <output className="apps-state">
           <span className="apps-state-mark" aria-hidden="true">
             !

@@ -2648,7 +2648,7 @@ export class AcpmuxDirectClient {
   }
 
   /// Why the tab's chat is not here, while the pane shows none; a machine still connecting is read
-  /// again shortly, so the pane says "offline" only once acpmux gave up on its first attempts.
+  /// again shortly, so the pane says "offline" only once the grace (chatUnavailable.ts) has passed.
   private unavailableNow(): ChatUnavailable | undefined {
     if (this.selectedSessionId !== undefined || this.missingSession === undefined) return undefined;
     const unavailable = chatUnavailable({
