@@ -3,21 +3,20 @@ import CmuxNextSettings
 import Testing
 
 /// A group formed for a new workspace (New Workspace in New Group) follows
-/// `workspaces.newPlacement`, as the workspace itself does: the explicit `top`
-/// choice forms it first, while the next-to-current default and Bottom form it
-/// last.
+/// `workspaces.newPlacement`, preserving #24374's top-oriented section/new-group
+/// behavior for the default and explicit `top`; explicit Bottom forms it last.
 @MainActor
 @Suite struct NewWorkspaceGroupIndexTests {
     @Test func topFormsTheGroupFirst() {
         #expect(NewWorkspacePlacements.newGroupIndex(for: .top) == 0)
     }
 
-    @Test func bottomAndAfterCurrentFormTheGroupLast() {
+    @Test func bottomFormsTheGroupLast() {
         #expect(NewWorkspacePlacements.newGroupIndex(for: .bottom) == .max)
-        #expect(NewWorkspacePlacements.newGroupIndex(for: .afterCurrent) == .max)
+        #expect(NewWorkspacePlacements.newGroupIndex(for: .afterCurrent) == 0)
     }
 
-    @Test func theDefaultPlacementFormsTheGroupLast() {
-        #expect(NewWorkspacePlacements.newGroupIndex(for: CmuxConfigSnapshot.newWorkspacePlacementFallback) == .max)
+    @Test func theDefaultPlacementFormsTheGroupFirst() {
+        #expect(NewWorkspacePlacements.newGroupIndex(for: CmuxConfigSnapshot.newWorkspacePlacementFallback) == 0)
     }
 }

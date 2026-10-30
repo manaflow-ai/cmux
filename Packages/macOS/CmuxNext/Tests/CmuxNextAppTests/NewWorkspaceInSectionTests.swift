@@ -60,8 +60,8 @@ import Testing
         #expect(try Self.placed(.bottom, home: false) == nil)
     }
 
-    /// The fallback Leo named: with no setting a new workspace goes to the top.
-    @Test func theDefaultIsTop() {
-        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .top)
+    /// Cmd-N's shared fallback is next-to-current; section creation supplies its own explicit top slot.
+    @Test func theSharedDefaultIsNextToCurrent() {
+        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .afterCurrent)
     }
 }
