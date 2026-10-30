@@ -4,7 +4,7 @@ import { CloudEnvironmentBoot, CloudEnvironmentBuildOp, CloudEnvironmentDelete, 
 import { decodeParams, reject } from "./common.ts"
 import { createConfigProblem, DEFAULT_MEMORY_MB, DEFAULT_SIZE, limitDetails, providerName, teamPlan, type CloudConfig } from "./cloud-plan.ts"
 import { snapshotRetire, type SnapshotRow } from "./cloud-snapshot.ts"
-import { ledgerKey, mayManage, next, retryDelayMs, TABLE_ENVIRONMENT, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow, type MachineRow } from "./cloud.ts"
+import { ledgerKey, mayManage, next, TABLE_ENVIRONMENT, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow, type MachineRow } from "./cloud.ts"
 
 /**
  * Cloud environments in CloudDO (plans/cmux-next/cloud-environments-DESIGN.md §7): one private row per
@@ -220,7 +220,7 @@ export const environmentBuildResult = (config: CloudConfig, state: CloudState, s
     const key = `env-cleanup:${name}`
     const cleanup: LedgerRow = { transport: l.transport ?? "direct", key, op: "env_cleanup", machine: l.machine, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
     writes.push(upsertLedger(cleanup, s.rev))
-    s = { ...s, pending: { ...s.pending, [key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(1) } } }
+    s = { ...s, pending: { ...s.pending, [key]: { machine: l.machine, due_at: ctx.now } } }
   }
   const snap = l.snapshot ? ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, l.snapshot) : undefined
   const envStored = l.environment ? environmentRow(ctx.rows, l.environment) : undefined
