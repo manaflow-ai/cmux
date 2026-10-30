@@ -454,7 +454,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
             let parts = TextParts.parts(for: t)
             return HomeLinkSend.hasLinks(parts) ? parts : nil
         }
-        let links = shown.contains { $0 != nil }
+        // A send past one message's parts goes as several messages (HomeStore.send), plain: its link
+        // cards are left out rather than refusing the send.
+        let links = shown.contains { $0 != nil } && plain.count <= HomeAttachmentPolicy.maxParts
             ? HomeLinkSend(previews: linkPreviews, store: homeStore, conversation: conversation) : nil
         // task-owner: one send; ends with the owner's answer
         Task { [weak self] in

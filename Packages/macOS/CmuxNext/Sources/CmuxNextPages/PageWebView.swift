@@ -606,7 +606,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         let url = action.request.url
         switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
-                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
+                                     mainFrame: action.targetFrame?.isMainFrame ?? true,
+                                     targetFrameURL: action.targetFrame?.request.url,
+                                     sourceFrameURL: action.sourceFrame.request.url, hook: onNavigate) {
         case .allow:
             return .allow
         case .openExternal:

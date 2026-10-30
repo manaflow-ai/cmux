@@ -48,6 +48,8 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        // Whether a chat shows the live view of the app its agent uses: looks only.
+        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
@@ -90,11 +92,14 @@ extension SettingsSchema {
         "layout.scrollAreas",
         "layout.scrollModifier",
         "layout.pagesHandleCommandScroll",
+        // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
+        "agents.modelRouter.model",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent",
+        "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
@@ -322,6 +327,9 @@ extension SettingsSchema {
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.
         "labs.voiceRoomURL": .network,
+        // On, Add Device mints a line that joins any machine to the team's machines: only the person
+        // turns that on.
+        "labs.machineJoin": .network,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,
