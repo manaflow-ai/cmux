@@ -43,7 +43,10 @@ struct AppTestDaemonOwnerTests {
 
     @Test func anUnverifiedLiveProcessIsLeftAloneAndCleanupRemainsIncomplete() async throws {
         try await withChild { endpoint, identity in
-            let exited = await AppTestDaemonOwner.reap(endpoint, process: nil) { true }
+            let exited = await AppTestDaemonOwner.reap(endpoint, process: nil) {
+                Issue.record("unverified endpoint must not receive a graceful shutdown")
+                return true
+            }
             #expect(!exited)
             #expect(AcpmuxUnresponsiveWatch.kernelProcess(pid: identity.pid) == identity)
         }
