@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4105997125801",
+  "notes": "notes/4105997125801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27796,
+      "title": "acpmux: a daemon whose home is gone stops; autostart never recreates a removed home (carries #27594)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27659,
+      "title": "Explain empty subagent conversations",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
