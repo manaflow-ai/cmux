@@ -74,10 +74,15 @@ extension AgentTabStore {
 
     private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
         AgentSubagentPanes.session(session).open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] in self?.locate($0) != nil }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
-            // Only the first, chat-relative split goes through main pane layout; the one below it splits the subagent's pane.
+            // The first subagent beside the chat (anchor: the chat) goes through main pane layout before any width check: a chat that is
+            // its screen's main pane reuses the column on its right. Elsewhere the placement stands; the one below splits the subagent's pane.
             // An unfocused tab in a subagent pane is selected there (shown, focus stays); in the chat's own pane it waits in the strip.
-            place: { [weak self] anchor, placement, created, finished in self?.openBeside(anchor, split: placement != .tab, direction: placement == .down ? "down" : "right", origin: focus ? .user : .script, main: placement == .right ? provisional : nil, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
-                created: { [weak self] in created($0); self?.revealTurn(AgentSubagentPanes.reveal(agent), in: $0); if placement == .tab, !focus, anchor != provisional { self?.selectInPane($0) } }, finished: finished) ?? false },
+            place: { [weak self] anchor, placement, created, finished in
+                guard let self else { return false }
+                let open: (PaneID, DaemonService) throws -> AgentTabPending = { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try self.open(in: pane, of: daemon, session: session) }
+                let made: @MainActor (String) -> Void = { [weak self] in created($0); self?.revealTurn(AgentSubagentPanes.reveal(agent), in: $0); if placement == .tab, !focus, anchor != provisional { self?.selectInPane($0) } }
+                if anchor == provisional, let placed = openInMainPane(resolve(provisional), focus, open, made, finished) { return placed }
+                return openBeside(anchor, split: placement != .tab, direction: placement == .down ? "down" : "right", origin: focus ? .user : .script, open: open, created: made, finished: finished) },
             pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, width: { [weak self] in self?.paneWidth(self?.resolve($0) ?? $0) }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
