@@ -2650,8 +2650,9 @@ mod client_registry_views;
 
 mod listen;
 pub use listen::{
-    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
+    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, app_lane_socket_path,
+    bind_session_socket, connect_session_socket, prepare_socket_parent, serve, serve_bound,
+    serve_paused,
 };
 mod restoring;
 #[cfg(test)]

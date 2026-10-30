@@ -5,7 +5,6 @@
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
-use super::MAX_SERVER_CONNECTIONS;
 use super::MessageSink;
 use super::OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
 use super::OUTBOUND_BYTE_CAPACITY;
@@ -97,7 +96,7 @@ fn claim_connection_watching(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     peer_closed: Option<crate::diagnostics::PeerClosed>,
 ) -> Option<ConnectionPermit> {
-    connections.try_claim(MAX_SERVER_CONNECTIONS as u64).then(|| ConnectionPermit {
+    connections.try_claim(connections.limit()).then(|| ConnectionPermit {
         _lease: crate::diagnostics::ConnectionLease::new(connections.clone(), peer_closed),
     })
 }

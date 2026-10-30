@@ -395,6 +395,15 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
     Ok(bound)
 }
 
+/// The app's own socket next to a session socket: `<session socket>.app`.
+/// Only the cmux app connects to it; terminals, the CLI and hooks use the
+/// session socket.
+pub fn app_lane_socket_path(session_socket: &Path) -> PathBuf {
+    let mut path = session_socket.as_os_str().to_os_string();
+    path.push(".app");
+    PathBuf::from(path)
+}
+
 /// The session a bound socket's accept loop hands connections to, once the
 /// owner has one.
 #[derive(Clone)]

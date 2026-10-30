@@ -22,6 +22,8 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod connection_budget;
+pub use connection_budget::{ConnectionBudget, ConnectionLane, ConnectionSlot};
 mod connection_leases;
 pub use connection_leases::{ConnectionLease, PeerClosed};
 mod write_path;
@@ -478,8 +480,9 @@ pub struct JournalWriterSnapshot {
 }
 
 /// Connection admission on the control socket.
-#[derive(Default)]
 pub struct ConnectionStats {
+    /// The connections admitted at once (`ConnectionBudget::total`).
+    limit: AtomicU64,
     active: AtomicU64,
     peak: AtomicU64,
     refused: AtomicU64,
@@ -494,7 +497,44 @@ pub struct ConnectionStats {
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
 }
 
+impl Default for ConnectionStats {
+    fn default() -> Self {
+        Self::with_budget(ConnectionBudget::of_process())
+    }
+}
+
 impl ConnectionStats {
+    pub fn with_budget(budget: ConnectionBudget) -> Self {
+        Self {
+            limit: AtomicU64::new(budget.total()),
+            active: AtomicU64::default(),
+            peak: AtomicU64::default(),
+            refused: AtomicU64::default(),
+            accepted: AtomicU64::default(),
+            hung_up: AtomicU64::default(),
+            reclaimed: AtomicU64::default(),
+            leases: Mutex::default(),
+        }
+    }
+
+    /// Replaces the budget (tests that fill a small one).
+    pub fn set_budget_for_test(&self, budget: ConnectionBudget) {
+        self.limit.store(budget.total(), Ordering::Release);
+    }
+
+    pub fn limit(&self) -> u64 {
+        self.limit.load(Ordering::Acquire)
+    }
+
+    /// Claims a slot on `lane` for the client `identity`.
+    pub fn try_claim_in(
+        &self,
+        lane: ConnectionLane,
+        identity: Option<u32>,
+    ) -> Option<ConnectionSlot> {
+        self.try_claim(self.limit()).then_some(ConnectionSlot { lane, identity })
+    }
+
     /// Claims a slot if fewer than `limit` connections are active.
     /// At the limit it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`): a connection thread parked on the registry lock
