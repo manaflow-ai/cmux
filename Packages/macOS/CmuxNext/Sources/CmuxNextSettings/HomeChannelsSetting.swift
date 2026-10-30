@@ -57,5 +57,6 @@ extension CmuxConfigSnapshot {
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
         take(HomeServerSetting.parse(root), \.homeServer)
         take(ChiefReactionSettings.parse(root), \.chiefReactions)
+        take(HomeBubbleColorsSetting.parse(root), \.homeBubbleColors)
     }
 }

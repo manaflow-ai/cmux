@@ -134,7 +134,9 @@ fn is_copy(s: &str) -> bool {
     if s.len() < HEAD || !s.starts_with("iVBORw0KGgo") {
         return false;
     }
-    let Ok(head) = base64::engine::general_purpose::STANDARD.decode(&s.as_bytes()[..HEAD]) else {
+    let Ok(head) = base64::engine::general_purpose::STANDARD
+        .decode(s.as_bytes().get(..HEAD).unwrap_or_default())
+    else {
         return false;
     };
     head.get(33 + 4..33 + 8) == Some(b"tEXt") && head.get(41..41 + MARK.len()) == Some(MARK)
@@ -266,11 +268,12 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
                 _ => return None,
             };
             let a = u64::from(rgba[3]);
-            for (s, v) in sums[tx][..3].iter_mut().zip(rgba) {
+            let (Some(sum), Some(count)) = (sums.get_mut(tx), counts.get_mut(tx)) else { continue };
+            for (s, v) in sum.iter_mut().take(3).zip(rgba) {
                 *s += u64::from(v) * a;
             }
-            sums[tx][3] += a;
-            counts[tx] += 1;
+            sum[3] += a;
+            *count += 1;
         }
     }
     row_of(&mut sums, &mut counts);

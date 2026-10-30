@@ -511,6 +511,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
+  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.join_consent", { surface, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
   async setMachineVmHost(id: string, on: boolean): Promise<void> {
     await this.request("cmux.settings.machines.vm_host", { id, on });
@@ -652,9 +658,14 @@ export class SettingsStore {
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
-  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
-    await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
+  async runAction(
+    action: SettingsPageAction,
+    args: Record<string, unknown> = {},
+    target?: string,
+  ): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
     await this.refreshHost();
+    return reply;
   }
 
   dispose(): void {
