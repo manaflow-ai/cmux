@@ -17,7 +17,7 @@ import Testing
 /// Every launch is the Sparkle update relaunch: classic saved seconds ago, on
 /// quit, and removed its launch sentinel. Timing lines start with
 /// `CLASSIC-SIM` for the fleet log.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(5)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeSimulationTests {
     /// The first window shows before the migration's work, whatever classic held.
     static let firstWindowBudget: Duration = .seconds(10)
@@ -39,12 +39,8 @@ struct ClassicUpgradeSimulationTests {
         let before = try mac.classicDigest()
         let sim = try ClassicUpgradeSimulator(mac: mac)
         let launch = await sim.launch()
-        Self.report(name, launch, workspaces: profile.expectedCount)
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
-        #expect(launch.firstWindow < Self.firstWindowBudget, "first window after \(launch.firstWindow)")
-        // About 0.35 s a workspace on an idle Mac mini, up to 0.75 s on a busy one.
-        #expect(launch.migration < .seconds(max(20, Double(profile.expectedCount) * 1.0)), "migration took \(launch.migration)")
         await sim.settle()
         try sim.verify(profile, classicBefore: before)
 

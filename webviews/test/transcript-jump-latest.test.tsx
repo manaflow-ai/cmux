@@ -146,6 +146,48 @@ test("scrolled up, a static button above the composer jumps to the latest messag
   }
 });
 
+test("once shown, the button stays shown back inside its distance and hides only at the latest message", async () => {
+  // Leo 2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around
+  // jittering and flickering like that." A gesture that turns back across the distance it shows at
+  // turned it off and on again; it now hides only once the view is back at the latest message.
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const rows = turnView(turns, new Set());
+  try {
+    await act(async () =>
+      root.render(<VirtualTranscript rows={rows} jumpButton onToggleActivity={() => {}} expanded={new Set()} />),
+    );
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const latest = scrollerEnd(scroller);
+    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const scrollTo = async (top: number) => {
+      scroller.scrollTop = top;
+      await act(async () => {
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+        await nextFrame();
+      });
+    };
+    // 40px up: not yet far enough to show.
+    await scrollTo(latest - 40);
+    expect(button()?.dataset.shown).toBeUndefined();
+    // 120px up: it shows.
+    await scrollTo(latest - 120);
+    expect(button()?.dataset.shown).toBe("");
+    // Back down to 40px and up to 120px, twice: it stays shown throughout.
+    for (const top of [latest - 40, latest - 120, latest - 40]) {
+      await scrollTo(top);
+      expect(button()?.dataset.shown).toBe("");
+    }
+    // At the latest message it hides.
+    await scrollTo(latest);
+    expect(button()?.dataset.shown).toBeUndefined();
+    // And shows again only past its distance.
+    await scrollTo(latest - 40);
+    expect(button()?.dataset.shown).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a keyboard jump hands focus to the composer instead of losing it with the hidden button", async () => {
   const doc = dom.window.document;
   const composer = doc.createElement("textarea");
