@@ -29,9 +29,14 @@ extension SidebarListViewComponents {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let tabFold = lastTabFold
         lastTabFold = nil
+        // A click anywhere but a group header or a disclosure takes keyboard focus off them (and off its ring),
+        // so a later Return, Space or arrow cannot act on the header or disclosure focused before.
+        switch row.key {
+        case .group, .doneFold, .showMore: break
+        default: SidebarGroupKeys(list: self).setFocus(nil)
+        }
         switch row.key {
         case let .workspace(id):
-            SidebarGroupKeys(list: self).setFocus(nil)
             // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
             guard !model.isPlaceholder(id), !flags.contains(.control) else {
                 self.press = nil
@@ -75,7 +80,6 @@ extension SidebarListViewComponents {
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
         case let .item(item):
-            SidebarGroupKeys(list: self).setFocus(nil)
             // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
             // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
             let id = LayoutItemID(item)
