@@ -120,20 +120,6 @@ public final class ChatDiffCache {
         return nil
     }
 
-    /// The turn's changes now: the cached diff, or computed here (a tap on a card or a
-    /// menu, which needs the whole set at once).
-    public func changeSetNow(for turn: AgentTurn) -> DiffChangeSet? {
-        if case .some(let ready) = changeSet(for: turn) { return ready }
-        let inputs = Self.inputs(turn)
-        computations += 1
-        let set = Self.changeSet(turnID: turn.id, files: compute(inputs))
-        let key = "t-\(turn.id)"
-        running[key]?.cancel()
-        running[key] = nil
-        turnSets[key] = Entry(inputs: inputs, value: .some(set))
-        return set
-    }
-
     /// The turn's changes for a tap on a snippet or a menu: the cached diff, else the one
     /// computing (awaited), else computed off the main thread now. The main thread never runs
     /// the diff (hundreds of milliseconds for a large rewrite).

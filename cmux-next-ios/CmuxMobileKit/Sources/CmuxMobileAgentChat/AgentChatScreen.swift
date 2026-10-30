@@ -195,14 +195,18 @@ public final class AgentChatSurface {
                let option = permission.request.options.first(where: { $0.kind.rawValue == kind }) {
                 withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
             }
-        case .chatOpenChanges:
-            if let turn = store.turns.last(where: \.hasEdits), let changes = store.diffs.changeSetNow(for: turn) {
-                diffRoute = DiffRoute(changes: changes, fileID: nil)
-            }
-        case .chatOpenFirstFile:
-            if let turn = store.turns.last(where: \.hasEdits), let changes = store.diffs.changeSetNow(for: turn),
-               let file = changes.files.dropFirst().first ?? changes.files.first {
-                diffRoute = DiffRoute(changes: changes, fileID: file.id)
+        case .chatOpenChanges, .chatOpenFirstFile:
+            // The diff is awaited (cached, computing, or computed off the main thread), never run here.
+            guard let turn = store.turns.last(where: \.hasEdits) else { break }
+            let firstFile = command == .chatOpenFirstFile
+            Task { @MainActor [weak self] in
+                guard let changes = await store.diffs.changeSetReady(for: turn) else { return }
+                if firstFile {
+                    guard let file = changes.files.dropFirst().first ?? changes.files.first else { return }
+                    self?.diffRoute = DiffRoute(changes: changes, fileID: file.id)
+                } else {
+                    self?.diffRoute = DiffRoute(changes: changes, fileID: nil)
+                }
             }
         case .navigateBack:
             if diffRoute != nil { diffRoute = nil }

@@ -270,3 +270,37 @@ import Testing
         #expect(ChatNativeRowActions.viewedKey(first, in: "t-1") != ChatNativeRowActions.viewedKey(second, in: "t-1"))
     }
 }
+
+/// A code preview reused for another artifact never shows the previous file's lines while
+/// the new file's highlight is still being prepared.
+@Suite struct CodePreviewLinesTests {
+    @Test func linesShowOnlyForTheSourceTheyWereMadeFrom() {
+        let first = CodeView.Source(text: "let a = 1", language: "swift")
+        let second = CodeView.Source(text: "print(2)", language: "python")
+        let prepared = CodeView.PreparedLines(source: first, lines: [AttributedString("let a = 1")])
+        #expect(prepared.lines(for: first).count == 1)
+        #expect(prepared.lines(for: second).isEmpty)
+        #expect(CodeView.PreparedLines().lines(for: first).isEmpty)
+    }
+}
+
+#if os(iOS)
+/// An HTML thumbnail scrolled away while the grid moves leaves the snapshot queue at once:
+/// no queued task outlives its tile, and none resumes in a burst when the grid rests.
+@MainActor
+@Suite(.serialized) struct HTMLSnapshotQueueTests {
+    @Test func aCancelledWaiterLeavesTheQueue() async throws {
+        HTMLSnapshotter.setPaused(true)
+        defer { HTMLSnapshotter.setPaused(false) }
+        let before = HTMLSnapshotter.waitingCount
+        let tile = Task { await HTMLSnapshotter.snapshot(html: "<p>x</p>", scale: 1) }
+        for _ in 0..<200 where HTMLSnapshotter.waitingCount == before { await Task.yield() }
+        #expect(HTMLSnapshotter.waitingCount == before + 1)
+        tile.cancel()
+        for _ in 0..<200 where HTMLSnapshotter.waitingCount != before { await Task.yield() }
+        #expect(HTMLSnapshotter.waitingCount == before)
+        HTMLSnapshotter.setPaused(false)
+        #expect(await tile.value == nil)
+    }
+}
+#endif

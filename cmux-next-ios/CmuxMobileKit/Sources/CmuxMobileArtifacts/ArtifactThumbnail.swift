@@ -102,7 +102,12 @@ enum ArtifactThumbnail: Equatable, @unchecked Sendable {
 final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
     static let limit = 2
     private static var running = 0
-    private static var waiting: [CheckedContinuation<Void, Never>] = []
+    /// Tiles waiting for a slot, oldest first. A tile scrolled away (its task cancelled)
+    /// leaves at once instead of holding its place until the grid rests.
+    private static var waiting: [(id: UInt64, resume: CheckedContinuation<Bool, Never>)] = []
+    private static var lastWaiter: UInt64 = 0
+    /// Waiting tiles (tests).
+    static var waitingCount: Int { waiting.count }
     /// While a grid of thumbnails moves, no snapshot starts: a web view loading and painting
     /// under a scrolling grid cost a late frame every half second, and the tiles it served
     /// had already scrolled away. Snapshots start when the grid rests, newest ask first
@@ -115,7 +120,7 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
     static let loadTimeout: Duration = .seconds(5)
 
     static func snapshot(html: String, scale: CGFloat) async -> UIImage? {
-        await acquire()
+        guard await acquire() else { return nil }
         defer { release() }
         guard !Task.isCancelled else { return nil }
         return await HTMLSnapshotter().snapshot(html: html, displayScale: max(scale, 1))
@@ -128,12 +133,31 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
         drain()
     }
 
-    private static func acquire() async {
+    /// Takes a slot (true), or false when the task was cancelled while it waited.
+    private static func acquire() async -> Bool {
         if !paused, running < limit, waiting.isEmpty {
             running += 1
-            return
+            return true
         }
-        await withCheckedContinuation { waiting.append($0) }
+        lastWaiter &+= 1
+        let id = lastWaiter
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    waiting.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in leave(id) }
+        }
+    }
+
+    /// A cancelled waiter leaves the queue without a slot.
+    private static func leave(_ id: UInt64) {
+        guard let index = waiting.firstIndex(where: { $0.id == id }) else { return }
+        waiting.remove(at: index).resume.resume(returning: false)
     }
 
     private static func release() {
@@ -145,7 +169,7 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
     private static func drain() {
         while !paused, running < limit, !waiting.isEmpty {
             running += 1
-            waiting.removeLast().resume()
+            waiting.removeLast().resume.resume(returning: true)
         }
     }
 

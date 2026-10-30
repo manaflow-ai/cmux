@@ -243,7 +243,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// One tab's live input changed: rebuild that tab, and publish the list
     /// only when what the kit shows of it changed.
-    private func refreshTab(_ id: String) {
+    func refreshTab(_ id: String) {
         guard let workspace = workspaceSnapshot, let tab = workspace.tabs.first(where: { $0.id == id }),
               let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let key = WorkspaceKey(macID: workspace.macID, title: workspace.title, directory: workspace.directory)

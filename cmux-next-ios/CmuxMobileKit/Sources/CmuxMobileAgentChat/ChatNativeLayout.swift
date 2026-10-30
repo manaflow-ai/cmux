@@ -453,11 +453,20 @@ final class ChatNativeLayouts {
         didSet {
             guard environment != oldValue else { return }
             entries = [:]
+            queued = [:]
             generation &+= 1
         }
     }
     private var entries: [String: Entry] = [:]
-    private var queued: Set<String> = []
+    /// Rows with a layout on its way, and for which revision, state and environment: a
+    /// newer revision or a new environment queues the row again instead of waiting for a
+    /// batch whose result will be discarded.
+    private struct Queued: Equatable {
+        var generation: Int
+        var revision: Int
+        var expanded: Bool
+    }
+    private var queued: [String: Queued] = [:]
     private var generation = 0
     /// Rows laid out on the main thread / off it (tests and the rig's log).
     private(set) var madeNow = 0
@@ -465,7 +474,7 @@ final class ChatNativeLayouts {
 
     func reset() {
         entries = [:]
-        queued = []
+        queued = [:]
         generation &+= 1
     }
 
@@ -502,16 +511,18 @@ final class ChatNativeLayouts {
     /// Lays out `jobs` off the main thread; `ready` gets the ids that landed (still current).
     func prepare(_ jobs: [Job], urgent: Bool, ready: @escaping @MainActor ([String]) -> Void) {
         guard let environment else { return }
-        let fresh = jobs.filter { !queued.contains($0.id) }
-        guard !fresh.isEmpty else { return }
-        queued.formUnion(fresh.map(\.id))
         let generation = generation
+        let fresh = jobs.filter { queued[$0.id] != Queued(generation: generation, revision: $0.revision, expanded: $0.expanded) }
+        guard !fresh.isEmpty else { return }
+        for job in fresh { queued[job.id] = Queued(generation: generation, revision: job.revision, expanded: job.expanded) }
         Task { [weak self] in
             let made = await Task.detached(priority: urgent ? .userInitiated : .utility) {
                 fresh.map { ($0, ChatNativeLayout.make($0.kind, id: $0.id, expanded: $0.expanded, environment: environment)) }
             }.value
             guard let self else { return }
-            for job in fresh { self.queued.remove(job.id) }
+            for job in fresh where self.queued[job.id] == Queued(generation: generation, revision: job.revision, expanded: job.expanded) {
+                self.queued[job.id] = nil
+            }
             guard self.generation == generation else { return }
             var landed: [String] = []
             for (job, layout) in made where self.entries[job.id].map({ $0.revision < job.revision || $0.expanded != job.expanded }) ?? true {

@@ -116,16 +116,10 @@ enum ChatNativeRowActions {
         Set(changes.files.indices.filter { DiffViewedStore.shared.isViewed(key: viewedKey(changes.files[$0], in: changes.id)) })
     }
 
-    /// `DiffViewedStore.key(for:)` per file, computed once (it hashes every line).
-    private static var viewedKeys: [String: (lines: Int, additions: Int, key: String)] = [:]
-
+    /// `DiffViewedStore.key(for:)`: the file's content hash is computed once per content
+    /// (`DiffFile.contentHash`), so the key follows every change and needs no cache here.
     static func viewedKey(_ file: DiffFile, in changeSetID: String) -> String {
-        let id = changeSetID + "\u{0}" + file.path
-        if let cached = viewedKeys[id], cached.lines == file.lines.count, cached.additions == file.additions { return cached.key }
-        let key = DiffViewedStore.key(for: file)
-        if viewedKeys.count > 512 { viewedKeys = [:] }
-        viewedKeys[id] = (file.lines.count, file.additions, key)
-        return key
+        DiffViewedStore.key(for: file)
     }
 }
 

@@ -209,7 +209,7 @@ import Testing
         #expect(changes.files.count == 1 && changes.additions > 0)
         #expect(files?.count == 1)
         // Opening Changes reuses the computed diff.
-        #expect(cache.changeSetNow(for: store.turns[2]) == changes)
+        #expect(await cache.changeSetReady(for: store.turns[2]) == changes)
         #expect(cache.computations == 2)
     }
 
@@ -229,7 +229,7 @@ import Testing
         #expect(cache.computations == 1)
         #expect(!onMain.value)
         // Ready now: the next open reuses it.
-        #expect(cache.changeSetNow(for: store.turns[2]) == changes)
+        #expect(await cache.changeSetReady(for: store.turns[2]) == changes)
         #expect(cache.computations == 1)
     }
 }

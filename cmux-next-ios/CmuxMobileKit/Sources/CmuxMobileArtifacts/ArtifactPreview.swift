@@ -638,14 +638,26 @@ struct CodeView: View {
     let language: String
     var highlightLine: Int?
     @State private var wrap = false
-    @State private var lines: [AttributedString] = []
+    @State private var prepared = PreparedLines()
 
-    private struct Source: Hashable {
+    struct Source: Hashable {
         let text: String
         let language: String
     }
 
+    /// Highlighted lines and the source they were made from: a view reused for another
+    /// artifact shows nothing (not the previous file) until its own lines are ready.
+    struct PreparedLines {
+        var source: Source?
+        var lines: [AttributedString] = []
+
+        func lines(for current: Source) -> [AttributedString] {
+            source == current ? lines : []
+        }
+    }
+
     var body: some View {
+        let lines = prepared.lines(for: Source(text: text, language: language))
         ScrollViewReader { proxy in
             ScrollView(wrap ? .vertical : [.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -676,7 +688,7 @@ struct CodeView: View {
                     SyntaxHighlighter.highlightLines(text, language: language)
                 }.value
                 guard !Task.isCancelled else { return }
-                lines = highlighted
+                prepared = PreparedLines(source: Source(text: text, language: language), lines: highlighted)
                 if let highlightLine, highlightLine <= highlighted.count {
                     // The rows exist now: center the referenced line.
                     await Task.yield()

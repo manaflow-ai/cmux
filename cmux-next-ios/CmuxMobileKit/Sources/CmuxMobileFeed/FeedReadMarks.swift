@@ -38,11 +38,12 @@ public struct FeedReadMarks: Sendable {
     /// Account deletion: the account's marks go.
     public func remove() {
         let url = url
-        // Empty until the delete lands; queued after any write, so a write cannot bring the file back.
-        Self.pending.withLock { $0[url] = .removed }
+        // Empty until the delete lands; queued after any earlier write, so that write cannot
+        // bring the file back, and before any later save, which then writes its marks.
+        let operation = Self.pending.withLock { $0.begin(url, .removed) }
         Self.queue.async {
             try? FileManager.default.removeItem(at: url)
-            Self.pending.withLock { if $0[url] == .removed { $0[url] = nil } }
+            Self.pending.withLock { $0.end(url, operation) }
         }
     }
 
@@ -52,7 +53,7 @@ public struct FeedReadMarks: Sendable {
     static let queue = DispatchQueue(label: "dev.cmux.mobile.feed.readmarks", qos: .utility)
     /// The newest marks given to `save` per file and not yet written: `load` returns them,
     /// so a reader never waits for the disk queue.
-    private static let pending = Mutex<[URL: Pending]>([:])
+    private static let pending = Mutex(PendingFiles())
 
     private enum Pending: Equatable {
         case marks([String])
@@ -60,9 +61,35 @@ public struct FeedReadMarks: Sendable {
         case removed
     }
 
+    /// Each file's newest queued operation, numbered: a queued write runs only while it is
+    /// still the newest one for its file, so a write queued before a removal can never take
+    /// the marks of a save queued after it (the removal would then delete them).
+    private struct PendingFiles {
+        var last: UInt64 = 0
+        var files: [URL: (operation: UInt64, state: Pending)] = [:]
+
+        mutating func begin(_ url: URL, _ state: Pending) -> UInt64 {
+            last &+= 1
+            files[url] = (last, state)
+            return last
+        }
+
+        func state(_ url: URL) -> Pending? { files[url]?.state }
+
+        /// The newest marks to write when `operation` is still the file's newest.
+        func marks(_ url: URL, _ operation: UInt64) -> [String]? {
+            guard let entry = files[url], entry.operation == operation, case .marks(let marks) = entry.state else { return nil }
+            return marks
+        }
+
+        mutating func end(_ url: URL, _ operation: UInt64) {
+            if files[url]?.operation == operation { files[url] = nil }
+        }
+    }
+
     /// The marks as last saved (written or still queued).
     public func load() -> [String] {
-        switch Self.pending.withLock({ $0[url] }) {
+        switch Self.pending.withLock({ $0.state(url) }) {
         case .marks(let queued): return queued
         case .removed: return []
         case nil: break
@@ -74,15 +101,15 @@ public struct FeedReadMarks: Sendable {
     public func save(_ ids: [String]) {
         let ids = Array(ids.suffix(Self.limit))
         let url = url
-        Self.pending.withLock { $0[url] = .marks(ids) }
+        let operation = Self.pending.withLock { $0.begin(url, .marks(ids)) }
         Self.queue.async {
-            // Only the newest marks are written (nil: already written; removed: none).
-            guard case .marks(let next) = Self.pending.withLock({ $0[url] }) else { return }
+            // Only the newest operation writes (a later save or removal is queued after this).
+            guard let next = Self.pending.withLock({ $0.marks(url, operation) }) else { return }
             if let data = try? JSONEncoder().encode(next) {
                 try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? data.write(to: url, options: [.atomic])
             }
-            Self.pending.withLock { if $0[url] == .marks(next) { $0[url] = nil } }
+            Self.pending.withLock { $0.end(url, operation) }
         }
     }
 

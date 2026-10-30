@@ -901,8 +901,11 @@ final class ChatRowLookup {
         #endif
         let context = context
         let keepsState = row.keepsViewState
+        let marked = id == findMarked
         cell.contentConfiguration = UIHostingConfiguration {
             ChatRowView(row: row, context: context)
+                // VoiceOver hears which row holds Find in Chat's current match.
+                .accessibilityAddTraits(marked ? .isSelected : [])
                 // Rows whose views keep their own state (a question's answers, a code card shown in
                 // full) start fresh in a reused cell; the rest update in place.
                 .id(keepsState ? row.id : "reused")
@@ -923,6 +926,15 @@ extension UICollectionViewCell {
             background.backgroundInsets = NSDirectionalEdgeInsets(top: -6, leading: 14, bottom: -6, trailing: 14)
         }
         backgroundConfiguration = background
+        // VoiceOver hears the current match as selected, as the SwiftUI rows' find marks did.
+        // Native rows set their elements' traits on every configure, so this is called after it.
+        for case let element as NSObject in accessibilityElements ?? [] where !element.accessibilityTraits.contains(.button) {
+            if marked {
+                element.accessibilityTraits.insert(.selected)
+            } else {
+                element.accessibilityTraits.remove(.selected)
+            }
+        }
     }
 }
 

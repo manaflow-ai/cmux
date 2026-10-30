@@ -55,6 +55,8 @@ case "${1:-}" in
     # The Rust link library (built once on aws-m4pro-5, see header) for a new DIR or host: FROM=host:dir.
     from=${FROM:-aws-m4pro-6:smooth-lists}
     fhost=${from%%:*} fdir=${from#*:}
+    # Copying a directory onto itself would extract over the files tar is still reading.
+    if [[ $fhost == "$HOST" && $fdir == "$DIR" ]]; then echo "seed-xcf: FROM is $HOST:$DIR itself; nothing to copy"; exit 0; fi
     if [[ $fhost == mini-* ]]; then fsh=(ssh "$fhost"); else fsh=("$ts" ssh "ec2-user@$fhost"); fi
     "${fsh[@]}" "cd $fdir/cmux-next-ios/CmuxMobileKit && tar cf - Frameworks/CmuxMobileLinkFFI.xcframework" \
       | remote "mkdir -p $DIR/cmux-next-ios/CmuxMobileKit && cd $DIR/cmux-next-ios/CmuxMobileKit && tar xf -"

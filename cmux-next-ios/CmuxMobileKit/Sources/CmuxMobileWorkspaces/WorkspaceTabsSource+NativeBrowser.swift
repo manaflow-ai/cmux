@@ -31,6 +31,8 @@ extension WorkspaceTabsSource {
             return
         }
         native.open(tab: tab.id, macID: workspace?.macID, at: url)
+        // The person's tap shows in this turn: the tab's toolbar reads the phone's page now.
+        refreshTab(tab.id)
         show("Opened on this iPhone. Sign-ins on \(macName) don't carry over.")
     }
 
@@ -44,6 +46,7 @@ extension WorkspaceTabsSource {
         if let carried = native.close(tab: tab.id, macID: workspace?.macID), carried != mirror.url {
             mirror.navigate(to: carried.absoluteString)
         }
+        refreshTab(tab.id)
     }
 
     /// Whether the tab can switch between the Mac's page and this iPhone's (linked to its Mac).
