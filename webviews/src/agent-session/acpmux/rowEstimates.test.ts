@@ -331,6 +331,18 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
   expect(waiting!).toBe(landed!);
 });
 
+test("an attachment-only waiting steer shares the delivered prompt's single footer slot", () => {
+  for (const attachment of [
+    { images: [{ id: "image", mimeType: "image/png" }] },
+    { inlineParts: [{ kind: "file", name: "notes.txt" }] },
+  ]) {
+    const row = { id: "attachment-steer", version: 1, at: 0, kind: "user", ...attachment };
+    const [waiting] = heightsOf([{ ...row, steer: "waiting" }]);
+    const [landed] = heightsOf([{ ...row, steer: "landed" }]);
+    expect(waiting).toBe(landed!);
+  }
+});
+
 // A long prompt opens collapsed (conversation/UserBubble.tsx, promptCollapse.ts): its first ten
 // lines over the 24px Show more line, inside the bubble's 16px of padding, with its 28px hover row
 // under it and the 8px message gap. Estimated any taller, the row shrinks once drawn and the
