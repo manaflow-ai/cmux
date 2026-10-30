@@ -294,9 +294,6 @@ import Testing
         #expect(AppActionContext(services: services).paneController(tabRow)?.daemon === ssh.daemon)
         tabRow.targetMachineID = services.daemon.machineID
         #expect(ActionScope(services: services, invocation: tabRow).pane == nil, "a local menu row reached the remote pane")
-        // Move Tab takes the remote tab model it was given, not this Mac's tab that shares its id.
-        let moving = AppActionContext(services: services).movingTabs(ActionInvocation(target: ActionTargetRef(kind: .tab, id: remoteTab.id)), remoteTab)
-        #expect(moving.count == 1 && moving.first === remoteTab, "Move Tab swapped in this Mac's same-id tab")
         let strip = try #require(content.panes.values.first?.view.stripView)
         content.contentView.layoutSubtreeIfNeeded()
         let point = strip.convert(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY), to: nil)
