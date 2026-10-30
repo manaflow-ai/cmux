@@ -795,7 +795,9 @@ test("acpmux's ask to resume a subagent is a labelled row with the subagent's na
     [{ id: "r-1", prompt: raw, retry: { name: "Cap context cost", agentId: "af0cbece62b15d0e1", error: "529" } }],
   );
   const text = container.querySelector<HTMLButtonElement>('[data-prompt-id="r-1"] .acpmux-queued-text')!;
-  expect(text.querySelector('.acpmux-queued-kind[data-kind="retry"]')?.textContent).toBe("composer.queuedSubagentRetry");
+  expect(text.querySelector('.acpmux-queued-kind[data-kind="retry"]')?.textContent).toBe(
+    "composer.queuedSubagentRetry",
+  );
   expect(text.textContent).toBe("composer.queuedSubagentRetryCap context cost");
   expect(text.textContent).not.toContain("agent id");
   // Opened, the error follows on its own line; the row keeps its actions.
