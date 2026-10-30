@@ -2633,7 +2633,7 @@ use bounded_outbound::{
     SynchronizedTcpStream, claim_connection, write_line_outbound_item,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{ControlOutbound, MAX_TERMINAL_CONNECTIONS, websocket_server_frame_header};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;

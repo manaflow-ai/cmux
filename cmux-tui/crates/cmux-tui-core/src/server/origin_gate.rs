@@ -115,6 +115,13 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
+/// Whether the local peer behind `peer_key` runs inside one of this
+/// session's terminals (an agent, its hooks, `cmux` run in a pane), read
+/// while its kernel PID evidence is live.
+pub(super) fn is_terminal_peer(mux: &Mux, peer_key: Option<&str>) -> bool {
+    matches!(classify_local_peer(mux, peer_key, peer_session_id), LocalPeer::Terminal(_))
+}
+
 fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;

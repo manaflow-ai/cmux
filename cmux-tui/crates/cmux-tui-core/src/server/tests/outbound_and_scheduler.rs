@@ -283,7 +283,8 @@ fn server_connection_permits_enforce_and_release_the_cap() {
 #[test]
 fn terminal_connections_leave_slots_for_the_app() {
     let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
-    let claim_terminal = || claim_connection(&connections).and_then(ConnectionPermit::into_terminal);
+    let claim_terminal =
+        || claim_connection(&connections).and_then(ConnectionPermit::into_terminal);
     let terminal: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
         .map(|_| claim_terminal().expect("terminal slot below its share"))
         .collect();

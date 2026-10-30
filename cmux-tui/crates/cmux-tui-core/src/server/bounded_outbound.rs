@@ -69,9 +69,15 @@ pub(super) enum OutboundItem {
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
+/// The most of the session's connections that processes inside its terminals
+/// may hold. The rest stay for the app and its other local clients, so a burst
+/// of agents cannot lock the app out of its own daemon (#27698).
+pub(super) const MAX_TERMINAL_CONNECTIONS: usize = MAX_SERVER_CONNECTIONS * 3 / 4;
+
 #[derive(Clone)]
 pub(super) struct ConnectionPermit {
     pub(super) _lease: Arc<ConnectionPermitLease>,
+    _terminal: Option<Arc<TerminalPermitLease>>,
 }
 
 pub(super) struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
@@ -82,12 +88,35 @@ impl Drop for ConnectionPermitLease {
     }
 }
 
+struct TerminalPermitLease(Arc<crate::diagnostics::ConnectionStats>);
+
+impl Drop for TerminalPermitLease {
+    fn drop(&mut self) {
+        self.0.release_terminal();
+    }
+}
+
+impl ConnectionPermit {
+    /// This connection, from a process inside one of the session's
+    /// terminals, also takes a terminal slot; `None` (and its slot released)
+    /// when terminals already hold `MAX_TERMINAL_CONNECTIONS`.
+    pub(super) fn into_terminal(self) -> Option<Self> {
+        let connections = self._lease.0.clone();
+        if !connections.try_claim_terminal(MAX_TERMINAL_CONNECTIONS as u64) {
+            return None;
+        }
+        let terminal = Arc::new(TerminalPermitLease(connections));
+        Some(Self { _lease: self._lease, _terminal: Some(terminal) })
+    }
+}
+
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    connections
-        .try_claim(MAX_SERVER_CONNECTIONS as u64)
-        .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
+    connections.try_claim(MAX_SERVER_CONNECTIONS as u64).then(|| ConnectionPermit {
+        _lease: Arc::new(ConnectionPermitLease(connections.clone())),
+        _terminal: None,
+    })
 }
 
 impl BoundedOutbound {

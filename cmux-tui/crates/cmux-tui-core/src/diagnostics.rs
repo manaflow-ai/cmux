@@ -482,9 +482,32 @@ pub struct ConnectionStats {
     peak: AtomicU64,
     refused: AtomicU64,
     accepted: AtomicU64,
+    /// Of `active`, the connections from processes inside this session's
+    /// terminals (agents, their hooks, `cmux` run in a pane).
+    terminal_active: AtomicU64,
 }
 
 impl ConnectionStats {
+    /// Counts one connection that already holds a slot as terminal-bound, if
+    /// fewer than `limit` terminal-bound connections are active. A refusal
+    /// counts in `refused`; the caller gives the slot back.
+    pub fn try_claim_terminal(&self, limit: u64) -> bool {
+        let claimed = self
+            .terminal_active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                (count < limit).then_some(count + 1)
+            })
+            .is_ok();
+        if !claimed {
+            self.refused.fetch_add(1, Ordering::Relaxed);
+        }
+        claimed
+    }
+
+    pub fn release_terminal(&self) {
+        self.terminal_active.fetch_sub(1, Ordering::AcqRel);
+    }
+
     /// Claims a slot if fewer than `limit` connections are active.
     pub fn try_claim(&self, limit: u64) -> bool {
         match self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
