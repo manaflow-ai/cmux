@@ -567,6 +567,14 @@ button.cv-subagent > :last-child {
   flex: 1;
   min-width: 0;
 }
+/* Progress is a second line and may wrap for long counts or narrow panes. Keep the compact
+   28px row when it fits, but let both the tray and Inspector row grow instead of clipping it. */
+.acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
+  height: auto;
+  min-height: 28px;
+  align-items: flex-start;
+  padding-block: 4px;
+}
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
   /* Reserve the final track while keeping the stop control outside the button. */
   padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
@@ -719,14 +727,68 @@ button.cv-subagent > :last-child {
   margin-inline-start: 4px;
   opacity: 0;
 }
+/* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769). */
 @media (prefers-reduced-motion: no-preference) {
   .cv-subagent-done__actions {
-    transition: opacity 120ms ease-out;
+    transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+  }
+  .cv-subagent-done-row:hover .cv-subagent-done__actions {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
+  }
+  .cv-subagent-done__actions:focus-within {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
   }
 }
 .cv-subagent-done-row:hover .cv-subagent-done__actions,
 .cv-subagent-done__actions:focus-within {
   opacity: 1;
+}
+/* A retry acpmux waits to run (retryState.ts): the line in the dim text, its ring turning. */
+.cv-subagent-done[data-state="retrying"] {
+  color: var(--cv-text-dim);
+}
+/* A failed line's Retry (SubagentDoneLine.tsx): always shown, a small outlined button in the
+   accent, or as a link after the line; a refusal's note after it, dim. */
+.cv-subagent-retry,
+.cv-subagent-retry-link {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-inline-start: 6px;
+  color: var(--agent-accent);
+  cursor: pointer;
+  font-size: var(--text-detail);
+  line-height: 18px;
+}
+.cv-subagent-retry {
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
+  border-radius: 6px;
+}
+.cv-subagent-retry:hover {
+  background: color-mix(in srgb, var(--agent-accent) 10%, transparent);
+}
+.cv-subagent-retry-link:hover {
+  text-decoration: underline;
+}
+.cv-subagent-retry:focus-visible,
+.cv-subagent-retry-link:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.cv-subagent-retry:disabled,
+.cv-subagent-retry-link:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.cv-subagent-done__note {
+  flex: none;
+  margin-inline-start: 6px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
 }
 
 /* ---------- The tray's motion (trayMotion.tsx, Leo 2026-10-26: "following along with the exact
@@ -736,7 +798,7 @@ button.cv-subagent > :last-child {
    tokens, and what leaves on --agent-motion-out. */
 .acpmux-running-tray {
   --acpmux-tray-enter: cv-enter var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
-  --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+  --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
 }
 /* The bottom stack's own rise-on-mount (bottomStack.css) played on every mount, a chat switch too:
    the tray enters only when it appears in a chat that showed without it. */
@@ -782,7 +844,7 @@ button.cv-subagent > :last-child {
   animation: acpmux-tick-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
 }
 .acpmux-tick__out {
-  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
 }
 @keyframes acpmux-tick-in {
   from {
@@ -795,4 +857,14 @@ button.cv-subagent > :last-child {
     opacity: 0;
     translate: 0 -0.4em;
   }
+}
+
+/* Counts and warnings remain readable even when the name or action needs truncation. */
+.acpmux-agent-line__progress {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
 }
