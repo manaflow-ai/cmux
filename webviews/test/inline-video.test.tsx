@@ -412,6 +412,24 @@ describe("the inline player", () => {
     expect(video.currentTime).toBe(30);
   });
 
+  test("an expanded player rewound to the start hands back zero", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    video.currentTime = 12;
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
+    const stage = dom!.window.document.querySelector(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    large.currentTime = 0;
+    await act(async () =>
+      dom!.window.document.querySelector<HTMLButtonElement>(".acpmux-image-viewer-action")!.click(),
+    );
+    expect(video.currentTime).toBe(0);
+  });
+
   test("inline Play continues from where the expanded player closed", async () => {
     const { container, video } = await mount();
     await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());

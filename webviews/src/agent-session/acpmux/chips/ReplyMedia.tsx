@@ -176,7 +176,7 @@ export function MediaPlayer({
     const inline = inlineVideo.current;
     if (expandedPlayed.current && large && inline && large !== inline) {
       const time = large.currentTime;
-      if (Number.isFinite(time) && time > 0) {
+      if (Number.isFinite(time)) {
         inline.currentTime = time;
         inlineResume.current = time;
       }
