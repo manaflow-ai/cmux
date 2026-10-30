@@ -660,6 +660,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py
 
+      - name: Validate the UI test GUI activation preflight
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_preflight_gui_activation.py
+
       - name: Validate hook installation leaves existing hooks alone
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
