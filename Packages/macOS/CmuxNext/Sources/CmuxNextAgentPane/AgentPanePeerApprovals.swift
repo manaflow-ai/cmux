@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Why a peer of this Mac's agent daemon (a chat opened with `--host`) did not count an allow
