@@ -97,7 +97,8 @@ const NONE: RetryPhase = { kind: "none" };
 const SETTLING: RetryPhase = { kind: "settling" };
 
 /// What a sub-session's own session row says of its retry (subsessions.ts ``SubsessionInfo``).
-export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; state?: string };
+/// `error`: why its turn failed, which its end line says (SubagentDoneLine.tsx).
+export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; state?: string; error?: string };
 
 /// A subagent's phase. `child`: a sub-session's own session row, whose retry acpmux keeps there.
 /// `capabilities`: what acpmux's `initialize` named, undefined from one that names none (its

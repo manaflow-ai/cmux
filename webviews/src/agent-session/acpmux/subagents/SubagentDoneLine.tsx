@@ -71,6 +71,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
+  // A sub-session's failure is on its own session row.
+  const error = agent.state === "failed" ? (agent.error ?? child?.error) : undefined;
   // While acpmux retries it, or settles whether it will, Restart would run it a second time.
   const restart =
     restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
@@ -84,7 +86,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
         time,
         // Why it failed, as acpmux recorded it, last: the line cuts it first.
-        ...(agent.state === "failed" && agent.error ? [agent.error] : []),
+        ...(error ? [error] : []),
       ];
   const shown = note?.version === row.version ? note : undefined;
   const run = () => {
