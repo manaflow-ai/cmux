@@ -59,15 +59,19 @@ const pick =
   async (ctx) => {
     await openSubmenu(ctx);
     await ctx.click({ role: "menuitemradio", name });
-    await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]')).catch(() => {
-      throw new Error(`the menu stayed open after ${name}`);
-    });
-    await ctx.waitFor(() => ctx.document.querySelector(drawn)).catch(() => {
-      const shown = [...ctx.document.querySelectorAll(".cv-thought, .cv-command")]
-        .map((node) => `${node.className}:${node.getAttribute("aria-expanded")}`)
-        .join(" | ");
-      throw new Error(`${name} did not draw ${drawn}; rows: ${shown}`);
-    });
+    await ctx
+      .waitFor(() => !ctx.document.querySelector('[role="menu"]'))
+      .catch(() => {
+        throw new Error(`the menu stayed open after ${name}`);
+      });
+    await ctx
+      .waitFor(() => ctx.document.querySelector(drawn))
+      .catch(() => {
+        const shown = [...ctx.document.querySelectorAll(".cv-thought, .cv-command")]
+          .map((node) => `${node.className}:${node.getAttribute("aria-expanded")}`)
+          .join(" | ");
+        throw new Error(`${name} did not draw ${drawn}; rows: ${shown}`);
+      });
   };
 
 export default agentPaneEntry({

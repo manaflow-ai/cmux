@@ -88,11 +88,7 @@ export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; row
 
 /// ``withSubagentRows``, building on `previous`: in a chat without subagent groups, only the rows
 /// after the first that differs from `previous.source` (by object) can bring one.
-export function subagentRowsFrom(
-  rows: readonly AcpmuxRow[],
-  expanded: Folds,
-  previous?: SubagentRows,
-): SubagentRows {
+export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, previous?: SubagentRows): SubagentRows {
   if (previous && !previous.grouped) {
     const shared = previous.source;
     let from = 0;

@@ -7,7 +7,15 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type MouseEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
@@ -676,7 +684,7 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
 /// Thinking, Verbose), the others plain rows, with a line above each `separatorBefore`.
 function childRows(children: readonly ChatMenuChild[]): ReactNode[] {
   const nodes: ReactNode[] = [];
-  for (let index = 0; index < children.length; ) {
+  for (let index = 0; index < children.length;) {
     const child = children[index]!;
     if (child.separatorBefore && index > 0) nodes.push(<MenuSeparator key={`separator-${child.key}`} />);
     if (child.checked === undefined) {
@@ -700,7 +708,13 @@ function ChatMenuChoice({ rows }: { rows: readonly ChatMenuChild[] }) {
   return (
     <MenuRadioGroup value={picked} onValueChange={(key) => rows.find((row) => row.key === key)?.onSelect()}>
       {rows.map((row) => (
-        <MenuRadioItem key={row.key} value={row.key} className="acpmux-chat-menu-item" disabled={row.disabled} closeOnClick>
+        <MenuRadioItem
+          key={row.key}
+          value={row.key}
+          className="acpmux-chat-menu-item"
+          disabled={row.disabled}
+          closeOnClick
+        >
           <span className="acpmux-chat-menu-label">{row.label}</span>
         </MenuRadioItem>
       ))}
