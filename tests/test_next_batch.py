@@ -686,6 +686,27 @@ class BaseReds(unittest.TestCase):
         self.assertIn("event=workflow_dispatch", listed)
         self.assertIn("status=completed", listed)
 
+    def test_a_base_tier_run_that_skipped_a_job_never_hides_an_older_red(self):
+        # Review of this change: a base tier run whose cmux-tui tree was not published yet skips the
+        # daemon tests and the scheme compile (its same-tree run carries them) and can end green. Each
+        # job's verdict comes from the newest base tier run that ran it.
+        controller = self.controller()
+        title = "cmux-next base tier · "
+        newest = {"id": 2, "status": "completed", "conclusion": "success", "head_branch": nb.BASE,
+                  "display_title": title + "d" * 40, "created_at": "2026-10-30T12:15:00Z"}
+        older = {"id": 3, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+                 "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], [newest, older]]
+        jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "skipped"},
+                    {"id": 9, "name": "cmux-next generated files", "conclusion": "success"}],
+                3: [{"id": 10, "name": "cmux-next daemon tests", "conclusion": "failure"},
+                    {"id": 11, "name": "cmux-next generated files", "conclusion": "failure"}]}
+        controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        # The daemon red is the older run's; generated files passed in the newest run, so its older red is not.
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
         controller = self.controller()
         controller.gh.runs.return_value = [

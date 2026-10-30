@@ -103,6 +103,9 @@ HEAVY_CHECKS = frozenset({
 # cmux-next.yml's base tier dispatch (cmux-next-base-tier-kick.yml) and the jobs it carries: a
 # feat-cmux-next push no longer runs them (cmuxterm-hq#5424).
 BASE_TIER_TITLE = "cmux-next base tier · "
+# How many base tier runs a job's newest verdict is looked for in (a run whose tree was not
+# published yet skips the tree jobs; its same-tree run, a later run, carries them).
+BASE_TIER_LOOKBACK = 6
 BASE_TIER_JOBS = frozenset({
     "cmux app scheme compile (Debug)",
     "cmux-next daemon tests",
@@ -1477,25 +1480,37 @@ class Controller:
         return {job["name"] for job in jobs if (job.get("conclusion") or "") in OUTRIGHT_RED | {"success"}}
 
     def base_tier_failures(self) -> set[str]:
-        """Outright reds of the base's newest completed base tier run (cmuxterm-hq#5424).
+        """Outright reds of the base's newest base tier verdict for each of its jobs (cmuxterm-hq#5424).
 
         A feat-cmux-next push leaves daemon tests, generated files and the Debug scheme compile to
         a `cmux-next base tier · <sha>` dispatch at most every 15 minutes, so the base's push run has
-        no verdict for them. The newest one stands in, named with its commit and age: it is from at
-        most one window before the base head, and a red the base head fixed shows here as inherited.
+        no verdict for them. For each job, the newest completed base tier run that ran it to a verdict
+        (passed or failed outright) stands in, named with its commit and age. A run that skipped the
+        job (its cmux-tui tree was not published yet, so its same-tree run carries it) is passed over
+        for that job, so it never hides an older red. A red the base head fixed shows as inherited.
         """
         runs = self.gh.runs(HEAVY_WORKFLOW, f"branch={BASE}&event=workflow_dispatch&status=completed&per_page=50")
-        tier = next((run for run in runs if (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
-                     and run.get("conclusion") != "skipped"), None)
-        if tier is None:
-            log("no completed base tier run on the base; its jobs have no base verdict")
-            return set()
-        tested = tier["display_title"][len(BASE_TIER_TITLE):]
-        failed = {red for red in self.failed_jobs(tier["id"], OUTRIGHT_RED, detail=True)
-                  if red.split(":", 1)[0] in BASE_TIER_JOBS}
-        log(f"base tier verdict from {tier.get('html_url') or tier['id']} at {tested[:12]} "
-            f"(created {tier.get('created_at', '?')}; the newest, not necessarily the base head): "
-            f"{', '.join(sorted(failed)) or 'no red'}")
+        tiers = [run for run in runs if (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
+                 and run.get("conclusion") != "skipped"][:BASE_TIER_LOOKBACK]
+        failed: set[str] = set()
+        pending = set(BASE_TIER_JOBS)
+        for tier in tiers:
+            jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{tier['id']}/jobs?per_page=100&filter=latest")["jobs"]
+            tested = tier["display_title"][len(BASE_TIER_TITLE):]
+            for job in jobs:
+                name, conclusion = job.get("name") or "", job.get("conclusion") or ""
+                if name not in pending or conclusion not in OUTRIGHT_RED | {"success"}:
+                    continue
+                pending.discard(name)
+                reds = self.expand_job(name, job["id"], job) if conclusion in OUTRIGHT_RED else set()
+                failed |= reds
+                log(f"base tier verdict for {name} from {tier.get('html_url') or tier['id']} at {tested[:12]} "
+                    f"(created {tier.get('created_at', '?')}; the newest for it, not necessarily the base head): "
+                    f"{', '.join(sorted(reds)) or 'passed'}")
+            if not pending:
+                break
+        if pending:
+            log(f"no base tier verdict in the newest {len(tiers)} base tier runs for: {', '.join(sorted(pending))}")
         return failed
 
     def stop_base_probe(self) -> None:
