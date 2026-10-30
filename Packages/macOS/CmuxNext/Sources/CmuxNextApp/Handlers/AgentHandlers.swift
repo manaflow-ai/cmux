@@ -120,6 +120,16 @@ enum AgentHandlers {
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
+        registry.bindAgentPageCommands(available: { invocation in
+            // Read only: no refusal while the palette asks whether a row is enabled.
+            let scope = context.scope(invocation)
+            guard let key = scope.tab?.id.rawValue ?? scope.pane?.currentTabKey,
+                  let model = context.services.agentTabs.existingView(key)?.model else { return nil }
+            // The New Tab page runs none of the chat's controls.
+            return model.newTab == nil ? model.pageCommands : []
+        }, run: { command, invocation in
+            focusedAgentView(context, invocation)?.run(command)
+        })
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
             guard let key = pane.currentTabKey, let view = context.services.agentTabs.existingView(key) else {
@@ -155,6 +165,10 @@ enum AgentHandlers {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.toggleDictation()
+        })
+        // Stop Reading Aloud: the app's one voice (AgentPaneReadAloud), from any window, chat or none.
+        registry.bindEffect("agentPane.stopReadingAloud", requires: nil, effect: { _ in
+            context.services.agentTabs.readAloud.stop() ? .done : .refused(MiscHandlerStrings.nothingReadAloud)
         })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
         context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in

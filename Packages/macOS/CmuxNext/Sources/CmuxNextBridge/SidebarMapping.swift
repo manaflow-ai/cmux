@@ -74,10 +74,10 @@ public struct SidebarMapping {
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         var nodes: [SidebarNode] = []
         for section in daemonSections {
-            // The home workspace (`kind` "home") is what the Home item in the
-            // top section shows; it is not also a workspace row (nxdog28)
+            // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
+            // the Home item in the top section shows; neither is also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
-            let rows = section.workspaces.filter { (!hidesHomeWorkspace || $0.kind != Self.homeKind) && workspaceFilter($0) }
+            let rows = section.workspaces.filter { (!hidesHomeWorkspace || !$0.isAnyHome) && workspaceFilter($0) }
                 .map { workspace in
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
@@ -186,8 +186,9 @@ public struct SidebarMapping {
                 return listed
             },
             muted: muted,
-            // The store refuses every close of its home workspace (`home_not_closable`).
-            isClosable: workspace.kind != Self.homeKind,
+            // The store refuses every close of its home workspace (`home_not_closable`); a
+            // window's own Home closes only with its window.
+            isClosable: !workspace.isAnyHome,
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: rowFolder.map(shorten)
         )
