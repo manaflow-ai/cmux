@@ -43,6 +43,12 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     // turn actually received. An unsent steer must take the existing no-turn fallback.
     // Once delivery begins it may already have reached a translator, so do not retry it.
     let delivery_started = std::sync::atomic::AtomicBool::new(false);
+    // A steer may be read in a turn its agent ran on into after `turn_id` ended
+    // (`carried_turn.rs`): that turn's forced end settles it too.
+    let settles = |turn: &str| turn == turn_id || (steer && Hub::succeeds(session, turn_id, turn));
+    // The answer is a settlement acpmux published already, not the agent's: never published
+    // again, under this prompt's turn (a carried turn's forced end, review 5 of #27536).
+    let published = std::sync::atomic::AtomicBool::new(false);
     let settled = |answer: Value| {
         if steer
             && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
@@ -68,8 +74,9 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         let input_handoff = session.input_handoff.clone().lock_owned().await;
         // The turn can settle while this prompt waits behind a Stop's handoff.
         if let Some((turn, answer)) = session.steer_end.borrow().clone()
-            && turn == turn_id
+            && settles(&turn)
         {
+            published.store(true, std::sync::atomic::Ordering::SeqCst);
             return settled(answer);
         }
         if bound && session.turn().is_none_or(|t| t.turn_id != turn_id) {
@@ -91,6 +98,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         tokio::select! {
             answer = &mut request => {
                 if steer
+                    && !published.load(std::sync::atomic::Ordering::SeqCst)
                     && let Ok(value) = &answer
                     && ends_turn(value)
                 {
@@ -104,7 +112,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                 }
                 let by_steer = ended.borrow_and_update().clone();
                 if let Some((turn, answer)) = by_steer
-                    && turn == turn_id
+                    && settles(&turn)
                 {
                     return settled(answer);
                 }
@@ -173,6 +181,21 @@ impl Hub {
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let author = crate::author::of_provenance(opts.provenance.as_ref());
             now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
+            // The turn it starts if its agent reads it after this one ended (`carried_turn.rs`).
+            // A family message's continuation speaks for its sender (`turns.rs`).
+            let from = opts
+                .provenance
+                .as_ref()
+                .filter(|p| super::subsession_guard::is_family(Some(p)))
+                .and_then(|p| p["from"].as_str())
+                .map(str::to_owned);
+            let sent = super::carried_turn::SteerSent {
+                client: client.to_owned(),
+                text: text.clone(),
+                control,
+                continues: super::carried_turn::Continues { from, trust_gate },
+            };
+            now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
         };
         if step_now {
@@ -210,12 +233,24 @@ impl Hub {
             || {},
         )
         .await;
-        session
-            .steer_now
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .waiting
-            .remove(&prompt_id);
+        // Read in a turn its agent ran on after the one it was steered into ended: it went into
+        // that turn, which the turn before named as it ended (`carried_turn.rs`).
+        let into = match super::carried_turn::steer_carry(&answer) {
+            // Boxed: this future stays small (it runs inside a prompt's, `steer_queued`).
+            Some(seq) => Box::pin(Self::carried_into(session, seq)).await,
+            None => None,
+        };
+        {
+            let mut now =
+                session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.waiting.remove(&prompt_id);
+            now.sent.remove(&prompt_id);
+            // No steer waits on an older carried turn any more (`carried_turn.rs`).
+            if now.waiting.is_empty() {
+                super::carried_turn::trim_successors(&mut now.successors);
+            }
+        }
+        let turn_id = into.as_deref().unwrap_or(turn_id);
         if let Some(count) = count {
             count.done(steer_entered_turn(&answer));
         }
