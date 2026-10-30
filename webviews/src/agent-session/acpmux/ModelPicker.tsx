@@ -585,7 +585,20 @@ export function ModelPicker(props: ModelPickerProps) {
       if (!launchOnly) for (const model of shown) owner.set(model, selected);
     }
     return owner;
-  }, [modelsNeeded, favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor, harness, lang]);
+  }, [
+    modelsNeeded,
+    favorites,
+    harnesses,
+    olderOpen,
+    parsed,
+    searching,
+    selected,
+    starredView,
+    runsHere,
+    loginFor,
+    harness,
+    lang,
+  ]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   const rowCount = visible.length;
   const olderCount =
