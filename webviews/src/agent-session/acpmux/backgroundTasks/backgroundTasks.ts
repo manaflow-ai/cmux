@@ -195,15 +195,19 @@ function workflowTasks(node: Subagent, sessionId: string | undefined): Backgroun
     const state = workflowState(agent.state);
     // Queued agents show once they start: until then there is nothing of theirs to open.
     if (!state) continue;
+    // The workflow ended (a cancel, the harness exiting) without word on each agent: one still marked
+    // running stopped with it, as a tool call left in flight does.
+    const ended = state === "running" && nodeState(node) !== "running";
     const request = workflowDetailRequest(workflow, agent);
     tasks.push({
       id: agent.id,
       kind: "agent",
       title: agent.name,
-      state,
+      state: ended ? "stopped" : state,
       startedAt: agent.startedAt,
-      endedAt:
-        state !== "running" && agent.startedAt !== undefined && agent.elapsedMs !== undefined
+      endedAt: ended
+        ? node.endedAt
+        : state !== "running" && agent.startedAt !== undefined && agent.elapsedMs !== undefined
           ? agent.startedAt + agent.elapsedMs
           : undefined,
       ...(request && { workflow: { pane: workflowPaneId(request), agent } }),
