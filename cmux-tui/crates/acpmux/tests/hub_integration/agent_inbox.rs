@@ -436,6 +436,9 @@ async fn a_review_box_takes_no_inbox_message_and_no_steer_during_its_review() {
     let only = json!({"sessionId": id, "prompt": [{"type": "text", "text": "now"}], "_meta": {"acpmux": only}});
     let refused = c.request(method::SESSION_PROMPT, only).await.unwrap_err();
     assert!(format!("{refused:?}").contains("review box"), "{refused:?}");
+    // Nor does a digest bundle it: it stays its own prompt.
+    let digest = c.request("_acpmux/inbox_digest", json!({"sessionId": id})).await.unwrap_err();
+    assert!(digest.contains("inbox_digest.review_box"), "{digest}");
     tokio::time::sleep(Duration::from_millis(500)).await;
     let all = prompts(&hub, &id);
     assert!(notices(&hub, &id).is_empty(), "no notice: {all:?}");

@@ -15,7 +15,7 @@
 //!
 //! A review box (`review_box.rs`: the `*-review-box` harness `lane-place new --review` starts, or
 //! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
-//! never steers into its turn (`turns.rs`, and a digest's steer in `inbox_digest.rs`): it queues
+//! never steers into its turn (`turns.rs`; `inbox_digest.rs` refuses to drain one): it queues
 //! behind the review as it did before the inbox and runs as a turn of its own once the review
 //! ends, which answers its sender. Nor does a notice steer into its turn: messages its inbox
 //! took before it became one (a `review.` tag set later) wait for the turn's end, as an idle

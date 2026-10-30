@@ -315,6 +315,15 @@ impl Hub {
         .with_data(json!({"reason": "inbox_digest.other_agent"}))
     }
 
+    /// The refusal of a drain of a review box: its agent messages each wait as their own prompt
+    /// behind the review (`inbox.rs`), never one digest.
+    pub fn inbox_digest_review_box() -> RpcError {
+        RpcError::invalid_params(
+            "inbox_digest.review_box: a review box's agent messages run each as its own prompt after the review",
+        )
+        .with_data(json!({"reason": "inbox_digest.review_box"}))
+    }
+
     /// The refusal of a drain from a connection whose caller token this daemon run did not issue.
     pub fn inbox_digest_caller_not_proven() -> RpcError {
         RpcError::invalid_params(
@@ -342,14 +351,15 @@ impl Hub {
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());
         }
+        if super::super::inbox::review_box(session) {
+            return Err(Self::inbox_digest_review_box());
+        }
         // Read before the queue's lock. A turn that ends before the steer reaches it leaves the
         // digest next among the agent messages (`steer_turn`'s fallback, `queue.rs` `enqueue`).
-        // A turn past its cap takes no agent's message, so no digest of them (`turn_cap.rs`),
-        // and neither does a review box's turn (`inbox.rs`).
+        // A turn past its cap takes no agent's message, so no digest of them (`turn_cap.rs`).
         let steer = session.steering.load(Ordering::SeqCst)
             && session.turn().is_some()
-            && !super::super::turn_cap::past_cap(session)
-            && !super::super::inbox::review_box(session);
+            && !super::super::turn_cap::past_cap(session);
         let digest_id = format!("inbox-digest-{}", uuid::Uuid::now_v7());
         let turn_id = uuid::Uuid::now_v7().to_string();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
