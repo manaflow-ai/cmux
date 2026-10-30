@@ -102,4 +102,48 @@ import Testing
         store.save(Data([4]), for: key, ticket: next)
         #expect(store.load(key) == Data([4]))
     }
+
+    /// A cooled tab keeps its identity until release so closing it removes both
+    /// the in-memory preview and its persisted frame.
+    @Test func cooledFrameIsRemovedWhenTabReleases() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = TerminalFrameStore(directory: dir)
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s1")
+        var lastFrames = [key: Data([1, 2, 3])]
+        store.save(Data([1, 2, 3]), for: key)
+
+        var lifecycle = TerminalFrameLifecycle()
+        lifecycle.cooled(tabID: "tab", frameKey: key)
+        lifecycle.release(tabID: "tab", hostFrameKey: nil) { releasedKey in
+            lastFrames[releasedKey] = nil
+            store.remove(releasedKey)
+        }
+
+        #expect(lastFrames[key] == nil)
+        #expect(store.load(key) == nil)
+    }
+
+    @Test func rewarmedTabReleasesOnlyItsCurrentFrame() {
+        let oldKey = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s1")
+        let currentKey = TerminalFrameKey(accountID: "account-a", macID: "mac-b", surfaceID: "s1")
+        var lifecycle = TerminalFrameLifecycle()
+        lifecycle.cooled(tabID: "tab", frameKey: oldKey)
+        lifecycle.hostBuilt(tabID: "tab")
+        var removed: [TerminalFrameKey] = []
+        lifecycle.release(tabID: "tab", hostFrameKey: currentKey) { removed.append($0) }
+        #expect(removed == [currentKey])
+        lifecycle.release(tabID: "tab", hostFrameKey: nil) { removed.append($0) }
+        #expect(removed == [currentKey])
+    }
+
+    @Test func resetForgetsCooledFrameIdentity() {
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s1")
+        var lifecycle = TerminalFrameLifecycle()
+        lifecycle.cooled(tabID: "tab", frameKey: key)
+        lifecycle.reset()
+        lifecycle.release(tabID: "tab", hostFrameKey: nil) { _ in
+            Issue.record("Reset must not retain another account's cooled identity")
+        }
+    }
 }

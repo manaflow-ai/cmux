@@ -30,6 +30,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// The frame identity captured when each live host was built. This keeps
     /// a frame tied to the account that owned it even if auth changes later.
     private var hostFrameKeys: [String: TerminalFrameKey] = [:]
+    private var frameLifecycle = TerminalFrameLifecycle()
     /// Tabs whose host runs on a live session (the rest show the connecting
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
@@ -147,6 +148,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var feeds: [String: Task<Void, Never>] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
+    var reconnect: (@MainActor (String) -> Void)?
     var sessionProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any TerminalSession)?)?
     /// Live mode: the Mac's screen as text for a tab's grid card (D5).
     var screenTextProvider: (@MainActor (WorkspaceTab, _ macID: String?) async -> String?)?
@@ -204,6 +206,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
+        model.reconnect = { [weak self, weak session] in
+            self?.reconnect?(workspace.macID)
+            (session as? DaemonTerminalSession)?.reconnect()
+            self?.liveDataChanged()
+        }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
@@ -222,6 +229,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         hostFrameKeys[tab.id] = key
+        frameLifecycle.hostBuilt(tabID: tab.id)
         upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
         placeholderTabs[tab.id] = live == nil ? (tab, workspace) : nil
         if let slot = slots[tab.id] { slot.host = host }
@@ -241,9 +249,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hostMacs[id] = nil
         liveTabs.remove(id)
         warm.remove(id)
-        if let key {
-            lastFrames[key] = nil
-            frameStore?.remove(key)
+        frameLifecycle.release(tabID: id, hostFrameKey: key) { frameKey in
+            lastFrames[frameKey] = nil
+            frameStore?.remove(frameKey)
         }
         upgrade.removed(tabID: id)
         placeholderTabs[id] = nil
@@ -266,6 +274,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         workspaceOwner = [:]
         hostMacs = [:]
         hostFrameKeys = [:]
+        frameLifecycle.reset()
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
@@ -290,8 +299,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// when it is shown again (a new host, attached in the background).
     private func cool(_ id: String) {
         guard let host = hosts.removeValue(forKey: id) else { return }
-        // Cooling retains the frame; keep its ownership key until release can remove it.
-        let key = hostFrameKeys[id]
+        let key = hostFrameKeys.removeValue(forKey: id)
+        if let key { frameLifecycle.cooled(tabID: id, frameKey: key) }
         if let frame = host.model.snapshot {
             if let key {
                 lastFrames[key] = frame
