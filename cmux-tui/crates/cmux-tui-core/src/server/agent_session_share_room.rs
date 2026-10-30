@@ -12,6 +12,7 @@
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
@@ -136,14 +137,14 @@ struct View {
 
 fn view(mux: &Mux, share_id: &str) -> Option<View> {
     change(mux, share_id, |s| {
-        let room = |field: &str| s.room.as_ref().and_then(|r| r[field].as_str()).map(str::to_owned);
+        let room = |field: &str| s.room_str(field).map(str::to_owned);
         let body = json!({"provision_key": s.provision_key, "secret_sha256": s.secret_sha256,
             "expires_at": s.expires_at, "uses": s.uses_left});
         let view = View {
             url: room("url"),
             host_token: room("host_token"),
             expires_at: s.expires_at,
-            delete: s.pending_room_ops.iter().any(|o| o["op"] == "delete"),
+            delete: s.delete_queued(),
             body,
         };
         (view, false)
@@ -169,8 +170,7 @@ fn adopt(mux: &Mux, share_id: &str, url: &str, host_token: &str) -> Result<(), &
 /// `DELETE`, written once (false while the write fails: [`delete`] holds the token meanwhile).
 fn retire(mux: &Mux, share_id: &str, url: &str, host_token: &str) -> bool {
     change(mux, share_id, |s| {
-        let kept = s.room.as_ref().is_some_and(|r| r["host_token"] == host_token)
-            && s.pending_room_ops.iter().any(|o| o["op"] == "delete");
+        let kept = s.room_str("host_token") == Some(host_token) && s.delete_queued();
         if !kept {
             s.room = Some(json!({"url": url, "host_token": host_token}));
             abandon_share(s, true);
@@ -185,7 +185,7 @@ fn abandon_share(share: &mut LinkShare, delete: bool) {
     if share.state == ShareState::Provisioning {
         share.state = ShareState::Revoked;
     }
-    let queued = share.pending_room_ops.iter().any(|o| o["op"] == "delete");
+    let queued = share.delete_queued();
     if delete && share.state != ShareState::Active && !queued {
         share.pending_room_ops.push(json!({"op": "delete"}));
     }
@@ -201,7 +201,8 @@ fn done(mux: &Mux, share_id: &str, op: &Value) -> bool {
         let before = s.pending_room_ops.len();
         s.pending_room_ops.retain(|o| o != op);
         ((), s.pending_room_ops.len() != before)
-    }).is_some()
+    })
+    .is_some()
 }
 
 enum Put {
@@ -254,7 +255,10 @@ async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
     let url = format!("{}/v1/chat-shares/{share_id}", room.url);
     let reply = call(reqwest::Method::PUT, &url, token, Some(body), room.timing.request).await;
     match reply {
-        Some((200..=299, body)) => match (body["host_token"].as_str(), body["url_base"].as_str()) {
+        Some((200..=299, body)) => match (
+            body.get("host_token").and_then(Value::as_str),
+            body.get("url_base").and_then(Value::as_str),
+        ) {
             (Some(token), Some(base)) if !token.is_empty() && valid_url_base(room, base) => {
                 Put::Done { host_token: token.into(), url_base: base.into() }
             }
@@ -289,12 +293,10 @@ fn valid_url_base(room: &Room, raw: &str) -> bool {
                 || (domain.eq_ignore_ascii_case("localhost") && candidate.scheme() == "http")
         }
         Some(url::Host::Ipv4(address)) => {
-            candidate.scheme() == "https"
-                || (address.is_loopback() && candidate.scheme() == "http")
+            candidate.scheme() == "https" || (address.is_loopback() && candidate.scheme() == "http")
         }
         Some(url::Host::Ipv6(address)) => {
-            candidate.scheme() == "https"
-                || (address.is_loopback() && candidate.scheme() == "http")
+            candidate.scheme() == "https" || (address.is_loopback() && candidate.scheme() == "http")
         }
         None => false,
     }
@@ -309,7 +311,7 @@ pub(super) fn provision(
     room: Room,
     token: Zeroizing<String>,
 ) -> Result<Value, &'static str> {
-    let share_id = created["share_id"].as_str().unwrap_or_default().to_owned();
+    let share_id = created.get("share_id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let body = view(mux, &share_id).ok_or("share.unknown")?.body;
     let Some(runtime) = shares(mux).bridge.runtime() else {
         abandon(mux, &share_id, false);
@@ -321,9 +323,10 @@ pub(super) fn provision(
                 delete(mux, &share_id, Some(Held::Host(room.url, Zeroizing::new(host_token))));
                 return Err(code);
             }
-            let secret = created["secret"].as_str().unwrap_or_default().to_owned();
-            created["url"] = json!(format!("{url_base}#{secret}"));
-            created["room"] = json!(room.url);
+            let secret =
+                created.get("secret").and_then(Value::as_str).unwrap_or_default().to_owned();
+            created.set("url", json!(format!("{url_base}#{secret}")));
+            created.set("room", json!(room.url));
             Ok(created)
         }
         Put::Refused(code) => {
@@ -378,6 +381,30 @@ enum Held {
     Owner(Zeroizing<String>),
 }
 
+/// A [`delete`] worker's claim on its share, released when the worker ends.
+struct DeleteGuard {
+    mux: Weak<Mux>,
+    share_id: String,
+    /// The worker ended for want of a credential, before the share's expiry.
+    tokenless: bool,
+}
+
+impl Drop for DeleteGuard {
+    fn drop(&mut self) {
+        let Some(mux) = self.mux.upgrade() else { return };
+        let shares = shares(&mux);
+        shares.release_room_delete(&self.share_id);
+        shares.rearm();
+        // A late PUT that found this worker in flight wrote its host token after the worker's
+        // last read: the queued `DELETE` runs now with it, not at the share's expiry.
+        if self.tokenless
+            && view(&mux, &self.share_id).is_some_and(|v| v.delete && v.host_token.is_some())
+        {
+            delete(&mux, &self.share_id, None);
+        }
+    }
+}
+
 /// Runs the share's queued `DELETE` until the room acknowledges it (2xx, or 404/410: gone),
 /// retrying any other answer (401/403 included) with backoff, with the host token (the record's,
 /// else the one held) or the owner's. The queued op survives a restart. With no credential at
@@ -386,12 +413,15 @@ enum Held {
 fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     let link_shares = shares(mux);
     if !link_shares.claim_room_delete(share_id) {
-        if let Some(Held::Host(url, token)) = &held {
-            // A late PUT may carry the only host token while another cleanup worker is in
-            // flight. Preserve it in the record so that worker can use it before it exits.
-            let _ = retire(mux, share_id, url, token);
+        // A late PUT may carry the only host token while another cleanup worker is in flight.
+        // Preserve it in the record for that worker: one that exits without a credential runs
+        // the DELETE again with it ([`DeleteGuard`]); one that exited before this write released
+        // its claim, so the claim is this call's now.
+        let Some(Held::Host(url, token)) = &held else { return };
+        let _ = retire(mux, share_id, url, token);
+        if !link_shares.claim_room_delete(share_id) {
+            return;
         }
-        return;
     }
     // Remove this share's expiry from the timer before the worker starts. The worker owns the
     // operation now and will re-arm if it exits while the queued operation remains.
@@ -405,22 +435,7 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     let (timing, weak, id) = (bridge.timing(), Arc::downgrade(mux), share_id.to_owned());
     let fallback = bridge.room().map(|room| room.url);
     runtime.spawn(async move {
-        struct DeleteGuard {
-            mux: Weak<Mux>,
-            share_id: String,
-        }
-
-        impl Drop for DeleteGuard {
-            fn drop(&mut self) {
-                if let Some(mux) = self.mux.upgrade() {
-                    let shares = shares(&mux);
-                    shares.release_room_delete(&self.share_id);
-                    shares.rearm();
-                }
-            }
-        }
-
-        let _guard = DeleteGuard { mux: weak.clone(), share_id: id.clone() };
+        let mut guard = DeleteGuard { mux: weak.clone(), share_id: id.clone(), tokenless: false };
         let op = json!({"op": "delete"});
         let mut wait = timing.backoff_min;
         let mut attempted = false;
@@ -433,7 +448,8 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                         abandon_share(s, false);
                         s.pending_room_ops.retain(|pending| pending != &op);
                         ((), true)
-                    }).is_some()
+                    })
+                    .is_some()
                 };
                 if saved {
                     return;
@@ -486,7 +502,10 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                         wait = (wait * 2).min(timing.backoff_max);
                         continue;
                     }
-                    _ => return,
+                    _ => {
+                        guard.tokenless = true;
+                        return;
+                    }
                 }
             };
             let url = format!("{}/v1/chat-shares/{id}", target.0);
@@ -532,10 +551,7 @@ pub(super) fn expired(shares: &LinkShares) {
         let slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
         slot.iter()
             .flatten()
-            .filter(|share| {
-                share.expires_at <= now
-                    && share.pending_room_ops.iter().any(|op| op["op"] == "delete")
-            })
+            .filter(|share| share.expires_at <= now && share.delete_queued())
             .map(|share| share.share_id.clone())
             .collect::<Vec<_>>()
     };
@@ -567,10 +583,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
             abandon_share(share, bridged);
             changed = true;
         }
-        let ids = all
-            .iter()
-            .filter(|s| s.pending_room_ops.iter().any(|o| o["op"] == "delete"))
-            .map(|s| s.share_id.clone());
+        let ids = all.iter().filter(|s| s.delete_queued()).map(|s| s.share_id.clone());
         Ok((ids.collect::<Vec<_>>(), changed))
     });
     for id in bridged.unwrap_or_default() {

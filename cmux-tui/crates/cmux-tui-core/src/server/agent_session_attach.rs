@@ -905,8 +905,8 @@ impl ReaderSlot {
 mod media;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
-pub use proxy::shares::room::start_link_share_bridge;
 use media::media;
+pub use proxy::shares::room::start_link_share_bridge;
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;

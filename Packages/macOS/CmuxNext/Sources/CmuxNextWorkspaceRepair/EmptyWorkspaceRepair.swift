@@ -233,9 +233,10 @@ public final class EmptyWorkspaceRepair {
 
     /// The store's home workspace (workspace-kind-v1) starts empty on
     /// purpose and the daemon never closes it: HomeService owns its content
-    /// (the Chief conversation tab), so it is neither repaired nor closed.
+    /// (the Chief conversation tab), so it is neither repaired nor closed; nor is a window's own
+    /// Home (cmux#27880), whose page the app makes.
     private static func isHome(_ workspace: WorkspaceModel) -> Bool {
-        workspace.kind == "home"
+        workspace.isAnyHome
     }
 
     private static func hasPane(_ workspace: WorkspaceModel) -> Bool {

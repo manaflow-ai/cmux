@@ -1,6 +1,6 @@
 //! The link share bridge against a fake room (cmux-platform's `ChatShareRoom` HTTP API):
 //! provisioning, its retry and give-up, a refusal, and revoke's `DELETE`.
-use super::super::{digest, hex, MAX_SHARES};
+use super::super::{MAX_SHARES, digest, hex};
 use super::*;
 use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with,
@@ -9,9 +9,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::Condvar;
 use std::time::Instant;
 
 const OWNER_TOKEN: &str = "owner-access-token";
@@ -166,10 +166,7 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
                     .unwrap()
                     .take()
                     .unwrap_or_else(|| format!("{base}/g/{id}"));
-                (
-                    200,
-                    json!({"host_token": format!("host-token-{n}"), "url_base": url_base}),
-                )
+                (200, json!({"host_token": format!("host-token-{n}"), "url_base": url_base}))
             }
             Some(status) => (status, json!({})),
             None => {
@@ -181,10 +178,7 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
                     .unwrap()
                     .take()
                     .unwrap_or_else(|| format!("{base}/g/{id}"));
-                (
-                    200,
-                    json!({"host_token": format!("host-token-{n}"), "url_base": url_base}),
-                )
+                (200, json!({"host_token": format!("host-token-{n}"), "url_base": url_base}))
             }
         },
         _ => (shared.deletes.lock().unwrap().pop_front().unwrap_or(200), json!({})),
@@ -395,23 +389,31 @@ fn expired_cleanup_retries_when_settling_the_pending_delete_cannot_be_saved() {
     let (_fake, mux, surface, mut owner) = bridged("room-expired-unsaved", &room);
     let share = create(&mut owner, surface)["data"].clone();
     room.request("PUT");
-    assert_eq!(owner.request(json!({"cmd":"agent-session-share-revoke",
-        "share_id":share["share_id"]}))[
-        "ok"], true);
+    assert_eq!(
+        owner.request(json!({"cmd":"agent-session-share-revoke",
+        "share_id":share["share_id"]}))["ok"],
+        true
+    );
     room.request("DELETE");
 
     let shares = shares_of(&mux);
     shares.advance(Duration::from_secs(2 * 86_400));
     shares.refuse_writes.store(true, Ordering::Relaxed);
     shares.expired(&mux);
-    assert!(view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,
-        "a failed expiry save keeps the DELETE pending");
+    assert!(
+        view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,
+        "a failed expiry save keeps the DELETE pending"
+    );
 
     shares.refuse_writes.store(false, Ordering::Relaxed);
-    room.none("duplicate DELETE while the one worker retries persistence",
-        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"));
-    assert!(!view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,
-        "the same worker eventually settles the durable operation");
+    room.none(
+        "duplicate DELETE while the one worker retries persistence",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+    assert!(
+        !view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,
+        "the same worker eventually settles the durable operation"
+    );
 }
 
 #[test]
@@ -523,12 +525,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
         .unwrap();
     let initial_pending = shares
         .with(Some(&directory), |all, _| {
-            Ok((
-                all.iter()
-                    .filter(|share| !share.pending_room_ops.is_empty())
-                    .count(),
-                false,
-            ))
+            Ok((all.iter().filter(|share| !share.pending_room_ops.is_empty()).count(), false))
         })
         .unwrap();
     assert_eq!(initial_pending, MAX_SHARES);
@@ -601,7 +598,6 @@ fn a_room_whose_answer_could_not_be_written_is_still_deleted_with_its_host_token
     );
 }
 
-
 #[test]
 fn invalid_configured_rooms_refuse_creation_but_unset_keeps_local_shares() {
     let fake = FakeAcpmux::start("room-invalid-config");
@@ -634,8 +630,11 @@ fn retry_exhaustion_keeps_owner_cleanup_when_revocation_cannot_be_written() {
     configured.timing.window = Duration::ZERO;
     // Drive the retry-window exhaustion itself: its attempt to persist the revoke fails.
     shares.bridge.runtime().unwrap().block_on(retry(
-        Arc::downgrade(&mux), id.clone(), configured,
-        Zeroizing::new(OWNER_TOKEN.to_owned()), json!({}),
+        Arc::downgrade(&mux),
+        id.clone(),
+        configured,
+        Zeroizing::new(OWNER_TOKEN.to_owned()),
+        json!({}),
     ));
     let (_, bearer, _) = room.request("DELETE");
     assert_eq!(bearer, OWNER_TOKEN, "failed persistence must not discard the owner token");
@@ -652,22 +651,22 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
     let room = FakeRoom::start(&[]);
     let root = std::env::temp_dir()
         .join(format!("cmux-room-revoke-restart-{}", crate::workspace_registry::new_uuid_v4()));
-    let mux = Mux::open_persistent("revoke-restart", crate::SurfaceOptions::default(), &root)
-        .unwrap();
+    let mux =
+        Mux::open_persistent("revoke-restart", crate::SurfaceOptions::default(), &root).unwrap();
     let directory = mux.session_state_directory().unwrap();
     let shares = shares_of(&mux);
     shares.serve(&mux);
     let created = shares.insert(Some(&directory), SESSION.into(), 1, 60, 1, true).unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
-    shares.end(Some(&directory), &super::super::Named {
-        share_id: id.clone(), guest_id: None,
-    }).unwrap();
+    shares
+        .end(Some(&directory), &super::super::Named { share_id: id.clone(), guest_id: None })
+        .unwrap();
     assert!(view(&mux, &id).unwrap().delete, "revoke persists intent before a PUT answers");
     mux.shutdown();
     drop(mux);
 
-    let mux = Mux::open_persistent("revoke-restart", crate::SurfaceOptions::default(), &root)
-        .unwrap();
+    let mux =
+        Mux::open_persistent("revoke-restart", crate::SurfaceOptions::default(), &root).unwrap();
     start_link_share_bridge(&mux, Some(&room.url));
     assert!(view(&mux, &id).unwrap().delete, "restart keeps the revoked provision's cleanup");
     // A late provision response can now attach its host token to the durable intent.
@@ -680,7 +679,6 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
 }
-
 
 #[test]
 fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
@@ -700,6 +698,35 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
     assert_eq!(bearer, "late-host");
 }
 
+#[test]
+fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, _owner) = bridged("room-late-token-race", &room);
+    let shares = shares_of(&mux);
+    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let id = created["share_id"].as_str().unwrap().to_owned();
+    shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
+    assert!(view(&mux, &id).unwrap().delete, "the revoke queues the room's DELETE");
+    // A cleanup worker is in flight for the share and has read it with no credential (the
+    // revoke's own worker, if it ran, has ended: it had no credential either).
+    let deadline = Instant::now() + WAIT;
+    while !shares.claim_room_delete(&id) {
+        assert!(Instant::now() < deadline, "the revoke's worker ends");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The late PUT answers: the worker holds the claim, so the token goes to the record.
+    delete(&mux, &id, Some(Held::Host(room.url.clone(), Zeroizing::new("late-host".into()))));
+    room.none(
+        "a DELETE while the worker holds the claim",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+    assert_eq!(view(&mux, &id).unwrap().host_token.as_deref(), Some("late-host"));
+    // The worker ends for want of the credential it read before the write.
+    drop(DeleteGuard { mux: Arc::downgrade(&mux), share_id: id.clone(), tokenless: true });
+    let (path, bearer, _) = room.request("DELETE");
+    assert_eq!(path, format!("/v1/chat-shares/{id}"));
+    assert_eq!(bearer, "late-host", "the room is deleted now, not at the share's expiry");
+}
 
 #[test]
 fn room_responses_are_bounded_with_or_without_content_length() {
@@ -719,8 +746,10 @@ fn room_responses_are_bounded_with_or_without_content_length() {
                 }
             }
             if chunked {
-                let _ = write!(stream,
-                    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+                );
                 for chunk in body.as_bytes().chunks(4096) {
                     if write!(stream, "{:x}\r\n", chunk.len()).is_err()
                         || stream.write_all(chunk).is_err()
@@ -731,14 +760,21 @@ fn room_responses_are_bounded_with_or_without_content_length() {
                 }
                 let _ = stream.write_all(b"0\r\n\r\n");
             } else {
-                let _ = write!(stream,
+                let _ = write!(
+                    stream,
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(), body);
+                    body.len(),
+                    body
+                );
             }
         });
         let bridge = Bridge::default();
         let response = bridge.runtime().unwrap().block_on(call(
-            reqwest::Method::DELETE, &url, "host-token", None, Duration::from_secs(2),
+            reqwest::Method::DELETE,
+            &url,
+            "host-token",
+            None,
+            Duration::from_secs(2),
         ));
         server.join().unwrap();
         assert!(response.is_none(), "oversized response accepted (chunked={chunked})");

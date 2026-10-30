@@ -113,6 +113,18 @@ impl LinkShare {
         }
     }
 
+    /// A string member of the hosted room (`url`, `host_token`), if the share has one.
+    fn room_str(&self, field: &str) -> Option<&str> {
+        self.room.as_ref()?.get(field)?.as_str()
+    }
+
+    /// The room's `DELETE` is already queued.
+    fn delete_queued(&self) -> bool {
+        self.pending_room_ops
+            .iter()
+            .any(|op| op.get("op").and_then(Value::as_str) == Some("delete"))
+    }
+
     fn shown(&self, now: u64) -> Value {
         let guests: Vec<Value> = self
             .guests
@@ -126,7 +138,7 @@ impl LinkShare {
             "created_at": self.created_at, "expires_at": self.expires_at,
             "expires_in_secs": self.expires_at.saturating_sub(now) / 1000,
             "uses_left": self.uses_left, "state": self.state, "url": null,
-            "room": self.room.as_ref().map(|room| room["url"].clone()),
+            "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
             "guests": guests})
     }
 }
@@ -495,14 +507,10 @@ impl LinkShares {
                 let was_provisioning = share.state == ShareState::Provisioning;
                 let changed = share.state != ShareState::Revoked;
                 share.state = ShareState::Revoked;
-                if changed
-                    && (share.room.is_some() || was_provisioning)
-                    && !share.pending_room_ops.iter().any(|o| o["op"] == "delete")
-                {
+                if changed && (share.room.is_some() || was_provisioning) && !share.delete_queued() {
                     share.pending_room_ops.push(json!({"op": "delete"}));
                 }
-                schedule_delete = !was_live
-                    && share.pending_room_ops.iter().any(|o| o["op"] == "delete");
+                schedule_delete = !was_live && share.delete_queued();
                 return Ok((json!({"share_id": share.share_id, "state": share.state}), changed));
             };
             let guest =
