@@ -497,7 +497,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
 }
 
 /// A queue row's entry. acpmux's ask to resume a failed subagent (`retry`) comes from its `queued`
-/// record or a listing (`subagentRetryNotice`); every rebuild of the entry passes it on.
+/// record (`subagentRetryNotice`), never a listing; every rebuild of the entry passes it on.
 function queuedEntry(
   id: string,
   prompt: string,
@@ -655,12 +655,12 @@ export function mergeQueue(
       message,
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
-      // The resume read before holds while its text does: the listing's preview is that text, or cut
-      // from it ("…"). An edit the pane missed, a shorter prompt included, reads the listing.
-      message || author || edited?.has(id)
+      // A resume comes only from its `queued` record's provenance (subagentRetryNotice): a listing
+      // names none. It holds while the text does, the listing's preview being that text or cut from
+      // it ("…"); an edit, seen or missed (a shorter prompt included), drops it.
+      message || author || edited?.has(id) || !whole || !(preview.endsWith("…") || oneLine(had.prompt) === preview)
         ? undefined
-        : ((whole && (preview.endsWith("…") || oneLine(had.prompt) === preview) ? had.retry : undefined) ??
-          subagentRetryNotice(preview, entry)),
+        : had.retry,
     );
   });
 }

@@ -180,60 +180,25 @@ export type SubagentRetryNotice = { name?: string; agentId?: string; error?: str
 /// error (<error>). Resume it …`, the name left out when acpmux has none. acpmux writes the name as
 /// it is, so a name may hold quotes: it ends at the `" (agent id ` that follows it.
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const RETRY_HEAD = /^Your subagent (?:"([^\n]*?)" )?\(agent id ([^)\s]+)\)/;
-// l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const RETRY_TAIL = " failed on a transient upstream error";
-// l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const RETRY_ERROR = /^ failed on a transient upstream error \(([^\n]*?)\)\. Resume it/;
-/// A queue listing's preview is the prompt's first 200 characters and "…": cut in the agent id, or in
-/// a long name.
-// l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const CUT_IN_ID = /^Your subagent (?:"([^\n]*?)" )?\(agent id ([^)\s]*)…$/;
-// l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const CUT_IN_NAME = /^Your subagent "([^\n]*)…$/;
-// l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const CUT_AFTER_NAME = /^Your subagent "([^\n]*)"(.*)…$/;
-const AGENT_ID_LEAD = " (agent id ";
+const RETRY_WORDS =
+  /^Your subagent (?:"([^\n]*?)" )?\(agent id ([^)\s]+)\) failed on a transient upstream error(?: \(([^\n]*?)\)\. Resume it)?/;
 
-/// The subagent, agent id and error `retry_text` wrote in `text`, a preview of it included.
-function retryWords(text: string): SubagentRetryNotice | undefined {
-  const head = RETRY_HEAD.exec(text);
-  if (head) {
-    const rest = text.slice(head[0].length);
-    const cut = rest.endsWith("…") && RETRY_TAIL.startsWith(rest.slice(0, -1));
-    if (!rest.startsWith(RETRY_TAIL) && !cut) return undefined;
-    return notice(head[1], head[2], RETRY_ERROR.exec(rest)?.[1]);
-  }
-  const inId = CUT_IN_ID.exec(text);
-  if (inId) return notice(inId[1], undefined);
-  // Cut after the name, inside " (agent id ".
-  const afterName = CUT_AFTER_NAME.exec(text);
-  if (afterName && AGENT_ID_LEAD.startsWith(afterName[2]!)) return notice(afterName[1], undefined);
-  const inName = CUT_IN_NAME.exec(text);
-  return inName ? notice(`${inName[1]}…`, undefined) : undefined;
-}
-
-function notice(name?: string, agentId?: string, error?: string): SubagentRetryNotice | undefined {
-  const [n, a, e] = [name?.trim(), agentId?.trim(), error?.trim()];
-  if (!n && !a) return undefined;
-  return { ...(n ? { name: n } : {}), ...(a ? { agentId: a } : {}), ...(e ? { error: e } : {}) };
-}
-
-/// The resume acpmux asked for, from a prompt's `subagent_retry` provenance (its agent id there)
-/// and its text, else from the text of a prompt acpmux itself sent (`client` "acpmux", which a
-/// queue listing names with no provenance); undefined for any other prompt, the person's own
-/// words that read the same included.
+/// The resume acpmux asked for: only a prompt whose record carries acpmux's `subagent_retry`
+/// provenance (its `queued` record; acpmux drops the provenance on any edit, which makes the prompt
+/// the person's). Its words give the subagent's name and the error. The text alone decides nothing:
+/// the person's own prompt may read the same, and a queue listing, which names no provenance, cannot
+/// tell them apart (`fromAgent` and `author` are null for both).
 export function subagentRetryNotice(
   text: string,
-  msg?: { _meta?: { provenance?: unknown }; client?: unknown },
+  msg?: { _meta?: { provenance?: unknown } },
 ): SubagentRetryNotice | undefined {
   const provenance = msg?._meta?.provenance as { kind?: unknown; agentId?: unknown } | undefined;
-  const marked = provenance?.kind === "subagent_retry";
-  if (!marked && msg?.client !== "acpmux") return undefined;
-  const words = retryWords(text.trimStart());
-  if (!marked) return words;
-  const agentId = typeof provenance.agentId === "string" ? provenance.agentId : undefined;
-  return notice(words?.name, agentId || words?.agentId, words?.error);
+  if (provenance?.kind !== "subagent_retry") return undefined;
+  const words = RETRY_WORDS.exec(text.trimStart());
+  const agentId = (typeof provenance.agentId === "string" && provenance.agentId) || words?.[2];
+  const [name, error] = [words?.[1]?.trim(), words?.[3]?.trim()];
+  if (!name && !agentId) return undefined;
+  return { ...(name ? { name } : {}), ...(agentId ? { agentId } : {}), ...(error ? { error } : {}) };
 }
 
 /// What a row's Retry does: `daemon` asks acpmux, `ask` asks the chat's agent.

@@ -36,7 +36,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   const SESSION = "queue-collapse-session";
   const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
   const PROMPTS = ["one", "two", "three", "four", "five", "six"];
-  let queue: { promptId: string; prompt: string; client?: string }[] = [];
+  let queue: { promptId: string; prompt: string; client?: string; provenance?: Record<string, unknown> }[] = [];
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
@@ -46,7 +46,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     steering: true,
     queuePaused: false,
     queued: queue.length,
-    queue,
+    // As acpmux lists it: no provenance (the attach's `queued` records carry it).
+    queue: queue.map(({ provenance: _provenance, ...listed }) => listed),
     turn,
     updatedAt: Date.now(),
   });
@@ -61,6 +62,19 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     },
   ];
   let seq = opening.length;
+  /// The `queued` record of each prompt acpmux sent with a provenance (its resume of a failed
+  /// subagent), which the attach replays as acpmux does; the listing names no provenance.
+  const queuedRecords = () =>
+    queue
+      .filter((q) => q.provenance)
+      .map((q, i) => ({
+        sessionId: SESSION,
+        seq: opening.length + 1 + i,
+        at: Date.now(),
+        dir: "mux",
+        kind: "queued",
+        msg: { text: q.prompt, promptId: q.promptId, client: q.client, _meta: { provenance: q.provenance } },
+      }));
   const edits: Record<string, any>[] = [];
 
   type Socket = { send(data: string): void };
@@ -81,7 +95,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: [summary()] };
       case "_acpmux/attach":
-        return { session: summary(), lastSeq: seq, events: opening };
+        return { session: summary(), lastSeq: seq, events: [...opening, ...queuedRecords()] };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: seq };
       case "_acpmux/queue_edit": {
@@ -150,12 +164,15 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   });
 
   async function openChat(prompts: string[]): Promise<Page> {
-    // acpmux's own prompts (its resume of a failed subagent) are listed as its client.
+    // acpmux's own resume of a failed subagent: its client, and the provenance its record carries.
     queue = prompts.map((prompt, i) => ({
       promptId: `q-${i + 1}`,
       prompt,
-      ...(prompt.startsWith("Your subagent ") ? { client: "acpmux" } : {}),
+      ...(prompt.startsWith("Your subagent ")
+        ? { client: "acpmux", provenance: { kind: "subagent_retry", subagentId: "s/1", agentId: "af0cbece62b15d0e1", attempt: 1 } }
+        : {}),
     }));
+    seq = opening.length + queuedRecords().length;
     edits.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await installPaintedFrames(page);
