@@ -198,23 +198,23 @@ public final class ChiefComposer {
     /// New Message's images as agent prompt attachments, normalized to formats agents accept.
     static func attachments(_ images: [ConversationComposeImage]) -> [AgentAttachment] {
         images.enumerated().map { index, image in
+            let source = AgentAttachment(kind: .image, name: "Image \(index + 1)", data: image.data)
             let data: Data
+            let kind: AgentAttachment.Kind
             let ext: String
-            let attachment = AgentAttachment(kind: .image, name: "Image \(index + 1)", data: image.data)
-            let supportedSource = ["image/png", "image/jpeg", "image/gif", "image/webp"].contains(image.mimeType.lowercased())
-            if !supportedSource, let jpeg = UIImage(data: image.data)?.jpegData(compressionQuality: 0.85) {
-                data = jpeg
-                ext = "jpg"
-            } else {
-                data = image.data
-                ext = switch attachment.imageMIMEType {
-                case "image/png": "png"
-                case "image/gif": "gif"
-                case "image/webp": "webp"
-                default: "jpg"
+            switch source.imageMIMEType {
+            case "image/png": data = image.data; kind = .image; ext = "png"
+            case "image/jpeg": data = image.data; kind = .image; ext = "jpg"
+            case "image/gif": data = image.data; kind = .image; ext = "gif"
+            case "image/webp": data = image.data; kind = .image; ext = "webp"
+            default:
+                if let jpeg = UIImage(data: image.data)?.jpegData(compressionQuality: 0.85) {
+                    data = jpeg; kind = .image; ext = "jpg"
+                } else {
+                    data = image.data; kind = .file; ext = "bin"
                 }
             }
-            return AgentAttachment(kind: .image, name: "Image \(index + 1).\(ext)", data: data)
+            return AgentAttachment(kind: kind, name: "Image \(index + 1).\(ext)", data: data)
         }
     }
 
