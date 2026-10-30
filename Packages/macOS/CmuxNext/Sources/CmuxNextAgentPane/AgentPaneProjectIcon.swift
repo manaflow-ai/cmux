@@ -255,15 +255,30 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
 actor AgentPaneProjectIcons {
     static let shared = AgentPaneProjectIcons(reader: AgentPaneProjectIcon())
 
+    /// How long a folder's whole answer is reused, empty ones included. The page keeps only answers
+    /// that name an icon or a glyph and asks again for the rest each time a badge shows, and each ask
+    /// walks about 70 candidate paths through `lstat`, `readlink` and `realpath`. For a folder that is
+    /// not on this Mac (a lane VM's `/home/cmux/...`), every one of those lookups also went through
+    /// macOS's `/home` automounter: on a loaded Mac (2026-10-30) this loop kept one thread of the app
+    /// busy and drove opendirectoryd at 230-330 directory queries a second.
+    static let answerLifetime: Duration = .seconds(30)
+    /// At most this many folders' answers are kept; past it the oldest half is dropped.
+    static let maximumAnswers = 512
+
     private let reader: AgentPaneProjectIcon
     private let repos: AgentPaneProjectRepoReader
     private let avatars: AgentPaneOwnerAvatars
+    private let now: @Sendable () -> ContinuousClock.Instant
     private var cache: [String: (file: AgentPaneProjectIcon.File, url: String?)] = [:]
+    private var answers: [String: (at: ContinuousClock.Instant, src: String?, glyph: String?)] = [:]
+    private var reading: [String: Task<(src: String?, glyph: String?), Never>] = [:]
 
-    init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared) {
+    init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared,
+         now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }) {
         self.reader = reader
         self.repos = repos
         self.avatars = avatars
+        self.now = now
     }
 
     /// The `project.icon` answer: the GitHub owner's avatar (a user's or an organization's), else an
@@ -273,7 +288,24 @@ actor AgentPaneProjectIcons {
     /// comes first so every clone and worktree of one GitHub repository wears the same picture (Leo
     /// 2026-10-21: "why are the project icons not showing up for SOME of the cmux...? only one has
     /// my github icon?").
+    /// One folder's answer is read once per ``answerLifetime``: asks inside it, and asks that arrive
+    /// while it is read, share that read.
     func answer(for folder: String) async -> (src: String?, glyph: String?) {
+        if let kept = answers[folder], now() - kept.at < Self.answerLifetime { return (kept.src, kept.glyph) }
+        if let running = reading[folder] { return await running.value }
+        let task = Task { await self.read(folder) }
+        reading[folder] = task
+        let value = await task.value
+        reading[folder] = nil
+        if answers.count >= Self.maximumAnswers {
+            let oldest = answers.sorted { $0.value.at < $1.value.at }.prefix(Self.maximumAnswers / 2).map(\.key)
+            for key in oldest { answers[key] = nil }
+        }
+        answers[folder] = (now(), value.src, value.glyph)
+        return value
+    }
+
+    private func read(_ folder: String) async -> (src: String?, glyph: String?) {
         let reader = self.reader.batched()
         let repos = self.repos.batched(sharing: reader)
         let repo = reader.allows(folder) ? repos.repo(for: folder) : nil

@@ -207,6 +207,46 @@ struct AgentPaneProjectIconTests {
         #expect(await icons.icon(for: fixture.home + "/code/site") == "data:image/svg+xml;base64," + Self.svg.base64EncodedString())
     }
 
+    /// A clock the test moves by hand.
+    private nonisolated final class Clock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var instant = ContinuousClock.now
+        var now: ContinuousClock.Instant { lock.withLock { instant } }
+        func advance(_ by: Duration) { lock.withLock { instant = instant.advanced(by: by) } }
+    }
+
+    /// Each folder's answer, an empty one too, is read once per `answerLifetime`, and asks that arrive
+    /// while it is read share that read. The page asks again for every empty answer, and each ask walks
+    /// about 70 paths; for a folder that is not on this Mac each lookup also went through the `/home`
+    /// automounter (2026-10-30: opendirectoryd at 230-330 queries a second).
+    @Test func aFoldersAnswerEmptyOrNotIsReadOncePerLifetime() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Data(), "code/plain/favicon.png")  // empty: stat'ed, never an icon
+        let folder = fixture.home + "/code/plain"
+        let path = folder + "/favicon.png"
+        let looks = { fixture.touches.all.filter { $0 == path }.count }
+        let noAvatars = AgentPaneOwnerAvatars(folder: nil, fetch: { _ in nil })
+        let solo = await AgentPaneProjectIcons(reader: fixture.reader, avatars: noAvatars).answer(for: folder)
+        #expect(solo.src == nil && solo.glyph == nil)
+        let once = looks()
+        #expect(once > 0)
+
+        let clock = Clock()
+        let icons = AgentPaneProjectIcons(reader: fixture.reader, avatars: noAvatars, now: { clock.now })
+        async let first = icons.answer(for: folder)
+        async let second = icons.answer(for: folder)
+        async let third = icons.answer(for: folder)
+        let answers = await [first, second, third]
+        #expect(answers.allSatisfy { $0.src == nil && $0.glyph == nil })
+        #expect(looks() == 2 * once, "three asks at once read the folder once")
+        _ = await icons.answer(for: folder)
+        #expect(looks() == 2 * once, "inside the lifetime: no read")
+        clock.advance(AgentPaneProjectIcons.answerLifetime)
+        _ = await icons.answer(for: folder)
+        #expect(looks() == 3 * once, "past the lifetime: read again")
+    }
+
     /// The same request from a chat on another machine is answered with no icon; from this Mac's
     /// chat, the real reader answers.
     @MainActor
