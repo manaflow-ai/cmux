@@ -24,6 +24,8 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       aria-label={label}
       aria-pressed={isActive(state)}
       aria-busy={busy || undefined}
+      aria-live="polite"
+      aria-atomic="true"
       {...tooltipProps(label, shortcut)}
       // Keep focus and the selection in the prompt: that is where the words go.
       onMouseDown={(event) => event.preventDefault()}
