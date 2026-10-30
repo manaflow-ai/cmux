@@ -73,4 +73,25 @@ import Testing
                 "the highlight stayed where the bubble was: highlight \(moved), bubble \(after.outline) (was \(before.outline))")
         #expect(abs(moved.midX - after.outline.midX) < 4)
     }
+
+    /// SCRATCH (never merge): the terms of the highlight's place on this host.
+    @Test func diagnoseTheHighlightPlace() throws {
+        let (window, view) = home()
+        defer { window.close() }
+        let demo = try #require(view.controller.demo)
+        func cellInfo(_ key: String) -> String {
+            for case let cell as RowCell in demo.collection.visibleCells where cell.spec?.key == key {
+                return "rowSnap=\(cell.rowSnap) windowY=\(cell.windowY) place=\(cell.windowPlace) cellFrame=\(cell.frame) inDemo=\(cell.convert(cell.bounds, to: demo)) layerFlipped=\(cell.layer.contentsAreFlipped()) layerFrame=\(cell.layer.frame) contentBounds=\(cell.contentView.bounds)"
+            }
+            return "no cell"
+        }
+        let before = try #require(view.debugBubble(text: Self.mine))
+        let soft = demo.softMask(before)
+        Issue.record("DIAG before body=\(before.body) outline=\(before.outline) soft=\(String(describing: soft?.frame)) \(cellInfo(before.key)) renderScale=\(demo.renderScale) backing=\(window.backingScaleFactor) demoLayerFlipped=\(demo.layer.contentsAreFlipped()) demoGeoFlipped=\(demo.layer.isGeometryFlipped)")
+        _ = try #require(view.controller.menu(at: CGPoint(x: before.body.midX, y: before.body.midY)))
+        defer { view.controller.menuHighlight?.discard() }
+        let again = try #require(view.debugBubble(text: Self.mine))
+        let hl = try #require(view.controller.menuHighlight)
+        Issue.record("DIAG afterMenu body=\(again.body) outline=\(again.outline) soft=\(String(describing: demo.softMask(again)?.frame)) \(cellInfo(again.key)) hlBox=\(String(describing: highlightBox(view))) hlFrame=\(hl.layer.frame) hlSuper=\(String(describing: hl.layer.superlayer)) isShape=\(hl.layer is CAShapeLayer)")
+    }
 }
