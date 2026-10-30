@@ -1758,8 +1758,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 }
                 return;
             }
-            // Peers already filter to the interesting kinds and send a summary.
-            if rec.dir == "peer" {
+            // Peers already filter to the interesting kinds and send a summary. Another
+            // daemon's link hears no change of a row this daemon mirrors: the link drops every
+            // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
+            // every other peer's link for nothing (24 copies of every change with one daemon's
+            // 25 peers, 2026-10-30), and the row's origin hears it from its own.
+            if rec.dir == "peer" && !view::a_link(conn) {
                 let sid = remote
                     .summary
                     .get("sessionId")
@@ -1878,6 +1882,10 @@ pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
+
+#[cfg(test)]
+#[path = "mirror_relay_tests.rs"]
+mod mirror_relay_tests;
 
 #[cfg(test)]
 mod request_admission_tests {
@@ -2032,6 +2040,9 @@ mod request_admission_tests {
         worker.await.unwrap();
     }
 }
+
+#[cfg(test)]
+mod key_route_tests;
 
 #[cfg(test)]
 mod nodelay_tests {

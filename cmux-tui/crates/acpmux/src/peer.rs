@@ -179,6 +179,8 @@ pub struct Peer {
     session_auth: AtomicBool,
     /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
     session_messages: AtomicBool,
+    /// The peer lists `personStop` (`server/requests/person_stop.rs`).
+    pub(crate) person_stop: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -267,6 +269,7 @@ impl Peer {
             upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
             session_messages: AtomicBool::new(false),
+            person_stop: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -347,6 +350,12 @@ impl Peer {
     pub fn seed_last_seen(&self, last_seen: Option<u64>) {
         self.retry_immediately.store(true, Ordering::SeqCst);
         self.with_link(|l| l.seed(last_seen));
+    }
+
+    /// What its last handshake would have said of attachments: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_send_attach(&self, takes: bool) {
+        self.send_attach.store(takes, Ordering::SeqCst);
     }
 
     pub(crate) fn seed_cached_link(
@@ -1218,28 +1227,25 @@ impl Peer {
                 .pointer("/_meta/acpmux/personInstance")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
-            let advertised =
-                init.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
-                    |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
-                ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
-            me.trust_gate.store(advertised, Ordering::SeqCst);
             let lists = |feature: &str| {
                 init.pointer("/_meta/acpmux/features")
                     .and_then(Value::as_array)
                     .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
             };
-            me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
-            let chunks = lists(crate::hub::file_uploads::CHUNKS_FEATURE);
-            me.file_put_chunks.store(chunks, Ordering::SeqCst);
-            me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
-            me.subagent_transcript
-                .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
-            me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
-            me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
-            let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
-            me.upload_resume.store(resume, Ordering::SeqCst);
-            let auth = lists(crate::hub::session_auth::FEATURE);
-            me.session_auth.store(auth, Ordering::SeqCst);
+            let advertised = lists("trustGate")
+                || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
+            me.trust_gate.store(advertised, Ordering::SeqCst);
+            let set =
+                |flag: &AtomicBool, feature: &str| flag.store(lists(feature), Ordering::SeqCst);
+            set(&me.file_put, crate::hub::FILE_PUT_FEATURE);
+            set(&me.file_put_chunks, crate::hub::file_uploads::CHUNKS_FEATURE);
+            set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
+            set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
+            set(&me.send_attach, crate::attach::FEATURE);
+            set(&me.prompt_uploads, crate::prompt_uploads::FEATURE);
+            set(&me.upload_resume, crate::hub::file_uploads::RESUME_FEATURE);
+            set(&me.session_auth, crate::hub::session_auth::FEATURE);
+            set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
             let messages = init
                 .pointer("/_meta/acpmux/capabilities")
                 .and_then(Value::as_array)
@@ -1873,6 +1879,10 @@ mod remote_config_tests {
         assert_eq!(split_remote_read(&read).1, Some(good));
     }
 }
+
+#[cfg(test)]
+#[path = "peer_briefs_tests.rs"]
+mod briefs_tests;
 
 #[cfg(test)]
 mod link_epoch_tests {
