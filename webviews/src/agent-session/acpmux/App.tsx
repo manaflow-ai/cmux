@@ -8457,7 +8457,12 @@ function AcpmuxPane() {
         /// The chat a trust refusal belongs to: the client, its selection generation and the session.
         type TrustOwner = TrustRefusalOwner<AcpmuxDirectClient>;
         // A trust refusal belongs to the request's selection and cancellation epoch.
-        const routeTrustFor = (owner: TrustOwner, error: unknown, again?: () => void): boolean => {
+        const routeTrustFor = (
+          owner: TrustOwner,
+          error: unknown,
+          again?: () => void,
+          declined?: () => void,
+        ): boolean => {
           if (!isTrustRefusal(error)) return false;
           return routeOwnedTrustRefusal(
             owner,
@@ -8471,7 +8476,8 @@ function AcpmuxPane() {
             pendingTrustRefusal,
             error,
             again,
-            () => trustRefused.current?.(error, again) ?? false,
+            declined,
+            () => trustRefused.current?.(error, again, declined) ?? false,
           );
         };
         // A failed row's Retry that acpmux refuses for the folder's trust shows the Trust question,
@@ -8503,7 +8509,8 @@ function AcpmuxPane() {
             sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
             cancelEpoch: trustCancelEpoch.current,
           };
-          const routeForSend: TrustRouter = (error, again) => routeTrustFor(sendOwner, error, again);
+          const routeForSend: TrustRouter = (error, again, declined) =>
+            routeTrustFor(sendOwner, error, again, declined);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
