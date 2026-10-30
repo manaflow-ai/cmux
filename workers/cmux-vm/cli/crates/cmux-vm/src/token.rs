@@ -374,19 +374,21 @@ pub fn create_body(args: &TokenCreateArgs) -> Result<Value, CliError> {
     }))
 }
 
-/// `token create` refuses while a usable token is stored: storing a new one
-/// would leave that key live and billable with nothing able to revoke it, and
-/// revoking it here would delete VMs another process may be using. An
+/// `token create` refuses while a token that may be live is stored: storing a
+/// new one would leave that key live and billable with nothing able to revoke
+/// it, and revoking it here would delete VMs another process may be using. An
 /// expired token (already dead on the server) or none at all is no obstacle;
-/// an unreadable store is replaced, since nothing could revoke from it anyway.
+/// a store that cannot be read is replaced, since nothing could revoke from it.
 pub fn refuse_if_one_is_stored(
     env: &dyn Fn(&str) -> Option<String>,
     now_unix: i64,
 ) -> Result<(), CliError> {
     match load(env) {
-        Ok(Some(token)) if token.status(now_unix).1 == crate::exit::OK => {
+        // Only a token known to have expired is dead on the server; one whose
+        // expiry cannot be read may still be live, so it is revoked first too.
+        Ok(Some(token)) if !token.seconds_left(now_unix).is_some_and(|left| left <= 0) => {
             Err(CliError::conflict(format!(
-                "the VM token {} is already stored, until {}: any process of this user can use it; to replace it, run `{p} token revoke` (which deletes its VMs) and then `{p} token create`",
+                "the VM token {} is already stored (expires {}): to replace it, run `{p} token revoke` (which deletes its VMs) and then `{p} token create`",
                 token.key_id,
                 token.expires_at,
                 p = crate::error::program()
@@ -481,10 +483,10 @@ pub async fn keep_minted(
             "the app's answer held no key to revoke it with; any key it issued was never shown and expires within its --ttl",
         ));
     };
-    // The same base URL `token revoke` would use for this key.
-    let base_url = env("CMUX_VM_BASE_URL")
-        .filter(|url| !url.is_empty())
-        .or(base_url)
+    // The issuer the app named, so the new key goes nowhere but where it
+    // was minted (CMUX_VM_BASE_URL only when the app names none).
+    let base_url = base_url
+        .or_else(|| env("CMUX_VM_BASE_URL").filter(|url| !url.is_empty()))
         .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
     match cmux_vm_client::authenticated_raw_client(
         &base_url,
@@ -555,7 +557,19 @@ pub fn parse_rfc3339(text: &str) -> Option<i64> {
     let time = time.split('.').next()?;
     let mut time = time.split(':').map(|part| part.parse::<i64>().ok());
     let (hour, minute, second) = (time.next()??, time.next()??, time.next()??);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let month_days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=month_days).contains(&day)
+        || !(0..24).contains(&hour)
+        || !(0..60).contains(&minute)
+        || !(0..=60).contains(&second)
+    {
         return None;
     }
     // Days from civil (Howard Hinnant).
@@ -598,6 +612,28 @@ mod tests {
         let body = create_body(&args).unwrap();
         assert_eq!(body["scopes"], json!(["vm:read", "vm:write", "vm:exec"]));
         assert_eq!(body["ttlSeconds"], json!(DEFAULT_TTL_SECONDS));
+    }
+
+    #[test]
+    fn expiries_must_be_real_times() {
+        assert_eq!(parse_rfc3339("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(
+            parse_rfc3339("2024-02-29T23:59:59.500Z"),
+            Some(1_709_251_199)
+        );
+        for bad in [
+            "2026-02-31T00:00:00Z",
+            "2025-02-29T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-10-29T24:00:00Z",
+            "2026-10-29T25:99:99Z",
+            "2026-10-29T08:60:00Z",
+            "2026-10-29T08:00:61Z",
+            "2026-13-01T00:00:00Z",
+            "2026-10-00T00:00:00Z",
+        ] {
+            assert_eq!(parse_rfc3339(bad), None, "{bad}");
+        }
     }
 
     #[test]
@@ -645,6 +681,10 @@ mod tests {
         assert!(refused.message().contains("vmk_live"));
         assert!(refused.message().contains("token revoke"));
         assert!(!refused.message().contains("SECRET"));
+        // One whose expiry cannot be read may be live: refused too.
+        token.expires_at = "2026-02-31T25:99:99Z".into();
+        save(&token, &env).unwrap();
+        assert!(refuse_if_one_is_stored(&env, now_unix()).is_err());
         // An expired token is dead on the server: a new one may replace it.
         token.expires_at = "2001-01-01T00:00:00Z".into();
         save(&token, &env).unwrap();
@@ -710,12 +750,21 @@ mod tests {
         let created = format!(
             r#"{{"id":"{id}","key":"cmuxvm_sk_SECRETSECRET","scopes":["vm:read"],"expiresAt":"soon"}}"#
         );
-        let uri = server.uri();
-        let env = |name: &str| (name == "CMUX_VM_BASE_URL").then(|| uri.clone());
+        // The app names the issuer; CMUX_VM_BASE_URL points elsewhere and
+        // must never see the key.
+        let env =
+            |name: &str| (name == "CMUX_VM_BASE_URL").then(|| "http://127.0.0.1:9".to_owned());
         let mut out = Vec::new();
-        let error = keep_minted(created.as_bytes(), None, None, &env, false, &mut out)
-            .await
-            .unwrap_err();
+        let error = keep_minted(
+            created.as_bytes(),
+            None,
+            Some(server.uri()),
+            &env,
+            false,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
         assert!(
             error.message().contains("no readable expiry"),
             "{}",

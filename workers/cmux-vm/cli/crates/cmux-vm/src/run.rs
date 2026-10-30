@@ -169,6 +169,16 @@ pub async fn run(
                 ),
             );
         }
+        if !synced.hard_linked.is_empty() {
+            note(
+                stderr,
+                &format!(
+                    "not syncing {} hard-linked files (their bytes may be another path's): {}",
+                    synced.hard_linked.len(),
+                    summary(&synced.hard_linked)
+                ),
+            );
+        }
         if !synced.linked.is_empty() {
             note(
                 stderr,
@@ -893,11 +903,13 @@ pub(crate) fn sync_list(dir: &Path) -> Result<SyncList, CliError> {
         }
         // Only regular files and symlinks: a gitlink (submodule) is a directory.
         match std::fs::symlink_metadata(dir.join(&path)) {
+            Ok(meta) if meta.is_file() && hard_linked(&meta) => list.hard_linked.push(path),
             Ok(meta) if meta.is_file() || meta.file_type().is_symlink() => list.files.push(path),
             _ => {}
         }
     }
     list.files.sort();
+    list.hard_linked.sort();
     list.credentials.sort();
     list.linked.sort();
     Ok(list)
@@ -908,6 +920,20 @@ pub(crate) struct SyncList {
     pub files: Vec<PathBuf>,
     pub credentials: Vec<PathBuf>,
     pub linked: Vec<PathBuf>,
+    /// Regular files with more than one link: their bytes may be another
+    /// path's, a credential's that the name filter skipped, so they never sync.
+    pub hard_linked: Vec<PathBuf>,
+}
+
+#[cfg(unix)]
+fn hard_linked(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    meta.nlink() > 1
+}
+
+#[cfg(not(unix))]
+fn hard_linked(_meta: &std::fs::Metadata) -> bool {
+    false
 }
 
 fn git_files(dir: &Path) -> Option<Vec<PathBuf>> {
@@ -1318,6 +1344,22 @@ mod tests {
             Path::new("../outside/secret.txt")
         ));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_link_to_a_credential_never_syncs() {
+        let dir = std::env::temp_dir().join(format!("cmux-vm-run-hardlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join(".env"), "SECRET=1").unwrap();
+        std::fs::hard_link(dir.join(".env"), dir.join("src/config.txt")).unwrap();
+        std::fs::write(dir.join("src/main.rs"), "fn main() {}").unwrap();
+        let list = sync_list(&dir).unwrap();
+        assert_eq!(list.files, vec![PathBuf::from("src/main.rs")]);
+        assert_eq!(list.hard_linked, vec![PathBuf::from("src/config.txt")]);
+        assert_eq!(list.credentials, vec![PathBuf::from(".env")]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
