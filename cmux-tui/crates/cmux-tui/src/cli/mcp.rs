@@ -614,6 +614,15 @@ impl<B: Backend> Server<B> {
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
+        }
+        self.listed()
+    }
+
+    /// [`Self::list`] from the actions and proxied tools as last read,
+    /// asking nothing again.
+    fn listed(&self) -> Vec<Value> {
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
         tools
@@ -633,8 +642,7 @@ impl<B: Backend> Server<B> {
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
-        for proxied in &mut self.upstreams {
-            proxied.refresh();
+        for proxied in &self.upstreams {
             let taken = tools
                 .iter()
                 .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
@@ -868,9 +876,19 @@ impl<B: Backend> Server<B> {
             self.refresh_actions();
         }
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
-            return Err((-32602, format!("unknown tool: {name}")));
+            return Err((-32602, self.unknown_tool(name)));
         };
         Ok(self.call_action(tool, &arguments))
+    }
+
+    /// `unknown tool: NAME`, naming the nearest tool this chat may call when
+    /// one is close (`acpmux::mcp_hint`).
+    fn unknown_tool(&self, name: &str) -> String {
+        let listed = self.listed();
+        let scripts = self.code_mode && self.allowed.is_none();
+        let code_mode = if scripts { [code_mode::DOCS, code_mode::EXEC].as_slice() } else { &[] };
+        let listed = listed.iter().filter_map(|tool| tool["name"].as_str());
+        acpmux::mcp_hint::unknown_tool(name, code_mode.iter().copied().chain(listed))
     }
 
     /// One request from a running `cmux_exec` script: a tool call through
