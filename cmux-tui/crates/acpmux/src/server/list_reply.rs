@@ -31,10 +31,12 @@ pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, Optio
     REPLY.scope(RefCell::new((id, None)), run).await
 }
 
-/// `limit`, `cursor`, `peer` and `status` all absent, null or empty: the whole list.
+/// List filters absent, null or empty: the whole list.
 fn whole(params: &Value) -> bool {
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
-    ["limit", "cursor", "peer", "status"].into_iter().all(unset)
+    ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus", "orderBy"]
+        .into_iter()
+        .all(unset)
 }
 
 /// Waits out this connection's pace, then sends `make` of the shared list as the reply,
@@ -130,12 +132,33 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 }
 
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.
+/// A connection served as a peer (it proved this launch's peer token) reads only this
+/// daemon's own sessions: the link drops every row mirrored from a peer (`peer.rs`
+/// `watch_sessions`), and with them big-red's list was 17 MB with tools on 2026-10-30, past
+/// the message limit, so no peer's handshake there finished. Built from the own sessions
+/// alone, never from the whole list, once per snapshot.
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
+    if conn.origin == super::Origin::Peer && whole(params) {
+        let raw = conn.raw_text;
+        return reply(hub, conn, None, |list| {
+            let name = match (tools, raw) {
+                (true, true) => "own tools",
+                (true, false) => "own tools masked",
+                (false, true) => "own",
+                (false, false) => "own masked",
+            };
+            Ok(list.made(name, |_| {
+                let own = Snapshot::own_whole(hub, tools);
+                if raw { own } else { masked(serde_json::from_str(&own).unwrap_or_default()) }
+            }))
+        })
+        .await;
+    }
     sessions(hub, conn, params).await
 }
 
@@ -184,6 +207,10 @@ pub(super) fn reply_line(id: &Value, result: &str) -> String {
     }
     line
 }
+
+#[cfg(test)]
+#[path = "list_reply_tests.rs"]
+mod link_tests;
 
 #[cfg(test)]
 mod tests {

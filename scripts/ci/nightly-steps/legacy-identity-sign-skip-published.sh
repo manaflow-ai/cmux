@@ -15,6 +15,23 @@ if grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/o
    || { [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }; then
   echo "skip=true" >> "$GITHUB_OUTPUT"
   echo "### Old feed already at $current; build $NIGHTLY_BUILD skipped" >> "$GITHUB_STEP_SUMMARY"
-else
-  echo "skip=false" >> "$GITHUB_OUTPUT"
+  exit 0
 fi
+# Superseded: a new submission of a build older than the cmux NEXT feed's newest Nightly build. The
+# run that published that newer build (or a later run's legacy-identity-target, which takes the
+# newest) signs it for the old feed, so this one would only cost a Mac and Apple's queue: runs
+# 40935345693, 40936301031 and 40940370080 queued their legacy signs 30-60 min for builds already
+# behind the NEXT feed. A continuation (LEGACY_ACTION=continue) only asks Apple about a submission
+# already made and is kept. A feed that cannot be read skips nothing.
+if [ "${LEGACY_ACTION:-}" = new ] && [ -n "${NIGHTLY_NEXT_FEED_BASE:-}" ] \
+   && curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/next-feed.xml" "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}" \
+   && python3 scripts/ci/nightly_next_ring.py select --feed "$RUNNER_TEMP/next-feed.xml" --out "$RUNNER_TEMP/next-nightly.xml" --channel cmux-next >/dev/null; then
+  newest="$(sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$RUNNER_TEMP/next-nightly.xml" | sort -n | tail -1)"
+  echo "cmux NEXT feed Nightly build: ${newest:-none}"
+  if [ -n "$newest" ] && [ "$NIGHTLY_BUILD" -lt "$newest" ]; then
+    echo "skip=true" >> "$GITHUB_OUTPUT"
+    echo "### cmux NEXT already serves build $newest; build $NIGHTLY_BUILD is superseded, not submitted" >> "$GITHUB_STEP_SUMMARY"
+    exit 0
+  fi
+fi
+echo "skip=false" >> "$GITHUB_OUTPUT"

@@ -69,6 +69,8 @@ public final class MockAgentSession: AgentSessionSource {
             } else {
                 startTurn(text: text, attachments: attachments, promptID: promptID)
             }
+        case .retryFailedTurn:
+            emit(.clientError("This demo has no failed turn to retry."))
         case .cancel:
             running?.cancel()
             // A turn waiting on the person ends too (an agent cancels its

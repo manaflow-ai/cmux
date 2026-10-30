@@ -503,7 +503,9 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
         .await;
     }
 
-    let (ok, stdout, stderr) = cli(&root, &socket, &["--json", "session", "stop", &stop_id]).await;
+    // `--id` needs no `--mesh`: it stops the session as the positional form does.
+    let (ok, stdout, stderr) =
+        cli(&root, &socket, &["--json", "session", "stop", "--id", &stop_id]).await;
     assert!(ok, "{stdout}{stderr}");
     let stopped = cb.call(method::MUX_INFO, json!({"sessionId": stop_id})).await;
     assert_eq!(stopped["status"], "closed");

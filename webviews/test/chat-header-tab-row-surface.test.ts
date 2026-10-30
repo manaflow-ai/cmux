@@ -92,7 +92,18 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
   });
 
   for (const host of ["acpmux-floating-header", "acpmux-floating-bar", "acpmux-header-tools"]) {
-    for (const state of ["rest", "hover", "pressed", "popup-open", "focus-visible", "disabled"] as const) {
+    for (const state of [
+      "rest",
+      "hover",
+      "pressed",
+      "pressed-hover",
+      "popup-open",
+      "focus-visible",
+      "disabled",
+    ] as const) {
+      // Plain at rest, on hover, with its menu open, focused or disabled. Pressed (its panel open), it
+      // takes the App's toolbar selection fill on its own square (Leo, 2026-10-29: "i literally meant the
+      // ui depicting it as toggled or not").
       test(`${host} keeps plain icons in its ${state} state`, async () => {
         // Match the shipped cascade: the shared pane sheet supplies the important focus gradient.
         const shellCss = [
@@ -107,7 +118,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
             :root {
               --agent-text: rgb(240, 240, 240); --agent-muted: rgb(150, 160, 170);
               --agent-soft: rgb(100, 110, 120); --agent-accent: rgb(200, 120, 80);
-              --acpmux-motion-hover: 0ms;
+              --acpmux-motion-hover: 0ms; --cmux-selection: rgba(255, 255, 255, 0.12);
             }
           </style></head><body>
             <header class="${host}"><button class="acpmux-header-tool" aria-label="Panel">
@@ -117,13 +128,15 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
           const button = page.locator(".acpmux-header-tool");
           await page.mouse.move(319, 119);
           if (state === "hover") await button.hover();
-          if (state === "pressed") {
+          if (state === "pressed" || state === "pressed-hover") {
             await button.evaluate((node) => {
               node.setAttribute("aria-pressed", "true");
               // HeaderIcon(selected) supplies accent ink on the glyph, not the button's surface.
               (node.firstElementChild as HTMLElement).style.color = "var(--agent-accent)";
             });
           }
+          // Hovering an open panel's toggle keeps its fill.
+          if (state === "pressed-hover") await button.hover();
           if (state === "popup-open") await button.evaluate((node) => node.setAttribute("data-popup-open", ""));
           if (state === "focus-visible") {
             await page.keyboard.press("Tab");
@@ -145,16 +158,17 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
           const color =
             state === "disabled"
               ? "rgb(100, 110, 120)"
-              : state === "hover" || state === "pressed" || state === "popup-open"
+              : state === "hover" || state === "pressed" || state === "pressed-hover" || state === "popup-open"
                 ? "rgb(240, 240, 240)"
                 : "rgb(150, 160, 170)";
           expect(computed).toMatchObject({
-            background: "rgba(0, 0, 0, 0)",
+            background:
+              state === "pressed" || state === "pressed-hover" ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0)",
             image: "none",
             color,
             outline: state === "focus-visible" ? "solid" : "none",
             shadow: "none",
-            glyph: state === "pressed" ? "rgb(200, 120, 80)" : color,
+            glyph: state === "pressed" || state === "pressed-hover" ? "rgb(200, 120, 80)" : color,
           });
           if (state === "focus-visible") {
             expect(parseFloat(computed.outlineWidth)).toBeGreaterThan(0);

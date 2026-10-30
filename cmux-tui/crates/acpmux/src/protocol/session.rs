@@ -24,7 +24,7 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
-    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    /// Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.
     #[serde(default)]
     #[schemars(default)]
     pub state: String,
@@ -107,6 +107,12 @@ pub struct SessionSummary {
     pub waits_for_slot: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
+    /// Moved to another daemon (`acpmux session move`): where it runs now,
+    /// `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub moved_to: Option<Value>,
     /// The family of a conversation another app runs that this chat only shows; null otherwise.
     pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.
@@ -353,12 +359,25 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+    /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+    /// on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub held_by_stop: bool,
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,
     /// The sending agent's name when it is another agent's message, null for the person's: an
     /// app draws it as a received message waiting for the turn, not as a composer row.
     pub from_agent: Option<String>,
+    /// The sending session's id when the daemon bound it (its caller token, a peer daemon's word
+    /// on its own proven caller, the mesh relay's sender, a lane's report), null otherwise
+    /// (`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.
+    pub from_session_id: Option<String>,
+    /// That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
+    /// draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
+    pub from_harness: Option<String>,
     /// What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
     /// `result` when it named none; null for the person's own prompt and from a peer on an older
     /// acpmux.
@@ -573,6 +592,15 @@ pub struct SessionsParams {
     /// (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// `_acpmux/sessions` only: exclude peer sessions before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_by: Option<String>,
+    /// `_acpmux/sessions` only: exclude these statuses before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_status: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

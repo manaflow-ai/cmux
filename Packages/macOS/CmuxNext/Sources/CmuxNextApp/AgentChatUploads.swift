@@ -58,11 +58,10 @@ struct AgentChatUploads {
                     if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
                     else { batches[batchToken] = Batch(session: session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
                 }
-                guard size <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
+                guard size >= 0 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 if let manifest {
                     guard manifest.first?.name == name, manifest.first?.size == size,
-                          manifest.allSatisfy({ $0.size >= 0 && $0.size <= 1 * 1024 * 1024 * 1024 }),
-                          manifest.reduce(0) { $0 + $1.size } <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
+                          manifest.allSatisfy({ $0.size >= 0 }) else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 }
                 let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
                 do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
@@ -87,7 +86,7 @@ struct AgentChatUploads {
                 }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
-                guard var stage = stages[token], stage.session == session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                guard var stage = stages[token], stage.session == session, stage.received == offset, data.count <= stage.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
                 Task { @MainActor in

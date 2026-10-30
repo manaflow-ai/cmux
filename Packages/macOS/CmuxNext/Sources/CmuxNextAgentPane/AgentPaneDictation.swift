@@ -60,6 +60,13 @@ final class AgentPaneDictation {
     /// Capture the chat at start: closing the recording may outlive a pane navigation.
     var chatSession: () -> String? = { nil }
     private var recordingChat = ""
+    /// The long recordings this pane's sessions wrote and handed the page, newest last, each with
+    /// the chat it was made in and the file the writer left there: the only files
+    /// ``takeRecording(_:session:)`` gives out, so the page can never have the host send any other
+    /// file (not even one put at that path since).
+    private var issued: [(recording: AgentPaneIssuedRecording, session: String)] = []
+    /// How many recordings ``issued`` keeps: the page asks for one as its session ends.
+    static let issuedRecordingLimit = 8
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
@@ -223,15 +230,42 @@ final class AgentPaneDictation {
     private func activeSession() -> DictationSession {
         if let session { return session }
         let made = makeSession()
-        made.onUpdate = { [weak self] update in self?.deliver(update) }
+        made.onUpdate = { [weak self] update in
+            guard let self else { return }
+            self.deliver(update, recordedIn: self.recordingChat)
+        }
         made.recordingFolder = { [weak self] in self?.recordingFolder() }
         session = made
         return made
     }
 
-    private func deliver(_ update: DictationUpdate) {
+    /// Long recording `path`, when this pane's dictation wrote it in chat `session` and handed it to
+    /// the page; taken once (`dictation.recording.upload`, ``AgentPaneDictationUpload``).
+    func takeRecording(_ path: String, session: String) -> AgentPaneIssuedRecording? {
+        guard let index = issued.firstIndex(where: { $0.recording.file.path == path && $0.session == session }) else { return nil }
+        return issued.remove(at: index).recording
+    }
+
+    /// Gives back long `recording` of chat `session` whose upload failed, so the page's Retry
+    /// can take it again (``takeRecording(_:session:)``, still once per try).
+    func giveBackRecording(_ recording: AgentPaneIssuedRecording, session: String) {
+        issue(recording, session: session)
+    }
+
+    private func issue(_ recording: AgentPaneIssuedRecording, session: String) {
+        issued.append((recording, session))
+        if issued.count > Self.issuedRecordingLimit { issued.removeFirst(issued.count - Self.issuedRecordingLimit) }
+    }
+
+    /// One of the session's updates, for the page, named for `chat`, the chat its session was
+    /// started in (``recordingChat``), whatever the pane shows now. A long recording on it is
+    /// issued to that chat.
+    func deliver(_ update: DictationUpdate, recordedIn chat: String) {
         var update = update
-        update.chat = recordingChat
+        update.chat = chat
+        if let file = update.audio?.file, let identity = update.audio?.fileIdentity {
+            issue(AgentPaneIssuedRecording(file: file, identity: identity), session: chat)
+        }
         if update.phase.isStartable {
             endHold()
             endSleepWatch()
