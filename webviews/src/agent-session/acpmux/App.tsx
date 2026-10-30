@@ -187,7 +187,7 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
-import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { folderConfirmingHere, useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -4674,7 +4674,9 @@ function AcpmuxPane() {
   const folderConfirmGeneration = useRef(0);
   const folderConfirmInFlight = useRef(false);
   /// The chat whose folder answer is saving (Use was clicked), or false: only that chat waits on it.
-  const [folderConfirming, setFolderConfirming] = useState<false | { sessionId?: string }>(false);
+  /// `visit` is the client's selection identity then (`trustVisit`): a fresh chat has no session id,
+  /// so another fresh chat shown later is told apart by it.
+  const [folderConfirming, setFolderConfirming] = useState<false | { sessionId?: string; visit?: string }>(false);
   const [importError, setImportError] = useState<string | undefined>();
   // Edit CLAUDE.md the app refused (a link out of the folder, not a file): the notice above the
   // composer says why, with Retry; opening it clears the notice.
@@ -5186,7 +5188,7 @@ function AcpmuxPane() {
   // One hard stop for direct composer sends and every callback released by Trust. Confirmation
   // hides the question before the host answers, so it remains blocked while that answer saves.
   // Another chat shown meanwhile has no folder question of its own: it is not held.
-  const confirmingHere = folderConfirming !== false && folderConfirming.sessionId === snapshot.sessionId;
+  const confirmingHere = folderConfirmingHere(folderConfirming, snapshot.sessionId, trustVisit());
   const blockSend = Boolean(pendingFolder) || confirmingHere || Boolean(authBlock);
   // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
   const continueAvailable = canContinueIn(snapshot);
@@ -9902,7 +9904,9 @@ function AcpmuxPane() {
       if (generation === folderConfirmGeneration.current) pending.use(cwd);
     };
     folderConfirmInFlight.current = true;
-    setFolderConfirming({ sessionId: pending.sessionId });
+    const visit = trustVisit();
+    // A stale render's sentinel (or no client: a gallery frame) records no visit; the session id scopes it.
+    setFolderConfirming({ sessionId: pending.sessionId, ...(typeof visit === "string" ? { visit } : {}) });
     setFolderAsk(undefined);
     void confirmFolder(callNative, pending.ask, use).then(
       () => {
@@ -9917,7 +9921,7 @@ function AcpmuxPane() {
         setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) });
       },
     );
-  }, [folderConfirming, pendingFolder]);
+  }, [folderConfirming, pendingFolder, trustVisit]);
   const cancelPendingFolder = useCallback(() => {
     folderConfirmGeneration.current += 1;
     folderConfirmInFlight.current = false;

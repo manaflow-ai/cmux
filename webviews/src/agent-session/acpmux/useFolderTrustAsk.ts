@@ -31,6 +31,21 @@ export function answerFolder(ask: { cwd: string; repo?: TrustRepo }, scope: "rep
   return scope === "repo" && ask.repo ? ask.repo.root : ask.cwd;
 }
 
+/// A folder answer saving (Use was clicked) holds only the chat it was asked in: the same session
+/// id and, when the client named one, the same visit. Two fresh chats share no session id, so the
+/// visit (`trustVisit` in App.tsx) tells them apart.
+export function folderConfirmingHere(
+  confirming: false | { sessionId?: string; visit?: string },
+  sessionId: string | undefined,
+  visit: unknown,
+): boolean {
+  return (
+    confirming !== false &&
+    confirming.sessionId === sessionId &&
+    (confirming.visit === undefined || confirming.visit === visit)
+  );
+}
+
 /// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
 /// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
 export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
