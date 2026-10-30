@@ -12,18 +12,23 @@ protocol DeviceOwnerAuthenticating: AnyObject {
 /// LocalAuthentication `deviceOwnerAuthentication`; false when the Mac cannot evaluate it.
 @MainActor
 final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
+    private final class ContextBox: @unchecked Sendable {
+        let context: LAContext
+        init(_ context: LAContext) { self.context = context }
+    }
+
     private final class Reply: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Bool, Never>?
         private var finished = false
 
-        func install(_ continuation: CheckedContinuation<Bool, Never>) {
+        nonisolated func install(_ continuation: CheckedContinuation<Bool, Never>) {
             lock.lock()
             defer { lock.unlock() }
             if finished { continuation.resume(returning: false) } else { self.continuation = continuation }
         }
 
-        func finish(_ answer: Bool) {
+        nonisolated func finish(_ answer: Bool) {
             lock.lock()
             guard !finished else { lock.unlock(); return }
             finished = true
@@ -36,6 +41,7 @@ final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
 
     func authenticate(reason: String) async -> Bool {
         let context = LAContext()
+        let contextBox = ContextBox(context)
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
         let reply = Reply()
@@ -43,12 +49,12 @@ final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 reply.install(continuation)
                 // The reply runs on a LocalAuthentication queue, never the main actor.
-                context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
+                contextBox.context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
                     reply.finish(success)
                 }
             }
         }, onCancel: {
-            context.invalidate()
+            contextBox.context.invalidate()
             reply.finish(false)
         })
     }
