@@ -1,8 +1,10 @@
 //! Pending prompt identities remain owned by the session until they settle.
 
-use super::{Hub, PromptOutcome, Session};
+use super::{ChildAgent, Hub, PromptOutcome, Session};
+use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 /// Only completed outcomes count against the retry cache's bound. Pending senders
 /// must stay discoverable, including restored prompts whose completion looks them up.
@@ -26,7 +28,60 @@ pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
     });
 }
 
+/// A turn adoption recovered from its agent host (`hosts.rs` `recover_work`): its prompt's first
+/// run, still going. Its prompt id waits in the ledger as a queued prompt's does after a restart
+/// (`queue.rs` `restore_queue`), so a resend of it (`acpmux send` reconnecting) waits for the
+/// turn's end in `turns.rs` `prompt_with`, instead of an answer from the log, which reads
+/// `interrupted` while the turn runs and cuts its reply at the restart.
+pub(super) struct Recovered {
+    outcome: PromptOutcome,
+    prompt_id: String,
+    turn_id: String,
+    turn_seq: u64,
+}
+
 impl Hub {
+    /// Puts a recovered turn's prompt id in the ledger (see [`Recovered`]).
+    pub(super) fn recovered_turn(
+        session: &Session,
+        prompt_id: &str,
+        turn_id: &str,
+        turn_seq: u64,
+    ) -> Recovered {
+        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        let outcome = match ledger.iter().find(|(id, _)| id == prompt_id) {
+            Some((_, outcome)) => outcome.clone(),
+            None => {
+                let outcome: PromptOutcome = Arc::new(tokio::sync::watch::channel(None).0);
+                ledger.push_back((prompt_id.to_owned(), outcome.clone()));
+                outcome
+            }
+        };
+        let (prompt_id, turn_id) = (prompt_id.to_owned(), turn_id.to_owned());
+        Recovered { outcome, prompt_id, turn_id, turn_seq }
+    }
+
+    /// Settle a recovered turn (`finish_turn`), and answer the resends waiting on it as a turn
+    /// `run_prompt` ran answers: with its ids, so the sender reads that turn's reply.
+    pub(super) async fn finish_recovered(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        turn: &Recovered,
+        result: Result<Value, RpcError>,
+        next: Option<&super::carried_turn::NextTurn>,
+    ) {
+        let (prompt, id, seq) = (&turn.prompt_id, &turn.turn_id, turn.turn_seq);
+        let mut result =
+            self.finish_turn(session, child, result, prompt, id, seq, None, next).await;
+        if let Ok(v) = &mut result {
+            super::merge_mux_meta(v, json!({"promptId": prompt, "turnId": id, "turnSeq": seq}));
+        }
+        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        turn.outcome.send_replace(Some(result));
+        prune(&mut ledger);
+    }
+
     /// Whether session `session`'s log records a turn that ran `prompt_id` (its `user_message`,
     /// alone or joined with other agent messages, `digest.rs`). Blocking: it reads the log.
     pub(crate) fn ran_prompt(&self, session: &str, prompt_id: &str) -> bool {

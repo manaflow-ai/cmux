@@ -113,8 +113,8 @@ fn wrong_key_cannot_open_a_stream() {
             tokio::time::timeout(Duration::from_secs(1), a.connect(a.route("b").unwrap())).await;
         assert!(!matches!(result, Ok(Ok(_))), "a wrong-key tunnel opened");
         assert!(tokio::time::timeout(Duration::from_millis(50), target.accept()).await.is_err());
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
     });
 }
 
@@ -214,8 +214,8 @@ fn session_streams_are_multiplexed_and_keep_websocket_authorization() {
         tokio::join!(web_calls, peer_calls);
         web.close(None).await.unwrap();
         peer.close(None).await.unwrap();
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
         server.abort();
         let _ = server.await;
     });
@@ -249,8 +249,8 @@ fn peer_uses_the_shared_mesh_before_its_unreachable_fallback() {
         assert!(peer.request("session/list", json!({})).await.unwrap().is_object());
         peer.stop();
         tokio::time::timeout(BOUND, task).await.unwrap().unwrap();
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
         server.abort();
         let _ = server.await;
     });
@@ -338,7 +338,7 @@ fn loopback_throughput_and_shutdown() {
         assert!(this_process_holds(&a_socket_link), "the transport runs on its UDP socket");
         #[cfg(not(target_os = "linux"))]
         let local = a.local_addr();
-        a.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
         // Releasing UDP is this process closing its socket. A process another test is spawning
         // holds a copy from its fork until its exec, and the port stays bound until that copy
         // closes too, so a rebind here could fail with nothing of ours left holding it.
@@ -349,7 +349,7 @@ fn loopback_throughput_and_shutdown() {
         let closed = tokio::time::timeout(BOUND, tunneled.next()).await
             .expect("shutdown must resolve a pending stream read");
         assert!(!matches!(closed, Some(Ok(frame)) if !frame.is_close()), "shutdown must end the stream");
-        b.shutdown().await;
+        b.shutdown(tokio::time::Instant::now()).await;
         tokio::time::timeout(BOUND, echo).await.unwrap().unwrap();
     });
 }
@@ -375,11 +375,11 @@ fn a_stop_delivers_what_the_listener_sent_before_the_tunnel_ends() {
         // The listener's last words, then its close, as a draining WebSocket listener does.
         local.write_all(b"last words").await.unwrap();
         drop(local);
-        b.shutdown().await;
+        b.shutdown(tokio::time::Instant::now() + BOUND).await;
         let mut got = Vec::new();
         let read = tokio::time::timeout(BOUND, stream.read_to_end(&mut got)).await.unwrap();
         assert!(read.is_ok(), "the tunnel was reset: {read:?}, after {got:?}");
         assert_eq!(got, b"last words");
-        a.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
     });
 }

@@ -1140,6 +1140,7 @@ impl Hub {
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
+                    let resends = Self::recovered_turn(session, &prompt_id, &turn_id, turn_seq);
                     // Before anything can force its end (`turn_answer`).
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
@@ -1209,9 +1210,7 @@ impl Hub {
                             c.next.control = Control::Web;
                         }
                         let next = carried.as_deref();
-                        let _ = hub
-                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
-                            .await;
+                        hub.finish_recovered(&s, &c, &resends, result, next).await;
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
                         if let Some(carried) = &carried {
