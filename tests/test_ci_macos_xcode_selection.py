@@ -48,6 +48,8 @@ EXEMPT = {
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
+    ("nightly-next-launch-smoke.yml", "smoke"):
+        "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
     ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
@@ -96,6 +98,18 @@ EXEMPT = {
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",
+    ("cmux-next.yml", "swift-canary-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "app-compile-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "release-compile-fast"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check --release; the compile runs on a fleet worker, never "
+        "with this runner's Xcode",
 }
 
 # (workflow, job, step name) allowed to set CMUX_CI_XCODE_ALLOW_BELOW_FLOOR.
@@ -148,7 +162,7 @@ def steps(job: str) -> list[tuple[str, str]]:
     """(name, text) for each step of a job."""
     lines = job.splitlines()
     try:
-        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:\s*$", line))
+        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:(?:\s+&[\w-]+)?\s*$", line))
     except StopIteration:
         return []
     found = []
@@ -184,7 +198,15 @@ def check_workflow(name: str, text: str) -> list[str]:
     # A path such as scripts/build-x.sh keeps its name even when a job shares it.
     job_ids = [job_id for job_id in workflow_jobs if "-" in job_id]
     job_id_token = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
+    # A job whose steps are a YAML alias (`steps: *name`, a same-run twin) runs the anchored job's steps.
+    anchored = {m.group(1): job for job in workflow_jobs.values()
+                for m in [re.search(r"^    steps:\s+&([\w-]+)\s*$", job, re.M)] if m}
     for job_id, job in workflow_jobs.items():
+        alias = re.search(r"^    steps:\s+\*([\w-]+)\s*$", job, re.M)
+        if alias and alias.group(1) in anchored:
+            body = anchored[alias.group(1)]
+            after = body.index("\n", re.search(r"^    steps:", body, re.M).start()) + 1
+            job = job[:alias.start()] + "    steps:\n" + body[after:]
         key = (name, job_id)
         if not is_macos(job) or key in EXEMPT:
             continue

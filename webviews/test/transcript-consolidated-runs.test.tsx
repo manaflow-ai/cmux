@@ -45,7 +45,11 @@ const run = (items: AcpmuxActivity[], foldRun = true): AcpmuxRow => ({
   foldRun,
   items,
 });
-const drawn = (row: AcpmuxRow) => renderToStaticMarkup(<ToolRows row={row} />).replace(/<[^>]+>/g, " ");
+// Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+const drawn = (row: AcpmuxRow) =>
+  renderToStaticMarkup(<ToolRows row={row} />)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
 const lines = (row: AcpmuxRow) => (renderToStaticMarkup(<ToolRows row={row} />).match(/aria-expanded/g) ?? []).length;
 
 const longThought = (topic: string) => thought(`Now I should look at ${topic} to see how the retry is wired up.`);
@@ -82,12 +86,20 @@ test("a thought between two calls of one kind stays inside their group", () => {
   expect(toolGroupLabel(translate, "commands", (trailing[0] as { items: AcpmuxActivity[] }).items)).toBe(
     "Ran 2 commands",
   );
-  // Between calls of different kinds a thought keeps its own row.
+  // Between calls of different kinds a thought keeps its own row while the next run is one call.
   expect(toolGroups([read("a.ts"), longThought("x"), command("ls")]).map((entry) => entry.type)).toEqual([
     "item",
     "item",
     "item",
   ]);
+  // Before a run of two or more calls it leads their group, first (as Claude Code desktop draws a
+  // run's thinking inside it).
+  const thinking = longThought("y");
+  const led = toolGroups([read("a.ts"), thinking, command("ls"), command("pwd")]);
+  expect(led.map((entry) => entry.type)).toEqual(["item", "group"]);
+  expect((led[1] as { items: AcpmuxActivity[] }).items[0]).toBe(thinking);
+  // Before an edit it keeps its own row.
+  expect(toolGroups([longThought("z"), edit("src/a.ts")]).map((entry) => entry.type)).toEqual(["item", "group"]);
 });
 
 test("an edit folds with the work around it, named on the line in the order it came", () => {

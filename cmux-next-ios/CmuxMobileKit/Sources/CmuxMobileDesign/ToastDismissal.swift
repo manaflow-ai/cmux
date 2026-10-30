@@ -86,3 +86,13 @@ public struct ToastPlacement: Equatable, Sendable {
         !frame(toastHeight: toastHeight, screenHeight: screenHeight, safeTop: safeTop, safeBottom: safeBottom).intersects(control)
     }
 }
+
+extension ToastDismissal {
+    /// How long a toast stays (a UI timeout, not synchronization): 4 s, longer for a line
+    /// that takes longer to read (about 3 words a second, at most 12 s). A refusal that says
+    /// what to do (the trust steps, 30 to 45 words) went away mid-sentence after 4 s.
+    public static func lifetime(for text: String) -> Duration {
+        let words = text.split(whereSeparator: \.isWhitespace).count
+        return .seconds(min(12, max(4, Double(words) / 3)))
+    }
+}

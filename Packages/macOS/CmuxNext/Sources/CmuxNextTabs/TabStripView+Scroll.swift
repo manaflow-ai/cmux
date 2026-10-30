@@ -41,7 +41,7 @@ extension TabStripView {
                                            viewportWidth: viewportWidth)
         // The scroll moves the scrolling layer's bounds (every tab, chip and band in it) and the +, nothing else.
         var layers = [scrollProbe, scrollingLayer]
-        if let button = newTabButton.layer { layers.append(button) }
+        layers += [newTabButton.layer, newTabMenuButton.layer].compactMap { $0 }
         TabStripMove.cancelScroll(on: layers)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -126,16 +126,20 @@ extension TabStripView {
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabTop + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
         let buttonFrom = newTabButton.frame.origin
         if newTabButton.frame != buttonFrame { newTabButton.frame = buttonFrame }
+        let menuFrame = CGRect(x: buttonFrame.maxX, y: buttonFrame.minY, width: newTabControlsWidth - buttonWidth, height: buttonFrame.height)
+        if newTabMenuButton.frame != menuFrame { newTabMenuButton.frame = menuFrame }
         // The scroll moves it only where it follows the last tab both before and now (not held at the strip's end).
         let buttonEnd = pixel(tabsClip.frame.minX + viewportWidth) - 0.5
         let scroll = buttonFrame.minX < buttonEnd && buttonFrom.x < buttonEnd ? scrollPart : 0
-        if let move, let layer = newTabButton.layer, buttonFrom != buttonFrame.origin || abs(scroll) > 0.01 {
-            // A view's layer is in its superview's (flipped or not) coordinates: its position moved as its frame did.
+        if let move, buttonFrom != buttonFrame.origin || abs(scroll) > 0.01 {
+            // Both controls follow the same move and scroll, staying adjacent throughout the transition.
             let delta = CGPoint(x: buttonFrom.x - buttonFrame.minX - scroll, y: buttonFrom.y - buttonFrame.minY)
-            if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
-                move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: layer, as: "button")
+            for layer in [newTabButton.layer, newTabMenuButton.layer].compactMap({ $0 }) {
+                if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
+                    move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: layer, as: "button")
+                }
+                move.addScroll(scroll, to: layer)
             }
-            move.addScroll(scroll, to: layer)
         }
     }
 

@@ -1,7 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
 //! turn (`update` its prompt, or its text, which keeps its images; `move` it, `send_now` or
 //! `interrupt`), or `resume` the prompts a failed turn holds (`queue.rs` `pause_queue`; any of
-//! the queue's prompts names it), or `withdraw` a steer the agent has not read yet. Every change is a record in the log, so a new daemon rebuilds
+//! the queue's prompts names it, or none), or `withdraw` a steer the agent has not read yet. Every change is a record in the log, so a new daemon rebuilds
 //! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 //!
 //! In a chat several people share (`author.rs`), only the person who sent a prompt changes it or
@@ -10,6 +10,7 @@
 
 use super::queue::PromptRun;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// How long Send now waits for the agent to stop its step for a steer.
@@ -18,6 +19,9 @@ const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
 mod withdraw;
+// `_acpmux/queue_text`, one queued prompt's whole text (`hub/mod.rs` is at its size budget).
+#[path = "queue_text.rs"]
+mod queue_text;
 
 /// The Full-access machine an edited prompt keeps (`PromptRun::full_access_device`): its own,
 /// only when the edit comes from that same machine.
@@ -102,7 +106,7 @@ impl Edit {
             .map(|(i, _)| i)
             .collect();
         let blocks = std::iter::once(json!({"type": "text", "text": text}))
-            .chain(kept.iter().map(|&i| before[i].clone()))
+            .chain(kept.iter().filter_map(|&i| before.get(i).cloned()))
             .collect();
         (blocks, std::iter::once(None).chain(kept.into_iter().map(Some)).collect())
     }
@@ -159,7 +163,7 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
     let valid: Vec<Value> = valid
         .into_iter()
         .map(|(index, mut part)| {
-            part["blockIndex"] = json!(index);
+            part.set("blockIndex", json!(index));
             part
         })
         .collect();
@@ -167,8 +171,8 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
 }
 
 impl Hub {
-    /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`. Answers
-    /// `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
+    /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`, where
+    /// `resume` needs no `promptId`. Answers `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
     /// (`sent`: `steer`, `interrupt` or `next`). `ok` is false when the prompt no longer waits.
     pub async fn queue_edit(
         self: &Arc<Self>,
@@ -178,12 +182,15 @@ impl Hub {
         trust_gate: bool,
         device: Option<&str>,
     ) -> Result<Value, RpcError> {
-        let prompt_id = params
-            .get("promptId")
-            .and_then(Value::as_str)
-            .filter(|p| !p.is_empty())
-            .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
         let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
+        // `resume` lets go of the whole queue: it needs no prompt to name it, so the session's own
+        // agent or its coordinator resumes it over the unix socket with only the session.
+        let prompt_id =
+            match params.get("promptId").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+                Some(prompt_id) => prompt_id,
+                None if op == "resume" => "",
+                None => return Err(RpcError::invalid_params("promptId is required")),
+            };
         // A chat in Full access by a machine's setting: that machine only (`full_access_hold`).
         self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
@@ -194,8 +201,11 @@ impl Hub {
         // `resume` changes no one prompt.
         let author = crate::author::author(params)?;
         let editor = crate::author::editor(author.as_ref());
-        let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
-        reply["ok"] = match op {
+        let mut reply = json!({"sessionId": session.id, "op": op});
+        if !prompt_id.is_empty() {
+            reply.set("promptId", json!(prompt_id));
+        }
+        let new_value = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
                 let updated = self
@@ -215,12 +225,12 @@ impl Hub {
                         Some(sent) => Some(sent),
                         None => self.step_now(session, prompt_id, control, device, editor).await?,
                     };
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
             "interrupt" => {
                 let sent = self.interrupt_for_queued(session, prompt_id, editor).await?;
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
             "resume" => json!(self.resume_queue(session)),
@@ -230,6 +240,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(e));
             }
         };
+        reply.set("ok", new_value);
         Ok(reply)
     }
 
@@ -285,8 +296,11 @@ impl Hub {
                     crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
                 }),
                 agent: None,
+                class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
+                message_id: None,
+                message_sender: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
@@ -295,7 +309,7 @@ impl Hub {
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
         let images = super::prompt_images::keep(&run.blocks);
         if !images.is_empty() {
-            msg["images"] = Value::Array(images);
+            msg.set("images", Value::Array(images));
         }
         let inline_parts = super::prompt_images::inline_parts(
             &run.blocks,
@@ -303,10 +317,10 @@ impl Hub {
             run.display_parts.as_ref(),
         );
         if !inline_parts.is_empty() {
-            msg["inlineParts"] = Value::Array(inline_parts);
+            msg.set("inlineParts", Value::Array(inline_parts));
         }
         if let Some(display_parts) = &run.display_parts {
-            msg["displayParts"] = display_parts.clone();
+            msg.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
@@ -328,7 +342,8 @@ impl Hub {
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[from].sender())?;
+            let Some(item) = queue.get(from) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
@@ -376,8 +391,11 @@ impl Hub {
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    class: q.run.class,
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
+                    message_id: q.run.message_id.clone(),
+                    message_sender: q.run.message_sender.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
@@ -407,7 +425,7 @@ impl Hub {
         let Some(running) = running else {
             return Ok(Some("next"));
         };
-        self.cancel_turn(session, &running).await;
+        self.cancel_turn_for_replacement(session, &running, prompt_id).await;
         Ok(Some("interrupt"))
     }
 

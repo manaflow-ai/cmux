@@ -148,6 +148,7 @@ impl Hub {
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         self.catch_up(session);
+        self.restore_transfer_authority(session);
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             (plan.hosted.contains(&session.id), plan.waiting.contains(&session.id))
@@ -161,6 +162,10 @@ impl Hub {
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
+        // A crash may leave a durable prompt/queue record before its acceptance
+        // callback writes `_acpmux/message`; reconstruct those projections before
+        // clients can attach or the restored queue resumes.
+        super::message_events::recover_message_events(self, session);
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
@@ -189,12 +194,16 @@ impl Hub {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             plan.hosted.iter().cloned().collect()
         };
+        // All hosted chats were considered by adoption. Read their liveness once for this
+        // settling pass, off the executor, rather than reading every host record per chat.
+        // A failed read proves no host gone; keep its turn for later recovery.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         for id in hosted {
             let Ok(session) = self.resolve(&id) else { continue };
             if session.child.lock().await.is_some() {
                 continue;
             }
-            let gone = !Self::host_record_live(&id);
+            let gone = live.as_ref().is_some_and(|live| !live.contains(&id));
             let hub = self.clone();
             let settled = tokio::task::spawn_blocking(move || hub.settle_one(&session, gone));
             if let Err(e) = settled.await {
@@ -219,7 +228,15 @@ impl Hub {
         if kept && gone && waiting {
             // A wait the restart cut: its `status idle` record says so (`mark_lost_wait`), now
             // or when the background pass reads its log.
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).status = SessionStatus::Idle;
+            {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                m.status = SessionStatus::Idle;
+                // Its harness is gone: a sub-session frees its parent's width slot, under the
+                // same lock as the status, as `write_status` does (`subsessions.rs`).
+                if let Some(link) = &m.subsession {
+                    self.subsessions.note_status(&link.started_by, &session.id, m.status);
+                }
+            }
             session.mark_waiting(false);
             if *loaded {
                 self.mark_lost_wait(session);

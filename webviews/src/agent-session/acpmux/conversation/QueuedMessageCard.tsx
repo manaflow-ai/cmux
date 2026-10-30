@@ -1,6 +1,10 @@
 // Another agent's message waiting in the queue (a `QUEUED_MESSAGE` row, queuedMessages.ts): its
-// received card, as it reads once delivered (collapsed in Minimal Mode as any is), with one quiet
-// "Read after this turn" at the line's end, never a spinner or a pulsing dot (Leo, 2026-10-25). Its
+// received line, as it reads once delivered. The first of the queued messages has one quiet "Read
+// after this turn" over its line for them all, never one per message and never a spinner or a
+// pulsing dot (Leo, 2026-10-25; 2026-10-29: "the "read after this turn" stuff gets a bit
+// redundant"). While the person's Stop holds them it says so instead, and what lets them in
+// (Leo, 2026-10-29: "this is so awkward the stop button doesnt really work and resume doesnt
+// really appear!?"). Its
 // ⋯ menu keeps the queue row's actions: Steer (`send_now`, once), Edit message (into the composer,
 // images too), Open in side chat (a message without images), Move up/down, queueing, Delete.
 import { useContext, useState } from "react";
@@ -103,19 +107,18 @@ export function QueuedMessageCard({
   );
   return (
     <div className="cv-incoming" data-queued-message={promptId}>
+      {queued.lead && (
+        <div className="cv-received__queued-head">
+          {t(queued.heldByStop ? "message.heldByStop" : "message.readAfterTurn")}
+        </div>
+      )}
       <IncomingMessageLine
         id={row.id}
         message={message}
         images={row.images}
         onOpen={onOpen}
         onReply={onReply}
-        actions={
-          <>
-            {menu}
-            {/* Last: a row's focus Copy (App.tsx) sits over the line's end, never over the menu. */}
-            <span className="cv-received__queued">{t("message.readAfterTurn")}</span>
-          </>
-        }
+        actions={menu}
         githubRepository={githubRepository}
       />
     </div>
@@ -155,7 +158,9 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
           </Menu>
         </span>
       )}
-      <span className="cv-received__queued">{t("message.readAfterStep")}</span>
+      <span className="cv-received__queued" data-reveal="hover">
+        {t("message.readAfterStep")}
+      </span>
     </>
   );
 }
