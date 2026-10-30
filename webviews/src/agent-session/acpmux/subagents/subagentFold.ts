@@ -645,7 +645,18 @@ export class SubagentFold {
         this.changed.add(this.open);
         continue;
       }
-      if (agent.parent !== null || !this.canParent(child, parent)) continue;
+      if (!this.canParent(child, parent)) continue;
+      const oldParent = agent.parent;
+      if (oldParent !== null) {
+        const entries = this.own.get(oldParent);
+        if (entries) {
+          const kept = entries.filter((entry) => entry.spawned !== child);
+          if (kept.length !== entries.length) {
+            this.own.set(oldParent, kept);
+            this.bump(oldParent);
+          }
+        }
+      }
       const group = this.groupOf.get(child);
       if (group) {
         group.ids = group.ids.filter((id) => id !== child);
