@@ -15,9 +15,9 @@ private final class AuthContextBox: @unchecked Sendable {
 }
 
 private final class AuthReply: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Bool, Never>?
-    private var finished = false
+    nonisolated(unsafe) private let lock = NSLock()
+    nonisolated(unsafe) private var continuation: CheckedContinuation<Bool, Never>?
+    nonisolated(unsafe) private var finished = false
 
     nonisolated func install(_ continuation: CheckedContinuation<Bool, Never>) {
         lock.lock()
