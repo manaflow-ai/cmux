@@ -197,6 +197,10 @@ extension SidebarListViewComponents {
             let opening = SidebarRowOpening(until: now + Motion.sidebar.spring(insertMotion?.token ?? .move).settlingTime(),
                                             motion: insertMotion, travel: insertTravel)
             for row in layout.rows where old.row(for: row.key) == nil || reopened.contains(row.key) { openingRows[row.key] = opening } // only animated applies open rows (hq-1d)
+        } else {
+            // A row this change moves while still opening stands at its new slot: it must not keep an earlier insert's
+            // motion and replay it when realized later.
+            for key in reopened { openingRows[key] = nil }
         }
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).

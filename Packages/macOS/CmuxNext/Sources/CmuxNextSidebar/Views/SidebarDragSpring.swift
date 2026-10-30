@@ -50,18 +50,20 @@ import QuartzCore
         }
         let moving = moves.filter { $0.0.frame != $0.1 }
         guard !moving.isEmpty else { return }
-        let now = CACurrentMediaTime()
         // Where each view is drawn now: its model geometry, plus (under a cap) what this batch's springs still carry.
+        let sampled = CACurrentMediaTime()
         let starts = moving.map { view, _ in
             view.layer.map { layer in
                 let start = start(of: layer)
                 guard travel != nil else { return start }
-                let carried = inFlight(on: layer, at: now)
+                let carried = inFlight(on: layer, at: sampled)
                 return (CGPoint(x: start.0.x + carried.0.x, y: start.0.y + carried.0.y),
                         CGSize(width: start.1.width + carried.1.width, height: start.1.height + carried.1.height))
             }
         }
         Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
+        // The springs start after the frame update, which can take a while at many rows, so none begins already advanced.
+        let now = CACurrentMediaTime()
         for ((view, _), start) in zip(moving, starts) {
             guard let layer = view.layer, var start else { continue }
             if let travel {
