@@ -352,7 +352,6 @@ test("a classic model pick starts in the project selected on the page", async ()
   ]);
 });
 
-
 test("classic Add Project keeps a failed browse open and applies the retried folder", async () => {
   const { chatCalls } = await mount({ plugin: ({ cwd }) => <span data-plugin-folder>{cwd}</span> });
   let attempts = 0;
