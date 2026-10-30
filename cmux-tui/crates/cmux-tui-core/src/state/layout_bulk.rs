@@ -27,6 +27,7 @@ use crate::mux::*;
 use crate::state::prelude::*;
 use crate::state::store::StateCommit;
 use crate::workspace_registry::PresentationSnapshot;
+use cmux_json::JsonSet as _;
 
 /// The daemon serves `layout.bulk`.
 pub(crate) const CAPABILITY: &str = "layout-bulk-v1";
@@ -343,7 +344,7 @@ impl Mux {
         });
         if surfaces.is_empty() {
             let mut result = result;
-            result["closed_ids"] = json!([]);
+            result.set("closed_ids", json!([]));
             return Ok(StateCommit { revision, result, replayed: false, personal_revision: None });
         }
         let outcome = self.close_tabs_for_bulk(

@@ -93,6 +93,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly vm_status?: { readonly state: string; readonly health?: unknown; readonly activity: unknown; readonly at: number }
   /** A cold boot of an environment (cloud.environment.boot): the create starts its setup on the machine. */
   readonly env_setup?: { readonly environment: string; readonly digest: string }
+  /** Booted by the platform Worker's environment setup (cloud-platform.ts): only such a machine takes its exec, snapshot and delete. */
+  readonly platform?: true
 }
 
 export interface LedgerRow {
@@ -138,6 +140,9 @@ export interface TombstoneRow {
   readonly revision: string
 }
 
+/** The identity prefix of the platform Worker's calls for a person (cloud-platform.ts); no other principal has it. */
+export const PLATFORM_IDENTITY_PREFIX = "platform:"
+
 /** The ledger row of one intent: the caller's identity and the op's idempotency key (engine keys are per identity). */
 export const ledgerKey = (identity: string, idempotencyKey: string) => `${identity}|${idempotencyKey}`
 
@@ -148,7 +153,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, trajectory_parent: _tp, ...machine } = row
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, platform: _pf, trajectory_parent: _tp, ...machine } = row
   return machine
 }
 
@@ -307,7 +312,8 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     epoch: 1,
     bind: null,
     // The SSO team whose sign-in created the machine: its VM install is vouched by that team (SSO gate).
-    ...(p.sso_team ? { creator_sso_team: p.sso_team } : {})
+    ...(p.sso_team ? { creator_sso_team: p.sso_team } : {}),
+    ...(p.identity.startsWith(PLATFORM_IDENTITY_PREFIX) ? { platform: true as const } : {})
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { transport: machine.transport, key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }

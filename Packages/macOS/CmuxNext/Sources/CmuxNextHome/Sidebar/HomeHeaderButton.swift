@@ -6,13 +6,17 @@ import QuartzCore
 /// search), the composer chips' rule: no pill at rest, the theme's soft hover pill under the
 /// pointer, the pressed fill and a tiny shrink while held. The glyph is the theme's secondary
 /// text; a toggle that is on draws its filled glyph in the theme's accent, never the system blue.
-final class HomeHeaderButton: NSButton {
+/// A `glass` button sits on a glass circle its host lays under it (Messages' filter): its glyph
+/// is the theme's primary text, as Messages' white glyph on its glass.
+final class HomeHeaderButton: ClickableButton {
     /// The pressed scale (the composer chip presses to 0.975; a 28 pt button needs a little more to show).
     static let pressScale: CGFloat = 0.94
 
     private let symbol: String
     /// The glyph while `isOn` (a toggle's filled glyph); nil for a plain button.
     private let onSymbol: String?
+    /// The button sits on glass: the glyph is the primary text.
+    private let glass: Bool
     private(set) lazy var hover = ChromeHover(self, cornerRadius: 0, behindContent: true)
     private var followsPointer = false
     /// A right-click menu (compose: New Chief, Invite).
@@ -29,14 +33,16 @@ final class HomeHeaderButton: NSButton {
 
     /// The glyph's point size; the header shrinks it with the button at narrow widths.
     private(set) var glyphSize: CGFloat = 0
-    private var glyphName = ""
+    /// The glyph's symbol name at the last render.
+    private(set) var glyphName = ""
     /// The tint the glyph image was built for (`renderSymbol`): the theme's secondary text, the
     /// lit glyph while on.
     private(set) var glyphTint: NSColor?
 
-    init(symbol: String, onSymbol: String? = nil, label: String, identifier: String) {
+    init(symbol: String, onSymbol: String? = nil, label: String, identifier: String, glass: Bool = false) {
         self.symbol = symbol
         self.onSymbol = onSymbol
+        self.glass = glass
         super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
@@ -73,13 +79,13 @@ final class HomeHeaderButton: NSButton {
         renderSymbol()
     }
 
-    /// The glyph image and its tint: 14 pt in a 28 pt button (smaller with a smaller button), in
+    /// The glyph image and its tint: half the button's height (14 pt in a 28 pt button), in
     /// `glyphTint`. A new image whenever the size, the glyph or the colour changes, so a theme or
     /// light/dark switch redraws the glyph, never leaving the old drawing (or none) on screen.
     private func renderSymbol() {
         let size = max(10, (bounds.height / 2).rounded())
         let name = isOn ? (onSymbol ?? symbol) : symbol
-        let tint = performWithTheme { isOn ? Palette.litGlyph : Palette.textSecondary }
+        let tint = performWithTheme { isOn ? Palette.litGlyph : glass ? Palette.textPrimary : Palette.textSecondary }
         guard image == nil || size != glyphSize || name != glyphName || tint != glyphTint else { return }
         glyphSize = size
         glyphName = name
