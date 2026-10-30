@@ -81,3 +81,14 @@ async fn a_daemon_still_loading_is_in_use() {
         gate.send_replace(true);
     }
 }
+
+/// A chat moving to another machine keeps the daemon until the move is committed or aborted: its
+/// watch settles it, and the chat stays frozen here until then. A chat that moved away does not.
+#[tokio::test]
+async fn a_move_under_way_is_in_use() {
+    let (hub, session) = chat().await;
+    *session.moving.lock().unwrap() = Some("t-1".into());
+    assert_eq!(hub.in_use().await, Some("a move under way"));
+    session.meta.lock().unwrap().moved_to = Some(json!({}));
+    assert_ne!(hub.in_use().await, Some("a move under way"), "a committed move");
+}

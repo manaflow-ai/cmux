@@ -378,7 +378,7 @@ impl Hub {
     /// startup, store and chat-log load or adoption still running, a peer link, a listener another machine reaches it by
     /// (the mesh relay, WireGuard, the tailnet, a WebSocket listener off loopback), an
     /// undelivered message or a watch, a running agent or agent host (adopted or not), a turn or
-    /// anything one waits on, or a background task.
+    /// anything one waits on, a background task, or a move to another machine under way.
     pub(crate) async fn in_use(&self) -> Option<&'static str> {
         // Still loading: queued prompts and cut turns the last daemon left resume from the chat
         // logs, and adoption reattaches running agents.
@@ -415,6 +415,11 @@ impl Hub {
             return Some("a watch");
         }
         for session in self.sessions() {
+            // A move to another machine not yet committed or aborted: its watch still settles
+            // it, and the chat stays frozen here until it does (`transfer_watch.rs`).
+            if session.moving().is_some() && session.meta().moved_to.is_none() {
+                return Some("a move under way");
+            }
             // A child being published or ended holds the lock: counted as running.
             if session.child.try_lock().map(|c| c.is_some()).unwrap_or(true) {
                 return Some("a running agent");
