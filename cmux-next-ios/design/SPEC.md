@@ -288,9 +288,13 @@ CmuxMobileRoot
    └─ Global overlays: connection banner, toasts
 ```
 
-Pushed full-screen surfaces (Agent chat, Terminal, Browser, File preview, Diff viewer) hide the
-tab bar: `.toolbarVisibility(.hidden, for: .tabBar)`. Composer screens never show a tab bar under
-the composer (Messages and every AI app agree: a conversation owns the bottom edge).
+Pushed full-screen surfaces (a workspace and its tabs, Agent chat, Terminal, Browser, File preview,
+Diff viewer, a Home conversation) hide the tab bar. Composer screens never show a tab bar under
+the composer (Messages and every AI app agree: a conversation owns the bottom edge). One source of
+truth decides it: `ShellModel.showsTabBar(on:)` (anything pushed on Home, Workspaces or the Feed
+hides it; Settings pages keep it), applied per tab by `TabBarVisibility`. Pushed screens never set
+it themselves: SwiftUI drops a pushed screen's hide when one update selects a tab and pushes on it
+(a link, a notification tap, the launch restore).
 
 ### 3.2 TabView
 
