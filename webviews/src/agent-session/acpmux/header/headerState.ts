@@ -46,8 +46,8 @@ export interface HeaderState {
   readonly lit: readonly string[];
   /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
   readonly floatingChat: boolean;
-  /// Debug Settings' Side sessions (/btw) is on (`agentPane.debug.sideSessions`): the composer offers `/btw`
-  /// (aside/sideSessions.ts). Off until the app sends it; an update that leaves it out keeps its value.
+  /// Side sessions (/btw) are on by default; `agentPane.debug.sideSessions` remains an explicit kill
+  /// switch. The App may override it in the header state; an update that leaves it out keeps the value.
   readonly sideSessions: boolean;
   /// The header offers the Inspector (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx).
   readonly inspector: boolean;
@@ -75,7 +75,7 @@ let current: HeaderState = {
   sideTabs: false,
   lit: [],
   floatingChat: false,
-  sideSessions: false,
+  sideSessions: true,
   inspector: false,
   browserOpensPreview: true,
   moves: [],

@@ -128,6 +128,13 @@ final class NotificationCenterService {
     }
     private static let logLimit = 64
 
+    // The Dock badge watcher owns an NSRunningApplication KVO token. Cancel
+    // every watcher before this service goes away so AsyncStream terminates
+    // and invalidates that token while the observed application still exists.
+    nonisolated deinit {
+        tasks.forEach { $0.cancel() }
+    }
+
     func start(services: AppServices) {
         self.services = services
         AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }

@@ -20,7 +20,8 @@
 //! connection error cut off (`hub/auto_resume.rs`), `{kind: "session_message", from,
 //! fromName, to}` on a prompt another session sent with none (`session_message` below), and
 //! `{kind: "task_result", from, fromName, to, taskId, state}` on the prompt that brings a task's
-//! result to the chat that gave it (`hub/tasks.rs`).
+//! result to the chat that gave it (`hub/tasks.rs`), and `{kind: "turn_cap", turnId, capMs}` on
+//! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`).
 
 use serde_json::{Map, Value, json};
 

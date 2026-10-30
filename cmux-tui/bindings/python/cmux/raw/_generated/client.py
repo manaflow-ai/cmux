@@ -252,8 +252,8 @@ class GeneratedClientMixin:
     def conversation_run_append(self, conversation: str, run: Union[JsonValue, None], *, steps: Union[List[JsonValue], MissingType] = MISSING) -> ConversationRunAppendResult:
         return self._invoke_command('conversation-run-append', ConversationRunAppendRequest(conversation=conversation, run=run, steps=steps))
 
-    def conversation_runs(self, conversation: str, *, before_started_at: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING, turns: Union[List[str], None, MissingType] = MISSING) -> ConversationRunsResult:
-        return self._invoke_command('conversation-runs', ConversationRunsRequest(conversation=conversation, before_started_at=before_started_at, limit=limit, turns=turns))
+    def conversation_runs(self, conversation: str, *, answers: Union[List[str], None, MissingType] = MISSING, before_started_at: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING, turns: Union[List[str], None, MissingType] = MISSING) -> ConversationRunsResult:
+        return self._invoke_command('conversation-runs', ConversationRunsRequest(conversation=conversation, answers=answers, before_started_at=before_started_at, limit=limit, turns=turns))
 
     def conversation_search(self, limit: int, query: str) -> ConversationSearchResult:
         return self._invoke_command('conversation-search', ConversationSearchRequest(limit=limit, query=query))

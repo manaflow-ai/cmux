@@ -404,13 +404,15 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
-        // A pinned group's pin leads the bar, its ink at the rows' leading inset, and its icon and name take the one
-        // text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not aligned").
+        // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
+        // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
+        // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = Metrics.smallIconSize
         pin.isHidden = !pinned
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
-        pin.frame = NSRect(x: ((lead - (pinInk?.minX ?? 0)) * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        let pinX = SidebarStyle.iconColumnCenterX(leading: lead) - (pinInk?.midX ?? pinSide / 2)
+        pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         let iconLead = pinned ? SidebarStyle.leadingTextX(leading: lead) : lead
         glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // The label's frame sits its text inset left of the column, as a workspace title's does.

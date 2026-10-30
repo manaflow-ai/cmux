@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 749,
-    "mcp": 667
+    "verbs": 750,
+    "mcp": 668
   },
   "nouns": [
     {
@@ -96,6 +96,13 @@
           "id": "agentPane.editInstructions",
           "mcp": true,
           "mcpTool": "app_agent_edit_instructions"
+        },
+        {
+          "command": "cmux agent fork-conversation",
+          "title": "Fork Conversation",
+          "id": "palette.forkAgentConversation",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation"
         },
         {
           "command": "cmux agent fork-conversation-above",

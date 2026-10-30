@@ -33,6 +33,14 @@ nonisolated extension AcpmuxPaneMethods {
                 "state": .string, "lastSeen": .number, "attempts": .number,
             ])),
         ]),
+        // Reconnect returns the same safe peer state needed by the offline copy's banner. The
+        // relay derives transport from `url` and drops the endpoint and all other metadata.
+        "_acpmux/peer_reconnect": .object([
+            "peers": .list(.object([
+                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
+                "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
+            ])),
+        ]),
     ]
 
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).

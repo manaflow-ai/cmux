@@ -66,6 +66,16 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
             ),
             SettingDescriptor(
+                HighlightColorSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
+                help: SettingsText.keyed("settings.appearance.highlightColor.help",
+                                        "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
+                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
+                kind: .color, default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
+                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
+            ),
+            SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
                 help: SettingsText.keyed("settings.appearance.backdropArt.help",

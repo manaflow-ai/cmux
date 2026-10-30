@@ -42,7 +42,7 @@
     "protocol:demo": "vp dev --config vite.config.pane-protocol-demo.ts",
     "preview:dev": "vp dev --config vite.config.acpmux-preview.mjs",
     "preview:build": "vp build --config vite.config.acpmux-preview.mjs",
-    "test": "bun test",
+    "test": "bash ../scripts/ci/run-webviews-tests.sh",
     "typecheck": "vp check --no-fmt --no-lint",
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",

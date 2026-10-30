@@ -21,6 +21,7 @@ import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
+import { AllChatsLoading } from "./AllChatsLoading";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -640,6 +641,8 @@ export function AllChatsList({
       )}
       {!indexed ? (
         activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
+      ) : rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed)) ? (
+        <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
       ) : state.loaded && rows.length === 0 ? (
         state.failed ? (
           <output className="nt-chats-empty nt-chats-failed">

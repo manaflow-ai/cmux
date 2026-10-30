@@ -1029,6 +1029,10 @@ impl Brain {
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
         };
+        // A host can exit after sub_done persists Done but before deliver
+        // queues the report. Recover that durable outbox before accepting new
+        // work so the report reaches both Chief and Home after restart.
+        brain.redeliver_saved_reports();
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
         let resumes = brain.state.resumes.clone();

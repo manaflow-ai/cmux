@@ -266,7 +266,7 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(w4.minY - w3.maxY - spacing) < 0.5)
     }
 
-    @Test(arguments: SidebarDensity.allCases) func thePinStartsAndCentersAsAnUnpinnedRowsContent(_ density: SidebarDensity) throws {
+    @Test(arguments: SidebarDensity.allCases) func thePinCentersOnAnUnpinnedRowsIconColumn(_ density: SidebarDensity) throws {
         let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
@@ -280,7 +280,9 @@ struct SidebarUniformRowSpacingTests {
         // An unpinned row's leading slot: its icon, or where its title starts without one.
         let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        #expect(abs(pin.minX - content.minX) < 0.5, "the pin's ink starts at \(pin.minX), an unpinned row's content at \(content.minX)")
+        // The pin centers on the icon column an unpinned row's icon centers on (Leo 2026-10-28: "the alignment").
+        let column = content.width > 0 ? content.midX : SidebarStyle.iconColumnCenterX(leading: content.minX)
+        #expect(abs(pin.midX - column) < 0.5, "the pin's ink centers at \(pin.midX), an unpinned row's icon column at \(column)")
         #expect(abs((pin.midY - pinnedFrame.minY) - (content.midY - unpinnedFrame.minY)) < 0.5,
                 "the pin centers \(pin.midY - pinnedFrame.minY) pt into its row, an unpinned row's content \(content.midY - unpinnedFrame.minY) pt")
         #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01)

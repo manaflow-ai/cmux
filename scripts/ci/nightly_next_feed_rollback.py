@@ -60,15 +60,22 @@ def items(text: str) -> list[tuple[re.Match[str], str]]:
     return found
 
 
-def plan(text: str, bad: str | None = None, to: str | None = None) -> tuple[str, dict]:
-    """(new feed text, summary). The text is unchanged when nothing is pulled."""
+def plan(text: str, bad: str | None = None, to: str | None = None,
+         if_newest: str | None = None) -> tuple[str, dict]:
+    """(new feed text, summary). The text is unchanged when nothing is pulled.
+
+    IF_NEWEST pulls nothing (changed false) unless that build is the feed's newest: an automated
+    pull of a bad build never takes a newer build published after the bad one was judged."""
     if bad is not None and to is not None:
         raise Refused("pass --bad or --to, not both")
-    for value in (bad, to):
+    for value in (bad, to, if_newest):
         if value is not None and not value.isdigit():
             raise Refused(f"build {value!r} is not a number")
     found = items(text)
     builds = [version for _, version in found]
+    if if_newest is not None and max(int(b) for b in builds) != int(if_newest):
+        match, serving = max(found, key=lambda entry: int(entry[1]))
+        return text, {"pulled": [], "serving": serving, "serving_url": enclosure(match), "changed": False}
     if to is not None:
         if to not in builds:
             raise Refused(f"build {to} is not on the feed (it has {', '.join(builds)})")
@@ -130,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     target = p.add_mutually_exclusive_group()
     target.add_argument("--bad")
     target.add_argument("--to")
+    p.add_argument("--if-newest", help="pull nothing unless this build is the feed's newest")
     p.add_argument("--out", required=True)
     q = sub.add_parser("pulled")
     q.add_argument("--existing")
@@ -160,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with open(args.feed, encoding="utf-8") as handle:
             text = handle.read()
-        new, summary = plan(text, bad=args.bad, to=args.to)
+        new, summary = plan(text, bad=args.bad, to=args.to, if_newest=args.if_newest)
     except (OSError, UnicodeDecodeError, Refused) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 1

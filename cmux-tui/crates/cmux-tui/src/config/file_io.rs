@@ -1,6 +1,7 @@
 //! Config file I/O: locating the config file, bounded reads, and atomic, durably synced writes of plugin entries.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
@@ -78,7 +79,7 @@ pub(crate) fn write_sidebar_plugin_at_path(
             let sidebar_object = sidebar.as_object_mut().expect("sidebar was just made an object");
             let mut plugin_value = json!({ "command": &plugin.command });
             if let Some(cwd) = &plugin.cwd {
-                plugin_value["cwd"] = json!(cwd);
+                plugin_value.set("cwd", json!(cwd));
             }
             sidebar_object.insert("plugin".to_string(), plugin_value);
         }
@@ -121,10 +122,10 @@ pub(crate) fn write_agent_plugin_at_path(
                 "command": &plugin.command,
             });
             if let Some(cwd) = &plugin.cwd {
-                plugin_value["cwd"] = json!(cwd);
+                plugin_value.set("cwd", json!(cwd));
             }
             if let Some(revision) = &plugin.revision {
-                plugin_value["revision"] = json!(revision);
+                plugin_value.set("revision", json!(revision));
             }
             agents_object.insert("plugin".to_string(), plugin_value);
         }

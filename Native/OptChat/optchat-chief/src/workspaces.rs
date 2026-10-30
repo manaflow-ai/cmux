@@ -32,8 +32,9 @@ pub trait Workspaces: Send + Sync {
     /// Opens workspace `key` (a fresh `new_key`, chosen before the session
     /// starts so the session can carry it as CMUX_WORKSPACE_ID) named `name`
     /// in the sidebar group named `group` (made when missing; best effort),
-    /// whose tab is acpmux session `session`'s chat (a terminal in `cwd`
-    /// beside it); returns its key.
+    /// whose tab is acpmux session `session`'s chat; returns its key. The
+    /// daemon place opens the chat tab only (no shell); the app place may
+    /// still use `cwd`.
     fn open(
         &self,
         key: &str,
@@ -1074,8 +1075,7 @@ impl Workspaces for DaemonWorkspaces {
         cwd: &Path,
     ) -> Result<String, String> {
         use cmux::raw::{
-            AgentSessionSource, CreateTerminalRequest, CreateWorkspaceRequest,
-            NewConversationTabRequest, Optional,
+            AgentSessionSource, CreateWorkspaceRequest, NewConversationTabRequest, Optional,
         };
         const TABS: &str = "agent-session-tabs-v1";
         let (daemon, personal) = self.target();
@@ -1122,22 +1122,14 @@ impl Workspaces for DaemonWorkspaces {
             if let Err(e) = grouped {
                 eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
             }
-            let placement = client
-                .create_terminal(CreateTerminalRequest {
-                    workspace: Optional::Value(workspace),
-                    cwd: Optional::Value(cwd.display().to_string()),
-                    mutation_id: Optional::Value(format!("optchat-subagent-term-{key}")),
-                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
-                    ..Default::default()
-                })
-                .map_err(|e| format!("create-terminal: {e}"))?;
-            let pane = placement
-                .pane
-                .into_option()
-                .ok_or("create-terminal placed no pane")?;
+            // The chat tab only, in the workspace's first pane: no shell (Lawrence
+            // 2026-10-21). Every subagent's idle shell held a terminal host and a PTY
+            // until its workspace closed; 369 of them filled the Mac's 511 PTYs. The
+            // user opens a shell in the workspace when they want one.
+            let _ = cwd;
             client
                 .new_conversation_tab(NewConversationTabRequest {
-                    pane: Optional::Value(pane),
+                    workspace: Optional::Value(workspace),
                     agent_session: Optional::Value(AgentSessionSource {
                         host: self.host.clone(),
                         host_name: Optional::Value(self.host_name.clone()),
@@ -1155,8 +1147,9 @@ impl Workspaces for DaemonWorkspaces {
             Ok::<(), String>(())
         })();
         client.close();
-        // A workspace made before a later step failed (create-terminal's "failed to spawn
-        // PTY command", a622-a627) is closed, not left as an empty row with no chat.
+        // A workspace made before a later step failed (new-conversation-tab refused, or
+        // earlier create-terminal's "failed to spawn PTY command", a622-a627) is closed,
+        // not left as an empty row with no chat.
         if let Err(e) = &result
             && !e.starts_with("create-workspace")
             && let Err(close) = close_by_key(daemon, &key)
@@ -1269,7 +1262,7 @@ fn locate_by_key(daemon: &Path, key: &str) -> Option<WorkspaceRef> {
 }
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
-/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// Closes workspace `key` and ends any terminal the user opened there; the
 /// agent session is acpmux's and stays.
 fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
@@ -1437,8 +1430,8 @@ fn shown_name(name: &str) -> String {
 /// app's daemon `app` (a423, Lawrence 2026-10-21: "all workspaces must be the same"); answers
 /// how many moved. Each becomes an ordinary workspace there with the same key (a running
 /// subagent's CMUX_WORKSPACE_ID still names it), the name the user saw, its tabs (each agent
-/// chat on the same acpmux session, each terminal as a new shell in the same directory, each
-/// page) and the user's personal group of the same name. The old one closes (to the owner's
+/// chat on the same acpmux session and each page; never an idle shell: a terminal tab is not
+/// re-created, Lawrence 2026-10-21) and the user's personal group of the same name. The old one closes (to the owner's
 /// closed history) only after every chat tab is in the new one; a copy that could not take
 /// every chat is closed instead, for the next start to try again. A workspace whose terminal
 /// runs a command stays. One that the user's session already holds by key is not copied twice.
@@ -1475,6 +1468,15 @@ pub fn adopt_owner_workspaces(owner: &Path, app: &Path) -> Result<usize, String>
             eprintln!(
                 "optchat: workspace {key} stays on the Chief's session while it runs {command}"
             );
+            continue;
+        }
+        // Only a chat makes a subagent workspace worth moving: without one, the copy
+        // would be an empty workspace (its idle shell is never re-created).
+        if !tree_tabs(ws)
+            .iter()
+            .any(|tab| tab["conversation"].is_object())
+        {
+            eprintln!("optchat: workspace {key} has no chat; it stays on the Chief's session");
             continue;
         }
         let group = ws["group"]
@@ -1526,14 +1528,17 @@ fn copy_workspace(
         "mutation_id": format!("optchat-adopt-ws-{key}"), "origin": MUTATION_ORIGIN}))?;
     let workspace = made["workspace"].clone();
     let mut pane: Option<Value> = None;
+    // Pages open after the chats, which make the workspace's first pane: a page
+    // listed before any chat would otherwise have no pane to open in.
+    let mut pages = Vec::new();
     for (i, tab) in tree_tabs(ws).iter().enumerate() {
         let conversation = &tab["conversation"];
         if tab["kind"] == "pty" {
-            let cwd = tab["cwd"].as_str().unwrap_or("/");
-            let placed = to.call(json!({"cmd": "create-terminal", "workspace": workspace,
-                "cwd": cwd, "mutation_id": format!("optchat-adopt-term-{key}-{i}"),
-                "origin": MUTATION_ORIGIN}))?;
-            pane = pane.or_else(|| placed.get("pane").cloned().filter(|p| !p.is_null()));
+            // Never a new shell for an old one: a workspace whose terminal runs a
+            // command is not copied at all (`busy_terminal`), so every terminal here is
+            // an idle shell or ended. Re-creating them made 369 idle shells (one host and
+            // one PTY each) at one Chief start (a423, 2026-10-21).
+            continue;
         } else if conversation.is_object() {
             let mut request = json!({"cmd": "new-conversation-tab",
                 "mutation_id": format!("optchat-adopt-tab-{key}-{i}"), "origin": MUTATION_ORIGIN});
@@ -1560,7 +1565,18 @@ fn copy_workspace(
                 pane = pane_of(to, key);
             }
         } else if tab["kind"] == "browser" {
-            let Some(p) = pane.clone() else { continue };
+            pages.push((i, tab.clone()));
+        }
+    }
+    if pane.is_none() {
+        pane = pane_of(to, key);
+    }
+    for (i, tab) in &pages {
+        let Some(p) = pane.clone() else {
+            eprintln!("optchat: workspace {key}: a page did not move: no pane");
+            continue;
+        };
+        {
             let mut request = json!({"cmd": "new-frontend-browser-tab", "pane": p,
                 "url": tab["url"].as_str().unwrap_or("about:blank"),
                 "engine": tab["browser_engine"].as_str().unwrap_or("cef"), "activate": false,

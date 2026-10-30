@@ -5,8 +5,10 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import typealias CmuxNextDaemon.SurfaceID
+import CmuxNextDevices
 import CmuxNextIcons
 import CmuxNextMacScreen
+import CmuxNextServer
 import CmuxNextSettings
 import Foundation
 
@@ -150,6 +152,13 @@ extension AppServices {
         let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
         pages.useShortcuts(of: services.registry)
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
+        // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
+        // and a session stops once that no longer allows it.
+        let consent = services.joinConsent
+        pages.hubHost.consentGate = { [weak consent] ticket in await consent?.macScreenGate(ticket) ?? false }
+        consent.changed = { [weak consent, weak host = pages.hubHost] in
+            host?.consentChanged { consent?.macScreenPermits($0) ?? false }
+        }
         return pages
     }
 
