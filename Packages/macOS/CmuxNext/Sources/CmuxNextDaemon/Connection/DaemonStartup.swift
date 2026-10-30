@@ -87,6 +87,7 @@ public struct DaemonStartup: Sendable {
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
                 if ownerIsRestoring(failure) { pacer.reset() }
+                if failure.isBusyRefusal { pacer.refusedBusy() }
                 guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
             }
         }
@@ -107,6 +108,7 @@ public struct DaemonStartup: Sendable {
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
                 if ownerIsRestoring(failure) { pacer.reset() }
+                if failure.isBusyRefusal { pacer.refusedBusy() }
             }
             if let identity { return (connection, identity) }
             guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
