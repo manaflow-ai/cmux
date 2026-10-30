@@ -22,6 +22,31 @@ import Testing
         [CGFloat(220.5), 247.25, 263.75, 301.5].map { Look(density: density, width: $0) }
     }
 
+    /// The edge matrix deliberately crosses the app appearance density with the sidebar's own
+    /// density. Search's side follows appearance tokens while row heights/insets follow the
+    /// sidebar density, so either axis alone can miss a clipping or alignment regression.
+    nonisolated struct EdgeLook: CustomTestStringConvertible, Sendable {
+        var appearance: DensityPreset
+        var density: SidebarDensity
+        var width: CGFloat
+        var testDescription: String { "\(appearance.rawValue)/\(density.rawValue)/\(width)pt" }
+    }
+
+    nonisolated static let edgeLooks: [EdgeLook] = DensityPreset.allCases.flatMap { appearance in
+        SidebarDensity.allCases.flatMap { density in
+            [CGFloat(160), 208, 360].map {
+                EdgeLook(appearance: appearance, density: density, width: $0)
+            }
+        }
+    }
+
+    private static func withAppearance<T>(_ appearance: DensityPreset, _ body: () throws -> T) rethrows -> T {
+        let saved = DesignSettings.shared.densityTokens
+        DesignSettings.shared.densityTokens = appearance.tokens
+        defer { DesignSettings.shared.densityTokens = saved }
+        return try body()
+    }
+
     /// Half a backing pixel: a mark placed on the nearest pixel is never further than this from the column.
     static func tolerance(_ h: T.KindHarness) -> CGFloat { 0.5 / (h.window.backingScaleFactor > 0 ? h.window.backingScaleFactor : 2) + 0.01 }
 
@@ -131,11 +156,11 @@ import Testing
     /// band straddles the edge, so an accessory whose frame reaches into its inside half is clipped
     /// or crowded by the drag target. This measures the actual status, chevron, hover controls and
     /// footer Search frames rather than only checking the style math.
-    @Test func trailingAccessoriesStayInsideContentAndShareOneColumn() throws {
-        for density in SidebarDensity.allCases {
-            try SidebarGroupRailAlignmentTests.with(density, .off) {
-                let widths = [Metrics.sidebarMinWidth, Metrics.sidebarWidth, Metrics.sidebarMaxWidth]
-                for width in widths {
+    @Test(arguments: edgeLooks)
+    func trailingAccessoriesStayInsideContentAndShareOneColumn(_ c: EdgeLook) throws {
+        try Self.withAppearance(c.appearance) {
+            try SidebarGroupRailAlignmentTests.with(c.density, .off) {
+                let width = c.width
                     let h = T.KindHarness(width: width)
                     defer { h.window.close() }
                     let column = try T.columnX(h)
@@ -145,6 +170,7 @@ import Testing
                         ("status", try h.row(.workspace(T.unread))),
                         ("selected", try h.row(.workspace(T.selected))),
                         ("group", try h.row(.group(T.open))),
+                        ("pinned", try h.bandRow(T.home)),
                     ]
                     for (name, row) in rows {
                         for mark in T.marks(in: row, named: name, list: h.list) {
@@ -165,24 +191,71 @@ import Testing
                         accessories.append((name, h.list.convert(view.frame, from: selected), name == "close"))
                     }
 
-                    #expect(!h.sidebar.searchButton.isHidden, "\(density)/\(width)pt: Search is hidden")
+                    // Exercise the idle hovered row as well: it has no status mark to hide,
+                    // which is the path that previously retained the old horizontal inset.
+                    let idle = try #require(h.list.rowViews[.workspace(T.idle)] as? WorkspaceRowView)
+                    idle.onClose = {}
+                    idle.onMore = {}
+                    idle.isHovered = true
+                    idle.layoutSubtreeIfNeeded()
+                    defer { idle.isHovered = false; idle.layoutSubtreeIfNeeded() }
+                    let idleControls: [(String, NSView)] = [("idle-close", idle.closeButton), ("idle-more", idle.moreButton)]
+                    #expect(idleControls.contains { !$0.1.isHidden }, "\(c): idle workspace did not create hover controls")
+                    for (name, view) in idleControls
+                        where !view.isHidden && T.drawnAlpha(view, below: h.list) > 0.01 {
+                        accessories.append((name, h.list.convert(view.frame, from: idle), name == "idle-close"))
+                    }
+
+                    // Pinned rows use the same shared slot helper but live in the top block's
+                    // region, so include their hover controls in the edge matrix.
+                    let pinned = try h.bandRow(T.lead)
+                    pinned.onClose = {}
+                    pinned.onMore = {}
+                    pinned.isHovered = true
+                    pinned.layoutSubtreeIfNeeded()
+                    defer { pinned.isHovered = false; pinned.layoutSubtreeIfNeeded() }
+                    let pinnedControls: [(String, NSView?)] = [("pinned-close", pinned.hoverClose), ("pinned-more", pinned.hoverMore)]
+                    #expect(pinnedControls.contains { $0.1 != nil }, "\(c): pinned workspace did not create hover controls")
+                    for (name, view) in pinnedControls.compactMap({ name, view in
+                        view.map { (name, $0 as NSView) }
+                    }) where !view.isHidden && T.drawnAlpha(view, below: h.list) > 0.01 {
+                        accessories.append((name, h.list.convert(view.frame, from: pinned), name == "pinned-close"))
+                    }
+
+                    // A hovered group header exposes its disclosure, menu and add controls on
+                    // slots 0, 1 and 2 respectively. Only the disclosure is part of the shared
+                    // column; the other controls remain on the slot grid to its left.
+                    let header = try #require(h.list.rowViews[.group(T.open)] as? GroupHeaderRowView)
+                    header.onAdd = {}
+                    header.isHovered = true
+                    header.layoutSubtreeIfNeeded()
+                    defer { header.isHovered = false; header.layoutSubtreeIfNeeded() }
+                    if let disclosure = header.debugDisclosure, disclosure.shown {
+                        accessories.append(("header-chevron", h.list.convert(disclosure.frame, from: header), true))
+                    }
+                    let headerControls: [(String, NSView)] = [("header-more", header.moreButton), ("header-add", header.addButton)]
+                    for (name, view) in headerControls
+                        where !view.isHidden && T.drawnAlpha(view, below: h.list) > 0.01 {
+                        accessories.append((name, h.list.convert(view.frame, from: header), false))
+                    }
+
+                    #expect(!h.sidebar.searchButton.isHidden, "\(c): Search is hidden")
                     accessories.append(("search", h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar), true))
 
                     let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
                                                  gutter: Metrics.mainPaneGutter)
                     #expect(band.inside <= SidebarResizeBand.contentInset + tolerance,
-                            "\(density)/\(width)pt resize band takes \(band.inside) pt of the content")
+                            "\(c) resize band takes \(band.inside) pt of the content")
                     let contentEdge = width - band.inside
                     for (name, frame, sharesColumn) in accessories {
                         if sharesColumn {
                             #expect(abs(frame.midX - column) <= tolerance,
-                                    "\(density)/\(width)pt \(name) centers at \(frame.midX), column \(column)")
+                                    "\(c) \(name) centers at \(frame.midX), column \(column)")
                         }
                         #expect(frame.maxX <= contentEdge + tolerance,
-                                "\(density)/\(width)pt \(name) reaches \(frame.maxX), inside content edge \(contentEdge), band \(band)")
+                                "\(c) \(name) reaches \(frame.maxX), inside content edge \(contentEdge), band \(band)")
                     }
-                    print("TRAILSLOT|edge|\(density.rawValue)/\(width)pt|column \(column)|content \(contentEdge)|band \(band)|\(accessories.map { "\($0.0)@\($0.1.midX)" }.joined(separator: " "))")
-                }
+                    print("TRAILSLOT|edge|\(c)|column \(column)|content \(contentEdge)|band \(band)|\(accessories.map { "\($0.0)@\($0.1.midX)" }.joined(separator: " "))")
             }
         }
     }

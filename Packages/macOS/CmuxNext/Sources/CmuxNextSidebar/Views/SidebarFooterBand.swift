@@ -74,8 +74,7 @@ final class SidebarFooterBand {
     var needsDedicatedSearchRow: Bool {
         guard let host, host.design.sidebarSections.showSearchButton, !host.design.sidebarSections.noFade,
               let row = bandFirstRow else { return false }
-        return Self.searchPlacement(columnX: SidebarStyle.trailingColumnCenterX(sidebarWidth: host.bounds.width),
-                                    sidebarWidth: host.bounds.width, side: Self.searchButtonSide,
+        return Self.searchPlacement(sidebarWidth: host.bounds.width, side: Self.searchButtonSide,
                                     itemsMaxX: row.itemsMaxX).needsDedicatedRow
     }
 
@@ -119,16 +118,11 @@ final class SidebarFooterBand {
     static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
 
     /// Resolves Search's horizontal placement. An empty or fitting pinned row stays on the shared
-    /// trailing column; an overfull row gets the right-edge fallback and a dedicated footer line.
-    static func searchPlacement(columnX: CGFloat, sidebarWidth: CGFloat, side: CGFloat,
+    /// trailing column; an overfull row keeps the column on a dedicated footer line.
+    static func searchPlacement(sidebarWidth: CGFloat, side: CGFloat,
                                 itemsMaxX: CGFloat?) -> (x: CGFloat, needsDedicatedRow: Bool) {
-        let columnMinX = columnX - side / 2
-        guard let itemsMaxX else { return (columnMinX, false) }
-        let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
-                                     gutter: Metrics.mainPaneGutter)
-        let rightEdge = sidebarWidth - band.inside - side
-        let requestedX = max(columnMinX, itemsMaxX + Metrics.space2)
-        return (min(requestedX, rightEdge), requestedX > rightEdge)
+        let frame = SidebarStyle.trailingColumnFrame(sidebarWidth: sidebarWidth, centerY: 0, side: side)
+        return (frame.minX, itemsMaxX.map { $0 + Metrics.space2 > frame.minX } ?? false)
     }
 
     /// The pinned footer section's padding under its last row. The footer is one line, the
@@ -166,12 +160,11 @@ final class SidebarFooterBand {
         button.isHidden = false
         let side = Self.searchButtonSide
         let x: CGFloat, midY: CGFloat
-        let columnX = SidebarStyle.trailingColumnCenterX(sidebarWidth: host.bounds.width)
         if let row = bandFirstRow {
             // The search button shares the list rows' trailing column. Preserve the footer's
             // no-overlap guarantee for a customized row whose leading items are wider than the
             // normal avatar slot; ordinary rows keep the shared column exactly.
-            let placement = Self.searchPlacement(columnX: columnX, sidebarWidth: host.bounds.width,
+            let placement = Self.searchPlacement(sidebarWidth: host.bounds.width,
                                                  side: side, itemsMaxX: row.itemsMaxX)
             guard !placement.needsDedicatedRow else {
                 // There is no horizontal slot in an overfull customized row. Keep Search
@@ -188,7 +181,7 @@ final class SidebarFooterBand {
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
-            (x, midY) = (columnX - side / 2, footer.height > 0 ? footer.midY
+            (x, midY) = (Self.searchPlacement(sidebarWidth: host.bounds.width, side: side, itemsMaxX: nil).x, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
@@ -213,11 +206,11 @@ final class SidebarFooterBand {
         let midY: CGFloat, end: CGFloat
         if let row = bandFirstRow {
             midY = row.frame.midY
-            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - row.frame.minX
+            end = searchMinX.map { $0 - Metrics.space1 } ?? SidebarStyle.trailingColumnFrame(sidebarWidth: host.bounds.width, centerY: 0, side: side).maxX
         } else {
             let footer = host.footer.frame
             midY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
-            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - Metrics.space4
+            end = searchMinX.map { $0 - Metrics.space1 } ?? SidebarStyle.trailingColumnFrame(sidebarWidth: host.bounds.width, centerY: 0, side: side).maxX
         }
         let x = end - side
         guard x >= leadingMaxX + Metrics.space1 else {
