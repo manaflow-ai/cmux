@@ -123,7 +123,6 @@ import {
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
-import { topModelsFor } from "./topModels";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
@@ -185,6 +184,8 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
+import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
+import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
@@ -213,6 +214,7 @@ import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
+import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
@@ -5953,19 +5955,28 @@ function AcpmuxPane() {
   const retryHarness = pickerCatalog.harnesses.find(
     (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
   );
+  const runningModel = snapshot.summary?.model;
+  const hasRunningModel = typeof runningModel === "string" && runningModel.length > 0;
   // Named as the composer's picker names them (its short name under its harness, "Opus 5.5").
   const retryModelsKey = (retryHarness?.models ?? [])
-    .filter((model) => !model.unavailable && !isDefaultChoice(model))
-    .map((model) => `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}`)
+    .filter(
+      (model) =>
+        (!model.unavailable || (hasRunningModel && (model.id === runningModel || model.release === runningModel))) &&
+        !isDefaultChoice(model),
+    )
+    .map(
+      (model) =>
+        `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}\t${model.family ?? ""}`,
+    )
     .join("\n");
   const retryHarnessName = retryHarness?.name;
-  const retryTop = retryHarness ? topModelsFor(retryHarness.kin ?? retryHarness.id) : undefined;
+  const retryTop = retryHarness?.topModels;
   const retryModels = useMemo(
     () =>
       retryModelsKey
         ? retryModelsKey.split("\n").map((line) => {
-            const [id = "", name = "", release = ""] = line.split("\t");
-            return { id, name: name || id, ...(release ? { release } : {}) };
+            const [id = "", name = "", release = "", family = ""] = line.split("\t");
+            return { id, name: name || id, ...(release ? { release } : {}), ...(family ? { family } : {}) };
           })
         : [],
     [retryModelsKey],
@@ -6066,6 +6077,17 @@ function AcpmuxPane() {
           if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)) return;
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
+        })(restartChat),
+        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
+        retryCapabilities: directClient.current?.capabilities,
+        // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
+        retryAgent: ((owner: string) => (agent: RetryTarget) => {
+          const client = directClient.current;
+          const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
+          if (!client) return Promise.resolve("retry.failed" as const);
+          const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
+          const send = (text: string) => callNative("chat.send", { text });
+          return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
         })(restartChat),
       }),
       ...(connected &&
@@ -6494,7 +6516,15 @@ function AcpmuxPane() {
   // streams text redraws neither the pill nor a subagent row.
   const agentsKey = freshAgents
     .map((agent) =>
-      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+      [
+        agent.id,
+        agent.name,
+        agent.state,
+        agent.action ?? "",
+        agent.endedAt ?? "",
+        agent.agentId ?? "",
+        retryKey(agent),
+      ].join("\u0000"),
     )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
@@ -8859,6 +8889,18 @@ function AcpmuxPane() {
   };
   const runHeaderActionRef = useRef(runHeaderAction);
   runHeaderActionRef.current = runHeaderAction;
+  // The account's machine a Cloud chat runs on, for the chat menu's Pause and Resume; the
+  // account's list is read when such a chat shows (and after each pick), never on a timer.
+  const accountMachines = useCloudMachines();
+  const chatMachine = chatCloudMachine(summary, accountMachines);
+  const cloudChat = preview && summary?.hostKind === "cloud";
+  useEffect(() => {
+    if (cloudChat) void refreshCloudMachines();
+  }, [cloudChat, snapshot.sessionId]);
+  // Stop and Pause waits for the chat's turn to end before it pauses (cloudMachineMenu.ts): its
+  // own turn state, which a forced stop's cleared working indicator does not end.
+  const stopWaiter = useMemo(createStopWaiter, []);
+  useEffect(() => stopWaiter.changed(), [snapshot, stopWaiter]);
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
   instructionsFolder.current = localCwd;
   chatIsLocal.current = localCwd !== undefined;
@@ -9070,6 +9112,28 @@ function AcpmuxPane() {
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
+    // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), with Labs > Preview features
+    // as the account's machines in the composer's machine list are.
+    const machine =
+      preview && !quick
+        ? cloudMachineRows(
+            chatMachine,
+            snapshot.isWorking,
+            t,
+            (method, params) => callNative(method, params),
+            (picked) => void readUntilMoved(picked),
+            () => {
+              const client = directClient.current;
+              return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
+            },
+            (session) =>
+              stopWaiter.wait(() => {
+                const client = directClient.current;
+                return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
+              }),
+            snapshot.sessionId,
+          )
+        : [];
     const copy = copyRow(
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
       (text) => ignoreFailure(copyText(text)),
@@ -9211,6 +9275,7 @@ function AcpmuxPane() {
             ]
           : []),
       ],
+      machine,
       tools,
       [
         ...avatar,
