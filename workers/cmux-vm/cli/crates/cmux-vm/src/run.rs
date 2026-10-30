@@ -323,7 +323,9 @@ async fn recover_creation(client: &Client, key_text: &str) -> Recovered {
         Ok(status) => status,
         // 404: the server holds no creation under this key, so none ran.
         Err(error) if error.status() == Some(404) => {
-            return Recovered::Settled("the create was not confirmed and the server holds no creation under its key");
+            return Recovered::Settled(
+                "the create was not confirmed and the server holds no creation under its key",
+            );
         }
         Err(_) => return open("the create was not confirmed and its state could not be read"),
     };
@@ -345,19 +347,27 @@ async fn recover_creation(client: &Client, key_text: &str) -> Recovered {
         // 409: it committed or changed between the read and the cancel.
         Err(error) if error.status() == Some(409) => match read().await {
             Ok(status) => status,
-            Err(_) => return open("the create was not confirmed and changed while it was cancelled"),
+            Err(_) => {
+                return open("the create was not confirmed and changed while it was cancelled");
+            }
         },
         Err(_) => return open("the create was not confirmed and its cancellation failed"),
     };
-    settled(&answer).unwrap_or_else(|| open("the create was not confirmed and its cancellation is still in progress"))
+    settled(&answer).unwrap_or_else(|| {
+        open("the create was not confirmed and its cancellation is still in progress")
+    })
 }
 
 /// A creation state that needs nothing more: committed (with its VM), or gone.
 fn settled(status: &Value) -> Option<Recovered> {
     match status["state"].as_str() {
         Some("committed") => status["id"].as_str().map(|id| Recovered::Vm(id.to_owned())),
-        Some("cancelled") => Some(Recovered::Settled("the create was not confirmed, and its VM was cancelled")),
-        Some("deleted") => Some(Recovered::Settled("the create was not confirmed, and its VM is deleted")),
+        Some("cancelled") => Some(Recovered::Settled(
+            "the create was not confirmed, and its VM was cancelled",
+        )),
+        Some("deleted") => Some(Recovered::Settled(
+            "the create was not confirmed, and its VM is deleted",
+        )),
         _ => None,
     }
 }
@@ -628,7 +638,10 @@ async fn send_exec(
     // (the upstream link failed mid-call), so only a 429, which refuses the
     // call before it runs, is retried. A retry could run the command twice
     // or append an upload chunk twice.
-    let bytes = retrying_on(&[429], || fetch_body(client.exec_exec_vm(vm_id, None, body))).await?;
+    let bytes = retrying_on(&[429], || {
+        fetch_body(client.exec_exec_vm(vm_id, None, body))
+    })
+    .await?;
     let result: Value = serde_json::from_slice(&bytes)
         .map_err(|_| CliError::unexpected("the exec response was not JSON"))?;
     Ok(ExecResult {
@@ -664,7 +677,11 @@ where
     let mut delay = Duration::from_millis(500);
     for _ in 0..RETRIES {
         match call().await {
-            Err(error) if error.status().is_some_and(|status| statuses.contains(&status)) => {
+            Err(error)
+                if error
+                    .status()
+                    .is_some_and(|status| statuses.contains(&status)) =>
+            {
                 tokio::time::sleep(delay).await;
                 delay = (delay * 2).min(Duration::from_secs(10));
             }
@@ -1126,8 +1143,14 @@ mod tests {
             settled(&json!({"state": "committed", "id": "vm_1"})),
             Some(Recovered::Vm("vm_1".to_owned()))
         );
-        assert!(matches!(settled(&json!({"state": "cancelled", "id": "vm_1"})), Some(Recovered::Settled(_))));
-        assert!(matches!(settled(&json!({"state": "deleted", "id": "vm_1"})), Some(Recovered::Settled(_))));
+        assert!(matches!(
+            settled(&json!({"state": "cancelled", "id": "vm_1"})),
+            Some(Recovered::Settled(_))
+        ));
+        assert!(matches!(
+            settled(&json!({"state": "deleted", "id": "vm_1"})),
+            Some(Recovered::Settled(_))
+        ));
         assert_eq!(settled(&json!({"state": "cancelling", "id": "vm_1"})), None);
         assert_eq!(settled(&json!({"state": "pending", "id": "vm_1"})), None);
         assert_eq!(settled(&json!({"state": "committed"})), None);
