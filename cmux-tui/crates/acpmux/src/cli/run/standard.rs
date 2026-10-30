@@ -183,7 +183,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Pending => {
             let client = connect(true).await?;
-            let v = client.request(method::MUX_SESSIONS, json!({})).await?;
+            let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
             let mut out = Vec::new();
             for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
@@ -252,7 +252,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if with_tools {
                 params["withTools"] = json!(true);
             }
-            let mut v = client.request(method::MUX_SESSIONS, params).await?;
+            let mut v = client.whole_list(method::MUX_SESSIONS, params).await?;
             if status.is_some() || pending || tag.is_some() || selected {
                 let mut sessions = match v.get_mut("sessions") {
                     Some(Value::Array(rows)) => std::mem::take(rows),

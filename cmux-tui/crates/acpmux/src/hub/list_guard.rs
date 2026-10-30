@@ -94,7 +94,14 @@ pub(crate) struct Snapshot {
     made: StdMutex<HashMap<&'static str, Arc<String>>>,
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
-    full: StdMutex<Option<Arc<String>>>,
+    full: StdMutex<Option<Arc<FullRows>>>,
+}
+
+/// The snapshot's rows with tools ([`Snapshot::full_whole`]), and where each is in them.
+struct FullRows {
+    text: Arc<String>,
+    spans: Vec<Range<usize>>,
+    keys: Vec<Value>,
 }
 
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
@@ -116,13 +123,64 @@ impl Snapshot {
 
     /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
+        self.full_rows(hub).text.clone()
+    }
+
+    fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             let mut rows = Rows::default();
             hub.visit_session_summaries(true, |row| rows.push(&row));
-            Arc::new(rows.finish().0)
+            let (text, spans, keys) = rows.finish();
+            Arc::new(FullRows { text: Arc::new(text), spans, keys })
         })
         .clone()
+    }
+
+    /// The reply to `params` that has no `limit` (the whole list, or a filter of it, from a
+    /// `cursor` or not), with tools when `tools`: every row it lists, or, when they come to more
+    /// than `budget` bytes, the first that fit, with the `nextCursor` of the rest
+    /// (`session_pages::byte_page`). One daemon's whole list was 17 MB with tools on
+    /// 2026-10-30, past the message limit, and was refused whole.
+    pub(crate) fn bounded(
+        &self,
+        hub: &Hub,
+        params: &Value,
+        tools: bool,
+        budget: usize,
+    ) -> Result<String, RpcError> {
+        let full = tools.then(|| self.full_rows(hub));
+        let (text, spans, keys) = match &full {
+            Some(full) => (full.text.as_str(), &full.spans, &full.keys),
+            None => (self.whole.as_str(), &self.spans, &self.keys),
+        };
+        let mut filters = params.clone();
+        let cursor = filters.as_object_mut().and_then(|p| p.remove("cursor"));
+        let cursor = match &cursor {
+            None | Some(Value::Null) => None,
+            Some(Value::String(text)) => Some(text.as_str()),
+            Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
+        };
+        let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
+        let rows = picked["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let at = |key: &Value| key["at"].as_u64().unwrap_or_default() as usize;
+        let row = |key: &Value| spans.get(at(key)).and_then(|span| text.get(span.clone()));
+        let (page, next) = super::session_pages::byte_page(rows, cursor, budget, |key| {
+            row(key).map_or(4, str::len)
+        })?;
+        let mut out = String::from("{");
+        if let Some(next) = next {
+            out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));
+        }
+        out.push_str("\"sessions\":[");
+        for (n, key) in rows.get(page).unwrap_or_default().iter().enumerate() {
+            if n > 0 {
+                out.push(',');
+            }
+            out.push_str(row(key).unwrap_or("null"));
+        }
+        out.push_str("]}");
+        Ok(out)
     }
 
     #[cfg(test)]

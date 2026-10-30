@@ -208,6 +208,37 @@ impl Client {
         Ok(reply)
     }
 
+    /// The whole session list `m` (`_acpmux/sessions` or `_acpmux/watch`) answers for `params`
+    /// with no `limit`: every page of it. A list too large for one message comes in pages, each
+    /// with the `nextCursor` of the rest (`server/list_reply.rs`), read here with
+    /// `_acpmux/sessions` and the same filters; the result is one `{sessions}`. With a `limit`,
+    /// the one page it asks for.
+    pub async fn whole_list(&self, m: &str, params: Value) -> Result<Value> {
+        if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+            return self.request(m, params).await;
+        }
+        let mut reply = self.request(m, params.clone()).await?;
+        let mut rest = params;
+        if let Some(p) = rest.as_object_mut() {
+            p.remove("enabled");
+        }
+        while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+            let Value::String(cursor) = cursor else { break };
+            rest["cursor"] = Value::String(cursor);
+            let mut page = self.request(method::MUX_SESSIONS, rest.clone()).await?;
+            let rows = page.get_mut("sessions").map(Value::take).unwrap_or_default();
+            if let (Some(all), Value::Array(rows)) =
+                (reply.get_mut("sessions").and_then(Value::as_array_mut), rows)
+            {
+                all.extend(rows);
+            }
+            if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+                reply["nextCursor"] = next;
+            }
+        }
+        Ok(reply)
+    }
+
     /// A `session/new` that is never its caller's child: an ephemeral run (`acpmux run
     /// --ephemeral`, an agent's probe, `probe_prompt.rs`) is no subagent.
     pub async fn request_parentless(&self, m: &str, mut params: Value) -> Result<Value> {

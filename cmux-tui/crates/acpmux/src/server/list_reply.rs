@@ -89,11 +89,23 @@ fn with_tools(params: &Value) -> Result<bool, RpcError> {
     }
 }
 
-/// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it.
+/// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it. One with no
+/// `limit` that comes to more than [`LIST_PAGE_BYTES`] goes in pages, each with the
+/// `nextCursor` of the rest (`Snapshot::bounded`), rather than as one message too large to
+/// send; a census in its own order (`orderBy`) pages by `limit` itself.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
+    let limit = params.get("limit").and_then(Value::as_u64);
+    let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
+    let by_bytes = unset("limit") && unset("orderBy");
+    let shown = |text: String| {
+        Arc::new(if raw { text } else { masked(serde_json::from_str(&text).unwrap_or_default()) })
+    };
     if with_tools(params)? {
-        return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
+        return reply(hub, conn, limit, |list| {
+            if by_bytes {
+                return Ok(shown(list.bounded(hub, params, true, LIST_PAGE_BYTES)?));
+            }
             let full = list.full_whole(hub);
             let mut result: Value = serde_json::from_str(&full).unwrap_or_default();
             if !whole(params) {
@@ -111,17 +123,19 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         .await;
     }
     if !whole(params) {
-        return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
-            let page = list.page(params)?;
-            Ok(Arc::new(if raw {
-                page
+        return reply(hub, conn, limit, |list| {
+            Ok(shown(if by_bytes {
+                list.bounded(hub, params, false, LIST_PAGE_BYTES)?
             } else {
-                masked(serde_json::from_str(&page).unwrap_or_default())
+                list.page(params)?
             }))
         })
         .await;
     }
     reply(hub, conn, None, |list| {
+        if list.whole.len() > LIST_PAGE_BYTES {
+            return Ok(shown(list.bounded(hub, params, false, LIST_PAGE_BYTES)?));
+        }
         Ok(if raw {
             list.whole.clone()
         } else {
@@ -143,7 +157,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
 
 /// ACP's `session/list`: every session, its summary under `_meta.acpmux`. A list too large
 /// for one message (one daemon's was 17 MB with 5241 rows, 2026-10-30) goes in pages of at most
-/// [`ACP_PAGE_BYTES`], each with the `nextCursor` ACP's client follows; one that fits goes whole,
+/// [`LIST_PAGE_BYTES`], each with the `nextCursor` ACP's client follows; one that fits goes whole,
 /// as before.
 pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
@@ -160,13 +174,13 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
             let result = json!({"sessions": sessions});
             if raw { result.to_string() } else { masked(result) }
         });
-        if cursor.is_none() && whole.len() <= ACP_PAGE_BYTES {
+        if cursor.is_none() && whole.len() <= LIST_PAGE_BYTES {
             return Ok(whole);
         }
         let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
         let rows = full["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
         let (page, next) =
-            crate::hub::session_pages::byte_page(rows, cursor, ACP_PAGE_BYTES, |s| {
+            crate::hub::session_pages::byte_page(rows, cursor, LIST_PAGE_BYTES, |s| {
                 acp_row(s).to_string().len()
             })?;
         let sessions: Vec<Value> = rows.get(page).unwrap_or_default().iter().map(acp_row).collect();
@@ -179,9 +193,10 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     .await
 }
 
-/// The most a `session/list` result may hold: a megabyte under the message limit, for the
-/// reply's own frame and what masking a peer's text may add.
-const ACP_PAGE_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
+/// The most a session list result may hold (`session/list`, and `_acpmux/sessions` or
+/// `_acpmux/watch` with no `limit`): a megabyte under the message limit, for the reply's own
+/// frame and what masking a peer's text may add.
+const LIST_PAGE_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
 
 fn acp_row(s: &Value) -> Value {
     let text = |k: &str| s.get(k).and_then(Value::as_str).map(str::to_owned);

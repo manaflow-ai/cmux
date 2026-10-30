@@ -7,7 +7,9 @@
 //! names. A session that moves to the top or leaves meanwhile neither repeats
 //! nor skips another one; one that moves to the top before its page is read is
 //! not in a later page, and reaches a watching client as `_acpmux/session_changed`.
-//! Without `limit` the reply is the whole list, as before. `orderBy: "sessionId"`
+//! Without `limit` the reply is the whole list, as before, unless it is too large for one
+//! message: then it goes in pages by size, each with the `nextCursor` of the rest
+//! (`Snapshot::bounded`, [`byte_page`]). `orderBy: "sessionId"`
 //! opts into stable ID ordering, so updates cannot move an unread session past
 //! the cursor (used by the quit census, which does not subscribe to changes).
 //!

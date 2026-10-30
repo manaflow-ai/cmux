@@ -103,7 +103,7 @@ fn print_outcome(o: &Outcome, dry_run: bool) {
 
 /// Every chat here that is open and between turns: not closed, not running, not being moved.
 async fn idle_chats(src: &Client) -> Result<Vec<String>> {
-    let list = src.request(method::MUX_SESSIONS, json!({})).await?;
+    let list = src.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let rows = list.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     Ok(rows
         .iter()
