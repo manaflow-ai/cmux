@@ -3303,6 +3303,7 @@ class IOSRouting(unittest.TestCase):
                "path": ".github/workflows/cmux-next-ios-kit.yml",
                "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
         self.assertEqual((ios_pool.charged_jobs(kit), ios_pool.charged_sim_jobs(kit)), (1, 1))
+        self.assertEqual(ios_pool.charged_sim_jobs(kit, ios_pool.Placements(frozenset()), NOW), 0)
 
     def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
         title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
