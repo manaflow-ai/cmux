@@ -138,6 +138,12 @@ pub(super) struct Fixture {
     pub(super) history: Vec<Value>,
     /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// `_acpmux/sessions` answers its list in two pages, as acpmux does past its
+    /// largest reply: the first rows with a `nextCursor`, the rest from that cursor.
+    pub(super) sessions_pages: bool,
+    /// The watch answers only its first row with a `nextCursor`; `_acpmux/sessions`
+    /// from that cursor answers the rest ([`Fixture::watch`]).
+    pub(super) watch_pages: bool,
 }
 
 fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
@@ -174,11 +180,27 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
             }
             "_acpmux/watch" => {
                 let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
-                sessions.extend(fixture.watch.iter().cloned());
-                Some(json!({"sessions": sessions}))
+                if fixture.watch_pages {
+                    Some(json!({"sessions": sessions, "nextCursor": "w1"}))
+                } else {
+                    sessions.extend(fixture.watch.iter().cloned());
+                    Some(json!({"sessions": sessions}))
+                }
+            }
+            "_acpmux/sessions" if params["cursor"] == json!("w1") => {
+                Some(json!({"sessions": fixture.watch}))
             }
             // The machine's whole list: the attached session's family and others
             // (agent_session_children_tests.rs).
+            "_acpmux/sessions" if fixture.sessions_pages => {
+                let mut rows = machine_sessions()["sessions"].as_array().unwrap().clone();
+                Some(if params["cursor"] == json!("c1") {
+                    json!({"sessions": rows.split_off(3)})
+                } else {
+                    rows.truncate(3);
+                    json!({"sessions": rows, "nextCursor": "c1"})
+                })
+            }
             "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/events" => {
                 Some(json!({"events": fixture.history, "hasMore": false, "lastSeq": 1}))

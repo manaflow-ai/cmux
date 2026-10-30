@@ -228,6 +228,22 @@ mod tests {
     }
 
     #[test]
+    fn a_watch_list_past_one_reply_reads_its_rest_from_the_cursor() {
+        let mut waiting = Waiting::default();
+        let mut classifier = Classifier::default();
+        let first = json!({"id":2,"result":{"sessions":[],"nextCursor":"c1"}});
+        let (queries, _) = receive(&mut waiting, &first, &mut classifier);
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0]["method"], "_acpmux/sessions");
+        assert_eq!(queries[0]["params"], json!({"cursor":"c1"}));
+        let rest = json!({"id":queries[0]["id"],"result":{"sessions":[session("waiting", 10)]}});
+        let (queries, _) = receive(&mut waiting, &rest, &mut classifier);
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0]["method"], "_acpmux/info");
+        assert_eq!(queries[0]["params"]["sessionId"], "s1");
+    }
+
+    #[test]
     fn reconnect_recovers_a_question_without_repeating_its_push() {
         let mut classifier = Classifier::default();
         let mut snapshot_session = session("waiting", 10);

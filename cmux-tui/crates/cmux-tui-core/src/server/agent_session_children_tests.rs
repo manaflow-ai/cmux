@@ -91,6 +91,58 @@ fn session_children_lists_exactly_the_attached_sessions_descendants() {
     assert_eq!(child["startedBy"], json!(SESSION));
 }
 
+/// A list past acpmux's largest reply comes in pages: a descendant only the second
+/// page names is still listed.
+#[test]
+fn session_children_reads_every_page_of_a_list_too_big_for_one_reply() {
+    let fixture = Fixture { sessions_pages: true, ..Fixture::default() };
+    let fake = FakeAcpmux::start_with("children-pages", fixture);
+    let mux = mux_with(&fake, "asa-children-pages");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "children-pages");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+
+    let reply = children(&mut client, surface);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(fake.frame()["params"], json!({}));
+    let rest = fake.frame();
+    assert_eq!(rest["method"], json!("_acpmux/sessions"));
+    assert_eq!(rest["params"], json!({"cursor": "c1"}));
+    assert_eq!(listed(&reply), [GRANDCHILD, CHILD, SPAWNED]);
+}
+
+/// The attach's watch list past acpmux's largest reply comes in pages too: a child
+/// only the second page names is followed, so its changes reach the client even
+/// when they no longer name its parent.
+#[test]
+fn session_children_follows_a_child_only_a_later_watch_page_names() {
+    let fixture = Fixture {
+        watch: vec![json!({"sessionId": CHILD, "startedBy": SESSION})],
+        watch_pages: true,
+        ..Fixture::default()
+    };
+    let mut fake = FakeAcpmux::start_with("children-watch-pages", fixture);
+    let mux = mux_with(&fake, "asa-children-watch-pages");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "children-watch-pages");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let rest = fake.frame();
+    assert_eq!(rest["method"], json!("_acpmux/sessions"));
+    assert_eq!(rest["params"], json!({"cursor": "w1"}), "the watch's params, less `enabled`");
+    let _ = client.event(WAIT).expect("the early record");
+
+    fake.notify(
+        "_acpmux/session_changed",
+        json!({"sessionId": CHILD, "kind": "status", "recordKind": "status", "seq": 4,
+               "session": {"sessionId": CHILD, "status": "idle"}}),
+    );
+    let change = client.event(WAIT).expect("the followed child's change");
+    assert_eq!(change["event"], json!("agent-session-changed"), "{change}");
+    assert_eq!(change["change"]["sessionId"], json!(CHILD));
+}
+
 #[test]
 fn session_children_needs_an_attached_tab_of_a_trusted_connection() {
     let fake = FakeAcpmux::start("children-scope");
