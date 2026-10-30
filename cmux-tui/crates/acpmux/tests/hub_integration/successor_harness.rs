@@ -113,6 +113,27 @@ async fn harness_from_copies_the_predecessors_harness() {
 }
 
 #[tokio::test]
+async fn harness_from_is_refused_where_it_would_not_be_honoured() {
+    let (hub, mut c) = setup_profiles().await;
+    start(&mut c, json!({"name": "dep-fleet", "harness": "fake-sr2"})).await.unwrap();
+    // Never silently dropped: an ephemeral run, and a connection that is not the local socket.
+    let err =
+        start(&mut c, json!({"harnessFrom": "dep-fleet", "ephemeral": true})).await.unwrap_err();
+    assert!(err.contains("local socket only"), "{err}");
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    let app = acpmux::server::Origin::LocalApp;
+    tokio::spawn(acpmux::server::serve_connection_with(hub.clone(), in_rx, out_tx, app));
+    let mut app = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "test"}});
+    app.request(method::INITIALIZE, init).await.unwrap();
+    let err = start(&mut app, json!({"name": "dep-fleet-2", "harnessFrom": "dep-fleet"}))
+        .await
+        .unwrap_err();
+    assert!(err.contains("local socket only"), "{err}");
+}
+
+#[tokio::test]
 async fn report_to_names_a_predecessor_only_of_its_own_name_family() {
     let (_hub, mut c) = setup_profiles().await;
     // The coordinator runs a named profile; a helper it starts on the default is no successor.

@@ -207,23 +207,17 @@ fn tag<'a>(meta: Option<&'a Value>, key: &str) -> Option<&'a str> {
 
 impl Hub {
     /// The predecessor a `session/new` names (see the module doc), or None. Refused: a
-    /// `--harness-from` that names no session, comes with `-m`, `-p` or `-e`, or comes over a
-    /// remote-origin connection (its guard checked the harness the request names, not a copied
-    /// one), and a bare default start where the predecessor ran a named profile.
+    /// `--harness-from` that names no session or comes with `-m`, `-p` or `-e`, and a bare
+    /// default start where the predecessor ran a named profile. The caller refuses a
+    /// `--harness-from` from any connection but the local socket (`server/requests/successor.rs`).
     pub async fn successor(
         &self,
         params: &Value,
         meta: Option<&Value>,
         lineage: Option<&Lineage>,
-        remote: bool,
     ) -> Result<Option<Successor>, RpcError> {
         let asked = |k: &str| pick(params, meta, k);
         if let Some(from) = asked(HARNESS_FROM_FIELD) {
-            if remote {
-                return Err(RpcError::invalid_params(
-                    "--harness-from is taken over the local socket only; name the harness with -m",
-                ));
-            }
             if let Some(k) =
                 ["harness", "preset", "model", "effort"].into_iter().find(|k| asked(k).is_some())
             {
