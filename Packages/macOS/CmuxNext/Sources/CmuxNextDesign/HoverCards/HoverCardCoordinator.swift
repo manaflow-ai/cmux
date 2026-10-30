@@ -274,6 +274,12 @@ public final class HoverCardCoordinator {
         panel?.refit()
     }
 
+    /// Refits a shown card after a local disclosure changes its height without reconfiguring it.
+    public func refit(_ id: HoverTargetID) {
+        guard machine.shownTarget?.id == id else { return }
+        panel?.refit()
+    }
+
     /// The card shows `id` now.
     public func isShowing(_ id: HoverTargetID) -> Bool { machine.shownTarget?.id == id && panel?.isShowingCard == true }
 

@@ -150,7 +150,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.configure(content)
         body.tabList.configure(title: ws.rawValue, tabs: workspace.tabs)
         body.tabList.onResize = { [weak self] in self?.coordinator.contentChanged(id) }
-        body.onDetailsChanged = { [weak self] in self?.coordinator.contentChanged(id) }
+        body.onDetailsChanged = { [weak self] in self?.coordinator.refit(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
             guard let self, let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
             list.model.send(.selectTab(workspace: ws, tab: tabID))
@@ -207,6 +207,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
         body?.tabList.onResize = nil
+        body?.onDetailsChanged = nil
         bodyID = nil
         releaseCustom()
         updateTicker()
@@ -482,8 +483,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
-        // A reused card always starts compact for the next workspace.
-        detailsExpanded = false
         self.content = content
         width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
         widthLimit?.constant = width
