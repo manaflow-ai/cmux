@@ -135,15 +135,17 @@ export function AgentLine({
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
             {time}
           </span>
-          <span className="acpmux-agent-line__status">
-            {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
-            <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
-            {chevron && onOpen && (
-              <span className="acpmux-agent-line__chevron" aria-hidden="true">
-                <Icon name="disclosure.collapsed" size={ROW_ICON} row />
-              </span>
-            )}
+          {/* Fixed trailing grammar: duration, then status, then disclosure as sibling columns. */}
+          <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
+            {time}
           </span>
+          {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+          <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          {chevron && onOpen && (
+            <span className="acpmux-agent-line__chevron" aria-hidden="true">
+              <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+            </span>
+          )}
         </>
       ) : (
         <>
