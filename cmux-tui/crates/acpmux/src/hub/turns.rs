@@ -605,16 +605,17 @@ impl Hub {
         session.compacting.store(false, Ordering::SeqCst);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
-        self.append_prompt(session, msg, &blocks, display_parts.as_ref());
-        // The accepted prompt may run for hours or outlive this daemon. Save its clear
-        // outside the metadata lock, before acknowledgement/dispatch, rather than waiting
-        // for turn completion. A failed save must not dispatch an undurable clear.
+        // The accepted prompt may run for hours or outlive this daemon. Persist its draft
+        // tombstone before journaling the prompt, acknowledgement or dispatch. Otherwise a
+        // failed save leaves a journaled prompt paired with the old draft on restart. A failed
+        // save refuses the prompt before it reaches the journal.
         if draft_cleared && let Err(error) = self.save_meta_result(session) {
             let e = RpcError::internal(format!("save sent composer draft failed: {error}"));
             self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
             drop(guard);
             return Err(e);
         }
+        self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if !waiting {
             // Started at once: only prompts a failed turn holds can wait under its key.
             if let Some(key) = supersede.as_deref() {
