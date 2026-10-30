@@ -683,8 +683,16 @@ const savedList: { sessions?: readonly AcpmuxSessionEntry[]; shown?: string; sav
 export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
   const { sessions, sessionId: shown } = snapshot;
   if (sessions.length <= SAVED_SESSIONS) return sessions;
-  // A streaming reply writes with the list unchanged: it is chosen again only when it changes.
-  if (savedList.sessions === sessions && savedList.shown === shown) return savedList.saved;
+  // A streaming reply writes with the list unchanged: it is chosen again only when it changes. Each
+  // snapshot maps the list into a new array of the same cached entries (direct.ts `sessionEntries`),
+  // so the entries are compared, not the array.
+  const last = savedList.sessions;
+  if (
+    savedList.shown === shown &&
+    last?.length === sessions.length &&
+    (last === sessions || sessions.every((entry, index) => entry === last[index]))
+  )
+    return savedList.saved;
   const at = (entry: AcpmuxSessionEntry) => entry.activityAt ?? entry.updatedAt ?? 0;
   const newest = new Set(
     sessions

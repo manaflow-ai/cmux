@@ -948,7 +948,9 @@ export const nextFrame = (run: () => void) => {
   const once = () => {
     if (ran) return;
     ran = true;
-    run();
+    // Hidden again before the frame came: it waits for the next show instead.
+    if (pageShown()) run();
+    else nextFrame(run);
   };
   requestAnimationFrame(once);
   setTimeout(once, 50);

@@ -36,7 +36,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { saveSnapshot } = await import("../src/agent-session/acpmux/App");
+const { saveSnapshot, savedSessions } = await import("../src/agent-session/acpmux/App");
 
 afterAll(() => {
   for (const [key, had, value] of saved) {
@@ -117,4 +117,19 @@ test("the reload copy keeps the newest chats and the shown chat's family, not th
   expect(kept[0]!.sessionId).toBe(id(3));
   console.log(`reload copy: ${writes[0]!.length} bytes for ${sessions.length} chats`);
   expect(writes[0]!.length).toBeLessThan(400_000);
+});
+
+test("a streaming frame's list, a new array of the same entries, is not chosen again", () => {
+  const id = (n: number) => `0190a000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`;
+  const sessions = Array.from({ length: 3055 }, (_, n) => ({ sessionId: id(n), activityAt: n }));
+  const list = (entries: typeof sessions) => ({ ...snapshot("a reply"), sessionId: id(0), sessions: entries });
+  const first = savedSessions(list([...sessions]) as unknown as AcpmuxSnapshot);
+  // Each snapshot maps the list into a new array (direct.ts emitNow): same entries, same choice.
+  expect(savedSessions(list([...sessions]) as unknown as AcpmuxSnapshot)).toBe(first);
+  // A changed entry chooses again.
+  const changed = [...sessions];
+  changed[5] = { ...changed[5]!, activityAt: 10_000 };
+  const next = savedSessions(list(changed) as unknown as AcpmuxSnapshot);
+  expect(next).not.toBe(first);
+  expect(next.some((entry) => entry.sessionId === id(5))).toBe(true);
 });

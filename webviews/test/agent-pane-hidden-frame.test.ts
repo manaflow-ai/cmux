@@ -86,3 +86,18 @@ test("a hidden page runs nothing until it shows, then runs once", () => {
   jest.advanceTimersByTime(100);
   expect(runs).toBe(1);
 });
+
+test("a page hidden again before its frame waits for the next show", () => {
+  let runs = 0;
+  setVisibility("hidden");
+  nextFrame(() => (runs += 1));
+  setVisibility("visible");
+  // Hidden again before the frame came: neither the frame nor the 50 ms fallback runs it.
+  setVisibility("hidden");
+  drawFrame();
+  jest.advanceTimersByTime(1_000);
+  expect(runs).toBe(0);
+  setVisibility("visible");
+  drawFrame();
+  expect(runs).toBe(1);
+});
