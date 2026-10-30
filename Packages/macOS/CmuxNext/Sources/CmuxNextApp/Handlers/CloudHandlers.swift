@@ -213,12 +213,20 @@ enum CloudHandlers {
     }
 
     /// The machine's first workspace, created (with a terminal) when it has none.
-    static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
+    private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext,
+                                             beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
         let daemon = session.daemon
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        if let first = try await existingWorkspace(in: daemon.store) { return first }
+        if let first = try await existingWorkspace(in: daemon.store) { return (first, false) }
+        // Re-evaluate after the live tree arrives: this is the last point before
+        // creation, so a caller's confirmation/proceed hook sees the real state.
+        try beforeCreate()
         guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return id
+        return (id, true)
+    }
+
+    static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
+        try await firstWorkspaceResult(on: session, context).id
     }
 
     /// The first workspace `store` lists, nil when it lists none. A daemon's connection is up
@@ -232,7 +240,7 @@ enum CloudHandlers {
             if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
             return false
         }
-        if !current(), await !CloudMove.holds(within: limit, until: current) {
+        if !(await current()), await !CloudMove.holds(within: limit, until: current) {
             throw ActionFailure(message: CloudStrings.notConnected)
         }
         return store.workspaces.first?.id
@@ -309,15 +317,13 @@ enum CloudHandlers {
     /// `proceed` runs right before each workspace this creates: its throw creates nothing.
     @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext,
                                           proceed: () throws -> Void = {}) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
-        let hadWorkspace = !session.daemon.store.workspaces.isEmpty
-        if !hadWorkspace { try proceed() }
-        let id = try await firstWorkspace(on: session, context)
+        let result = try await firstWorkspaceResult(on: session, context, beforeCreate: proceed)
+        let id = result.id
         if let anchor = anchor(id: id, on: session) { return anchor }
         if let anchor = await mirroredAnchor(id: id, on: session) { return anchor }
-        // `firstWorkspace` already requested the first workspace when the
-        // store was empty. Do not issue a second create if that mirror is
-        // unexpectedly late.
-        guard hadWorkspace else { throw ActionFailure(message: CloudStrings.notConnected) }
+        // A workspace created from a live empty tree may still be awaiting its
+        // mirror; do not issue a duplicate create while that request is pending.
+        guard !result.created else { throw ActionFailure(message: CloudStrings.notConnected) }
         try proceed()
         guard let created = await context.services.windows.createWorkspace(on: session.daemon) else {
             throw ActionFailure(message: CloudStrings.notConnected)
