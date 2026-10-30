@@ -26,18 +26,10 @@ fn strip_ansi(input: &str) -> String {
                         }
                     }
                 }
-                Some(']') => {
+                // OSC, and the string controls DCS, SOS, PM and APC: their payload runs to ST or BEL.
+                Some(']' | 'P' | 'X' | '^' | '_') => {
                     chars.next();
-                    loop {
-                        match chars.next() {
-                            None | Some('\x07') | Some('\u{009c}') => break,
-                            Some('\x1b') if chars.peek() == Some(&'\\') => {
-                                chars.next();
-                                break;
-                            }
-                            Some(_) => {}
-                        }
-                    }
+                    skip_string(&mut chars);
                 }
                 Some(next) if ('0'..='~').contains(&next) => {
                     // A two-byte escape sequence (for example, ESC 7 or ESC c).
@@ -63,22 +55,29 @@ fn strip_ansi(input: &str) -> String {
                     }
                 }
             }
-            '\u{009d}' => loop {
-                match chars.next() {
-                    None | Some('\x07') | Some('\u{009c}') => break,
-                    Some('\x1b') if chars.peek() == Some(&'\\') => {
-                        chars.next();
-                        break;
-                    }
-                    Some(_) => {}
-                }
-            },
+            '\u{009d}' | '\u{0090}' | '\u{0098}' | '\u{009e}' | '\u{009f}' => {
+                skip_string(&mut chars)
+            }
             '\u{009c}' | '\r' => {}
             _ => output.push(ch),
         }
     }
 
     output
+}
+
+/// Skips a string control's payload through its terminator: ST (ESC \\ or C1 ST) or BEL.
+fn skip_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    loop {
+        match chars.next() {
+            None | Some('\x07') | Some('\u{009c}') => break,
+            Some('\x1b') if chars.peek() == Some(&'\\') => {
+                chars.next();
+                break;
+            }
+            Some(_) => {}
+        }
+    }
 }
 
 fn strip_tracing_prefix(mut line: &str) -> &str {
