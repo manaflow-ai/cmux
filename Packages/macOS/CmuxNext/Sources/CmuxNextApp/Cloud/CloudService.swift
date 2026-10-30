@@ -482,7 +482,8 @@ final class CloudService {
             }
         }
         let ids = Set(visible.map(\.id))
-        for session in machines.cloud where !ids.contains(session.machineID) {
+        // A machine whose record came from a read asked after this list stays: that read saw it.
+        for session in machines.cloud where !ids.contains(session.machineID) && recordReadApplied[session.machineID, default: 0] < read {
             if let user = auth.user {
                 let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
                 let machineID = session.machineID
