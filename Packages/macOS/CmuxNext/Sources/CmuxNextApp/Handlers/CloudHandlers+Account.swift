@@ -362,9 +362,11 @@ extension CloudHandlers {
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
                 // The window that still shows the creation shows its
-                // workspace; one that moved on gets it filed quietly.
+                // workspace; one that moved on gets it filed quietly. A
+                // machine an agent or the CLI made without focus stays out
+                // of the sidebar until the person opens it (`unopenedCloudWorkspaces`).
                 guard let windowID = creation.windowID, let state = windows.controller(for: windowID)?.state else {
-                    windows.reveal(workspaceID: id)
+                    if startedByPerson { windows.reveal(workspaceID: id) }
                     return
                 }
                 if state.cloudCreation == creation.id {

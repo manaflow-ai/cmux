@@ -346,11 +346,18 @@ extension WindowManager {
     /// machine list and Cloud load changes.
     func reconcileMembership() {
         var live: [String] = []
+        var cloud: [[String]] = []
         for daemon in services.machines.daemons {
             installWorkspaceListHook(on: daemon)
-            for id in Self.orderedIDs(of: daemon, machines: services.machines) {
+            let ids = Self.orderedIDs(of: daemon, machines: services.machines)
+            for id in ids {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
+            }
+            // Only the ids that resolve to this machine: a VM made from another's snapshot keeps its
+            // workspace keys, and a window holding the other machine's copy does not open this one.
+            if services.machines.session(daemon.machineID) != nil {
+                cloud.append(ids.filter { services.machines.workspace(id: $0)?.1 === daemon })
             }
         }
         var placements = pendingClaims
@@ -368,7 +375,8 @@ extension WindowManager {
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
-        let held: Set<String> = FirstTabHold.held(live).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
+        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || placements[$0] != nil }
+        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
         })
@@ -395,6 +403,20 @@ extension WindowManager {
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
         rememberIncognitoTabs()
         applyPendingPlacements(live: Set(live))
+    }
+
+    /// Leo 2026-10-29, on agents' Cloud machines in his sidebar: "why is there all this weird stuff at
+    /// the bottom of the sidebar". The app connects every Cloud machine of the account, and a machine
+    /// starts with a workspace from its image, so reconcile gave the workspace of every lane-pool or
+    /// test VM to the most recent window. A Cloud machine's workspaces join a window only once the
+    /// person opened that machine here: one of its workspaces is in a window (open or closed) or
+    /// claimed for one (Open Machine, New Cloud Workspace, a run with focus). Until then reconcile
+    /// holds them, in no sidebar. Returns the workspaces of each Cloud machine in `machines` (its
+    /// live workspace ids) that has none `opened` says is in a window or claimed for one.
+    static func unopenedCloudWorkspaces(_ machines: [[String]], opened: (String) -> Bool) -> Set<String> {
+        var held = Set<String>()
+        for workspaces in machines where !workspaces.contains(where: opened) { held.formUnion(workspaces) }
+        return held
     }
 
     private func installWorkspaceListHook(on daemon: DaemonService) {
