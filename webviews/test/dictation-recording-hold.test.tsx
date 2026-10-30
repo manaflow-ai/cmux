@@ -175,10 +175,11 @@ test("a switch that carries the prompt leaves the uploading recording with its o
   chat = "chat-b";
   carry = true;
   await act(async () => root.render(<Probe />));
-  expect(intake.pending).toMatchObject([{ name: "Recording.wav", scope: "chat-a" }]);
+  // Chat B neither shows it nor waits for it: a send there goes at once, without it.
+  expect(intake.pending).toEqual([]);
+  await act(async () => send());
+  expect(sent).toEqual([[]]);
   await act(async () => host.answer({ path: remote }));
   expect(intake.attachments).toEqual([]);
   expect(handedOff).toEqual([["chat-a", [remote]]]);
-  await act(async () => send());
-  expect(sent).toEqual([[]]);
 });
