@@ -104,7 +104,7 @@ extension SidebarListViewComponents {
     /// Ends an external drag and returns what it would do. The App commits
     /// the proposal (one daemon command) and updates the model.
     func externalDragEnded() -> SidebarTabDrop? {
-        let proposal = external?.proposal
+        let proposal = displayed.hostHeadersShowing ? nil : external?.proposal
         endExternalDrag(dropping: proposal)
         return proposal
     }
