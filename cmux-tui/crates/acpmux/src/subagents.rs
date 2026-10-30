@@ -550,6 +550,10 @@ impl SubagentTree {
         }
         self.root_thread = Some(id.to_owned());
         self.parents.remove(id);
+        // An early echo counted the root as running background work; its echoes
+        // are dropped from now on, so no end event would ever remove it.
+        self.background.remove(id);
+        self.previews.remove(id);
         for parent in self.parents.values_mut() {
             if parent.as_deref() == Some(id) {
                 *parent = None;
