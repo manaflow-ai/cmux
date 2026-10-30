@@ -117,7 +117,7 @@ export function SummaryCard({
   // leaves; a second open while it is open changes nothing.
   const presence = usePresence(shown, "right");
   const drawn = presence.present;
-  const open = drawn && (!card.column || !card.collapsed);
+  const open = drawn && !card.collapsed;
   const views = subagents.views;
   const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
   const asks = subagents.asks;
@@ -305,7 +305,7 @@ export function SummaryCard({
             <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
           </div>
         )}
-        {!onSubagents && (
+        {open && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
             {!card.column && (
               <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
