@@ -66,7 +66,10 @@ def offender(repo: Path, head: str, folder: str, module: str) -> tuple[str, str]
     return sha, subject
 
 
-def branch_for(repairs: list[str]) -> str:
+def branch_for(missing: list[tuple[str, str]], sorting: list[str]) -> str:
+    """The branch for a gap: its missing imports when there are any, so a later push that only sorts the lists finds
+    the same branch (review of 1f94c38c); otherwise the sorting problems."""
+    repairs = [f"{t}: {m}" for t, m in missing] or [f"sort: {p}" for p in sorting]
     return BRANCH_PREFIX + hashlib.sha256("\n".join(sorted(repairs)).encode()).hexdigest()[:12]
 
 
@@ -137,7 +140,7 @@ def plan(repo: Path, head: str, out: Path, github_repo: str = "", run_url: str =
         print("package-deps-heal: still red after the repair:\n  " + "\n  ".join(still), file=sys.stderr)
         return {"red": "true", "fixable": "false"}
     manifest.write_text(fixed_text, encoding="utf-8")
-    branch = branch_for([f"{t}: {m}" for t, m in missing] + [f"sort: {p}" for p in sorting])
+    branch = branch_for(missing, sorting)
     title = title_for(missing)
     shas = sorted({sha for sha, _ in offenders.values()})
     out.mkdir(parents=True, exist_ok=True)
@@ -172,7 +175,12 @@ def open_pr(repo: Path, out: Path, remote: str = "origin", base: str = BASE) -> 
     pushed = subprocess.run(["git", "-C", str(repo), "push", "-q", remote, f"HEAD:refs/heads/{branch}"],
                             text=True, capture_output=True)
     if pushed.returncode != 0:
-        return f"not pushed: {branch} exists on {remote} ({pushed.stderr.strip()[-200:]})"
+        # An earlier run pushed the branch. A pull request ever opened from it (a closed one is a person's decision)
+        # leaves it alone; none means that run's `gh pr create` failed, so this run opens it (review of 1f94c38c).
+        ever = gh("pr", "list", "--head", branch, "--state", "all", "--json", "url", "--limit", "1")
+        if ever.returncode != 0 or json.loads(ever.stdout or "[]"):
+            found = json.loads(ever.stdout)[0]["url"] if ever.returncode == 0 else ever.stderr.strip()[-200:]
+            return f"not pushed: {branch} exists on {remote} ({found})"
     created = gh("pr", "create", "--base", base, "--head", branch, "--title", (out / "title").read_text().strip(),
                  "--body-file", str(out / "body.md"), "--label", (out / "labels").read_text().strip())
     if created.returncode != 0:

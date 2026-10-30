@@ -569,14 +569,15 @@ class HealTests(unittest.TestCase):
         second, _ = self.plan()
         self.assertEqual(first["branch"], second["branch"])
 
-    def fake_gh(self, listed="[]"):
+    def fake_gh(self, listed="[]", closed="[]"):
         tools = self.root / "bin"
         tools.mkdir(exist_ok=True)
         log = self.root / "gh.log"
         (tools / "gh").write_text(
             "#!/bin/sh\n"
             f'printf "%s\\n" "$*" >> "{log}"\n'
-            f'case "$1 $2" in "pr list") echo \'{listed}\' ;; "pr create") echo https://github.com/x/y/pull/9 ;; esac\n')
+            f'case "$*" in *"--state open"*) echo \'{listed}\' ;; *"--state all"*) echo \'{closed}\' ;; '
+            '"pr create"*) echo https://github.com/x/y/pull/9 ;; esac\n')
         (tools / "gh").chmod(0o755)
         return tools, log
 
@@ -608,6 +609,46 @@ class HealTests(unittest.TestCase):
         with unittest.mock.patch.dict(os.environ, {**self.env, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}):
             self.assertEqual(heal.open_pr(self.repo, out), "already open: https://github.com/x/y/pull/8")
         self.assertNotIn("pr create", log.read_text())
+
+    def earlier_run_pushed(self, branch):
+        """BRANCH on the remote as an earlier run left it: its own commit, which this run's commit does not extend."""
+        commit = self.git("commit-tree", "HEAD^{tree}", "-m", "an earlier run's fix").strip()
+        self.git("push", "-q", "origin", f"{commit}:refs/heads/{branch}")
+
+    def test_a_pushed_branch_whose_pull_request_was_never_opened_gets_one(self):
+        # Review of 1f94c38c: a run whose push succeeded but whose `gh pr create` failed left the branch on the remote,
+        # and every later run stopped at "not pushed", so the repair was stranded for good.
+        self.bad_push()
+        result, out = self.plan()
+        self.earlier_run_pushed(result["branch"])
+        tools, log = self.fake_gh()
+        with unittest.mock.patch.dict(os.environ, {**self.env, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}):
+            self.assertEqual(heal.open_pr(self.repo, out), "https://github.com/x/y/pull/9")
+        create = [line for line in log.read_text().splitlines() if line.startswith("pr create")]
+        self.assertEqual(len(create), 1, log.read_text())
+        self.assertIn(f"--head {result['branch']}", create[0])
+
+    def test_a_branch_with_a_closed_pull_request_is_left_alone(self):
+        self.bad_push()
+        result, out = self.plan()
+        self.earlier_run_pushed(result["branch"])
+        tools, log = self.fake_gh(closed='[{"url": "https://github.com/x/y/pull/7"}]')
+        with unittest.mock.patch.dict(os.environ, {**self.env, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}):
+            self.assertIn("pull/7", heal.open_pr(self.repo, out))
+        self.assertNotIn("pr create", log.read_text())
+
+    def test_the_branch_names_only_the_missing_imports_when_there_are_any(self):
+        # Review of 1f94c38c (P3): the digest also took the sorting problems, so a later push that only sorted the
+        # lists gave the same import gap a second branch and a second pull request.
+        self.assertEqual(heal.branch_for([("T", "M")], ["a list out of order"]), heal.branch_for([("T", "M")], []))
+        self.assertNotEqual(heal.branch_for([], ["a"]), heal.branch_for([], ["b"]))
+
+    def test_the_workflow_runs_only_on_feat_cmux_next(self):
+        # Review of 1f94c38c: a workflow_dispatch from another branch would open a fix pull request carrying that
+        # branch's own commits.
+        workflow = (HERE.parents[2] / ".github/workflows/cmux-next-package-deps-heal.yml").read_text()
+        self.assertIn("if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'",
+                      workflow)
 
     def test_open_refuses_any_branch_but_an_autofix_one(self):
         self.bad_push()
