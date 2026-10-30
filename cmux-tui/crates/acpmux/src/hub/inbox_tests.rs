@@ -192,3 +192,33 @@ fn an_answered_record_keeps_an_answer_or_an_error() {
     let (_, answer) = answered_record(&err).unwrap();
     assert_eq!(answer.unwrap_err().message, "the agent died");
 }
+
+/// An idle chat whose cut turn's automatic continuation may still fire (`auto_resume.rs`) does
+/// not wake for its inbox: a turn of its own would supersede the continuation. The inbox is
+/// looked at again on its timer, and goes in once nothing waits.
+#[tokio::test]
+async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-wait",
+        "name": "inbox-wait", "harness": "claude", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve("inbox-wait").unwrap();
+    let due = now_ms().saturating_sub(FLUSH_MS + 1);
+    let blocked = item("p1", "t", "other", PromptClass::Block, due, "blocked on review");
+    session.inbox.lock().unwrap().items.push(blocked);
+    hub.set_ending_for_test(&session, Some("cut"));
+    hub.inbox_review(&session);
+    {
+        let inbox = session.inbox.lock().unwrap();
+        assert!(inbox.in_flight.is_none(), "no notice while the continuation may fire");
+        assert!(inbox.timer.is_some(), "looked at again on its timer");
+    }
+    hub.set_ending_for_test(&session, None);
+    hub.inbox_review(&session);
+    assert!(session.inbox.lock().unwrap().in_flight.is_some(), "it goes in once nothing waits");
+}
