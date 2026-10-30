@@ -200,6 +200,22 @@ class Counts(unittest.TestCase):
                                "as_of": "2026-10-19T21:54:00Z"}
         self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
 
+    def test_stale_health_does_not_invent_a_queue(self):
+        for label in (GUI, SIDE):
+            shot = {"gates": {"labels": {label: {
+                "as_of": "2026-10-19T21:54:00Z", "listening": 1,
+                "queued": 0, "oldest_queued_s": 0}}}}
+            with self.subTest(label=label):
+                self.assertFalse(cascade.owned_label_full(shot, label, NOW))
+                self.assertFalse(cascade.owned_label_full(shot, label, NOW, queued_wait_s=120))
+                self.assertTrue(cascade.owned_label_full(shot, label, NOW, queued_wait_s=181))
+
+    def test_stale_snapshot_queue_includes_snapshot_age(self):
+        shot = {"gates": {"labels": {GUI: {
+            "as_of": "2026-10-19T21:54:00Z", "listening": 1,
+            "queued": 1, "oldest_queued_s": 120}}}}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
     def test_stale_artifact_age_overflows_even_when_health_as_of_is_fresh(self):
         shot = snapshot(minutes_old=6)
         shot["pools"][GUI] = {"listening": 0, "busy": 1,
@@ -1066,7 +1082,7 @@ class Rerun(unittest.TestCase):
                 context["needs"] = {"macos-placement": {"outputs": outputs}}
                 self.assertEqual(evaluate(runs_on, context), expected)
                 outputs["placed_attempt"] = "1"
-                self.assertEqual(evaluate(runs_on, context), SMALL)
+                self.assertFalse(evaluate(runs_on, context))
 
     def rerun_outputs(self, runners: list, live: dict, waiting: dict, **extra: str) -> dict:
         """placement.main() on the bot's attempt 2, then the step's shell, as the runner runs them."""
@@ -1552,6 +1568,22 @@ class Wiring(unittest.TestCase):
         # A rescue retry whose placement was skipped must not consume stale
         # attempt-1 outputs and evaluate runs-on to boolean false.
         self.assertFalse(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")))
+
+    def test_missing_fast_tier_capacity_fails_admission_instead_of_passing_by_skip(self):
+        admission = self.jobs["fast-tier-admission"]
+        step = admission["steps"][0]
+        self.assertEqual(step["env"]["SELECTED_RUNNER"], self.jobs["fast-tier"]["runs-on"])
+        for context, admitted in ((self.context(runner=""), False),
+                                  (self.context("2", BOT, runner="", placed="1"), False),
+                                  (self.context(small=" fast-tier "), True),
+                                  (self.context(fork=True, runner=""), True)):
+            selected = evaluate(step["env"]["SELECTED_RUNNER"], context)
+            result = subprocess.run(["bash", "-e", "-c", step["run"]], capture_output=True,
+                                    env={"SELECTED_RUNNER": str(selected).lower() if not selected else selected})
+            self.assertEqual(result.returncode == 0, admitted, selected)
+        # Capacity admission runs for every otherwise-required fast tier,
+        # even when placement emits nothing.
+        self.assertNotIn("needs.macos-placement.outputs", admission["if"])
 
     def test_gui_jobs_keep_their_route(self):
         for name in GUI_JOBS:

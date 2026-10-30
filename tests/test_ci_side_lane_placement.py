@@ -418,13 +418,34 @@ class Decide(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
             output = Path(tmp) / "out"
             values = env(GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(Path(tmp) / "summary"))
-            with mock.patch.object(placement, "_main", side_effect=TimeoutError("read timeout")):
+            with mock.patch.object(placement, "_main", side_effect=placement.PlacementDeadline("read timeout")):
                 self.assertEqual(placement.main(values), 0)
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
-            self.assertEqual(lines["runner"], placement.DEFAULT_PLACEMENT_RUNNER)
-            self.assertEqual(lines["gui_overflow"], placement.DEFAULT_PLACEMENT_RUNNER)
+            self.assertEqual(lines["runner"], placement.cascade.SMALL)
+            self.assertEqual(lines["gui_overflow"], placement.cascade.SMALL)
             self.assertEqual(lines["watch"], "false")
-            self.assertIn(placement.DEFAULT_PLACEMENT_RUNNER, Path(values["GITHUB_STEP_SUMMARY"]).read_text())
+            self.assertIn(placement.cascade.SMALL, Path(values["GITHUB_STEP_SUMMARY"]).read_text())
+
+    def test_real_deadline_escapes_request_error_handlers_and_clears_partial_outputs(self):
+        def blocked_read(_env):
+            try:
+                placement.signal.pause()
+            except Exception:
+                self.fail("the operation deadline was swallowed as a request failure")
+
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp) / "out"
+            output.write_text("blacksmith_12_jobs= fast-tier \nowned_jobs= fast-tier \n")
+            previous = placement.signal.getsignal(placement.signal.SIGALRM)
+            with mock.patch.object(placement, "_main", side_effect=blocked_read), \
+                    mock.patch.object(placement, "PLACEMENT_DEADLINE_SECONDS", 0.01):
+                self.assertEqual(placement.main(env(GITHUB_OUTPUT=str(output))), 0)
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(lines["owned_jobs"], "")
+            self.assertEqual(lines["blacksmith_12_jobs"], "")
+            self.assertEqual(lines["free_retry_runner"], placement.cascade.SMALL)
+            self.assertEqual(placement.signal.getsignal(placement.signal.SIGALRM), previous)
+            self.assertEqual(placement.signal.getitimer(placement.signal.ITIMER_REAL), (0, 0))
 
     def test_main_writes_the_outputs(self):
         # The script's ::warning:: lines stay out of the guard job's log.

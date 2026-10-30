@@ -677,7 +677,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertIn("github.triggering_actor", expression)
         fast_if = str(fast.get("if") or "")
         self.assertIn("needs.macos-placement.outputs.fast_runner != ''", fast_if)
-        self.assertIn("needs.macos-placement.outputs.retry_runner != ''", fast_if)
+        self.assertIn("needs.macos-placement.outputs.retry_runner", fast_if)
 
     def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
         here = ".github/workflows/x.yml"

@@ -388,8 +388,18 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
     if not isinstance(entry, Mapping):
         return queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS
     try:
+        # A snapshot with no queued jobs cannot acquire a queue merely by
+        # aging. Rescue's own wait remains authoritative even if that reading
+        # predates the job it is watching.
+        queued = int(entry.get("queued", 0))
+        if not observed_wait and queued <= 0:
+            return False
         as_of = dt.datetime.fromisoformat(str(entry.get("as_of") or "").replace("Z", "+00:00"))
         snapshot_age = (now - as_of).total_seconds()
+        if not observed_wait:
+            queued_wait_s += max(0, snapshot_age)
+        if queued_wait_s < OWNED_HEALTH_QUEUE_SECONDS:
+            return False
         try:
             generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
             generated_age = (now - generated).total_seconds() if generated.tzinfo else float("inf")
@@ -401,13 +411,6 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
                 or not isinstance(gates, Mapping)
                 and not 0 <= generated_age <= OWNED_HEALTH_STALE_SECONDS):
             return True
-        # The queue age is measured at `as_of`; include time elapsed since the
-        # reading so a fresh-at-read queue cannot be admitted after it crosses
-        # the three-minute overflow boundary.
-        if not observed_wait:
-            queued_wait_s += snapshot_age
-        if queued_wait_s < OWNED_HEALTH_QUEUE_SECONDS:
-            return False
         listening, queued = int(entry.get("listening", 0)), int(entry.get("queued", 0))
         held = entry.get("held_offline") or {}
         held_total = int(held.get("total", sum(int(held.get(key, 0)) for key in ("units", "cpu", "livelock", "other")))) if isinstance(held, Mapping) else 0

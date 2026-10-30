@@ -653,7 +653,7 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # Cancelling the run would kill siblings still running (run 36198335113 lost five
     # shards that way to a refusal), so a job held in setup waits for them, as a
     # refusal does, until the watch is about to end.
-    running = [job for job in owned if job.get("status") == "in_progress" and not in_setup(job)]
+    running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
     closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
     if held and (not running or closing):
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
@@ -1137,8 +1137,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 health = api.pool_snapshot(seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
-            allow_running_rescue=target.side and not target.nightly,
-            judged=nightly_watched if target.nightly else None,
+                          allow_running_rescue=target.side and not target.nightly,
+                          judged=nightly_watched if target.nightly else None,
                           include_blacksmith_macos=target.side and not target.nightly,
                           health_snapshot=health)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:

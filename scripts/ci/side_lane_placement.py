@@ -107,8 +107,8 @@ import datetime as dt
 import importlib.util
 import math
 import os
-import sys
 import signal
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -127,7 +127,10 @@ SIDE_RETRY_CAP_SECONDS = 5.0
 # Keep the placement step below its workflow timeout. A timed-out read must
 # leave a concrete default route, not strand the dependent Mac jobs.
 PLACEMENT_DEADLINE_SECONDS = 90
-DEFAULT_PLACEMENT_RUNNER = "blacksmith-6vcpu-macos-26"
+
+
+class PlacementDeadline(BaseException):
+    """A whole-operation deadline that per-request error handlers cannot swallow."""
 
 
 def _cascade():
@@ -755,18 +758,20 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(
-                f"owned_jobs=\nfallback_jobs=\nrunner={DEFAULT_PLACEMENT_RUNNER}\n"
+                f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\n"
                 f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
-                f"gui_overflow={DEFAULT_PLACEMENT_RUNNER}\nsession_lane_runner=\n"
+                f"gui_overflow={cascade.SMALL}\nsession_lane_runner=\n"
                 f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
                 f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
+                f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
+                f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"
             )
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### macOS placement\n\nPlacement exceeded its read deadline; using "
-                         f"{DEFAULT_PLACEMENT_RUNNER}.\n")
-    print(f"::warning title=side-lane placement::read deadline exceeded; using {DEFAULT_PLACEMENT_RUNNER}")
+                         f"{cascade.SMALL}.\n")
+    print(f"::warning title=side-lane placement::read deadline exceeded; using {cascade.SMALL}")
     return 0
 
 
@@ -774,12 +779,12 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     """Run placement with a hard deadline and a deterministic default route."""
     previous = signal.getsignal(signal.SIGALRM)
     def timeout(_signum: int, _frame: Any) -> None:
-        raise TimeoutError("side-lane placement read deadline exceeded")
+        raise PlacementDeadline("side-lane placement read deadline exceeded")
     try:
         signal.signal(signal.SIGALRM, timeout)
         signal.setitimer(signal.ITIMER_REAL, PLACEMENT_DEADLINE_SECONDS)
         return _main(env)
-    except TimeoutError:
+    except PlacementDeadline:
         return _timeout_fallback(env)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
