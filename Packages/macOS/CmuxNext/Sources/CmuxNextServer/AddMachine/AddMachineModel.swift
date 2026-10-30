@@ -363,6 +363,10 @@ public final class AddMachineModel {
                 // build on the host; enroll then runs again from the top.
                 installingAppBuild = true
                 checklist.run(.install)
+                guard !Task.isCancelled else {
+                    installingAppBuild = false
+                    return
+                }
                 let installed = await services.install(host, name)
                 installingAppBuild = false
                 guard !Task.isCancelled else { return }
