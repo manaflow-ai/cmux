@@ -7434,8 +7434,11 @@ function AcpmuxPane() {
       const visit = trustVisit();
       setFolderAsk(undefined);
       setWorktreeCreating(false);
+      // The pick lands only in the chat it was made in: a chat switched to meanwhile gets nothing.
+      const asked = { sessionId, ...visitOf(visit) };
+      const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
       void pickFolder(callNative, cwd, (folder) => {
-        if (pick === folderPick.current) use(folder);
+        if (pick === folderPick.current && stillHere()) use(folder);
       }).then((ask) => {
         if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId, ...visitOf(visit) });
       });
@@ -7486,8 +7489,11 @@ function AcpmuxPane() {
         if (freshRef.current) setProjectDraft(folder);
         else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
       };
+      // The worktree lands only in the chat it was made for: a chat switched to meanwhile gets nothing.
+      const asked = { sessionId, ...visitOf(visit) };
+      const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
       void newWorktree(callNative, cwd, (folder) => {
-        if (pick === folderPick.current) use(folder);
+        if (pick === folderPick.current && stillHere()) use(folder);
       })
         .then(({ ask }) => {
           // The host asks about the worktree's folder first: the question shows as a picked folder's.
