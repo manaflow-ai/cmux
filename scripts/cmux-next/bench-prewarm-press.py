@@ -122,29 +122,51 @@ def sidebar_summary(app):
             for r in (windows[0].get("rows") or [])][:8]
 
 
-def two_rows(app, make=True, seconds=60):
+SETUPS = []  # each two_rows call: the newTab calls it needed, the first call's reply and outcome (a product signal)
+
+
+def two_rows(app, make=True, seconds=60, phase="setup"):
     """At least two listed workspace rows: a script's newTab for each one missing, sent again every 10 s while the
     sidebar still lists fewer (the try of 2026-10-30 11:04Z on cmux20: the fourth launch answered after 0.56 s, its
     newTab made no listed row, and the bench gave up after one 20 s wait). None after `seconds`; the reason is
     printed with what the sidebar lists and what the newTab calls answered."""
     replies = []
+    setup = {"phase": phase, "rows_before": None, "calls": 0, "first_reply": None, "first_outcome": None}
+    SETUPS.append(setup)
+
+    def done(rows):
+        if setup["calls"] and setup["first_outcome"] is None:
+            setup["first_outcome"] = f"{len(rows or [])} listed workspace rows 10 s after the first newTab"
+        print(f"setup {phase}: rows before {setup['rows_before']}, newTab calls {setup['calls']}, first reply "
+              f"{setup['first_reply']}, first call outcome: {setup['first_outcome']}"
+              + ("" if rows else f"; sidebar {sidebar_summary(app)}; last replies {replies[-4:]}"), flush=True)
+        return rows
+
     deadline = time.monotonic() + seconds
     wait(lambda: (app.rpc("debug.windows") or {}).get("windows"), 30, step=0.1)
     while time.monotonic() < deadline:
         rows = app.rows()
+        if setup["rows_before"] is None:
+            setup["rows_before"] = len(rows)
         if len(rows) >= 2:
-            return rows
+            return done(rows)
+        first_batch = setup["calls"] == 0
         if make:
             for index in range(2 - len(rows)):
                 reply = app.rpc("action.run", {"action": "newTab", "args": {"name": f"prewarm-press-{len(replies)}"}, "wait": True})
-                replies.append(json.dumps(reply)[:160])
+                replies.append(json.dumps(reply)[:200])
+                setup["calls"] += 1
+                if setup["first_reply"] is None:
+                    setup["first_reply"] = replies[-1]
         got = wait(lambda: (lambda r: r if len(r) >= 2 else None)(app.rows()), min(10, max(0, deadline - time.monotonic())),
                    step=0.25)
+        if first_batch and setup["calls"]:
+            setup["first_outcome"] = (f"{len(got or app.rows())} listed workspace rows 10 s after the first newTab"
+                                      + ("" if got else f" (NO new row: sidebar {sidebar_summary(app)})"))
         if got:
-            return got
-    print(f"two_rows: fewer than two listed workspace rows in {seconds} s; sidebar {sidebar_summary(app)}; "
-          f"newTab replies {replies[-4:]}", flush=True)
-    return None
+            return done(got)
+    print(f"two_rows: fewer than two listed workspace rows in {seconds} s", flush=True)
+    return done(None)
 
 
 def timed_press(app, point, before):
@@ -160,7 +182,7 @@ def timed_press(app, point, before):
 def measure(app, opts, arms, samples, starts):
     """The warm and quick arms. A failed set-up records them as not run (the cold samples already taken and the
     HEADLINE still print); it never exits."""
-    rows = two_rows(app)
+    rows = two_rows(app, phase="warm-quick launch")
     if not rows:
         return "fewer than two listed sidebar workspace rows in 60 s (see the two_rows line)"
     points = [(x, y) for _, x, y in rows[:2]]
@@ -199,7 +221,7 @@ def cold(opts):
             continue
         try:
             app = App(bench.socket)
-            rows = two_rows(app)
+            rows = two_rows(app, phase=f"cold launch {index + 1}")
             value = None
             if not rows:
                 print(f"cold launch {index + 1}: fewer than two sidebar workspace rows in 60 s ({len(app.rows())})", flush=True)
@@ -274,6 +296,10 @@ def main():
           f"p99={start['p99']} max={start['max']} us", flush=True)
     result["press_start_us"] = start
     result["not_run"] = why
+    result["setups"] = SETUPS
+    extra = [s_ for s_ in SETUPS if s_["calls"] > 1 or (s_["first_outcome"] or "").find("NO new row") >= 0]
+    print(f"newTab set-up: {sum(s_['calls'] for s_ in SETUPS)} calls over {len(SETUPS)} set-ups; "
+          f"{len(extra)} needed more than one call or got no row from the first", flush=True)
     if opts.json:
         with open(opts.json, "w") as out:
             json.dump(result, out, indent=2)
