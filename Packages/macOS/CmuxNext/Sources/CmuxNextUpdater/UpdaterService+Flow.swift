@@ -193,6 +193,8 @@ extension UpdaterService {
         stagedRefresh.follow(phase, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
+        // A pulled running build read while a check ran is followed once the check ends.
+        if case .hidden = phase { followPulled() } else if case .note = phase { followPulled() }
         switch phase {
         case .ready:
             recordStagedUpdate()
