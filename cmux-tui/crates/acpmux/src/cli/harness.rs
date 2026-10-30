@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::byo_endpoint;
-use crate::cli::command::{HarnessCmd, SecretCmd};
+use crate::cli::command::{CodexRuntimeCmd, HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
@@ -66,6 +66,18 @@ pub fn example(name: &str) -> Option<&'static str> {
 }
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
+    if let HarnessCmd::CodexRuntime { action } = cmd {
+        let value = match action {
+            CodexRuntimeCmd::Install => crate::managed_codex::install().await?,
+            CodexRuntimeCmd::Status => crate::managed_codex::status(),
+        };
+        if json_out {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
+        return Ok(());
+    }
     match cmd {
         HarnessCmd::List { folder: None } => list(json_out),
         HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),

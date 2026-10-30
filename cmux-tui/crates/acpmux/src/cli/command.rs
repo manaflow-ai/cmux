@@ -609,6 +609,11 @@ pub struct DispatchArgs {
 
 #[derive(Subcommand)]
 pub enum HarnessCmd {
+    /// Install or inspect cmux's opt-in managed Codex runtime.
+    CodexRuntime {
+        #[command(subcommand)]
+        action: CodexRuntimeCmd,
+    },
     /// Every harness with its kind, source file and problems.
     #[command(alias = "ls")]
     List {
@@ -749,6 +754,14 @@ pub enum HarnessCmd {
     Remove { id: String },
     /// Move a backup that `remove` made back into your harness folder.
     Restore { backup: String },
+}
+
+#[derive(Subcommand)]
+pub enum CodexRuntimeCmd {
+    /// Download and verify the pinned official Codex release.
+    Install,
+    /// Print the managed runtime status.
+    Status,
 }
 
 #[derive(Subcommand)]
