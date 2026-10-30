@@ -60,9 +60,12 @@ pub struct SubagentTree {
     /// The background subagents still running: they outlive the turn that
     /// started them, so the session works on past it (`hub/work_below.rs`).
     background: HashSet<String>,
-    /// Codex's native id for this session. Legacy activity can echo this id
-    /// while a child is running; it is the root, never a subagent.
-    root_thread: Option<String>,
+    /// Codex's native ids for this session. Legacy activity can echo a root id
+    /// while a child is running; it is the root, never a subagent. The tree
+    /// lives as long as the hub session, and a harness restart or a new Codex
+    /// conversation names a new root, so every root learned is kept: replayed
+    /// history still names the earlier ones.
+    root_threads: HashSet<String>,
 }
 
 #[derive(Debug, Default)]
@@ -75,7 +78,8 @@ struct ChildPreview {
 
 impl SubagentTree {
     /// Seed the native harness session id before the first update. The hub's
-    /// ACP wrapper id is different from Codex's native thread id.
+    /// ACP wrapper id is different from Codex's native thread id. A new id (a
+    /// harness restart, a new conversation) joins the roots already known.
     pub fn set_root(&mut self, id: &str) {
         self.remember_root(id);
     }
@@ -423,7 +427,7 @@ impl SubagentTree {
         let Some(id) = activity.get("threadId").and_then(Value::as_str) else { return vec![] };
         // The root's own id is occasionally echoed as a legacy activity item
         // while a direct child is active. Do not manufacture a root child.
-        if self.root_thread.as_deref() == Some(id) {
+        if self.is_root(id) {
             return vec![];
         }
         let name = activity
@@ -478,10 +482,7 @@ impl SubagentTree {
         id: &str,
         parent: Option<&str>,
     ) -> Option<Map<String, Value>> {
-        if self.own.as_deref() == Some(id)
-            || self.root_thread.as_deref() == Some(id)
-            || self.is_ancestor(id, parent)
-        {
+        if self.own.as_deref() == Some(id) || self.is_root(id) || self.is_ancestor(id, parent) {
             return None;
         }
         let parent = parent.map(str::to_owned);
@@ -497,10 +498,7 @@ impl SubagentTree {
     }
 
     fn spawn_with_parent(&mut self, id: &str, parent: Option<&str>) -> Option<Map<String, Value>> {
-        if self.own.as_deref() == Some(id)
-            || self.root_thread.as_deref() == Some(id)
-            || self.is_ancestor(id, parent)
-        {
+        if self.own.as_deref() == Some(id) || self.is_root(id) || self.is_ancestor(id, parent) {
             return None;
         }
         let parent =
@@ -530,7 +528,7 @@ impl SubagentTree {
     /// be a child whose spawn record has not arrived yet, so treating it as the
     /// root would create the hierarchy shown by the reported bug.
     fn authoritative_parent(&self, sender: &str) -> Option<String> {
-        if self.root_thread.as_deref() == Some(sender) {
+        if self.is_root(sender) {
             None
         } else if self.parents.contains_key(sender) {
             Some(sender.to_owned())
@@ -539,16 +537,19 @@ impl SubagentTree {
         }
     }
 
-    /// Record the native root id once, and repair an out-of-order echo that
-    /// arrived before session metadata identified the root.
+    fn is_root(&self, id: &str) -> bool {
+        self.root_threads.contains(id)
+    }
+
+    /// Record a native root id (a restart's new root joins the earlier ones),
+    /// and repair an out-of-order echo that arrived before session metadata
+    /// identified it.
     fn remember_root(&mut self, id: &str) {
-        if self.root_thread.as_deref() == Some(id) {
+        // The hub seeds the root on every update: a known one allocates nothing.
+        if self.is_root(id) {
             return;
         }
-        if self.root_thread.is_some() {
-            return;
-        }
-        self.root_thread = Some(id.to_owned());
+        self.root_threads.insert(id.to_owned());
         self.parents.remove(id);
         // An early echo counted the root as running background work; its echoes
         // are dropped from now on, so no end event would ever remove it.
