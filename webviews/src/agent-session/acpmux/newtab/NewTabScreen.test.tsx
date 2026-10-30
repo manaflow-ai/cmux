@@ -83,7 +83,7 @@ test("New Tab exposes the chat composer attachment menu", async () => {
 
 test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
   const ran: string[] = [];
-  const render = async (onPlusCommand?: (id: string) => void) =>
+  const render = async (onPlusCommand?: (id: string) => Promise<unknown>) =>
     act(async () => {
       root!.render(
         <NewTabScreen
