@@ -32,6 +32,7 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "watch_taken_over"
         // The row's `retry` came or went (`hub/auto_resume.rs`).
         | "auto_resume_scheduled"
+        | "auto_resume_state"
         | "auto_resume_skipped"
         | "auto_resume_exhausted"
         // A turn the row showed `retryDeciding` for gets no retry.

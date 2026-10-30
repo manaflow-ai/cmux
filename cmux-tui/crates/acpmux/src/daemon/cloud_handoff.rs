@@ -53,7 +53,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 /// The Cloud agent's socket (cmux-host `cloud/wire.rs` `AGENT_SOCKET`).
@@ -427,7 +427,7 @@ impl<I: Io> Reporter<I> {
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
             (Step::RetryScheduledAt(next_at), Now::Retrying { turn, why, .. }) => {
-                let until = next_at;
+                let until = epoch_ms_to_instant(next_at);
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
             (Step::Asks(what), Now::Reporting { turn, last })
@@ -724,6 +724,15 @@ impl<I: Io> Reporter<I> {
         }
         answer
     }
+}
+
+/// Convert a wall-clock reset deadline into the monotonic clock used by the reporter.
+/// A deadline that has already passed is due immediately; the next event will settle it.
+fn epoch_ms_to_instant(epoch_ms: u64) -> tokio::time::Instant {
+    let now = tokio::time::Instant::now();
+    let wall_now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let target = Duration::from_millis(epoch_ms);
+    now + target.saturating_sub(wall_now)
 }
 
 /// The Cloud agent's socket.
