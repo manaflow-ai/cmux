@@ -15,7 +15,7 @@ import Testing
 struct SplitLateStartTests {
     private struct Recorded: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-splits"
+        static let commandName: DaemonCommandName = "test-splits"
     }
 
     private static let script = #"""

@@ -10,7 +10,7 @@ extension AgentPaneView {
     public func run(_ command: AgentPageCommand) {
         // A queued command belongs to this chat, even if the page selects another before delivery.
         let value = "header:\(command.rawValue)|\(model.sessionId ?? "")"
-        deliver([.command(value)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\(JSONValue.string(value).compactText));"])
+        deliver([.command(value)])
     }
 
     /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
