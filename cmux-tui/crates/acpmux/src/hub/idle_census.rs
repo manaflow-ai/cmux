@@ -350,7 +350,7 @@ fn launcher(args: &str) -> Option<(&str, Vec<&str>)> {
     if !is_interpreter(interp) || !script.starts_with('/') {
         return None;
     }
-    Some((Path::new(script).file_name()?.to_str()?, words[2..].to_vec()))
+    Some((Path::new(script).file_name()?.to_str()?, words.get(2..)?.to_vec()))
 }
 
 /// Whether `args` is the program a launcher (`launcher`) runs for itself: a program by absolute
@@ -363,7 +363,7 @@ fn relays(args: &str, launcher: &(&str, Vec<&str>)) -> bool {
         return false;
     };
     Path::new(program).file_name().and_then(|n| n.to_str()) == Some(launcher.0)
-        && words[1..] == launcher.1[..]
+        && words.get(1..) == Some(launcher.1.as_slice())
 }
 
 /// Whether `args` runs one of the harness's own helper programs: an absolute path in the same
