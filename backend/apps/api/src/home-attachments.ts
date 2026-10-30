@@ -64,7 +64,8 @@ interface ConversationAttachments {
   derivedSlot(entity: string, id: string): Promise<UploadSlot | null>
   settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
-  setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
+  setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean>
+  queueMultipartAbort(entity: string, objectKey: string, uploadId: string): Promise<void>
   claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }>
   releaseMultipartPart(entity: string, id: string, claim: string): Promise<void>
   renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean>
@@ -307,15 +308,19 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
     // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
     // The object R2 completes carries the declared hash, so a completion whose answer was lost is recognised (completedObject).
     const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } })
-    // A failed or lost owner call aborts the upload too: no slot may name it, so nothing else would end it.
-    const recorded = await conversationOf(env, conversation)
-      .setMultipartUpload(conversation, slot.id, upload.uploadId)
-      .catch(async (e: unknown) => {
-        await upload.abort().catch(() => {})
-        throw e
+    // The owner keeps the upload on the slot, or, when the slot can no longer take it, queues it for an abort.
+    // A failed or lost owner call aborts it here; when that abort fails too, the owner is asked once more to queue it.
+    const owner = conversationOf(env, conversation)
+    const recorded = await owner.setMultipartUpload(conversation, slot.id, upload.uploadId, slot.object_key).catch(async (e: unknown) => {
+      await upload.abort().catch(async (abortError: unknown) => {
+        console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(abortError).slice(0, 200) }))
+        await owner.queueMultipartAbort(conversation, slot.object_key, upload.uploadId).catch(() => undefined)
       })
+      throw e
+    })
     if (!recorded) {
-      await upload.abort()
+      // Queued by the owner already: this abort only ends it sooner.
+      await upload.abort().catch(() => undefined)
       return failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
     }
     const plan = homeConversation.multipartPlan(meta.byte_count)
@@ -475,16 +480,18 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const slot = resumed ?? (await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor))
   if (!slot?.multipart_upload_id) return invalid
   const bucket = env.HOME_ATTACHMENTS!
-  const upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+  // Resumed inside the try: a self-hosted bucket throws NoSuchUpload at once for an upload a completion already closed.
+  let upload: R2MultipartUpload | undefined
   // Only bytes that cannot form the declared file end the slot; no retry can fix them.
   const refuse = async () => {
-    await upload.abort().catch(() => undefined)
+    await upload?.abort().catch(() => undefined)
     await bucket.delete(slotKeys(slot))
     await conv.settleSlot(conversation, slot.id)
     return failure({ status: 400, code: "attachment.size_mismatch", message: "the stored parts do not form the declared file" })
   }
   let etag: string
   try {
+    upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
     const object = await upload.complete(etags.map((tag, i) => ({ partNumber: i + 1, etag: tag })))
     if (object.size !== slot.byte_count) return refuse()
     etag = object.etag

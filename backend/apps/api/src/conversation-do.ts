@@ -588,8 +588,19 @@ export class ConversationDO extends OwnerDO<Head> {
     if (this.existingState(entity)) store.settleDerived(this.sqlStore, id, etag)
   }
 
-  async setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean> {
-    return this.existingState(entity) ? store.setMultipartUpload(this.sqlStore, id, uploadId) : false
+  async setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const kept = store.setMultipartUpload(this.sqlStore, id, uploadId, Date.now(), objectKey)
+    // A refused upload is queued for an abort; the alarm runs it.
+    if (!kept) this.scheduleAlarm()
+    return kept
+  }
+
+  /** An upload no slot names whose abort failed (an intent's lost owner call): the alarm aborts it later. */
+  async queueMultipartAbort(entity: string, objectKey: string, uploadId: string): Promise<void> {
+    if (!this.existingState(entity)) return
+    store.queueAbort(this.sqlStore, { upload_id: uploadId, object_key: objectKey }, Date.now())
+    this.scheduleAlarm()
   }
 
   /** Claims the next part of an open multipart slot for one request before it reaches R2 (store.claimMultipartPart). */

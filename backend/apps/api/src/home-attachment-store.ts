@@ -540,10 +540,18 @@ export const failDrop = (sql: Sql, objectKey: string, now: number): boolean => {
 
 export const clearDrop = (sql: Sql, objectKey: string): void => void sql.exec(`DELETE FROM ${DROPS} WHERE object_key = ?`, objectKey)
 
-/** Keeps the R2 upload of a new multipart slot, so expiry aborts it whatever happens to the client. */
-export const setMultipartUpload = (sql: Sql, id: string, uploadId: string): boolean => {
+/**
+ * Keeps the R2 upload of a new multipart slot, so expiry aborts it whatever happens to the client.
+ * When the slot can no longer take it (used, ended or expired), the upload is queued for an abort
+ * instead (queueAbort, at once), so it always has a record that ends it, whatever the caller's own abort does.
+ */
+export const setMultipartUpload = (sql: Sql, id: string, uploadId: string, now: number, objectKey?: string): boolean => {
   ensure(sql)
-  if (!slotIn(sql, id, "open")) return false
+  if (!slotIn(sql, id, "open")) {
+    // An older caller that does not name the key aborts it itself.
+    if (objectKey) queueAbort(sql, { upload_id: uploadId, object_key: objectKey }, now, 0)
+    return false
+  }
   sql.exec(`UPDATE ${SLOTS} SET multipart_upload_id = ? WHERE id = ?`, uploadId, id)
   return true
 }
@@ -558,10 +566,10 @@ const ensureAborts = (sql: Sql) =>
 
 export type QueuedAbort = { upload_id: string; object_key: string }
 
-/** Queues `upload` for another abort after the first backoff (its first attempt just failed). */
-export const queueAbort = (sql: Sql, upload: QueuedAbort, now: number): void => {
+/** Queues `upload` for an abort: after the first backoff when one attempt already failed (`attempts` 1), else at `now`. */
+export const queueAbort = (sql: Sql, upload: QueuedAbort, now: number, attempts = 1): void => {
   ensureAborts(sql)
-  sql.exec(`INSERT OR REPLACE INTO ${ABORTS} (upload_id, object_key, next_attempt_at, attempts, dead) VALUES (?, ?, ?, 1, 0)`, upload.upload_id, upload.object_key, now + dropBackoffMs(1))
+  sql.exec(`INSERT OR REPLACE INTO ${ABORTS} (upload_id, object_key, next_attempt_at, attempts, dead) VALUES (?, ?, ?, ?, 0)`, upload.upload_id, upload.object_key, attempts ? now + dropBackoffMs(attempts) : now, attempts)
 }
 
 /** Queued aborts due at `now`, oldest attempt first. */
