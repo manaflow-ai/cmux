@@ -11,6 +11,7 @@ use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
 use crate::client::Client;
 use crate::harness_health::channel::quote as shell_quote;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -142,7 +143,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         if let Some(step) = report.steps.iter().find(|step| step.state == StepState::Fail) {
             let mut data = step.data.clone().unwrap_or_else(|| json!({}));
             if let Some(reason) = step.reason {
-                data["reason"] = json!(reason);
+                data.set("reason", json!(reason));
             }
             error = error.with_data(data);
         }

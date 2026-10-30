@@ -4,6 +4,7 @@
 use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness as the health check sees it.
@@ -124,10 +125,10 @@ impl Hub {
                 };
                 let mut out = json!({"id": id, "ok": ok});
                 if let Some(v) = version(&id) {
-                    out["version"] = json!(v);
+                    out.set("version", json!(v));
                 }
                 if let Some(e) = error {
-                    out["error"] = json!(e);
+                    out.set("error", json!(e));
                 }
                 out
             })

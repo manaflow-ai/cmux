@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 747,
-    "mcp": 665
+    "verbs": 756,
+    "mcp": 674
   },
   "nouns": [
     {
@@ -91,11 +91,25 @@
           "mcpTool": "app_agent_check_harness"
         },
         {
+          "command": "cmux agent continue-after-error",
+          "title": "Continue After Error",
+          "id": "agentPane.continueAfterError",
+          "mcp": true,
+          "mcpTool": "app_agent_continue_after_error"
+        },
+        {
           "command": "cmux agent edit-instructions",
           "title": "Edit Project Instructions…",
           "id": "agentPane.editInstructions",
           "mcp": true,
           "mcpTool": "app_agent_edit_instructions"
+        },
+        {
+          "command": "cmux agent fork-conversation",
+          "title": "Fork Conversation",
+          "id": "palette.forkAgentConversation",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation"
         },
         {
           "command": "cmux agent fork-conversation-above",
@@ -273,6 +287,13 @@
           "mcpTool": "app_agent_stop_computer_use"
         },
         {
+          "command": "cmux agent stop-reading-aloud",
+          "title": "Stop Reading Aloud",
+          "id": "agentPane.stopReadingAloud",
+          "mcp": true,
+          "mcpTool": "app_agent_stop_reading_aloud"
+        },
+        {
           "command": "cmux agent stop-turn",
           "title": "Stop Agent Turn",
           "id": "agentPane.stopTurn",
@@ -294,6 +315,13 @@
           "mcpTool": "app_agent_toggle_display_settings"
         },
         {
+          "command": "cmux agent toggle-files",
+          "title": "Toggle Files Beside Chat",
+          "id": "agentPane.toggleFiles",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_files"
+        },
+        {
           "command": "cmux agent toggle-minimap",
           "title": "Toggle Thread Minimap",
           "id": "agentPane.toggleMinimap",
@@ -301,11 +329,25 @@
           "mcpTool": "app_agent_toggle_minimap"
         },
         {
+          "command": "cmux agent toggle-preview",
+          "title": "Toggle Preview Beside Chat",
+          "id": "agentPane.togglePreview",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_preview"
+        },
+        {
           "command": "cmux agent toggle-session-info",
           "title": "Toggle Session Info",
           "id": "agentPane.toggleSessionInfo",
           "mcp": true,
           "mcpTool": "app_agent_toggle_session_info"
+        },
+        {
+          "command": "cmux agent toggle-side-tabs",
+          "title": "Toggle Tabs Beside Chat",
+          "id": "agentPane.toggleSideTabs",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_side_tabs"
         },
         {
           "command": "cmux agent toggle-ui-pointer",
@@ -986,6 +1028,13 @@
     {
       "noun": "chat",
       "verbs": [
+        {
+          "command": "cmux chat colors",
+          "title": "Chat Colors…",
+          "id": "home.chatColors",
+          "mcp": true,
+          "mcpTool": "app_chat_colors"
+        },
         {
           "command": "cmux chat create",
           "title": "New Group Chat…",
@@ -1746,6 +1795,13 @@
           "mcpTool": null
         },
         {
+          "command": "cmux home invite-to-team",
+          "title": "Invite to Team…",
+          "id": "home.inviteToTeam",
+          "mcp": true,
+          "mcpTool": "app_home_invite_to_team"
+        },
+        {
           "command": "cmux home leave",
           "title": "Leave Group…",
           "id": "home.leaveConversation",
@@ -2163,10 +2219,17 @@
         },
         {
           "command": "cmux pane new-column",
-          "title": "New Column",
+          "title": "New Column Right",
           "id": "newColumn",
           "mcp": true,
           "mcpTool": "app_pane_new_column"
+        },
+        {
+          "command": "cmux pane new-column-left",
+          "title": "New Column Left",
+          "id": "newColumnLeft",
+          "mcp": true,
+          "mcpTool": "app_pane_new_column_left"
         },
         {
           "command": "cmux pane new-row",
@@ -4199,7 +4262,7 @@
         },
         {
           "command": "cmux tab new-mac-screen",
-          "title": "New Mac Screen Tab",
+          "title": "Screen Sharing",
           "id": "macScreen.open",
           "mcp": true,
           "mcpTool": "app_tab_new_mac_screen"
