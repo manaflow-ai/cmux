@@ -131,8 +131,9 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
   });
 
   // A pane short enough that each menu's rows scroll: the palette's list under its search field,
-  // the Picker's popup itself (max-height 50vh).
-  const SHORT: Record<Menu, number> = { palette: 320, picker: 420 };
+  // the Picker's popup itself. The + popup takes the room the pane has above or below + (up to
+  // 520px, styles.css), not half the window, so its rows scroll only once that room runs out.
+  const SHORT: Record<Menu, number> = { palette: 320, picker: 320 };
   for (const menu of ["palette", "picker"] as const)
     test(`the ${menu} +: rows fade at the edges they scroll under, and a search field never fades`, async () => {
       const page = await opened(menu, SHORT[menu]);
