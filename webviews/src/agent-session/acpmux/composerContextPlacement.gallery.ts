@@ -77,10 +77,7 @@ export default agentPaneEntry({
   id: "agent-pane.composer-context-away",
   title: "Composer project and machine menus open away from the chat",
   area: "Agent pane",
-  covers: [
-    "agent-session/acpmux/locationPopover.ts#useLocationPopover",
-    "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
-  ],
+  covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext"],
   keywords: ["project picker", "machine picker", "cloud", "location strip", "placement"],
   height: 560,
   checks: {
