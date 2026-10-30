@@ -1,5 +1,5 @@
 {
- "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). Counts only go down. A crate with every deny lint at 0 is at deny.",
+ "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). Counts normally only go down; reviewed rollout rebaselines require authoritative Linux provenance. A crate with every deny lint at 0 is at deny.",
  "lints": [
   "unwrap_used",
   "expect_used",
@@ -828,7 +828,7 @@
    "indexing_slicing": 853,
    "string_slice": 52,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 876,
+   "arithmetic_side_effects": 875,
    "cast_possible_truncation": 92
   },
   "cmux-tui-hooks": {
