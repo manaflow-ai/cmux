@@ -123,7 +123,7 @@ final class AppResourceSource: ResourceSampleSource {
         let entries: [(TabModel, DaemonService)]
         switch target {
         case .tab(let id):
-            guard let (tab, pane) = services.locateTab(id) else { return resolved }
+            guard let (tab, pane) = services.locateTabOnAnyMachine(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
             resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in
                 if case .chromiumRendererClients(let clients) = (entry.tab as? any BrowserProcessReporting)?.contentProcesses { clients } else { [] }

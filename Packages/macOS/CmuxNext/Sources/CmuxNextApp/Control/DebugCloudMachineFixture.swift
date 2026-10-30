@@ -89,7 +89,7 @@ enum DebugCloudMachineFixture {
     }
 
     /// An open menu's keys for `title`: each letter (type-select), then the right arrow, down and up.
-    private static func folderKeys(_ title: String, window: NSWindow) -> [NSEvent] {
+    static func folderKeys(_ title: String, window: NSWindow) -> [NSEvent] {
         // ANSI key codes 0 to 47 by character (10 and 36 have none here).
         let codes = Array("asdfhgzxcv\0bqweryt123465=97-80]ou[ip\0lj'k;\\,/nm.")
         var keys = title.lowercased().map { (String($0), UInt16(codes.firstIndex(of: $0) ?? 49), NSEvent.ModifierFlags()) }
