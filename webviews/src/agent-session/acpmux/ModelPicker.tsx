@@ -41,7 +41,6 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
-import { canonicalHarnesses } from "./canonicalHarnesses";
 import { quantizePickerRail } from "./pickerRailGeometry";
 
 type HarnessChoice = {
@@ -299,8 +298,9 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
-/// Build launch entries before folding Claude/Codex variants into their canonical harness tab.
-/// Their model catalogs refresh after selection; do not borrow another account's models.
+/// Global launch configurations are distinct harness entries, never a Profile submenu.
+/// One whose own catalog entry lists models shows them, as any harness tab does; only one with
+/// no models of its own launches from its tab. Do not borrow another account's models.
 function railByHarness(
   list: QuickFamily[],
   running: string | undefined,
@@ -308,6 +308,10 @@ function railByHarness(
   signedOut: (id: string) => boolean = () => false,
 ): QuickFamily[] {
   const seen = new Set<string>();
+  const byId = new Map(list.map((family) => [family.id, family]));
+  // Only a row that can be picked starts the entry; one whose probe failed keeps its launch tab.
+  const hasModels = (family: QuickFamily | undefined) =>
+    !!family && [...family.models, ...family.more].some((model) => !model.disabled);
   return list.flatMap((family) => {
     if (seen.has(family.id)) return [];
     seen.add(family.id);
@@ -323,7 +327,7 @@ function railByHarness(
     );
     const currentName =
       names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
-    const alternate = launchSuffix(family.id) && family.id !== running;
+    const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family);
     const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
     return [
       own,
@@ -338,6 +342,8 @@ function railByHarness(
         )
           return [];
         seen.add(profile.id);
+        const entry = byId.get(profile.id);
+        if (hasModels(entry)) return [{ ...entry!, name: profile.name, mark: entry!.mark ?? family.mark }];
         return [
           {
             id: profile.id,
@@ -929,10 +935,7 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = canonicalHarnesses(
-      railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined),
-      current?.id,
-    );
+    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another launch profile of any harness forks there.
@@ -943,7 +946,6 @@ export function ModelPicker(props: ModelPickerProps) {
         return models.length ? [{ ...family, models }] : [];
       }
       if (family.id === current?.id || family.note) return [own];
-      if (family.launch) return [{ ...own, models: [], more: [], fork: true }];
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
