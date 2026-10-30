@@ -37,7 +37,7 @@ import CmuxNextSettings
     }
 
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
-    var event: AgentPageEvent { .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0, nativeRowTools: ChromeTunables.nativeRowTools.value && nativeRowToolsAvailable) }
+    var event: AgentPageEvent { .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0, nativeRowTools: offeredNativeRowTools ?? false) }
 
     /// The tools' width in points at `zoom` (points per CSS pixel); nil while the setting is off or
     /// the page draws no tools in the row.
