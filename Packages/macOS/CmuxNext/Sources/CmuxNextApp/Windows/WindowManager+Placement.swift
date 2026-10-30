@@ -32,8 +32,10 @@ extension WindowManager {
             let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
+            // Waits for a current row a cold layout omits; one pinned since the press shows in the band, not the list.
             if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true,
-               pending.byDefault?.current.flatMap({ services.machines.workspace(id: $0) }) != nil { continue }
+               let current = pending.byDefault?.current, services.machines.workspace(id: current) != nil,
+               !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, machines: services.machines) { continue }
             pendingPlacements[id] = nil
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.

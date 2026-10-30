@@ -28,6 +28,9 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// The machine of `current`, when it was known at the press. A cold
     /// sidebar can briefly omit that row while its document projection catches
     /// up; only an omitted row on this same machine needs to defer placement.
+    /// Nil when `current` shows in a band of the window's layout (pinned, the
+    /// top region, a custom section): the list leaves that row out on purpose,
+    /// so its absence is no stale layout and `afterCurrent` falls back to `top`.
     var currentMachine: String? = nil
 
     init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil) {
@@ -125,8 +128,19 @@ enum NewWorkspacePlacements {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
         let window = windowID ?? windows.registry.value.mostRecentOpen()
         let current = window.flatMap { windows.states[$0]?.workspaceID }
-        let currentMachine = current.flatMap { windows.services.machines.daemon(forWorkspace: $0)?.machineID }
+        let layout = window.flatMap { windows.controller(for: $0)?.sidebar.model.layout }
+        let currentMachine = current.flatMap { id in
+            layout.map { shownInBand(id, layout: $0, machines: windows.services.machines) } == true
+                ? nil : windows.services.machines.daemon(forWorkspace: id)?.machineID
+        }
         return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine)
+    }
+
+    /// Whether workspace `id` shows as an item of a section of `layout` (pinned, the top region, a
+    /// custom section), which the window's workspace list leaves out.
+    static func shownInBand(_ id: String, layout: SidebarLayoutDocument, machines: MachineRegistry) -> Bool {
+        guard let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: id) else { return false }
+        return layout.sections.contains { $0.items.contains { $0.ref == ref } }
     }
 
     /// Places workspace `id` at `slot`, else by `byDefault`, in window
