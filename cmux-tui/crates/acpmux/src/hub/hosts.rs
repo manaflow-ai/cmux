@@ -1776,9 +1776,25 @@ impl Hub {
         spec: &crate::agent_host::SpawnSpec,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, HostStartFailed> {
-        let record = crate::agent_host::program_wait::spawn(launcher, spec)
-            .await
-            .map_err(|error| HostStartFailed { error, started: None })?;
+        // A start past the daemon's start gate waits its turn (`start_gate.rs`): the chat's log
+        // says where it stands, so a wave of chats shows each one queued, not stuck.
+        let queued = |q: crate::agent_host::Queued| {
+            self.append(
+                session,
+                "mux",
+                "host_start_queued",
+                json!({"ahead": q.ahead, "running": q.running, "cap": q.cap}),
+            );
+        };
+        let record = crate::agent_host::program_wait::spawn_as(
+            launcher,
+            spec,
+            crate::agent_host::program_wait::PROGRAM_BUDGET,
+            crate::agent_host::StartPriority::Interactive,
+            &queued,
+        )
+        .await
+        .map_err(|error| HostStartFailed { error, started: None })?;
         self.forget_adopted_caller(&session.id);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.

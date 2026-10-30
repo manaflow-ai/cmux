@@ -31,14 +31,16 @@ pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
 pub(crate) mod scope;
+pub mod start_gate;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
 pub(crate) mod unresolved;
 mod wait;
+pub use start_gate::{Queued, StartGate, StartPriority};
 pub use wait::{
-    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
-    wait_dead_within, within, within_on,
+    HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async, wait_dead_within, within,
+    within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
