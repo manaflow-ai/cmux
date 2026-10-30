@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::session_identity::SessionReceipt;
+use cmux_json::JsonSet as _;
 
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
@@ -81,6 +82,12 @@ impl Hub {
             pc.peer_token.clone(),
             self.peer_notices.clone(),
         );
+        if let Some(transport) = &self.wireguard
+            && let Some(configured) = &pc.wireguard
+            && let Some(address) = transport.route_for(name, configured)
+        {
+            peer.set_wireguard(transport.clone(), address);
+        }
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -166,6 +173,7 @@ impl Hub {
             let github_broker =
                 github_broker.unwrap_or_else(|| same.is_some_and(|old| old.github_broker));
             let pc = crate::config::PeerConfig {
+                wireguard: same.and_then(|old| old.wireguard.clone()),
                 url: url.to_owned(),
                 token,
                 peer_token,
@@ -378,12 +386,12 @@ impl Hub {
         let mut v: Vec<Value> = listed
             .into_iter()
             .map(|(name, mut s)| {
-                s["sessions"] = json!(counts.get(&name).copied().unwrap_or(0));
+                s.set("sessions", json!(counts.get(&name).copied().unwrap_or(0)));
                 if leased.contains(&name) {
-                    s["leased"] = Value::Bool(true);
+                    s.set("leased", Value::Bool(true));
                 }
                 if brokers.contains(&name) {
-                    s["githubBroker"] = Value::Bool(true);
+                    s.set("githubBroker", Value::Bool(true));
                 }
                 s
             })
@@ -454,16 +462,16 @@ impl Hub {
                 summary.get("agentSessionId").and_then(Value::as_str).map(str::to_owned),
                 generation,
             );
-            summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-            summary["sessionReceipt"] = receipt.to_value();
+            summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
+            summary.set("sessionReceipt", receipt.to_value());
         }
         if let Some(name) = summary.get("name").and_then(Value::as_str)
             && !name.starts_with(&format!("{peer}/"))
         {
             let full = format!("{peer}/{name}");
-            summary["name"] = Value::String(full);
+            summary.set("name", Value::String(full));
         }
-        summary["peer"] = Value::String(peer.to_owned());
+        summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
         let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
@@ -1012,9 +1020,9 @@ impl Hub {
             .collect();
         for r in rows {
             let mut summary = r.summary.clone();
-            summary["stale"] = Value::Bool(summary["stale"] == true);
+            summary.set("stale", Value::Bool(summary["stale"] == true));
             if let Some(state) = states.get(&r.peer) {
-                summary["peerState"] = Value::String((*state).to_owned());
+                summary.set("peerState", Value::String((*state).to_owned()));
             }
             visit(summary);
         }
@@ -1100,6 +1108,7 @@ mod tests {
         let hub = Hub::new(cfg, store);
         let url = "ws://127.0.0.1:9/m";
         let lent = |url: &str| PeerConfig {
+            wireguard: None,
             url: url.into(),
             token: None,
             peer_token: None,

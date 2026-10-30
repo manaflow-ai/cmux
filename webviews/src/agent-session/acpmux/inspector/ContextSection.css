@@ -20,7 +20,7 @@
 }
 .acpmux-chat-inspector-context__bar {
   display: flex;
-  gap: 2px;
+  gap: 0;
   height: 6px;
   margin: 0 8px 6px;
   border-radius: 3px;
@@ -31,6 +31,18 @@
   flex: none;
   min-width: 2px;
   height: 100%;
+}
+.acpmux-chat-inspector-context__bar > span:not(:last-child) {
+  position: relative;
+}
+.acpmux-chat-inspector-context__bar > span:not(:last-child)::after {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(2px, 25%);
+  background: var(--acpmux-context-free);
+  content: "";
+  pointer-events: none;
 }
 .acpmux-chat-inspector-context__bar > [data-part="used"],
 .acpmux-chat-inspector-context__swatch[data-part="used"] {

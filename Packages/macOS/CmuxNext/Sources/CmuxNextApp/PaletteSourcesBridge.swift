@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -67,7 +68,16 @@ enum PaletteSourcesBridge {
         let screens = ScreenTargetSource(services: services, next: profiles)
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
-        return TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
+        let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
+        return agentChatTargets(AgentChatDestinations(services: services), next: groups)
+    }
+
+    static func agentChatTargets(_ destinations: AgentChatDestinations, next: any PaletteTargetSource) -> any PaletteTargetSource {
+        func option(_ row: AgentChatDestinations.Destination) -> PaletteTargetOption {
+            PaletteTargetOption(id: row.id, title: row.title, subtitle: row.state, symbol: row.symbol, isEnabled: row.isReady)
+        }
+        return RefreshingPaletteTargetSource(kind: .machine, actions: ["palette.newAgentChat", "palette.newAgentChatOn"],
+            initial: [option(destinations.local)], next: next, load: { await destinations.load().map(option) })
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -185,5 +195,15 @@ enum PaletteSourcesBridge {
             guard let (_, pane) = services.locateTab(id), let controller = services.paneController(for: pane) else { return }
             controller.close([StripTabID(id)])
         }
+    }
+}
+
+
+extension AgentChatDestinations {
+    init(services: AppServices) {
+        let host = services.agentTabs.host
+        self.init(localTitle: WorkspaceVerbStrings.thisMac, peers: { try await host.chatPeers() }, cloud: {
+            await AgentPaneCloudMachines.shared.list?() ?? .init(signedIn: false, loaded: false, machines: [])
+        })
     }
 }

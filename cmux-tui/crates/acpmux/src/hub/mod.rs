@@ -16,6 +16,7 @@ mod bg_tasks;
 mod bounded;
 mod btw;
 mod exit_reason;
+mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
@@ -32,6 +33,7 @@ pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
+pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
 pub mod forum;
@@ -53,6 +55,8 @@ pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
 pub(crate) mod subagent_transcript;
+mod team_information;
+mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
@@ -120,6 +124,7 @@ mod tap;
 mod titles;
 mod tool_paths;
 mod tools;
+pub(crate) mod turn_cap;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -213,7 +218,7 @@ pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
 }
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -334,6 +339,9 @@ pub struct PromptOptions {
     /// Another agent's name when it sent the prompt with no provenance: the session a
     /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
     pub agent: Option<String>,
+    /// `_meta.acpmux.class` (`prompt_class.rs`): what another agent's message asks of this chat.
+    /// Kept only on another agent's message, where none means `result`.
+    pub class: Option<crate::prompt_class::PromptClass>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
@@ -350,6 +358,9 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
+    /// turn's cap (`turn_cap.rs`).
+    pub send_now: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -374,8 +385,12 @@ pub(super) struct StreamState {
     pub(super) trailing_overflow: bool,
 }
 
+/// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
+pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
+
 pub struct Hub {
     pub config: RwLock<Config>,
+    pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -383,6 +398,10 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
+    /// Inline `/btw` side sessions being created, by their request-unique name: the family and
+    /// parent env their transcript cleanup reads (`btw.rs` `InlineOwned`). A creation that fails
+    /// and is discarded inside `new_session` or `fork` removes that harness transcript too.
+    pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
@@ -598,16 +617,25 @@ impl Hub {
     /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
     /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
     pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, false)
+        Self::build(config, store, mailbox, true, false, None)
     }
 
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, false, false)
+        Self::build(config, store, mailbox, false, false, None)
     }
 
     /// A daemon serves immediately; metadata is read after its ready line.
     pub fn new_loading(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, true)
+        Self::build(config, store, mailbox, true, true, None)
+    }
+
+    pub(crate) fn new_loading_with_wireguard(
+        config: Config,
+        store: Box<dyn Store>,
+        mailbox: Mailbox,
+        wireguard: Option<Arc<crate::wireguard::Transport>>,
+    ) -> Arc<Self> {
+        Self::build(config, store, mailbox, true, true, wireguard)
     }
 
     fn build(
@@ -616,6 +644,7 @@ impl Hub {
         mailbox: Mailbox,
         deferred: bool,
         loading: bool,
+        wireguard: Option<Arc<crate::wireguard::Transport>>,
     ) -> Arc<Self> {
         let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
@@ -631,11 +660,13 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            wireguard,
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
+            inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -1014,6 +1045,7 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
@@ -1064,6 +1096,7 @@ impl Hub {
             stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            turn_cap_timer: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -1127,7 +1160,7 @@ impl Hub {
 
     // ------------------------------------------------------------ logging
 
-    pub(super) fn append(
+    pub(crate) fn append(
         &self,
         session: &Session,
         dir: &str,
@@ -1135,6 +1168,16 @@ impl Hub {
         msg: Value,
     ) -> EventRecord {
         self.append_with_host_seq(session, dir, kind, msg, None)
+    }
+
+    pub(crate) fn append_stored(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> bool {
+        self.append_logged(session, dir, kind, msg, None).1
     }
 
     /// Append one record; `host_seq` names the agent host entry it logs.

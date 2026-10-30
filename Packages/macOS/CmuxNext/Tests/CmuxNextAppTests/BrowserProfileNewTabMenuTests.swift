@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// The row runs `browserProfile.newTab` on the pane with no profile; the palette asks for it (the
 /// registry's argument collector), as a person's pick there runs the action again with it. Runs
 /// the app's action registry and palette against a same-tree cmux-tui daemon.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct BrowserProfileNewTabMenuTests {
     private static func rows(_ menu: NSMenu) -> [NSMenuItem] {
         func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
@@ -49,6 +50,9 @@ struct BrowserProfileNewTabMenuTests {
             // The palette asks which profile; the person picks the default one.
             try await PinnedPageTests.until({ services.palette.model.rows.contains { $0.item.id == "option:\(BrowserProfileRecord.defaultID)" } },
                                             report: { "palette visible \(services.palette.isVisible), rows \(services.palette.model.rows.map(\.item.id)), refusals \(refusals)" })
+            // The palette only orders its panel out when it hides: close it once the test is done.
+            let palettePanel = services.palette.visiblePanel
+            defer { palettePanel?.close() }
             services.palette.model.activate(rowID: "option:\(BrowserProfileRecord.defaultID)")
 
             try await PinnedPageTests.until({ Self.browserTabs(pane, services).contains { !before.contains($0.id) } }, within: .seconds(30), report: {
@@ -78,6 +82,9 @@ struct BrowserProfileNewTabMenuTests {
             let previous = services.registry.refusalObserver
             services.registry.refusalObserver = { reason, quiet in refusals.append(reason); previous?(reason, quiet) }
             defer { services.registry.refusalObserver = previous }
+            // The palette only orders its panel out when it hides: close it once the test is done.
+            var palettePanel: NSWindow?
+            defer { palettePanel?.close() }
             let panes = try #require(window.workspaceContent?.panes.values.map { $0 }).sorted { $0.paneKey < $1.paneKey }
             for pane in panes {
                 refusals.removeAll()
@@ -97,6 +104,7 @@ struct BrowserProfileNewTabMenuTests {
                 let option = "option:\(BrowserProfileRecord.defaultID)"
                 try await PinnedPageTests.until({ services.palette.model.rows.contains { $0.item.id == option } },
                                                 report: { "pane \(pane.paneKey): palette \(services.palette.isVisible), rows \(services.palette.model.rows.map(\.item.id)), refusals \(refusals)" })
+                palettePanel = palettePanel ?? services.palette.visiblePanel
                 services.palette.model.activate(rowID: option)
                 try await PinnedPageTests.until({ Self.browserTabs(pane, services).contains { !before.contains($0.id) } }, within: .seconds(30), report: {
                     "pane \(pane.paneKey): refusals \(refusals); tabs \(Self.browserTabs(pane, services).map(\.id)); " + WindowStateReport.describe(services)

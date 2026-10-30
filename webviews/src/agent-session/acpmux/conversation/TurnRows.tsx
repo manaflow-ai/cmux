@@ -1,3 +1,4 @@
+import { PullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -40,6 +41,7 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { ToolVerbColumn } from "./ToolVerb";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -276,7 +278,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-          <div className="cv-tools">{nodes}</div>
+          <ToolVerbColumn className="cv-tools">{nodes}</ToolVerbColumn>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -299,6 +301,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     reauthenticate,
     transferCloudCredentials,
     resume,
+    compact,
     route,
     switchModel,
   } = useContext(TurnActionsContext);
@@ -329,6 +332,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           code={row.errorCode}
           route={route}
           switchModel={switchModel}
+          compact={compact}
           retry={retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined}
         />
       )}
@@ -391,7 +395,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               />
             )}
             {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-              <ForkButton onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+              <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
             <PinButton rowId={row.id} />
             {text && <ReadAloudButton id={row.id} text={text} />}
@@ -417,6 +421,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           <MessageTime at={row.at} className="cv-turn-time" />
         </MessageFooterRow>
+        <PullRequestDock />
       </div>
     </>
   );
@@ -426,24 +431,28 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
 /// one human line, naming the harness and the proxy or endpoint when the error names one, never a
 /// generic "sign-in expired" and never the agent's raw words; the way out first (Retry, or Switch
 /// model for capacity, key and proxy failures, and for sign-in ones beside the footer's Sign in
-/// again); Details opens the agent's own message with Copy error. Its surface is the
+/// again; Compact for a chat that outgrew its context window, with Retry after it); Details opens the agent's own message with Copy error. Its surface is the
 /// `turn-error-card` experiment's arm (turnErrorCard.experiment.ts).
 function TurnFailure({
   message,
   code,
   route,
   switchModel,
+  compact,
   retry,
 }: {
   message: string | undefined;
   code?: string;
   route?: FailureRoute;
   switchModel?: () => void;
+  compact?: () => Promise<void>;
   retry?: () => void;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // One click sends one /compact: the button stays disabled until that send settles.
+  const [compacting, setCompacting] = useState(false);
   const kind = failureKind(message, route, code);
   const sentence = failureCopy(t, message, route, code);
   const arm = experimentArm(turnErrorCard);
@@ -454,6 +463,9 @@ function TurnFailure({
     ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
   // Retry is the way out, or the second one after Switch model; never for a sign-in or trust failure.
   const offersRetry = recovery !== undefined && retry !== undefined;
+  // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
+  // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
+  const compactFirst = recovery === "compact" && compact !== undefined;
   // The way out goes first and reads as the card's one filled button.
   const switchFirst = offersSwitch && (recovery === "switch-model" || !offersRetry);
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
@@ -495,10 +507,23 @@ function TurnFailure({
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
         {switchFirst && switchButton}
+        {compactFirst && (
+          <button
+            type="button"
+            className="cv-turn-auth-action cv-turn-error__primary"
+            disabled={compacting}
+            onClick={() => {
+              setCompacting(true);
+              void compact().finally(() => setCompacting(false));
+            }}
+          >
+            {t("context.compact")}
+          </button>
+        )}
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
             onClick={retry}
           >
             {t("turn.retry")}

@@ -20,7 +20,7 @@ impl SuffixMetric for Chars {
         }
         let skip = len - max;
         let start = text.char_indices().nth(skip).map_or(text.len(), |(at, _)| at);
-        &text[start..]
+        text.get(start..).unwrap_or("")
     }
 }
 
@@ -149,7 +149,7 @@ impl<M: SuffixMetric> TrimmedText<M> {
         // Interior whitespace already belongs to the message. Borrow the whole
         // run, letting the suffix buffer copy only what can survive truncation.
         self.content.push_str(content);
-        self.pending_whitespace.push_str(&text[content.len()..]);
+        self.pending_whitespace.push_str(text.get(content.len()..).unwrap_or(""));
     }
 
     pub(super) fn finish(&mut self) {
