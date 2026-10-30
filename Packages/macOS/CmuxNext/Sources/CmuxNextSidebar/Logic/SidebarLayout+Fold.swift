@@ -7,7 +7,8 @@ nonisolated extension SidebarLayout {
     /// A fold is view state the sidebar owns (plans/cmux-next/state-ownership-DESIGN.md), so it never
     /// waits for the daemon and never lays the whole list out: its cost is the group's rows, not the
     /// list's. Nil when the fold cannot be spliced and the list must be laid out again: a filter, a
-    /// drag gap or excluded item, Group by Folder, or a group this layout does not draw. Listed tabs
+    /// drag gap or excluded item, Group by Folder, the session tree (its order and depths, `treeOrder`), or a
+    /// group this layout does not draw. Listed tabs
     /// (`sidebar.showWorkspaceTabs`, on by default) are spliced with their workspace, as `make` lists them.
     ///
     /// - Parameters:
@@ -28,6 +29,8 @@ nonisolated extension SidebarLayout {
                        options o: SidebarLayoutOptions) -> Bool {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
               !o.grouping.isGrouped, !o.hidesWorkspaces,
+              // The session tree orders and nests a group's members (`treeOrder`, `treeDepth`): laid out again.
+              o.sessionTree == nil,
               let headerIndex = position(of: .group(group.id)) else { return false }
         // The chat history's blocks sit at places the full layout leaves (`pinnedChatsY`, `earlierChatsY`); a splice
         // moves the rows but not those places, so with history shown the list is laid out again.

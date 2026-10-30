@@ -109,6 +109,19 @@ import Testing
         try check(steps, active: WorkspaceID("g1-2"), sections: Self.sectionsWithTabs(), options: o)
     }
 
+    /// The session tree orders a group's members under their parents and sets their depth (`treeOrder`); the splice
+    /// lists them in group order at one depth, so with a tree the fold declines and the list is laid out again
+    /// (`make`, which a full layout draws row for row).
+    @Test func aSessionTreeLaysTheListOutAgain() throws {
+        let sections = Self.sectionsWithTabs()
+        var o = SidebarLayoutOptions()
+        o.showWorkspaceTabs = true
+        o.sessionTree = SidebarSessionTreeState(parents: [WorkspaceID("g1-0"): WorkspaceID("g1-3")])
+        let shown = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        let group = try #require(Self.group(GroupID("g1"), in: sections))
+        #expect(shown.folding(group, collapsed: true, in: sections[0], metrics: .standard, options: o) == nil)
+    }
+
     /// The chat history's Pinned and Earlier blocks sit where the full layout leaves room; a splice would move the
     /// rows under Earlier (a click there resumed a chat) and leave a gap on close, so the list is laid out again.
     @Test func chatHistoryLaysTheListOutAgain() throws {

@@ -18,6 +18,8 @@ extension SidebarListViewComponents {
         }
         var o = model.listOptions()
         o.pullRequests = SidebarSessionTree.shared.pullRequests
+        // The tree the list is drawn with (`options(includeGap:)`): with it the splice declines and the list lays out.
+        o.sessionTree = SidebarSessionTree.shared.drawn
         o.excludedWorkspaces.formUnion(leaving)
         // What the animation needs of the rows before the fold: the realized ones and the group's block. The rest of
         // the layout is spliced in place (no copy of every row).
