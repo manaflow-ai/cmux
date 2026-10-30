@@ -106,12 +106,28 @@ pub fn hold_home() {
     }
 }
 
-/// Refuses a write under a lost home ([`mark_home_lost`]): a shutdown's last saves would
-/// otherwise make a removed home again, or write this daemon's state into its replacement.
+/// Whether the held home ([`hold_home`]) is gone or another folder now: read from the folder
+/// itself, so it does not wait for the home watch to hear of it.
+fn held_home_replaced(home: &Path) -> bool {
+    HELD_HOME.get().is_some_and(|held| folder_identity(home) != Some(*held))
+}
+
+/// Refuses a write under a lost home: one [`mark_home_lost`] marked, or one no longer the folder
+/// this daemon holds ([`hold_home`]), which it then marks. Every write under the home goes
+/// through it, so a write after the home was replaced never lands in the replacement, however
+/// late the home watch hears of it; a shutdown's last saves never make a removed home again.
+/// A replacement between this check and the write itself is not ruled out (by path, POSIX has
+/// no write-if-same-folder).
 pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
     let home = home();
+    if !path.starts_with(&home) {
+        return Ok(());
+    }
+    if !home_lost() && held_home_replaced(&home) {
+        mark_home_lost();
+    }
     anyhow::ensure!(
-        !(home_lost() && path.starts_with(&home)),
+        !home_lost(),
         "the acpmux home {} is gone; {} is not written",
         home.display(),
         path.display()
