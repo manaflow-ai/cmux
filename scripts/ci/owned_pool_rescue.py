@@ -1091,7 +1091,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 if job_pool(job) and waiting_for_runner(job):
                     first_seen.setdefault(job.get("id"), seen_at)
             health = None
-            if target.side and any(
+            if target.side and not target.nightly and any(
                     job_pool(job) and waiting_for_runner(job)
                     and queued_seconds(job, seen_at, first_seen.get(job.get("id"))) >= OWNED_HEALTH_QUEUE_SECONDS
                     for job in jobs):
@@ -1099,7 +1099,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
                           allow_running_rescue=target.side,
-                          include_blacksmith_macos=target.side,
+                          include_blacksmith_macos=target.side and not target.nightly,
                           health_snapshot=health)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
