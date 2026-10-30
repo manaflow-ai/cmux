@@ -178,3 +178,33 @@ async fn a_held_prompt_with_a_steer_flag_never_reaches_the_agent() {
     assert_eq!(ran.len(), 1, "{ran:?}");
     assert_ne!(ran[0]["steer"], true, "it went in as a steer: {:?}", ran[0]);
 }
+
+/// A bundle's log in more than one `events/*.ndjson` segment, as import reads it (every segment,
+/// in name order): a prompt queued in a later segment still waits for the owner, so the move is
+/// refused (review of #26747: only `000001.ndjson` was read, and a held prompt in a later segment
+/// went to a target that would run it unapproved).
+#[test]
+fn a_held_prompt_in_a_later_log_segment_refuses_the_move() {
+    let dir = std::env::temp_dir().join(format!("acpmux-held-segments-{}", uuid::Uuid::now_v7()));
+    let events = dir.join("events");
+    std::fs::create_dir_all(&events).unwrap();
+    let line = |seq: u64, kind: &str, msg: Value| {
+        let e = EventRecord { seq, at: 1, dir: "mux".into(), kind: kind.into(), msg, host_seq: None };
+        serde_json::to_string(&e).unwrap() + "\n"
+    };
+    let first = line(1, "created", json!({}));
+    std::fs::write(events.join("000001.ndjson"), first).unwrap();
+    let held = json!({"promptId": "g-1", "turnId": "t-1", "text": "guest words",
+                      "awaitingOwner": true, "revision": 0});
+    std::fs::write(events.join("000002.ndjson"), line(2, "queued", held)).unwrap();
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+    let refused = hub.held_prompts(&dir).expect_err("a held prompt in segment 2 was let through");
+    assert_eq!(refused.data.unwrap()["promptIds"], json!(["g-1"]));
+    // Approved at its revision in a third segment, it no longer holds the move.
+    let approved = json!({"promptId": "g-1", "turnId": "t-1", "revision": 0, "approvedAt": 2});
+    std::fs::write(events.join("000003.ndjson"), line(3, "queue_approved", approved)).unwrap();
+    hub.held_prompts(&dir).expect("an approved prompt holds nothing");
+    let _ = std::fs::remove_dir_all(&dir);
+}
