@@ -9,7 +9,8 @@ follow-up job that never holds the feed.
 
   upload --file F [--file ...]
       Writes each file to <prefix><name>, write-once, all at once (one thread
-      per file), then reads each back from the public base and checks its size.
+      per file), then reads each back from the public base and checks the
+      served bytes' size and SHA-256 against the local file's.
   rewrite --feed F --name N [--name ...]
       Points every enclosure <github-prefix><N> in F at <public-base>/<N>.
       --if-public rewrites only names the public base serves at the enclosure's
@@ -99,6 +100,36 @@ def public_length(url: str, attempts: int = 5) -> int | None:
     return None
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def public_digest(url: str, attempts: int = 5) -> tuple[int, str] | None:
+    """(size, SHA-256) of the bytes the public base serves for url, None when it never answers.
+
+    The served bytes, not the Content-Length header: an object of the right length with other
+    bytes (stale or corrupt) must not pass the readback."""
+    for attempt in range(attempts):
+        request = urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-next-r2/1"})
+        try:
+            digest, size = hashlib.sha256(), 0
+            with urllib.request.urlopen(request, timeout=60) as response:
+                for chunk in iter(lambda: response.read(1 << 20), b""):
+                    digest.update(chunk)
+                    size += len(chunk)
+            return size, digest.hexdigest()
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            if attempt == attempts - 1:
+                print(f"{url}: {error}", file=sys.stderr)
+                return None
+            _sleep(2 * (attempt + 1))
+    return None
+
+
 def upload_one(path: Path) -> str:
     key = env("NIGHTLY_NEXT_R2_PREFIX") + path.name
     guard_key(key)
@@ -109,12 +140,15 @@ def upload_one(path: Path) -> str:
     elif path.suffix == ".txt":
         content_type = "text/plain; charset=utf-8"
     subprocess.run(uploader_args(path, key, IMMUTABLE_CACHE, content_type) + ["--write-once"], check=True)
-    size = path.stat().st_size
+    size, sha256 = path.stat().st_size, file_sha256(path)
     url = public_base() + path.name
-    served = public_length(url)
-    if served != size:
-        raise RuntimeError(f"{url} serves {served} bytes, expected {size}")
-    return f"{path.name}: {size} bytes in {time.monotonic() - started:.1f} s, live at {url}"
+    served = public_digest(url)
+    if served is None:
+        raise RuntimeError(f"{url} could not be read back")
+    if served != (size, sha256):
+        raise RuntimeError(f"{url} serves {served[0]} bytes with SHA-256 {served[1]}, "
+                           f"expected {size} bytes with SHA-256 {sha256}")
+    return f"{path.name}: {size} bytes, SHA-256 {sha256}, in {time.monotonic() - started:.1f} s, live at {url}"
 
 
 def upload(files: list[Path]) -> int:
