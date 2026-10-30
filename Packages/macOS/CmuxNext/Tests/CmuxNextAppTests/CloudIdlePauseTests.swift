@@ -360,6 +360,27 @@ struct CloudIdlePauseTests {
         #expect(f.services.machines.session(session.machineID) == nil, "a newer list removes it")
     }
 
+    /// A list must not remove a session while a newer Machine Status read is still outstanding:
+    /// that response can be the only answer that reintroduces the machine after the list snapshot.
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderListDefersRemovalUntilANewerRecordReadLands() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let session = f.session, cloud = f.services.cloud
+        let olderList = cloud.beginRecordRead()
+        let newerStatus = cloud.beginRecordRead()
+        var running = session.machine
+        running.status = .running
+
+        cloud.reconcile([], read: olderList)
+        #expect(f.services.machines.session(session.machineID) === session,
+                "the list cannot remove a machine while a newer record read is outstanding")
+
+        cloud.apply(running, to: session, read: newerStatus)
+        #expect(f.services.machines.session(session.machineID) === session)
+        #expect(session.machine.status == .running)
+        session.disconnect()
+    }
+
     /// A newer list that first shows a machine (and creates its session) holds that machine's
     /// ticket: an older list landing after it without the machine does not remove it, and an
     /// older Machine Status record does not overwrite it.
