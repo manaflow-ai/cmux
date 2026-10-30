@@ -113,6 +113,65 @@ const firstRunProps = {
   onShowAll: () => {},
 };
 
+test("cancelling a saved environment browse keeps the New Tab project", async () => {
+  let resolveBrowse!: (folder: string | undefined) => void;
+  let browseRequest: { deferPick?: boolean } | undefined;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        cwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        savedEnvironments={{
+          list: async () => [],
+          save: async (environment) => ({ ...environment, id: "saved", updatedAt: 1 }),
+          remove: async () => {},
+        }}
+        onBrowseProject={(request) => {
+          browseRequest = request;
+          return new Promise<string | undefined>((resolve) => {
+            resolveBrowse = resolve;
+          });
+        }}
+      />,
+    );
+  });
+
+  const environmentButton = container.querySelector<HTMLButtonElement>(
+    '.acpmux-location-picker[data-kind="computer"] .acpmux-location-button',
+  );
+  expect(environmentButton).toBeTruthy();
+  await act(async () => environmentButton!.click());
+  const create = [...document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find((item) =>
+    item.textContent?.includes("Create environment"),
+  );
+  expect(create).toBeTruthy();
+  await act(async () => create!.click());
+
+  const before = container.querySelector(".nt-location")?.textContent;
+  const folderButton = container.querySelector<HTMLButtonElement>(".acpmux-env-panel .acpmux-location-button");
+  expect(folderButton).toBeTruthy();
+  await act(async () => folderButton!.click());
+  const chooseFolder = document.querySelector<HTMLElement>("[data-choose]");
+  expect(chooseFolder).toBeTruthy();
+  await act(async () => chooseFolder!.click());
+  expect(browseRequest?.deferPick).toBe(true);
+
+  const cancel = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-env-footer button")].find(
+    (button) => button.textContent?.trim() === "Cancel",
+  );
+  expect(cancel).toBeTruthy();
+  await act(async () => cancel!.click());
+  expect(container.querySelector(".acpmux-env-panel")).toBeNull();
+
+  await act(async () => {
+    resolveBrowse("/Users/you/src/other");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector(".nt-location")?.textContent).toBe(before);
+});
+
 test("a fresh New Tab exposes the no-project path in its environment card", async () => {
   let browsed = 0;
   await act(async () => {

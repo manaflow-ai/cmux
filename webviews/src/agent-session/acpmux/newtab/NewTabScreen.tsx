@@ -1253,6 +1253,11 @@ export function NewTabScreen(props: Props) {
           });
       }
     : undefined;
+  // A saved environment owns its draft and the browse failure state. Keep a folder chosen there
+  // from replacing the New Tab project until the person saves the environment.
+  const browseSavedEnvironment = browseProject
+    ? (request?: BrowseRequest) => browseProject({ ...(request ?? {}), deferPick: true })
+    : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
@@ -1371,7 +1376,7 @@ export function NewTabScreen(props: Props) {
       folders={(props.projects ?? [])
         .filter((choice) => !isAgentHome(choice.cwd))
         .map((choice) => ({ id: choice.cwd, label: choice.label }))}
-      {...(browseProject ? { onBrowse: browseProject } : {})}
+      {...(browseSavedEnvironment ? { onBrowse: browseSavedEnvironment } : {})}
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
