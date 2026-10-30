@@ -288,6 +288,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         onQueued?(queued)
     }
 
+    var isClosed: Bool { state.withLock { $0.closed != nil } }
+
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
