@@ -62,6 +62,12 @@ fn sysctl(name: &str) -> String {
 }
 
 async fn wave(tag: &str, n: usize, program: &str, class: CpuClass) -> String {
+    wave_gated(tag, n, program, class, 0).await
+}
+
+async fn wave_gated(tag: &str, n: usize, program: &str, class: CpuClass, gate: usize) -> String {
+    let gate =
+        std::sync::Arc::new(tokio::sync::Semaphore::new(if gate == 0 { 10_000 } else { gate }));
     let dir = scratch(tag);
     let python = std::env::var("ACPMUX_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
     let program = if program == "python3" { python } else { program.to_owned() };
@@ -69,8 +75,10 @@ async fn wave(tag: &str, n: usize, program: &str, class: CpuClass) -> String {
     let begin = Instant::now();
     for i in 0..n {
         let spec = spec(&dir, &format!("s{i}"), &program, class);
+        let gate = gate.clone();
         set.spawn(async move {
             let t = Instant::now();
+            let _slot = gate.acquire_owned().await.unwrap();
             let r = link::spawn_within(&launcher(), &spec, Duration::from_secs(180)).await;
             (t.elapsed(), r)
         });
@@ -125,6 +133,50 @@ impl Load {
                 .collect(),
         )
     }
+    /// `n` writers that write 4 MiB and fsync, in a loop (a busy disk).
+    fn disk(n: usize, dir: &Path) -> Self {
+        Self(
+            (0..n)
+                .map(|i| {
+                    let f = dir.join(format!("disk-{i}"));
+                    std::process::Command::new("/bin/sh")
+                        .arg("-c")
+                        .arg(format!(
+                            "while :; do dd if=/dev/zero of={} bs=1m count=4 2>/dev/null; sync; done",
+                            f.display()
+                        ))
+                        .spawn()
+                        .unwrap()
+                })
+                .collect(),
+        )
+    }
+}
+
+/// The host's record write (write, F_FULLFSYNC, rename) done 25 at once, as 25
+/// hosts of a wave do, from this process at its current I/O policy.
+async fn fsync_wave(tag: &str, dir: &Path) -> String {
+    let mut set = tokio::task::JoinSet::new();
+    for i in 0..25 {
+        let path = dir.join(format!("rec-{i}.json"));
+        set.spawn_blocking(move || {
+            use std::io::Write;
+            let t = Instant::now();
+            let mut f = std::fs::File::create(&path).unwrap();
+            f.write_all(&[b'x'; 512]).unwrap();
+            f.sync_all().unwrap();
+            t.elapsed().as_secs_f64() * 1000.0
+        });
+    }
+    let mut times = Vec::new();
+    while let Some(Ok(t)) = set.join_next().await {
+        times.push(t);
+    }
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    format!(
+        "{tag:<34} fsync x25 min={:>7.0} p50={:>7.0} max={:>7.0}",
+        times[0], times[12], times[24]
+    )
 }
 impl Drop for Load {
     fn drop(&mut self) {
@@ -135,27 +187,10 @@ impl Drop for Load {
     }
 }
 
-async fn suite(out: &mut String, label: &str) {
-    let normal = CpuClass::Normal;
-    let bg = CpuClass::Background;
-    for (tag, n, program, class) in [
-        ("hostonly(fail-fast)", 1, "/nonexistent/acpmux-probe", normal),
-        ("hostonly(fail-fast)", 25, "/nonexistent/acpmux-probe", normal),
-        ("harness normal", 1, "python3", normal),
-        ("harness normal", 25, "python3", normal),
-        ("harness background", 1, "python3", bg),
-        ("harness background", 25, "python3", bg),
-        ("harness /bin/sleep bg", 25, "/bin/sleep", bg),
-    ] {
-        let line = wave(&format!("{label} {tag}"), n, program, class).await;
-        eprintln!("{line}");
-        writeln!(out, "{line}").unwrap();
-    }
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn host_start_probe_measure() {
     let ncpu: usize = sysctl("hw.ncpu").parse().unwrap_or(8);
+    let disk_dir = scratch("disk");
     let mut out = format!(
         "\nncpu={ncpu} perf0={} perf1={} mem={} os={} load1-at-start={:.0}\n",
         sysctl("hw.perflevel0.physicalcpu"),
@@ -164,18 +199,35 @@ async fn host_start_probe_measure() {
         sysctl("kern.osproductversion"),
         loadavg()
     );
+    let mut say = |line: String| {
+        eprintln!("{line}");
+        writeln!(out, "{line}").unwrap();
+    };
+    let normal = CpuClass::Normal;
     for qos in ["default", "off"] {
         if qos == "off" {
-            // SAFETY: the probe sets it before it starts any host of this pass.
+            // SAFETY: set before any host of this pass starts.
             unsafe { std::env::set_var("ACPMUX_QOS", "off") };
         }
-        suite(&mut out, &format!("idle qos={qos}")).await;
+        say(wave(&format!("idle qos={qos} host"), 25, "/nonexistent/x", normal).await);
+        say(fsync_wave(&format!("idle qos={qos}"), &disk_dir).await);
+        for (load, cpu, disk) in [("cpu", ncpu * 10, 0), ("disk", 0, 8), ("cpu+disk", ncpu * 10, 8)]
         {
-            let _load = Load::start(ncpu * 8);
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            suite(&mut out, &format!("load{}x qos={qos}", ncpu * 8)).await;
+            let _cpu = Load::start(cpu);
+            let _disk = Load::disk(disk, &disk_dir);
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            let tag = format!("{load} qos={qos}");
+            say(wave(&format!("{tag} host n=1"), 1, "/nonexistent/x", normal).await);
+            say(wave(&format!("{tag} host"), 25, "/nonexistent/x", normal).await);
+            say(wave_gated(&format!("{tag} host gate={ncpu}"), 25, "/nonexistent/x", normal, ncpu)
+                .await);
+            say(wave(&format!("{tag} harness"), 25, "python3", normal).await);
+            say(wave_gated(&format!("{tag} harness gate={ncpu}"), 25, "python3", normal, ncpu)
+                .await);
+            say(fsync_wave(&tag, &disk_dir).await);
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
+    let _ = std::fs::remove_dir_all(&disk_dir);
     panic!("PROBE TABLE (ms):{out}");
 }
