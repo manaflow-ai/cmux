@@ -709,12 +709,17 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(Set(prompt.attachments.map(\.id)).count == 2)
     }
 
-    @Test func unsupportedImageTypesAreNormalizedToJpegAttachments() throws {
-        let image = ConversationComposeImage(data: Self.jpeg, width: 2, height: 2, mimeType: "image/heic")
+    @Test func encodedImageBytesOverrideDeclaredMimeType() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let validPNG = renderer.pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let image = ConversationComposeImage(data: validPNG, width: 2, height: 2, mimeType: "image/heic")
         let attachment = try #require(ChiefComposer.attachments([image]).first)
-        #expect(attachment.name.hasSuffix(".jpg"))
-        #expect(attachment.imageMIMEType == "image/jpeg")
-        #expect(attachment.data == Self.jpeg)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+        #expect(attachment.data == validPNG)
     }
 
     @Test func imageBytesWinOverTheDeclaredMimeType() throws {
@@ -723,6 +728,23 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(attachment.kind == .image)
         #expect(attachment.name.hasSuffix(".png"))
         #expect(attachment.imageMIMEType == "image/png")
+    }
+
+    @Test func unsupportedDecodedImageIsConvertedToJpeg() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let png = renderer.pngData { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let image = try #require(UIImage(data: png))
+        let tiff = try #require(image.tiffRepresentation)
+        let attachment = try #require(ChiefComposer.attachments([
+            ConversationComposeImage(data: tiff, width: 2, height: 2, mimeType: "image/tiff")
+        ]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".jpg"))
+        #expect(attachment.imageMIMEType == "image/jpeg")
+        #expect(attachment.data != tiff)
     }
 
     @Test func undecodableImageIsSentAsAFile() throws {
