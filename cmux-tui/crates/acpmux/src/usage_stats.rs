@@ -174,6 +174,20 @@ impl Tail {
     fn lose(&mut self, at: u64) {
         self.lost_at = Some(self.lost_at.map_or(at, |lost| lost.max(at)));
     }
+
+    /// A record was seen: a later one with the same key is its duplicate ([`classify`]).
+    fn remember(&mut self, key: &Key) {
+        match key {
+            Key::Message(id) if !self.recent.iter().any(|seen| seen == id) => {
+                if self.recent.len() == RECENT_IDS {
+                    self.recent.pop_front();
+                }
+                self.recent.push_back(id.clone());
+            }
+            Key::Total(total) => self.last_total = Some(*total),
+            Key::Message(_) | Key::None => {}
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -285,7 +299,7 @@ impl Tracker {
 
     fn claude_line(&mut self, line: &[u8], tail: &mut Tail, now: u64, main: bool, models: &Models) {
         if !(contains(line, b"\"assistant\"") || main && contains(line, b"compact_boundary")) {
-            return;
+            return escaped_kind(Harness::Claude { main }, line, tail, now);
         }
         // A line older than the window counts for nothing but, if it is the newest call, the
         // context: kept unparsed until the read ends (`settle_context`), as most of a long
@@ -293,11 +307,14 @@ impl Tracker {
         if let Some(at) = quick_timestamp(line).filter(|at| at + DAY_MS <= now) {
             // What `parse_claude_line` takes as a call: a main-loop assistant line with usage and
             // a real model (an API error Claude Code makes up names `<synthetic>`).
-            let call = contains(line, b"\"type\":\"assistant\"")
+            let reply = contains(line, b"\"type\":\"assistant\"")
                 && contains(line, b"\"input_tokens\"")
-                && !contains(line, b"\"model\":\"<")
-                && !contains(line, b"\"isSidechain\":true");
-            if main && call && at >= self.context_at {
+                && !contains(line, b"\"model\":\"<");
+            // Seen, so a later untimed line of the same message is its duplicate, not lost.
+            if reply && let Some(id) = quick_message_id(line) {
+                tail.remember(&Key::Message(id));
+            }
+            if main && reply && !contains(line, b"\"isSidechain\":true") && at >= self.context_at {
                 self.old_context = Some(line.to_vec());
             }
             return;
@@ -309,7 +326,9 @@ impl Tracker {
     /// newer one was read.
     fn settle_context(&mut self, tail: &mut Tail, now: u64, models: &Models) {
         if let Some(line) = self.old_context.take() {
-            self.parse_claude_line(&line, tail, now, true, models);
+            // Its id is remembered already (`claude_line`): it is the call, not a repeat of it.
+            let class = classify(Harness::Claude { main: true }, &line, &Tail::default());
+            self.take(class, tail, now, models);
         }
     }
 
@@ -328,15 +347,7 @@ impl Tracker {
     fn codex_line(&mut self, line: &[u8], tail: &mut Tail, now: u64, models: &Models) {
         let wanted = [&b"token_count"[..], b"\"compacted\"", b"spawn_agent", b"turn_context"];
         if !wanted.iter().any(|w| contains(line, w)) {
-            return;
-        }
-        // The model the next token reports ran on: no count of its own.
-        if contains(line, b"turn_context")
-            && let Ok(record) = serde_json::from_slice::<Value>(line)
-            && record["type"] == "turn_context"
-            && let Some(model) = record["payload"]["model"].as_str()
-        {
-            self.model = Some(model.to_owned());
+            return escaped_kind(Harness::Codex, line, tail, now);
         }
         let class = classify(Harness::Codex, line, tail);
         self.take(class, tail, now, models);
@@ -347,7 +358,11 @@ impl Tracker {
     fn take(&mut self, class: Class, tail: &mut Tail, now: u64, models: &Models) {
         let (at, counts) = match class {
             Class::Uncountable | Class::Duplicate => return,
-            Class::Lost { at } => return tail.lose(at.unwrap_or(now)),
+            Class::Model { model } => return self.model = Some(model),
+            Class::Lost { at, key } => {
+                tail.remember(&key);
+                return tail.lose(at.unwrap_or(now));
+            }
             Class::Counted { at, counts } => (at, counts),
         };
         match counts {
@@ -362,16 +377,7 @@ impl Tracker {
                 }
             }
             Counts::Tokens(t) => {
-                match &t.key {
-                    Key::Message(id) => {
-                        if tail.recent.len() == RECENT_IDS {
-                            tail.recent.pop_front();
-                        }
-                        tail.recent.push_back(id.clone());
-                    }
-                    Key::Total(total) => tail.last_total = Some(*total),
-                    Key::None => {}
-                }
+                tail.remember(&t.key);
                 if let Some(window) = t.window {
                     self.context_window = Some(window);
                 }
@@ -480,10 +486,13 @@ enum Class {
     Uncountable,
     /// Repeats one already counted: a streamed message's other lines, a repeated Codex total.
     Duplicate,
-    /// Should count but cannot be read: not JSON, no time, no token counts. Its time, when known.
-    Lost { at: Option<u64> },
+    /// Should count but cannot be read: not JSON, no time, no token counts. Its time, when known,
+    /// and what tells a repeat of it (a later line of the same message is a duplicate of it).
+    Lost { at: Option<u64>, key: Key },
     /// Counts at `at`.
     Counted { at: u64, counts: Counts },
+    /// Names the model the Codex calls after it ran on (a timed turn context): no count.
+    Model { model: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -491,6 +500,16 @@ enum Counts {
     Compaction,
     Spawn,
     Tokens(Tokens),
+}
+
+impl Counts {
+    /// What tells a repeat of it: only a model call has one.
+    fn key(&self) -> Key {
+        match self {
+            Counts::Tokens(t) => t.key.clone(),
+            Counts::Compaction | Counts::Spawn => Key::None,
+        }
+    }
 }
 
 /// One model call's tokens.
@@ -535,17 +554,25 @@ impl Tokens {
 
 /// The one decision of what a record is to the counts, timed or not, for every parse
 /// (`Tracker::take` applies it): first whether it is a kind that counts, then whether it
-/// repeats one counted (`tail`'s ids and last total), then whether it can be read (a time,
-/// its token counts). So nothing is lost that would have been skipped.
+/// repeats one seen (`tail`'s ids and last total), then whether it can be read (a time, its
+/// token counts). So nothing is lost that would have been skipped, and a record seen once,
+/// counted or lost, is a duplicate after.
+///
+/// Outside it, by design, as they work on files, not records: `read_new` marks lost a line
+/// longer than a read step (it cannot be parsed); `claude_subagents` counts one spawn per
+/// subagent transcript, at its first record's time, else the file's; and the parses'
+/// byte pre-filters pass on only lines that name a counted kind as Claude Code and Codex write
+/// it, unescaped. A line whose kind is written escaped (`"\u0061ssistant"`) is caught by
+/// `escaped_kind` and makes the day unknown, never a count of 0.
 fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
     let Ok(record) = serde_json::from_slice::<Value>(line) else {
         // The callers pass only lines that name a kind that counts (`claude_line`, `codex_line`).
-        return Class::Lost { at: quick_timestamp(line) };
+        return Class::Lost { at: quick_timestamp(line), key: Key::None };
     };
     let at = timestamp(&record);
-    let counted = |counts| match at {
+    let counted = |counts: Counts| match at {
         Some(at) => Class::Counted { at, counts },
-        None => Class::Lost { at: None },
+        None => Class::Lost { at: None, key: counts.key() },
     };
     let n = |v: &Value, k: &str| v[k].as_u64();
     match harness {
@@ -575,7 +602,7 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
                 let (Some(input), Some(output)) =
                     (n(usage, "input_tokens"), n(usage, "output_tokens"))
                 else {
-                    return Class::Lost { at };
+                    return Class::Lost { at, key };
                 };
                 // The API leaves a cache count out when it is 0.
                 let read = n(usage, "cache_read_input_tokens").unwrap_or(0);
@@ -600,6 +627,11 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
         Harness::Codex => {
             let payload = &record["payload"];
             match (record["type"].as_str(), payload["type"].as_str()) {
+                // Untimed, it cannot say which calls ran after it: as before, it is passed over.
+                (Some("turn_context"), _) => match (at, payload["model"].as_str()) {
+                    (Some(_), Some(model)) => Class::Model { model: model.to_owned() },
+                    _ => Class::Uncountable,
+                },
                 (Some("compacted"), _) => counted(Counts::Compaction),
                 (Some("response_item"), Some("function_call" | "custom_tool_call"))
                     if payload["name"] == "spawn_agent" =>
@@ -622,14 +654,14 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
                     let (Some(total), Some(input), Some(output)) =
                         (total, n(last, "input_tokens"), n(last, "output_tokens"))
                     else {
-                        return Class::Lost { at };
+                        return Class::Lost { at, key: total.map_or(Key::None, Key::Total) };
                     };
                     // OpenAI counts cached input inside input_tokens, and leaves out a 0 cache
-                    // count; its total_tokens is input + output.
-                    let cached = n(last, "cached_input_tokens").unwrap_or(0).min(input);
+                    // count; its total_tokens is input + output. Priced as it says, unclamped.
+                    let cached = n(last, "cached_input_tokens").unwrap_or(0);
                     counted(Counts::Tokens(Tokens {
                         model: None,
-                        input: input - cached,
+                        input: input.saturating_sub(cached),
                         output,
                         cache_read: cached,
                         cache_write: 0,
@@ -884,6 +916,41 @@ fn quick_timestamp(line: &[u8]) -> Option<u64> {
     let start = memchr::memmem::rfind(line, KEY)? + KEY.len();
     let len = memchr::memchr(b'"', &line[start..])?;
     crate::server::machine_health::rfc3339_ms(std::str::from_utf8(&line[start..start + len]).ok()?)
+}
+
+/// A Claude reply's message id found without parsing the line (`"id":"msg_…"`, as the API
+/// names them); None when the line names none.
+fn quick_message_id(line: &[u8]) -> Option<String> {
+    const KEY: &[u8] = b"\"id\":\"msg_";
+    let start = memchr::memmem::find(line, KEY)? + KEY.len() - 4;
+    let len = memchr::memchr(b'"', &line[start..])?;
+    String::from_utf8(line[start..start + len].to_vec()).ok()
+}
+
+/// A line the parse's byte pre-filter passed over that is a counted kind written escaped
+/// (`"\u0061ssistant"`; Claude Code and Codex never write one): the day it falls in is lost
+/// (unknown), never a count of 0. Only a line with an escape, within the day, is parsed.
+fn escaped_kind(harness: Harness, line: &[u8], tail: &mut Tail, now: u64) {
+    let at = quick_timestamp(line);
+    if !contains(line, b"\\u") || at.is_some_and(|at| at + DAY_MS <= now) {
+        return;
+    }
+    let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
+    let (kind, payload) = (record["type"].as_str().unwrap_or_default(), &record["payload"]);
+    let counted = match harness {
+        Harness::Claude { main } => {
+            kind == "assistant"
+                || main && kind == "system" && record["subtype"] == "compact_boundary"
+        }
+        Harness::Codex => {
+            kind == "compacted"
+                || kind == "event_msg" && payload["type"] == "token_count"
+                || kind == "response_item" && payload["name"] == "spawn_agent"
+        }
+    };
+    if counted {
+        tail.lose(timestamp(&record).unwrap_or(now));
+    }
 }
 
 fn timestamp(record: &Value) -> Option<u64> {

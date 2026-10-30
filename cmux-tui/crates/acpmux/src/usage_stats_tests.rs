@@ -638,13 +638,22 @@ fn every_record_kind_is_classified_the_same_timed_or_not() {
             "uncountable",
         ),
         (
+            // Review of #28015 at aec8d5f7 (1): a turn context goes through classify; untimed,
+            // it names no model (the untimed run below checks that).
             "codex turn context",
             Harness::Codex,
             json!({"timestamp": at, "type": "turn_context", "payload": {"model": "gpt-6-astra"}}),
+            "model",
+        ),
+        (
+            "codex turn context, no model",
+            Harness::Codex,
+            json!({"timestamp": at, "type": "turn_context", "payload": {}}),
             "uncountable",
         ),
     ];
     let label = |class: &Class| match class {
+        Class::Model { .. } => "model",
         Class::Uncountable => "uncountable",
         Class::Duplicate => "duplicate",
         Class::Lost { .. } => "lost",
@@ -658,18 +667,22 @@ fn every_record_kind_is_classified_the_same_timed_or_not() {
         let mut untimed = record.clone();
         untimed.as_object_mut().unwrap().remove("timestamp");
         let untimed = classify(harness, untimed.to_string().as_bytes(), &tail);
+        // Without a time: what would count is lost (keeping what tells a repeat of it), a turn
+        // context names no model, and the rest is as it was.
         let expected = match timed {
-            Class::Counted { .. } | Class::Lost { .. } => Class::Lost { at: None },
+            Class::Counted { counts, .. } => Class::Lost { at: None, key: counts.key() },
+            Class::Lost { key, .. } => Class::Lost { at: None, key },
+            Class::Model { .. } => Class::Uncountable,
             other => other,
         };
         assert_eq!(untimed, expected, "{what}, without a time");
     }
     // Not JSON: lost, at the time it names when it names one.
     let cut = br#"{"type":"assistant","timestamp":"2026-10-30T11:00:00Z","message":{"usage":"#;
-    assert_eq!(classify(claude, cut, &tail), Class::Lost { at: Some(ms(at)) });
+    assert_eq!(classify(claude, cut, &tail), Class::Lost { at: Some(ms(at)), key: Key::None });
     assert_eq!(
         classify(Harness::Codex, b"{\"type\":\"compacted\"", &tail),
-        Class::Lost { at: None }
+        Class::Lost { at: None, key: Key::None }
     );
     // What a counted reply counts: the chat's own call is its context; a subagent's is not.
     let Class::Counted { counts: Counts::Tokens(t), .. } = classify(
@@ -694,6 +707,120 @@ fn every_record_kind_is_classified_the_same_timed_or_not() {
         panic!()
     };
     assert_eq!((t.input, t.cache_read, t.total, t.context), (6, 4, 12, Some(10)));
+    // Review of #28015 at aec8d5f7 (3): a report whose cached count is above its input is priced
+    // as it says (input at 0, every cached token at the cache price), not clamped.
+    let odd = json!({"input_tokens": 10, "cached_input_tokens": 50, "output_tokens": 10, "total_tokens": 20});
+    let Class::Counted { counts: Counts::Tokens(t), .. } =
+        classify(Harness::Codex, report(json!(800), odd).to_string().as_bytes(), &tail)
+    else {
+        panic!()
+    };
+    assert_eq!((t.input, t.cache_read, t.total), (0, 50, 20));
+    let p = Prices { input: 2.0, output: 10.0, cache_read: 0.5, cache_write: 2.0 };
+    assert_eq!(t.cost(&p), (50.0 * 0.5 + 10.0 * 10.0) / 1e6);
+}
+
+/// Review of #28015 at aec8d5f7 (1, 2, 6, and the escaped kind), on the tracker:
+/// - an untimed turn context does not set the model later Codex calls are priced at;
+/// - a message whose first line is lost is not counted from a later line of it;
+/// - an untimed repeat of a call older than the day is its duplicate, not lost;
+/// - a counted kind written escaped makes the day unknown, never 0.
+#[test]
+fn the_tracker_applies_every_classification() {
+    let now = ms("2026-10-30T12:00:00Z");
+    let codex = |home: &Path| {
+        let mut env = BTreeMap::new();
+        env.insert("CODEX_HOME".to_owned(), home.display().to_string());
+        let source = Source {
+            family: "codex".into(),
+            agent_session_id: SID.into(),
+            cwd: "/w".into(),
+            created_at: now,
+            argv: Some(vec!["codex-acp".into()]),
+            env,
+        };
+        (source, home.join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl")))
+    };
+    let report = |at: &str, total: u64| {
+        json!({"timestamp": at, "type": "event_msg", "payload": {"type": "token_count", "info": {
+            "total_token_usage": {"total_tokens": total},
+            "last_token_usage": {"input_tokens": 1_000_000, "output_tokens": 0, "total_tokens": 1_000_000}}}})
+    };
+    // (1) A timed turn context prices the call after it at gpt-6-astra ($2/M input); an untimed
+    // one after it does not move the model to one without a price.
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = codex(home.path());
+    append(
+        &path,
+        &[
+            json!({"timestamp": "2026-10-30T10:00:00Z", "type": "turn_context", "payload": {"model": "gpt-6-astra"}}),
+            json!({"type": "turn_context", "payload": {"model": "no-such-model"}}),
+            report("2026-10-30T11:00:00Z", 1_000_000),
+        ],
+    );
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!((stats.tokens24h, stats.cost_usd24h), (Some(1_000_000), Some(2.0)));
+
+    // (2) The first line of msg_1 has no output count: lost (the day unknown), and the full line
+    // of msg_1 after it is that message's, not a second call.
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let mut partial = assistant("msg_1", "2026-10-30T11:00:00Z", usage(5, 0, 0, 5), false);
+    partial["message"]["usage"].as_object_mut().unwrap().remove("output_tokens");
+    append(&path, &[partial, assistant("msg_1", "2026-10-30T11:00:01Z", usage(5, 0, 0, 5), false)]);
+    let mut tracker = Tracker::default();
+    assert_eq!(tracker.refresh(&source, now, &models()).unwrap().tokens24h, None);
+    // A day after the lost line, the day's count is known: msg_1 never counted in it.
+    let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(later.tokens24h, Some(0));
+
+    // (6) An untimed repeat of a call older than the day: its duplicate, so the day is known.
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let old = assistant("msg_old", "2026-10-29T11:00:00Z", usage(1, 0, 0, 1), false);
+    let mut repeat = old.clone();
+    repeat.as_object_mut().unwrap().remove("timestamp");
+    append(&path, &[old, repeat]);
+    let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+    assert_eq!((stats.tokens24h, stats.context_tokens), (Some(0), Some(1)));
+
+    // An escaped kind the byte pre-filter passes over: unknown, not 0. One old or not counted
+    // (a user line with an escape) changes nothing.
+    for (harness, line, want) in [
+        (
+            "claude",
+            r#"{"type":"\u0061ssistant","timestamp":"2026-10-30T11:00:00Z","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1}}}"#,
+            None,
+        ),
+        (
+            "claude",
+            r#"{"type":"\u0061ssistant","timestamp":"2026-10-28T11:00:00Z","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1}}}"#,
+            Some(0),
+        ),
+        (
+            "claude",
+            r#"{"type":"user","timestamp":"2026-10-30T11:00:00Z","message":{"content":"\u001b[31mred"}}"#,
+            Some(0),
+        ),
+        (
+            "codex",
+            r#"{"timestamp":"2026-10-30T11:00:00Z","type":"event_msg","payload":{"type":"token_\u0063ount","info":{"total_token_usage":{"total_tokens":10},"last_token_usage":{"input_tokens":8,"output_tokens":2}}}}"#,
+            None,
+        ),
+        (
+            "codex",
+            r#"{"timestamp":"2026-10-30T11:00:00Z","type":"event_msg","payload":{"type":"agent_message","message":"\u00e9"}}"#,
+            Some(0),
+        ),
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        let (source, path) =
+            if harness == "claude" { claude(home.path()) } else { codex(home.path()) };
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, format!("{line}\n")).unwrap();
+        let stats = Tracker::default().refresh(&source, now, &models()).unwrap();
+        assert_eq!(stats.tokens24h, want, "{line}");
+    }
 }
 
 /// Review of #28015 at 800ce2b4: an untimed repeat of a record already counted (a Claude
