@@ -342,6 +342,35 @@ struct AgentPaneUnsentPromptTests {
                 "the file kept a prompt the daemon's close took out")
     }
 
+    /// A change while a record writes, whose own write waits behind the record's, and the record's
+    /// second write (of the journal as it is after both) fails: the change still reaches the disk
+    /// on the next write, never left out as older than the record.
+    @Test func aChangeWhileARecordWritesReachesTheDiskWhenTheSecondWriteFails() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let journal = AgentPanePromptJournal(url: url)
+        let entry = { (id: String) in
+            AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: id, params: "{}", at: journal.now())
+        }
+        let other = UUID()
+        #expect(try journal.record(entry("p-b"), owner: other))
+        journal.whileRecordWrites.withLock { $0 = { journal.connectionEnded(owner: other, byDaemon: true) } }
+        journal.afterRecordWrite.withLock {
+            $0 = { try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path) }
+        }
+        #expect(try journal.record(entry("p-a"), owner: UUID()), "the record is on disk; a later write's failure is not its own")
+        journal.whileRecordWrites.withLock { $0 = nil }
+        journal.afterRecordWrite.withLock { $0 = nil }
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        await journal.settle()
+        #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId) == ["p-a"],
+                "the daemon's close never reached the disk: its prompt would be sent again after a relaunch")
+    }
+
     /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot
     /// be written: the Retry does not go, and the first send's record stays, so a crash after the
     /// disk recovers still sends that prompt again.

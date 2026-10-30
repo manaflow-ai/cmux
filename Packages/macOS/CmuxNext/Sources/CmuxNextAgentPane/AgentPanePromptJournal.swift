@@ -111,6 +111,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
     /// Runs while a record writes, before its file write (tests: a change made meanwhile).
     let whileRecordWrites = Mutex<(@Sendable () -> Void)?>(nil)
+    /// Runs after a record's file write, before the state as it is now is written (tests).
+    let afterRecordWrite = Mutex<(@Sendable () -> Void)?>(nil)
 
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
@@ -145,6 +147,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             guard let proposed else { return false }
             whileRecordWrites.withLock { $0 }?()
             guard writeFile(proposed.entries, pendingTrust: proposed.pendingTrust) else { throw NotWritten() }
+            afterRecordWrite.withLock { $0 }?()
             // On disk: it goes into the state as it is now (other changes may have come in
             // meanwhile), and that is written too when it differs from what was.
             let (generation, entries, pendingTrust, kept) = state.withLock { state in
