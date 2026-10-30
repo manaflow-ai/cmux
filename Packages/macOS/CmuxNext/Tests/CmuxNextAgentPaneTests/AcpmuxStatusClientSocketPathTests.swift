@@ -10,8 +10,8 @@ import Testing
 /// its frames (``ChildCrashFrames``) and no other test.
 struct AcpmuxStatusClientSocketPathTests {
     @Test func aSocketPathPastTheUnixLimitIsRefusedNotATrap() async {
-        let result = await #expect(processExitsWith: .success, observing: [\.standardErrorContent]) {
-            ChildCrashFrames.printOnFatalSignal()
+        await #expect(processExitsWith: .success) {
+            ChildCrashFrames.printOnFatalSignal("acpmux-status-sun-path")
             let path = "/" + String(repeating: "p", count: 200) + "/acpmux.sock"
             do {
                 _ = try await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status", deadline: .seconds(2))
@@ -21,6 +21,6 @@ struct AcpmuxStatusClientSocketPathTests {
                 guard (error as? AcpmuxStatusClient.Failure) == .socketPathTooLong(path) else { ChildCrashFrames.fail("refused with \(error)") }
             }
         }
-        ChildCrashFrames.record(result)
+        ChildCrashFrames.record("acpmux-status-sun-path")
     }
 }

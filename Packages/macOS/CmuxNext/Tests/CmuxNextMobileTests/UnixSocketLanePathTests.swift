@@ -9,8 +9,8 @@ import Testing
 /// child, so a trap fails this test with its frames (``ChildCrashFrames``) and no other test.
 struct UnixSocketLanePathTests {
     @Test func aSocketPathPastTheUnixLimitIsRefusedNotATrap() async {
-        let result = await #expect(processExitsWith: .success, observing: [\.standardErrorContent]) {
-            ChildCrashFrames.printOnFatalSignal()
+        await #expect(processExitsWith: .success) {
+            ChildCrashFrames.printOnFatalSignal("unix-lane-sun-path")
             let path = "/" + String(repeating: "p", count: 200) + "/daemon.sock"
             do {
                 _ = try await UnixSocketLane.connect(path: path, deadline: .seconds(2))
@@ -20,6 +20,6 @@ struct UnixSocketLanePathTests {
                 guard (error as? UnixSocketLane.Failure) == .pathTooLong(path: path) else { ChildCrashFrames.fail("refused with \(error)") }
             }
         }
-        ChildCrashFrames.record(result)
+        ChildCrashFrames.record("unix-lane-sun-path")
     }
 }

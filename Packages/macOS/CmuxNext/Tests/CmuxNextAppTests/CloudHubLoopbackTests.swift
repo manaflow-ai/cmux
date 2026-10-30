@@ -20,8 +20,8 @@ struct CloudHubLoopbackTests {
     /// (issue #28492). The open runs in an exit test's child, so a trap fails this test with its
     /// frames (``ChildCrashFrames``) and no other test.
     @Test func aHubSocketPathPastTheUnixLimitIsRefusedNotATrap() async {
-        let result = await #expect(processExitsWith: .success, observing: [\.standardErrorContent]) {
-            ChildCrashFrames.printOnFatalSignal()
+        await #expect(processExitsWith: .success) {
+            ChildCrashFrames.printOnFatalSignal("hub-opener-sun-path")
             let socket = "/" + String(repeating: "h", count: 200) + "/hub.sock"
             guard let opener = HubLoopbackOpener(hub: { .init(socket: socket, token: "t") }, address: "10.0.0.2") else {
                 ChildCrashFrames.fail("no opener for 10.0.0.2")
@@ -36,7 +36,7 @@ struct CloudHubLoopbackTests {
                 }
             }
         }
-        ChildCrashFrames.record(result)
+        ChildCrashFrames.record("hub-opener-sun-path")
     }
 
     /// One connection's SOCKS5 server: greeting, the token `cmux-hub-token`, then CONNECT, answered
