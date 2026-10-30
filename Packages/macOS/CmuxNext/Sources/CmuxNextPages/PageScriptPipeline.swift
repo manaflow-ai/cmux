@@ -1,3 +1,4 @@
+import protocol CmuxNextCompat.MemoryReleaseSinking
 public import CmuxNextSettings
 import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
@@ -111,6 +112,8 @@ final class PageScriptPipeline {
     private var inFlightGate: Gate?
     /// Bumped by ``reset()``: a script rendered for an older generation is not evaluated.
     private var generation: UInt64 = 0
+    /// Where the last reference to a run the drain task sent or dropped ends (``releaseOffMain(on:)``).
+    private var releaseSink: (any MemoryReleaseSinking)?
 
     /// - Parameters:
     ///   - deliver: Hands one run of envelopes to the page (``PageScriptTarget/deliver(_:)``).
@@ -158,6 +161,12 @@ final class PageScriptPipeline {
 
     /// Whether envelopes wait for a frame (``deliverOnFrames(_:)``).
     var deliversOnFrames: Bool { frame != nil }
+
+    /// From now on the last reference to each run the drain task sends or drops, and to what
+    /// ``reset()`` drops, goes to `sink`, so its free runs off the main thread.
+    func releaseOffMain(on sink: any MemoryReleaseSinking) {
+        releaseSink = sink
+    }
 
     /// True when nothing is queued or running, so a script may be evaluated at once.
     private var isIdle: Bool { drain == nil && head == queue.count }
