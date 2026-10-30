@@ -37,6 +37,10 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// Message projection ids, loaded once from the journal on first use; only
+    /// message acceptance/recovery touches this, never streamed tokens.
+    /// Dedupe key is message id plus the target session for sender copies.
+    pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
@@ -76,6 +80,9 @@ pub struct Session {
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
+    /// None until a restored log has been read successfully.
+    pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
     /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
     pub(super) restored: StdMutex<Vec<(String, String)>>,
     /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
@@ -247,6 +254,8 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`).
+    pub(super) inbox: StdMutex<super::inbox::Inbox>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,

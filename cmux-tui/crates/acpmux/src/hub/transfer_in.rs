@@ -113,7 +113,8 @@ impl Hub {
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            moved |= e.kind == "transferred";
+            // The daemon's own records only: an agent's update may carry any kind.
+            moved |= e.dir == "mux" && e.kind == "transferred";
             !moved
         });
         moved

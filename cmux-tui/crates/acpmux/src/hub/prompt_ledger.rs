@@ -67,6 +67,10 @@ impl Hub {
     /// `queued`), answered from the log: its turn's result when it ended,
     /// else `interrupted` (the daemon stopped during the turn).
     pub(super) fn logged_prompt(&self, session: &Session, prompt_id: &str) -> Option<Value> {
+        // Another agent's message the inbox took (`inbox.rs`): answered from its records.
+        if let Some(inbox) = self.logged_inbox(session, prompt_id) {
+            return Some(inbox);
+        }
         let last = session.meta().last_turn;
         if let Some(last) =
             last.filter(|l| l.get("promptId").and_then(Value::as_str) == Some(prompt_id))
