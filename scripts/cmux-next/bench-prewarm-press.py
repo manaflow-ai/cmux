@@ -23,8 +23,11 @@ deadline.
   scripts/cmux-next/bench-prewarm-press.py --app "<...>/cmux DEV <tag>.app" [--cold-launches 3] [--json out.json]
 
 With `--socket` it never launches, quits or activates an app; it makes workspaces (a script's newTab) when the
-sidebar lists fewer than two. With `--app` it launches the app with the bench env (no activation) and quits it and
-its tag's daemons at the end. Run it on a fleet or capture mini, never on a laptop in use.
+sidebar lists fewer than two, and the app must already run with intentPrewarmPress on. With `--app` it launches the
+app with the bench env (no activation) through bench_launch.BenchApp with intentPrewarmHover and intentPrewarmPress
+as Labs local choices (`local_features`: the file in the app's own state folder, read at launch), checks with
+`features.list` that both are on (else it stops: nothing would be measured), and quits the app and its tag's daemons
+at the end. Run it on a fleet or capture mini, never on a laptop in use.
 """
 import argparse
 import json
@@ -35,6 +38,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, bench_launch, also under `python3 -I`
 import bench_arms  # noqa: E402
+
+# Off by default in DEV builds: without them there is no prewarm service and no press is timed.
+FEATURES = {"intentPrewarmHover": True, "intentPrewarmPress": True}
 
 
 class App:
@@ -91,6 +97,24 @@ def wait(check, seconds, step=0.05):
     return None
 
 
+def launch(app_path):
+    """A BenchApp of `app_path` with FEATURES as local choices, launched; stops when features.list does not report
+    both on (a launch whose presses could not be timed)."""
+    from bench_launch import BenchApp
+    bench = BenchApp(app_path, config={}, local_features=FEATURES)
+    bench.launch(timeout=120)
+    reply = App(bench.socket).rpc("features.list") or {}
+    rows = {f.get("name"): f for f in (reply.get("features") or []) if isinstance(f, dict)}
+    off = [name for name in FEATURES if (rows.get(name) or {}).get("state") != "on"]
+    for name in FEATURES:
+        print(f"feature {name}: state {(rows.get(name) or {}).get('state')} source {(rows.get(name) or {}).get('source')}",
+              flush=True)
+    if off:
+        bench.stop()
+        sys.exit(f"FAIL: {', '.join(off)} not on after the launch (features.list); nothing measured")
+    return bench
+
+
 def two_rows(app, make=True):
     rows = app.rows()
     for index in range(max(0, 2 - len(rows)) if make else 0):
@@ -137,11 +161,9 @@ def measure(app, opts, arms, samples, starts):
 
 def cold(opts):
     """Per launch, the first press as soon as the sidebar lists two workspace rows."""
-    from bench_launch import BenchApp
     out, starts = [], []
     for index in range(opts.cold_launches):
-        bench = BenchApp(opts.app, config={})
-        bench.launch(timeout=120)
+        bench = launch(opts.app)
         try:
             app = App(bench.socket)
             rows = two_rows(app)
@@ -184,9 +206,8 @@ def main():
             samples["cold"] = []
     bench = None
     if opts.app:
-        from bench_launch import BenchApp
-        bench = BenchApp(opts.app, config={})
-        bench.launch(timeout=120)
+        opts.app = os.path.abspath(opts.app.rstrip("/"))
+        bench = launch(opts.app)
         opts.socket = bench.socket
     try:
         measure(App(opts.socket), opts, arms, samples, starts)
@@ -203,6 +224,8 @@ def main():
     if opts.json:
         with open(opts.json, "w") as out:
             json.dump(result, out, indent=2)
+    if all(v is None for values in samples.values() for v in values):
+        sys.exit(5)  # nothing measured: never a result
 
 
 if __name__ == "__main__":
