@@ -166,8 +166,11 @@ extension SidebarListView {
             let oldContent = row.content ?? WorkspaceRowContent()
             let wasPlaceholder = oldWorkspace.map { $0.rowState == .placeholder && $0.title.isEmpty } ?? false
             let isPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
+            // A harness workspace with no registered mark draws its kind's symbol there, so its kind
+            // is a title-column input too (WorkspaceRowView.agentMarkImage).
             let leadingMarkChanged = SidebarTunables.agentMark.value == .besideTitle
-                && (oldWorkspace?.agentBrand != ws.agentBrand || oldWorkspace?.agentIcon != ws.agentIcon)
+                && (oldWorkspace?.agentBrand != ws.agentBrand || oldWorkspace?.agentIcon != ws.agentIcon
+                    || (oldWorkspace?.kind == .harness) != (ws.kind == .harness))
             let titleColumnChanged = oldContent.icon != content.icon || oldContent.treeDepth != content.treeDepth
                 || (oldContent.machine == nil) != (content.machine == nil)
                 || wasPlaceholder != isPlaceholder || leadingMarkChanged
