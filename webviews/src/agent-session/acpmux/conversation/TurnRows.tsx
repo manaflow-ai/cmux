@@ -19,6 +19,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
+import { errorRecovery, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
@@ -334,6 +335,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           switchModel={switchModel}
           compact={compact}
           retry={retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined}
+          goOn={errorRecovery(row, route, { resume, retry })}
         />
       )}
       <div
@@ -440,19 +442,25 @@ function TurnFailure({
   switchModel,
   compact,
   retry,
+  goOn,
 }: {
   message: string | undefined;
   code?: string;
   route?: FailureRoute;
   switchModel?: () => void;
   compact?: () => Promise<void>;
+  /// Sends the prompt again; CodeRouter's move runs it once the chat is on the new route.
   retry?: () => void;
+  /// The way on (errorRecovery.ts): Continue or Retry, the card's lead and its Return.
+  goOn?: ErrorRecovery;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
+  // One click (or Return on it) goes on once: the lead stays disabled until that send settles.
+  const [goingOn, setGoingOn] = useState(false);
   const kind = failureKind(message, route, code);
   const sentence = failureCopy(t, message, route, code);
   const arm = experimentArm(turnErrorCard);
@@ -461,8 +469,14 @@ function TurnFailure({
   const offersSwitch =
     switchModel &&
     ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
-  // Retry is the way out, or the second one after Switch model; never for a sign-in or trust failure.
-  const offersRetry = recovery !== undefined && retry !== undefined;
+  // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
+  // failure; never for a sign-in or trust failure (errorRecovery.ts).
+  const offersRetry = goOn !== undefined;
+  const runGoOn = () => {
+    if (!goOn || goingOn) return;
+    setGoingOn(true);
+    void goOn.run().finally(() => setGoingOn(false));
+  };
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
@@ -524,9 +538,12 @@ function TurnFailure({
           <button
             type="button"
             className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
-            onClick={retry}
+            // The card's first stop in the tab order, so Return on the focused card goes on.
+            aria-keyshortcuts="Enter"
+            disabled={goingOn}
+            onClick={runGoOn}
           >
-            {t("turn.retry")}
+            {goOn.label === "continue" ? t("turn.continue") : t("turn.retry")}
           </button>
         )}
         {!switchFirst && switchButton}

@@ -4,8 +4,8 @@
 // "should have a try again/continue type button here". The last failed turn's card leads with one
 // way to go on: Continue when the turn had done work (or has no prompt to send again, as a turn a
 // notice started), which resumes it with its context; Retry when nothing ran, which sends the prompt
-// again. It leads for every failure that may pass (capacity, 503, network, a crash), Return runs it
-// while the card has focus, and the palette, CLI and MCP reach the same path (`continueAfterError`).
+// again. It leads for every failure that may pass (capacity, 503, network, a crash), it is the card's
+// first tab stop so Return runs it, and the palette, CLI and MCP reach the same path (`continueAfterError`).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -174,22 +174,28 @@ test("capacity before anything ran: Retry leads and sends the prompt again", asy
   expect(retried).toEqual(["p1:Run the sidebar tests and fix what fails"]);
 });
 
-test("Return on the focused card runs its lead action", async () => {
+test("Return on the focused card runs its lead action: the lead is the card's first tab stop", async () => {
   let resumed = 0;
   const [row] = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000)]);
   await render(row!, { resume: async () => void (resumed += 1), switchModel: () => undefined });
-  const element = card();
-  expect(element.tabIndex).toBe(0);
-  element.focus();
-  await act(async () => {
-    element.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-  });
+  const first = card().querySelector<HTMLElement>("button, a[href], summary, [tabindex]")!;
+  expect(first.textContent).toBe("Continue");
+  expect(first.getAttribute("aria-keyshortcuts")).toBe("Enter");
+  first.focus();
+  expect(dom.window.document.activeElement).toBe(first);
+  // Return on a focused button clicks it.
+  await act(async () => first.click());
   expect(resumed).toBe(1);
-  // A modified Return is not the card's.
-  await act(async () => {
-    element.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }));
+  // One click goes on once: the lead waits for its send to settle.
+  let settle: () => void = () => undefined;
+  await render(row!, {
+    resume: () => new Promise<void>((resolve) => (settle = () => resolve())),
+    switchModel: () => undefined,
   });
-  expect(resumed).toBe(1);
+  await act(async () => button("Continue")!.click());
+  expect(button("Continue")!.disabled).toBe(true);
+  await act(async () => settle());
+  expect(button("Continue")!.disabled).toBe(false);
 });
 
 test("a sign-in failure offers no Continue: going on would fail the same way", async () => {

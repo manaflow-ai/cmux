@@ -24353,6 +24353,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent continue-after-error",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.continueAfterError",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Continue After Error",
+      "title_key" : "action.agentPane.continueAfterError",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent toggle-minimap",
       "context_menu" : "guiOnly",
       "context_menus" : [
@@ -36674,6 +36702,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "team invite",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "team.invite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Invite to Team…",
+      "title_key" : "action.team.invite",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "devOnly",
       "cli_name" : "action server-make-this-mac-a-server",
       "context_menu" : "noObject",
@@ -48566,7 +48622,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceID",
+              "id" : "palette.copyWorkspaceLink",
               "kind" : "action",
               "order" : 21,
               "visible_when" : {
@@ -48579,7 +48635,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceLink",
+              "id" : "palette.copyWorkspaceID",
               "kind" : "action",
               "order" : 22,
               "visible_when" : {
