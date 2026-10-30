@@ -9,6 +9,8 @@ import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
+import type { NativeRowToolsHost } from "./useNativeRowTools";
+import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
   treatment?: { size: number; gap: number };
@@ -25,6 +27,8 @@ type HeaderToolsProps = {
   onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
   onCustomize?: (list: readonly QuickAction[]) => void;
   summary: ReactNode;
+  inbox?: ReactNode;
+  nativeRowTools?: NativeRowToolsHost;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
@@ -341,6 +345,13 @@ const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
   return [...rows.slice(0, archive), ...machine, "separator", ...rows.slice(archive)];
 };
 
+const inbox = (
+  <NeedsYouButton
+    items={[]}
+    actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => undefined }}
+  />
+);
+
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
   onSplitDown: () => undefined,
@@ -405,6 +416,27 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    "native-row-off": {
+      note: "The default web toolbar: Summary, Needs You, quick actions and the chat menu remain web controls.",
+      props: { ...base, inbox },
+    },
+    "native-row-tools": {
+      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      props: {
+        ...base,
+        inbox,
+        nativeRowTools: {
+          enabled: true,
+          callNative: async () => undefined,
+          panel: { id: "summary", label: "Summary", toggled: false, run: () => undefined },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
+        ctx.find({ selector: ".acpmux-needs-you-button" });
+        ctx.find({ role: "button", name: "Chat actions" });
+      },
+    },
     "unified-compact": {
       note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. The selected panel glyph uses accent ink; only the hovered button changes its hover ink. Fits the shared 28px tab row.",
       props: {

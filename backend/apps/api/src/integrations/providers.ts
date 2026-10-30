@@ -57,15 +57,28 @@ export const revokeInstallationToken = async (http: Http, token: string): Promis
  * Per isolate, never stored. Tokens handed to callers are narrowed and kept per principal in the ledger (github-tokens.ts).
  */
 const installationTokens = new Map<number, { token: string; expires_at: number }>()
-const installationToken = async (env: Env, http: Http, installation: number) => {
+export const installationToken = async (env: Env, http: Http, installation: number) => {
   const cached = installationTokens.get(installation)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
-  if (!res.ok) throw failed("github", res, "installation token")
+  if (!res.ok) throw new InstallationTokenRefused(res)
   const body = await json(res)
   const token = String(body.token ?? "")
   installationTokens.set(installation, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
   return token
+}
+
+/** GitHub refused an installation token: its response rides along, so a caller can read the refusal (github-tokens.ts). */
+export class InstallationTokenRefused extends ProviderError {
+  constructor(readonly response: Response) {
+    const error = failed("github", response, "installation token")
+    super(error.code, error.message, error.retryable, response.status)
+  }
+}
+
+/** Drops a cached installation token GitHub refused (a 401), so the next ask mints a fresh one. */
+export const forgetInstallationToken = (installation: number, token: string) => {
+  if (installationTokens.get(installation)?.token === token) installationTokens.delete(installation)
 }
 
 export const github: ProviderImpl = {

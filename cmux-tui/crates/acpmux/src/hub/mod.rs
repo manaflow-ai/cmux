@@ -1290,7 +1290,10 @@ impl Hub {
             if s.id.starts_with(key) || meta.name.starts_with(key) {
                 counts[0] += 1;
             } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
-                counts[if meta.status == SessionStatus::Closed { 2 } else { 1 }] += 1;
+                let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
+                if let Some(count) = counts.get_mut(slot) {
+                    *count += 1;
+                }
             }
         }
         counts
