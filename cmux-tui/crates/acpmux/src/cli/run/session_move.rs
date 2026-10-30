@@ -46,6 +46,9 @@ pub(crate) struct MoveArgs {
     pub leave_dirty: bool,
     pub cwd: Option<String>,
     pub dry_run: bool,
+    /// `session resume`'s move: once moved, the held queue runs on the target, asked over the
+    /// move's own connection (the route `HOST/ID` through this daemon may not know it yet).
+    pub resume_there: bool,
 }
 
 /// One chat's outcome, as printed and in `--json`.
@@ -57,6 +60,8 @@ struct Outcome {
     moved: bool,
     /// The chat's id on the target, once moved.
     there: Option<String>,
+    /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
+    resumed: Result<bool, String>,
     error: Option<String>,
 }
 
@@ -104,11 +109,13 @@ fn print_outcome(o: &Outcome, dry_run: bool) {
     }
 }
 
-/// Where `session resume` moved a stopped chat (`move_off_interactive`): the peer, and the chat's
-/// id there routed through it (`HOST/ID`).
+/// Where `session resume` moved a stopped chat (`move_off_interactive`): the peer, the chat's
+/// id there routed through it (`HOST/ID`), and whether a held queue ran there (`Err`: why not;
+/// the chat moved all the same).
 pub(crate) struct MovedOff {
     pub host: String,
     pub routed: String,
+    pub resumed: Result<bool, String>,
 }
 
 /// `session resume`'s move of the stopped chat `id` off this machine, one a person works at: the
@@ -123,6 +130,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         leave_dirty: false,
         cwd: None,
         dry_run: false,
+        resume_there: true,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
@@ -134,7 +142,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
     let (Some(host), Some(there)) = (o.host, o.there) else {
         bail!("the move gave no host and id for the chat there");
     };
-    Ok(MovedOff { routed: format!("{host}/{there}"), host })
+    Ok(MovedOff { routed: format!("{host}/{there}"), host, resumed: o.resumed })
 }
 
 /// Every chat here that is open and between turns: not closed, not running, not being moved.
@@ -168,6 +176,7 @@ async fn move_one(
         cwd: None,
         moved: false,
         there: None,
+        resumed: Ok(false),
         error: None,
     };
     if let Err(e) = move_steps(src, key, args, home, targets, &mut o).await {
@@ -246,10 +255,20 @@ async fn move_steps(
     };
     let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let moved = super::transfer::finish_move(src, &dst, &id, &begun, there, None, record).await?;
-    drop(forward);
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+    if args.resume_there
+        && let Some(there) = o.there.clone()
+    {
+        // Moved whatever this says: a failed resume leaves the chat there with its queue held.
+        let resumed = match dst.request(method::MUX_INFO, json!({"sessionId": there})).await {
+            Ok(info) => super::extra::resume_held(&dst, &there, &info).await,
+            Err(e) => Err(e),
+        };
+        o.resumed = resumed.map_err(|e| format!("{e:#}"));
+    }
+    drop(forward);
     if let Some(name) = moved.get("name").and_then(Value::as_str) {
         o.name = name.to_owned();
     }

@@ -24,6 +24,26 @@ pub(super) fn resume_moves_off(info: &Value, interactive: bool) -> bool {
         && matches!(info["status"].as_str(), Some("closed" | "idle" | "disconnected"))
 }
 
+/// Runs the queue a failed turn held in chat `id` (`info` is its `MUX_INFO`), through `client`:
+/// `_acpmux/queue_edit` `resume` names the queue by any of its prompts, a held one. False when
+/// nothing is held.
+pub(super) async fn resume_held(client: &Client, id: &str, info: &Value) -> Result<bool> {
+    let held = info["queue"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|q| q["held"] == true)
+        .and_then(|q| q["promptId"].as_str());
+    let Some(prompt_id) = held else { return Ok(false) };
+    let v = client
+        .request(
+            method::MUX_QUEUE_EDIT,
+            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
+        )
+        .await?;
+    Ok(v["ok"] == true)
+}
+
 /// What `session resume` prints when it moved the chat first.
 fn moved_line(host: &str) -> String {
     format!(
@@ -133,38 +153,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
             let mut id = crate::cli::resolve::control_id(&client, &session).await?;
-            let mut info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
             let mut moved_to = None;
+            let mut resumed = None;
             if resume_moves_off(&info, crate::cli::place::here_is_interactive()) {
                 match super::session_move::move_off_interactive(&client, &id).await {
                     Ok(moved) => {
                         eprintln!("{}", moved_line(&moved.host));
                         id = moved.routed;
-                        info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
                         moved_to = Some(moved.host);
+                        resumed = Some(moved.resumed);
                     }
                     Err(e) => eprintln!("resuming on this machine: it did not move ({e:#})"),
                 }
             }
-            // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
-            let held = info["queue"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|q| q["held"] == true)
-                .and_then(|q| q["promptId"].as_str())
-                .map(str::to_owned);
-            let resumed = match held {
-                Some(prompt_id) => {
-                    let v = client
-                        .request(
-                            method::MUX_QUEUE_EDIT,
-                            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
-                        )
-                        .await?;
-                    v["ok"] == true
+            let resumed = match resumed {
+                Some(Ok(resumed)) => resumed,
+                Some(Err(why)) => {
+                    anyhow::bail!(
+                        "it moved to {id}, but its held queue did not resume there: {why}"
+                    )
                 }
-                None => false,
+                None => resume_held(&client, &id, &info).await?,
             };
             if json_out {
                 print_json(&json!({"sessionId": id, "resumed": resumed, "movedTo": moved_to}));
@@ -381,6 +391,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 leave_dirty,
                 cwd,
                 dry_run,
+                resume_there: false,
             };
             super::session_move::run(args, json_out).await
         }
