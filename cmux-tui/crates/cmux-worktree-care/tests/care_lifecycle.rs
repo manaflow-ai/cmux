@@ -255,6 +255,10 @@ fn care_a_squash_merged_branch_is_finished() {
     git(&main, &["commit", "-qam", "later"]);
     git(&main, &["push", "-q", "origin", "HEAD:main"]);
     git(&main, &["fetch", "-q", "origin"]);
+    // Another care scan on this machine holds the host's merge-tree lock
+    // (in a full test run, the other tests of this file): this test's
+    // answer must not depend on it.
+    let _other_scan = hold_host_merge_tree_lock();
     let repo = scan(&main);
     let (_, facts) = facts_of(&repo, &wt);
     assert_eq!(facts.unpushed, 2);
@@ -263,6 +267,22 @@ fn care_a_squash_merged_branch_is_finished() {
         "{:?}",
         facts.finished
     );
+}
+
+/// The host-wide merge-tree lock a care scan with no state folder of its own
+/// takes (`~/.cmux/worktree-archive/.merge-tree.lock`), held until dropped.
+fn hold_host_merge_tree_lock() -> std::fs::File {
+    let dir = Store::default_dir().expect("HOME");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(dir.join(".merge-tree.lock"))
+        .unwrap();
+    file.lock().unwrap();
+    file
 }
 
 /// Loose objects in the repository's object folder.
