@@ -45,7 +45,8 @@ const unb64url = (s: string) => atob(s.replace(/-/g, "+").replace(/_/g, "/"))
 /** A signed checkout link for `plan` on `team`, or null (no signing key, no test key, bad input). */
 export const planLink = async (env: Env, origin: string, team: string, plan: string, asker?: PlanAsker, now = Date.now()): Promise<string | null> => {
   const key = env.BILLING_LEVELS_KEY
-  if (!key || key.length < 32 || !TEAM.test(team) || !Object.hasOwn(UPSELL_PLANS, plan) || !creditsKey(env).ok) return null
+  // No webhook, no grant (grantPlanSession's no_webhook): never offer a link whose payment cannot turn the plan on.
+  if (!key || key.length < 32 || !TEAM.test(team) || !Object.hasOwn(UPSELL_PLANS, plan) || !creditsKey(env).ok || !env.STRIPE_CREDITS_WEBHOOK_SECRET) return null
   if (asker && (!ID.test(asker.chief) || !ID.test(asker.conversation))) return null
   const payload = b64url(JSON.stringify({ t: team, p: plan, e: now + LINK_TTL_MS, ...(asker ? { a: asker.chief, c: asker.conversation } : {}) }))
   return `${origin.replace(/\/$/, "")}/v1/billing/plan/${payload}.${await hmacHex(key, `plan-link:${payload}`)}`
@@ -159,6 +160,7 @@ export const handlePlanCheckout = async (request: Request, env: Env, sub: string
       // The plan is on; only the Chief's note waits for the webhook's redelivery.
       if (r.retry && r.plan) return page(`${UPSELL_PLANS[r.plan]!.name} is on`, "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped shortly. You can close this page.")
       if (r.reason === "revoked") return page("Plan cancelled", "This plan was cancelled after this payment. Ask your Chief for a new link to start it again.", 410)
+      if (r.reason === "no_webhook") return page("Billing unavailable", `Plans cannot be turned on on this deployment yet, so this payment starts no plan. See ${PRICING_URL}.`, 503)
       return page("Payment not confirmed yet", r.reason === "not_paid" ? "Your payment is still processing. The plan turns on when it completes." : "We could not confirm this payment. If you paid, the plan turns on shortly.", r.reason === "not_paid" ? 202 : 400)
     }
     return page(`${UPSELL_PLANS[r.plan]!.name} is on`, "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped. You can close this page.")

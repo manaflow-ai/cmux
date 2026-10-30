@@ -244,6 +244,9 @@ describe("Chief jobs and the upsell", { timeout: 90_000 }, () => {
     expect(await hook({ type: "checkout.session.completed", livemode: false, data: { object: paid } })).toEqual({ received: true, granted: false })
     const planNotes = await inDO(brain, async (i) => i.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM cb_inbox WHERE message LIKE 'plan:%'`).one().n as number)
     expect(planNotes).toBe(1)
+    // ...and starts no second turn.
+    await fireAlarm(brain)
+    expect(cloud.started.length).toBe(2)
     // Cancelling the subscription takes the test plan away.
     const teamDO = (testEnv.TEAM_DO as unknown as { get(id: unknown): unknown; idFromName(n: string): unknown })
     const teamStub = teamDO.get(teamDO.idFromName(a.team))

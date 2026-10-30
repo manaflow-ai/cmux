@@ -85,6 +85,8 @@ export const chiefPlanWake = async (b: ChiefBrainDO, n: PlanNotice): Promise<Job
   if (personalTeamIdFor(cfg.owner) !== n.team) return { ok: false, code: "chief.forbidden", message: "the plan is not on this Chief's owner's team" }
   const adm = await b.admitted(cfg.agent, cfg.owner, false)
   if (!adm.ok && adm.reason === "owner.unreachable") return { ok: false, code: "owner.unreachable", message: "the Chief's record could not be read", retry: true }
+  // A memory copy under way ends on its own: the webhook's redelivery brings the note after it.
+  if (!adm.ok && adm.reason === "memory_importing") return { ok: false, code: "chief.memory_importing", message: "the Chief's memory is being copied", retry: true }
   if (!adm.ok && adm.reason !== "credits_exhausted") return { ok: false, code: `chief.${adm.reason}`, message: `the Chief cannot take a turn (${adm.reason})` }
   const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, n.conversation).toArray()[0]?.seq ?? 0)
   b.sql.exec(

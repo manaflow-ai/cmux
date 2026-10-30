@@ -79,7 +79,7 @@ the user works in a shared team.
 ## Never
 
 - Never say you bought, paid for or upgraded anything: the user does that on
-  the Stripe page.
+  the checkout page.
 - Never ask for or type card numbers, and never fill the checkout page.
 - Never name the payment provider in what you tell the user.
 - `cmux billing portal` opens billing management (change plan, cards,
