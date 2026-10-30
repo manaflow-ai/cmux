@@ -554,10 +554,37 @@ fn downgrade_closed_tabs(value: &mut Value) -> bool {
     if let Some(entries) = object.get_mut("entries") {
         changed |= downgrade_closed_history_entries(entries);
     }
+    // Resource responses wrap `closed.list` and `history.entries.list` under
+    // `result`; the older control protocol uses the same payload under
+    // `data`. These are the only response envelopes we unwrap, so an opaque
+    // frontend projection containing a similarly shaped object is untouched.
+    for key in ["result", "data"] {
+        if let Some(payload) = object.get_mut(key) {
+            changed |= downgrade_closed_response_payload(payload);
+        }
+    }
     // A resource stream item is itself a history row. Do not recurse into its
     // arbitrary fields; only the closed-row discriminator is a known schema.
     changed |= downgrade_closed_history_entry(object);
     changed
+}
+
+fn downgrade_closed_response_payload(value: &mut Value) -> bool {
+    match value {
+        Value::Array(items) => {
+            let history = items.iter().any(|item| {
+                item.get("kind").and_then(Value::as_str) == Some("closed")
+                    && item.get("closed_kind").is_some()
+            });
+            if history {
+                downgrade_closed_history_entries(value)
+            } else {
+                downgrade_closed_groups(value)
+            }
+        }
+        Value::Object(_) => downgrade_closed_tabs(value),
+        _ => false,
+    }
 }
 
 fn downgrade_closed_groups(value: &mut Value) -> bool {
@@ -570,6 +597,12 @@ fn downgrade_closed_groups(value: &mut Value) -> bool {
 
 fn downgrade_closed_group(value: &mut Value) -> bool {
     let Some(object) = value.as_object_mut() else { return false };
+    if !matches!(
+        object.get("kind").and_then(Value::as_str),
+        Some("tab" | "screen" | "workspace" | "window" | "group")
+    ) {
+        return false;
+    }
     let mut changed = false;
     // `public_item` exposes a group's first member at the top level and all
     // members under `members`; both contain only the closed record schema.
