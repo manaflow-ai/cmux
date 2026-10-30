@@ -1478,9 +1478,8 @@ jobs:
     # no macOS SDK, so only a reused helper (resolve-nightly-ghostty-cli-helper)
     # leaves this job on Linux, for the source archive. A fresh helper takes an
     # owned pool (main's trusted pool on attempt 1 of a push or schedule;
-    # nightly-next: pick-nightly-build-runner's `helper` pick when it was made for
-    # this attempt: its owned pick, or while the app build holds the dedicated
-    # builder an idle owned Mac of its own, never the dedicated builder, else its
+    # nightly-next: pick-nightly-build-runner's `helper` pick made for this
+    # attempt, an idle owned Mac but never the dedicated builder, else its
     # moving Blacksmith label); a re-run of failed jobs keeps the older
     # pick and takes Blacksmith macOS 26, so a rescue re-run leaves a busy mini. Not
     # CI_NIGHTLY_NEXT_BUILD_RUNNER: it holds every attempt on its label, and a
@@ -1782,7 +1781,6 @@ jobs:
       # Outside attempt 1 of a push (the rescue's workflow_run watch), an owned pick stands only once
       # its owned-pool-watch marker is uploaded: with no marker nothing would move a refused or stuck job.
       owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.pick.outputs.owned || '' }}
-      # build-nightly-ghostty-cli-helper's owned route (never the dedicated builder), on the same terms as `owned`.
       helper: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.pick.outputs.helper || '' }}
       blacksmith: ${{ steps.pick.outputs.blacksmith }}
       # The attempt the pick was made for: a re-run of failed jobs keeps an older one.
