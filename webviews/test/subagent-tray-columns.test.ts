@@ -13,7 +13,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
   let server: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const entry = "agent-pane.subagent-tray";
-  const variant = "between-turns";
+  const variant = "duration-columns";
 
   beforeAll(async () => {
     server = await createServer({
@@ -95,6 +95,26 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.head.stop.left).toBe(first!.stop.left);
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
+
+        const durations = await page.evaluate(() => {
+          const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+          const times = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")];
+          const rendered = times.map((time) => {
+            time.textContent = "12h 59m 59s";
+            const style = getComputedStyle(time);
+            const box = time.getBoundingClientRect();
+            return { width: box.width, height: box.height, whiteSpace: style.whiteSpace, overflow: style.overflow };
+          });
+          return rendered;
+        });
+        expect(durations.length).toBeGreaterThanOrEqual(3);
+        expect(durations.every((duration) => duration.width >= 80)).toBe(true);
+        expect(durations.every((duration) => duration.height <= 18)).toBe(true);
+        expect(durations.every((duration) => duration.whiteSpace === "nowrap")).toBe(true);
+        expect(durations.every((duration) => duration.overflow === "hidden")).toBe(true);
+        const headerDuration = page.locator(".acpmux-running-tray__head .acpmux-running-tray__time");
+        expect(await headerDuration.count()).toBe(1);
+        expect((await headerDuration.textContent())?.trim()).toMatch(/^12h 59m 5[89]s$/);
 
         const clickTargets = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;

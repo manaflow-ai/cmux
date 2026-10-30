@@ -21,7 +21,7 @@ import {
   tool,
   user,
 } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
 import { trayPanelLook } from "./trayPanel.experiment";
@@ -49,6 +49,9 @@ function agent(
 }
 
 const group = (agents: Subagent[], minutes: number) => row(SUBAGENTS, minutes, { subagents: agents });
+
+const durationAgent = (name: string, durationMs: number, fields: Partial<Subagent> = {}): Subagent =>
+  agent(name, 0, "running", { startedAt: GALLERY_NOW - durationMs, ...fields });
 
 /** A Bash call Claude runs in the background, still running. */
 const devServer = activity(
@@ -316,6 +319,28 @@ export default agentPaneEntry({
           user(prompt, 2),
           group([agent("Explain daemon update mechanism", 1.8, "running", { kind: "Explore", action: "Bash" })], 1.8),
           assistant("A subagent is reading the update code now; I'll report back when it is done.", 1.7),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "duration-columns": {
+      note: "Duration-column stress fixture: running work spans 9s, 2h 20m and 12h 59m 59s so every time stays on one line in the shared trailing track.",
+      play: trayLines(3),
+      snapshot: chat(
+        [
+          user("Keep the long-running checks visible", 3),
+          group(
+            [
+              durationAgent("Fresh check", 9_000, { action: "Run the quick check" }),
+              durationAgent("Long check", 2 * 60 * 60_000 + 20 * 60_000, { action: "Run the integration suite" }),
+              durationAgent("Overnight check", 12 * 60 * 60_000 + 59 * 60_000 + 59_000, {
+                action: "Review the overnight logs",
+                command: "overnight-check",
+              }),
+            ],
+            1,
+          ),
+          testRun,
         ],
         { isWorking: true },
       ),
