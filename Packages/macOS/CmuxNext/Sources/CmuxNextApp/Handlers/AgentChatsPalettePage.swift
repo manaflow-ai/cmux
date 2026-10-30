@@ -52,7 +52,6 @@ struct AgentChatsPalettePage {
                 shown.append(moreNotice(shown: rows.count, total: total))
             }
             continuation.yield(shown)
-            continuation.finish()
         }
         windows.window(window).follow(token) { rows in
             if windows.isAnswered(spec) { answer(rows) }
