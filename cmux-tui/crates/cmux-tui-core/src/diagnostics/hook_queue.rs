@@ -297,6 +297,22 @@ fn remove_if_present(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Without an inode to tell a deleted queue file from its replacement, a
+/// hook could append to a file a sender just unlinked, after the provider
+/// was told its event is safe: there is no queue, and hooks send directly.
+#[cfg(all(test, not(unix)))]
+mod platform_tests {
+    use super::*;
+
+    #[test]
+    fn no_hook_queue_without_file_identity() {
+        let root = std::env::temp_dir().join("cmux-hook-queue-no-identity");
+        let error = hook_spool_dir(&root.join("s.sock")).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        assert!(existing_hook_spool_dir(&root.join("s.sock")).unwrap().is_none());
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
