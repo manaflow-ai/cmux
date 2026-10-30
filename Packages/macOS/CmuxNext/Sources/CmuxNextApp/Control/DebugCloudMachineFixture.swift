@@ -43,23 +43,23 @@ enum DebugCloudMachineFixture {
     static func parseStatus(_ raw: String?) -> SidebarMachine.Status? {
         guard let raw else { return .connected }
         switch raw {
-        case "connected": .connected
-        case "connecting": .connecting
-        case "reconnecting": .reconnecting
-        case "offline": .offline
-        case "update-available", "updateAvailable": .updateAvailable
-        case "update-required", "updateRequired": .updateRequired
-        case "install-required", "installRequired": .installRequired
-        case "installing": .installing
-        case "auth-failed", "authFailed": .authFailed
-        case "unreachable": .unreachable
-        case "failed": .failed
-        case "paused": .paused
-        case "paused-idle", "pausedIdle": .pausedIdle
-        case "pausing": .pausing
-        case "starting", "resuming": .resuming
-        case "deleting": .deleting
-        default: nil
+        case "connected": return .connected
+        case "connecting": return .connecting
+        case "reconnecting": return .reconnecting
+        case "offline": return .offline
+        case "update-available", "updateAvailable": return .updateAvailable
+        case "update-required", "updateRequired": return .updateRequired
+        case "install-required", "installRequired": return .installRequired
+        case "installing": return .installing
+        case "auth-failed", "authFailed": return .authFailed
+        case "unreachable": return .unreachable
+        case "failed": return .failed
+        case "paused": return .paused
+        case "paused-idle", "pausedIdle": return .pausedIdle
+        case "pausing": return .pausing
+        case "starting", "resuming": return .resuming
+        case "deleting": return .deleting
+        default: return nil
         }
     }
 

@@ -103,6 +103,7 @@ final class CloudMachineSession {
     /// the provider was starting may fail before the VM is ready; running supplies a new retry signal.
     func applyRecord(_ record: CloudMachine) {
         let previous = machine.status
+        let wasResuming = machine.pendingChange == .starting
         let pendingBefore = machine.pendingMutationID
         let failureBefore = machine.lastChangeFailure
         machine = record
@@ -114,6 +115,11 @@ final class CloudMachineSession {
         if previous.isLive, !record.status.isLive {
             suspend()
         } else if !previous.isLive, record.status.isLive {
+            connect()
+        } else if wasResuming, record.pendingChange == nil, record.status.isLive, daemon.connection == nil {
+            // A read can report running while the resume request still awaits acknowledgement.
+            // That read cannot connect through the pending overlay. Clearing it is a second
+            // live edge even when the raw status already reads running.
             connect()
         } else if previous == .starting, record.status == .running, daemon.connection == nil {
             retryNow()
