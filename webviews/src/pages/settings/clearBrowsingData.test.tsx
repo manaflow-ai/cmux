@@ -76,3 +76,21 @@ test("a native ran:false reply does not claim the data was cleared", async () =>
   expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("Couldn’t clear browsing data.");
   page.unmount();
 });
+
+
+test("a later successful clear removes an earlier refusal", async () => {
+  const page = await renderPage({ path: "/settings/browser", mock: { actionRan: false } });
+  const row = page.container.querySelector<HTMLElement>('[data-profile="p-work"]')!;
+  await act(async () => row.querySelector<HTMLButtonElement>(".host-toggle")!.click());
+  const form = row.querySelector<HTMLElement>("[data-clear-browsing-data]")!;
+  const clear = form.querySelector<HTMLButtonElement>("[data-clear]")!;
+  await act(async () => clear.click());
+  await settle();
+  expect(form.querySelector("[data-clear-error]")).not.toBeNull();
+  page.provider.setActionRan(true);
+  await act(async () => clear.click());
+  await settle();
+  expect(form.querySelector("[data-clear-error]")).toBeNull();
+  expect(form.querySelector("[data-cleared]")).not.toBeNull();
+  page.unmount();
+});

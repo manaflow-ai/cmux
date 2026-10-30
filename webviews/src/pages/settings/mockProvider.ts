@@ -175,7 +175,7 @@ export class MockSettingsProvider {
   importable: GhosttyTheme | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
-  private readonly actionRan: boolean;
+  private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -1180,6 +1180,10 @@ export class MockSettingsProvider {
   }
 
   /** Simulates the daemon going away or coming back. */
+  setActionRan(actionRan: boolean): void {
+    this.actionRan = actionRan;
+  }
+
   setConnected(connected: boolean): void {
     this.connected = connected;
     for (const ctx of this.connection) ctx.emit({ connected });
