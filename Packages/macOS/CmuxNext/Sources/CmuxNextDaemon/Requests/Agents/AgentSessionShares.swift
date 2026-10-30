@@ -17,13 +17,18 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
     /// The acpmux session the caller saw on `surface`; the daemon refuses (`share.chat_moved`) when
     /// the surface shows another one by the time the request arrives.
     public var session: String?
+    /// The caller's id for this request: list shows it, so a caller whose create went unanswered
+    /// can find and end that one share.
+    public var createId: String?
     public var ttlSecs: UInt64?
     public var uses: UInt32?
     public var ownerToken: String?
 
-    public init(surface: UInt64, session: String? = nil, ttlSecs: UInt64? = nil, uses: UInt32? = nil, ownerToken: String? = nil) {
+    public init(surface: UInt64, session: String? = nil, createId: String? = nil, ttlSecs: UInt64? = nil, uses: UInt32? = nil,
+                ownerToken: String? = nil) {
         self.surface = surface
         self.session = session
+        self.createId = createId
         self.ttlSecs = ttlSecs
         self.uses = uses
         self.ownerToken = ownerToken
@@ -106,6 +111,8 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
     public var session: String
     public var surface: UInt64
     public var createdAt: UInt64
+    /// The creating request's `createId`, when its caller gave one.
+    public var createId: String?
     public var expiresAt: UInt64
     public var expiresInSecs: UInt64
     public var usesLeft: UInt32
@@ -120,6 +127,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         case state, session, surface, room, guests
         case shareId = "share_id"
         case createdAt = "created_at"
+        case createId = "create_id"
         case expiresAt = "expires_at"
         case expiresInSecs = "expires_in_secs"
         case usesLeft = "uses_left"

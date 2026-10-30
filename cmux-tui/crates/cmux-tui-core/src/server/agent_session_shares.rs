@@ -80,6 +80,9 @@ struct Guest {
     attempt_id_sha256: String,
 }
 
+/// A client's `create_id`, in bytes.
+const MAX_CREATE_ID_BYTES: usize = 64;
+
 /// One share; times are Unix milliseconds.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct LinkShare {
@@ -94,6 +97,10 @@ struct LinkShare {
     secret_sha256: String,
     #[serde(default)]
     provision_key: Option<String>,
+    /// The id the creating client chose for its request (`create_id`), so a client whose create
+    /// was never answered can find and end that one share. Not a secret.
+    #[serde(default)]
+    create_id: Option<String>,
     #[serde(default)]
     room: Option<Value>,
     #[serde(default)]
@@ -138,6 +145,7 @@ impl LinkShare {
             "created_at": self.created_at, "expires_at": self.expires_at,
             "expires_in_secs": self.expires_at.saturating_sub(now) / 1000,
             "uses_left": self.uses_left, "state": self.state, "url": null,
+            "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
             "guests": guests})
     }
@@ -255,6 +263,9 @@ struct Create {
     /// refused (`share.chat_moved`), so a share never goes to a chat nobody named.
     #[serde(default)]
     session: Option<String>,
+    /// The caller's id for this request, shown in list (`LinkShare::create_id`).
+    #[serde(default)]
+    create_id: Option<String>,
     #[serde(default)]
     ttl_secs: Option<u64>,
     #[serde(default)]
@@ -417,6 +428,7 @@ impl LinkShares {
         ttl_secs: u64,
         uses: u32,
         provisioning: bool,
+        create_id: Option<String>,
     ) -> Result<Value, &'static str> {
         let (share_id, secret, provision_key) = (token::<16>()?, token::<16>()?, token::<16>()?);
         self.with(directory, |shares, now| {
@@ -442,6 +454,7 @@ impl LinkShares {
                 state: if provisioning { ShareState::Provisioning } else { ShareState::Active },
                 secret_sha256: hex(&digest(&[&secret])),
                 provision_key: Some(provision_key),
+                create_id,
                 room: None,
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
@@ -655,6 +668,12 @@ pub(super) fn handle(
             if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl) || !(1..=MAX_USES).contains(&uses) {
                 return Err("share.bad_request");
             }
+            if p.create_id
+                .as_ref()
+                .is_some_and(|id| id.is_empty() || id.len() > MAX_CREATE_ID_BYTES)
+            {
+                return Err("share.bad_request");
+            }
             let session = tab_session(mux, p.surface).ok_or("share.not_a_chat")?;
             if p.session.as_ref().is_some_and(|named| *named != session) {
                 return Err("share.chat_moved");
@@ -663,12 +682,20 @@ pub(super) fn handle(
                 return Err("share.room_unreachable");
             }
             match shares.bridge.room() {
-                None => shares.insert(directory, session, p.surface, ttl, uses, false),
+                None => shares.insert(directory, session, p.surface, ttl, uses, false, p.create_id),
                 Some(room) => {
                     let token = p.owner_token.map(zeroize::Zeroizing::new);
                     let token = token.filter(|t| !t.is_empty() && t.len() <= 8192);
                     let token = token.ok_or("share.needs_sign_in")?;
-                    let created = shares.insert(directory, session, p.surface, ttl, uses, true)?;
+                    let created = shares.insert(
+                        directory,
+                        session,
+                        p.surface,
+                        ttl,
+                        uses,
+                        true,
+                        p.create_id,
+                    )?;
                     room::provision(mux, created, room, token)
                 }
             }

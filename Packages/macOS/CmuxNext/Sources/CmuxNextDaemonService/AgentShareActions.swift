@@ -41,19 +41,19 @@ public struct AgentShareActions {
             return Self.answer(registry) {
                 let token = await host.shareOwnerToken()
                 // The session pins the chat: the daemon refuses if the surface shows another one by now.
-                let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, ttlSecs: ttl, uses: uses,
-                                                             ownerToken: token)
+                let createID = UUID().uuidString
+                let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
+                                                             uses: uses, ownerToken: token)
                 // Create waits out the hosted room's provisioning (its request budget is 15 s,
                 // agent_session_share_room.rs): its answer is the only copy of the link's secret.
                 let connection = try Self.connected(chat.connection)
-                let started = UInt64(Date().timeIntervalSince1970 * 1000)
                 let created: AgentSessionShareCreated
                 do {
                     created = try await connection.request(request, timeout: Self.createDeadline)
                 } catch DaemonError.timedOut(let what) {
                     // The daemon may still have made the link, but its secret was only in the answer
                     // that never came: no one can use it, so end it rather than leave it live.
-                    await Self.revokeUnanswered(session: chat.session, since: started, on: connection)
+                    await Self.revokeUnanswered(createID: createID, on: connection)
                     throw DaemonError.timedOut(what)
                 }
                 // A person's palette or menu run copies the link at once; a script gets it back.
@@ -150,12 +150,12 @@ public struct AgentShareActions {
         invocation[name]?.stringValue.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// Revokes this Mac's shares of `session` made since `since` (ms) whose create was never answered.
-    /// Best effort: a failure leaves them to expire.
-    private static func revokeUnanswered(session: String, since: UInt64, on connection: DaemonConnection) async {
+    /// Revokes the share this run's unanswered create made (`createID`), if the daemon made one.
+    /// Only that share: another caller's create of the same chat is untouched. Best effort: a
+    /// failure leaves it to expire.
+    private static func revokeUnanswered(createID: String, on connection: DaemonConnection) async {
         guard let listed = try? await connection.request(AgentSessionShareListRequest()) else { return }
-        for share in listed.shares where share.session == session && share.createdAt >= since
-            && (share.state == "provisioning" || share.state == "active") {
+        for share in listed.shares where share.createId == createID && (share.state == "provisioning" || share.state == "active") {
             _ = try? await connection.request(AgentSessionShareRevokeRequest(shareId: share.shareId))
         }
     }

@@ -98,8 +98,19 @@ fn the_owner_creates_lists_kicks_and_revokes() {
     let moved = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
         "session":"acp_other"}));
     assert_code(&moved, "share.chat_moved");
-    let pinned = create(&mut owner, surface, json!({"session": SESSION}));
+    let pinned = create(&mut owner, surface, json!({"session": SESSION, "create_id": "req-1"}));
     assert_eq!(pinned["session"], json!(SESSION));
+    // The create's own id is in the list, so a client whose create went unanswered ends that share.
+    let listed = list(&mut owner);
+    let mine: Vec<&Value> =
+        listed.as_array().unwrap().iter().filter(|s| s["create_id"] == "req-1").collect();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0]["share_id"], pinned["share_id"]);
+    for bad in [json!(""), json!("x".repeat(65))] {
+        let refused = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+            "create_id": bad}));
+        assert_code(&refused, "share.bad_request");
+    }
 }
 
 #[test]

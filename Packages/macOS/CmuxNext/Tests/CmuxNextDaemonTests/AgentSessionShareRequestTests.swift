@@ -10,10 +10,11 @@ struct AgentSessionShareRequestTests {
     }
 
     @Test func createCarriesTheOwnerTokenOnlyWhenThereIsOne() throws {
-        let full = AgentSessionShareCreateRequest(surface: 3, session: "acp-1", ttlSecs: 3600, uses: 2, ownerToken: "jwt")
+        let full = AgentSessionShareCreateRequest(surface: 3, session: "acp-1", createId: "req-1", ttlSecs: 3600, uses: 2, ownerToken: "jwt")
         #expect(try fields(full) == .object([
             "id": .number(1), "cmd": .string("agent-session-share-create"), "surface": .number(3),
-            "session": .string("acp-1"), "ttl_secs": .number(3600), "uses": .number(2), "owner_token": .string("jwt"),
+            "session": .string("acp-1"), "create_id": .string("req-1"), "ttl_secs": .number(3600), "uses": .number(2),
+            "owner_token": .string("jwt"),
         ]))
         #expect(try fields(AgentSessionShareCreateRequest(surface: 3)) == .object([
             "id": .number(1), "cmd": .string("agent-session-share-create"), "surface": .number(3),
@@ -34,9 +35,10 @@ struct AgentSessionShareRequestTests {
         let created = #"{"ok":true,"data":{"share_id":"s1","secret":"k","url":"https://room/g/s1#k","expires_at":1700000000000,"session":"acp-1","surface":3,"uses_left":1,"room":"https://room"}}"#
         #expect(try WireCoding.decodeResponse(AgentSessionShareCreated.self, from: Data(created.utf8))
             == AgentSessionShareCreated(shareId: "s1", url: "https://room/g/s1#k", expiresAt: 1_700_000_000_000, session: "acp-1", surface: 3, usesLeft: 1))
-        let listed = #"{"ok":true,"data":{"shares":[{"share_id":"s1","session":"acp-1","surface":3,"created_at":1,"expires_at":2,"expires_in_secs":86399,"uses_left":0,"state":"active","url":null,"room":null,"guests":[{"guest_id":"g2","name":"Theo","joined_at":5,"state":"active"}]}]}}"#
+        let listed = #"{"ok":true,"data":{"shares":[{"share_id":"s1","session":"acp-1","surface":3,"created_at":1,"expires_at":2,"expires_in_secs":86399,"uses_left":0,"state":"active","url":null,"create_id":"req-1","room":null,"guests":[{"guest_id":"g2","name":"Theo","joined_at":5,"state":"active"}]}]}}"#
         let list = try WireCoding.decodeResponse(AgentSessionShareList.self, from: Data(listed.utf8))
         #expect(list.shares.first?.isLive == true)
+        #expect(list.shares.first?.createId == "req-1")
         #expect(list.shares.first?.guests == [AgentSessionShareGuest(guestId: "g2", name: "Theo", joinedAt: 5, state: "active")])
     }
 }
