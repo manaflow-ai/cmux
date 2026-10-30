@@ -77,9 +77,14 @@ impl WaitingInner {
     }
 }
 
+/// What a waiting refusal replaces: the one waiting with the same key.
+fn wait_key(params: &Value) -> String {
+    params["sessionId"].as_str().unwrap_or_default().to_owned()
+}
+
 /// `params` as `_acpmux/cancel_refused` to `conn`, through [`Waiting`].
 fn send(conn: &Conn, params: Value) {
-    let key = params["sessionId"].as_str().unwrap_or_default().to_owned();
+    let key = wait_key(&params);
     let msg = Message::notification(method::MUX_CANCEL_REFUSED, params);
     let masked = (!conn.raw_text).then(|| peer_text::masked(&msg)).flatten();
     let Ok(line) = masked.as_ref().unwrap_or(&msg).bounded_line() else {
@@ -154,7 +159,26 @@ pub(super) async fn forward(
 
 #[cfg(test)]
 mod tests {
-    use super::{WAITING_KEYS, WaitingInner};
+    use super::{WAITING_KEYS, WaitingInner, wait_key};
+    use serde_json::json;
+
+    /// Two Stops of one chat answered out of order (the first a forward that took its 10 s):
+    /// the later turn's refusal, still waiting, is not replaced by the earlier turn's, which
+    /// the pane ignores, or the later Stop would read as stopping for good.
+    #[test]
+    fn refusals_for_two_turns_of_a_chat_both_wait() {
+        let mut w = WaitingInner::default();
+        let later = json!({"sessionId": "a", "turnId": "t2"});
+        let earlier = json!({"sessionId": "a", "turnId": "t1"});
+        assert!(w.keep(wait_key(&later), "t2".into()));
+        assert!(w.keep(wait_key(&earlier), "t1".into()));
+        let mut kept: Vec<&str> = w.lines.values().map(String::as_str).collect();
+        kept.sort();
+        assert_eq!(kept, ["t1", "t2"], "a refusal of an earlier turn replaced the later one's");
+        // The same turn's newer refusal still replaces the one waiting.
+        assert!(w.keep(wait_key(&later), "t2 again".into()));
+        assert_eq!(w.lines.len(), 2);
+    }
 
     #[test]
     fn the_newest_refusal_for_a_chat_waits_and_only_so_many_chats_wait() {
