@@ -285,10 +285,10 @@ extension CaptureSceneRegistry {
             sidebar.renderNow()
             sidebar.layoutSubtreeIfNeeded()
             Self.scrollToEnd(sidebar)
-            let rows = agentMachineRows(windowID: windowID)
+            let rows = agentMachineRows(windowID: targetWindowID)
             return Set(rows.filed).isSubset(of: rows.visible)
         }
-        let rows = agentMachineRows(windowID: windowID)
+        let rows = agentMachineRows(windowID: targetWindowID)
         let summary = "in a window \(rows.filed.count), drawn in view \(rows.visible.count) of \(Self.agentMachineIDs.count)"
         let report: CmuxNextSettings.JSONValue = .object([
             "machines": added, "in_a_window": .array(rows.filed.map { .string($0) }),
@@ -303,7 +303,7 @@ extension CaptureSceneRegistry {
         let settled = await frames.settled(until: { true }, start: ContinuousClock.now, window: 300, deadline: 3_000)
         let frameStats = frames.stop()
         var snapshotParams = params
-        snapshotParams["window"] = .string(windowID)
+        snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         removeAgentCloudMachines()
         guard case .object(var result) = snapshot else { return snapshot }
@@ -531,7 +531,7 @@ extension CaptureSceneRegistry {
             report["expected_name"] = .string(finalExpectedName)
             report["frames"] = finalFrameStats
             var snapshotParams = params
-            snapshotParams["window"] = .string(windowID)
+            snapshotParams["window"] = .string(targetWindowID)
             let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
             guard case .object(var result) = snapshot else {
                 await cleanup()
