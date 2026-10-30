@@ -20,9 +20,10 @@ import Testing
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(one), .workspace(two)]),
         ])
-        model.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.directory])))
         let design = DesignSettings()
         design.sidebarSections.density = density
+        // The sidebar renders the design's row preferences into its model (`applyListPreferences`).
+        design.sidebarSections.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.directory])))
         let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.renderNow()
