@@ -113,7 +113,7 @@ extension HomeService {
     }
 
     /// Archives one of my cloud Chiefs; nil when it is gone from the list (the cloud archive may
-    /// still wait, HomeDirectory+ChiefArchive), else why not.
+    /// still wait, HomeChiefArchive), else why not.
     func archiveChief(_ id: String) async -> String? {
         if directory.chief(for: ParticipantID(id)) == nil { await directory.refreshChiefs() }
         switch await directory.archiveChief(id) {

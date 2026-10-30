@@ -306,7 +306,7 @@ final class TopHomePageView: NSView {
     /// local one without history: `HomeChiefSource`), else the first listed conversation that the
     /// Engine row does not exclude (with This Mac chosen, never a cloud Chief's: ``HomeService/excludedChiefConversations``).
     static func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
-        if let chief = Self.chief(home).map({ ConversationID($0) }), !isHidden(chief, rows: rows, home: home) { return chief }
+        if let chief = Self.chief(home) { return ConversationID(chief) }
         let excluded = home.excludedChiefConversations
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
     }
@@ -377,7 +377,14 @@ final class TopHomePageView: NSView {
         return next
     }
 
-    static func chief(_ home: HomeService) -> String? { home.defaultChiefConversation }
+    /// The preferred Chief's conversation, unless Archive Chief hid it (``HomeChiefArchive``): the page
+    /// never opens an archived Chief by itself, on any path (its default, the Chief observation's follow,
+    /// a gone conversation's replacement).
+    static func chief(_ home: HomeService) -> String? {
+        guard let chief = home.defaultChiefConversation else { return nil }
+        let row = home.homeStore.rows.filter { $0.id.rawValue == chief }
+        return row.isEmpty || !visible(row, archivedChiefs: home.directory.archivedChiefs, me: home.homeStore.me?.id).isEmpty ? chief : nil
+    }
 
     /// The shown conversation is one the owner's own inbox does not have:
     /// the cache's conversation of a Chief home made again at the same path

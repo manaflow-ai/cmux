@@ -107,6 +107,9 @@ public final class HomeChiefArchive {
     /// (nobody waits to read it; the next read tries again).
     public func sync(_ account: Account) async {
         for id in hidden.sorted() {
+            // Each pass after an await: the list may be gone (no account to judge by), or a refused
+            // archive may have shown the Chief again meanwhile.
+            guard account.listed(), hidden.contains(id) else { continue }
             let listed = account.chiefs().first { $0.id == id }
             if account.gone().contains(id) || listed == nil {
                 set(id, hidden: false)
