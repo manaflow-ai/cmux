@@ -35,6 +35,9 @@ import Testing
         await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument") }
         #expect(Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument"), "\(Spy.devToolsCalls)")
         #expect(tab.setFrozen(true))
+        // One per-browser DevTools order: the freeze leaves after the calls the tab sent before it,
+        // which nothing here answered yet (`CEFRuntime.postDevTools`).
+        await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.setWebLifecycleState") }
         #expect(Spy.devToolsCalls.contains("Page.setWebLifecycleState"))
         #expect(!tab.sendClick(x: 1, y: 1))
     }
@@ -101,6 +104,9 @@ import Testing
         let tab = try rig.attachedTab()
         await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument") }
         #expect(tab.setFrozen(true))
+        // One per-browser DevTools order: the freeze leaves after the calls the tab sent before it,
+        // which nothing here answered yet (`CEFRuntime.postDevTools`).
+        await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.setWebLifecycleState") }
         #expect(Spy.devToolsCalls.contains("Page.setWebLifecycleState"))
         #expect(Spy.frozen.isEmpty)
         #expect(!tab.sendClick(x: 1, y: 1))
