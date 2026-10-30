@@ -31,7 +31,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// Nil when `current` shows in a band of the window's layout (pinned, the
     /// top region, a custom section): the list leaves that row out on purpose,
     /// so its absence is no stale layout and `afterCurrent` falls back to `top`.
-    var currentMachine: String? = nil
+    var currentMachine: String?
 
     init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil) {
         self.placement = placement
