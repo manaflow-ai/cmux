@@ -205,19 +205,7 @@ export class SubagentFold {
     // Children can name the root as parent without the root ever getting a row of its own.
     const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
     if (promoted.length === 0) return;
-    // Each promoted child draws where it started, never in whatever batch happens to be open now.
-    for (const agent of promoted) {
-      const previous = this.groupOf.get(agent.id);
-      if (previous) {
-        previous.ids = previous.ids.filter((child) => child !== agent.id);
-        this.changed.add(previous);
-      }
-      const group: Group = { id: `${SUBAGENTS}-root-${agent.id}`, at: agent.startedAt, version: 0, ids: [agent.id] };
-      agent.parent = null;
-      this.groupOf.set(agent.id, group);
-      this.bump(agent.id);
-      this.changed.add(group);
-    }
+    for (const agent of promoted) this.moveAgent(agent, null);
   }
   /// Removes a root thread that was folded as a subagent before its identity was known.
   private dropPhantom(id: string): void {
@@ -285,7 +273,10 @@ export class SubagentFold {
               parent: this.parentFor(sender, change.parent, change.id, event),
               ...(rootRepair ? { __rootRepair: true } : {}),
             };
-      this.apply(normalized, event, spawn);
+      const authoritative =
+        sender !== undefined &&
+        (this.rootThreads.has(sender) || (this.agents.has(sender) && this.canParent(change.id, sender)));
+      this.apply(normalized, event, spawn, authoritative);
     }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
     const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
@@ -626,51 +617,36 @@ export class SubagentFold {
     this.pending.delete(sender);
     for (const [child, event] of pending) {
       const agent = this.agents.get(child);
-      if (!agent) continue;
-      if (parent === null) {
-        // The sender is the root: a child already at the top stays in the group it started in.
-        if (agent.parent === null) continue;
-        const entries = this.own.get(agent.parent);
-        if (entries) {
-          const kept = entries.filter((entry) => entry.spawned !== child);
-          if (kept.length !== entries.length) {
-            this.own.set(agent.parent, kept);
-            this.bump(agent.parent);
-          }
-        }
-        agent.parent = null;
-        // It draws where it started, never in whatever batch happens to be open now.
-        const previous = this.groupOf.get(child);
-        if (previous) {
-          previous.ids = previous.ids.filter((id) => id !== child);
-          this.changed.add(previous);
-        }
-        const group: Group = { id: `${SUBAGENTS}-root-${child}`, at: agent.startedAt, version: 0, ids: [child] };
-        this.groupOf.set(child, group);
-        this.bump(child);
-        this.changed.add(group);
-        continue;
-      }
-      if (!this.canParent(child, parent)) continue;
-      const oldParent = agent.parent;
-      if (oldParent !== null) {
-        const entries = this.own.get(oldParent);
-        if (entries) {
-          const kept = entries.filter((entry) => entry.spawned !== child);
-          if (kept.length !== entries.length) {
-            this.own.set(oldParent, kept);
-            this.bump(oldParent);
-          }
-        }
-      }
-      const group = this.groupOf.get(child);
-      if (group) {
-        group.ids = group.ids.filter((id) => id !== child);
-        this.changed.add(group);
-      }
-      agent.parent = parent;
-      this.record(parent, { event, spawned: child });
+      if (agent) this.moveAgent(agent, parent, event);
     }
+  }
+
+  private removeSpawn(parent: string, child: string): void {
+    const entries = this.own.get(parent);
+    if (!entries) return;
+    const kept = entries.filter((entry) => entry.spawned !== child);
+    if (kept.length === entries.length) return;
+    this.own.set(parent, kept);
+    this.bump(parent);
+  }
+
+  private moveAgent(agent: Subagent, parent: string | null, event?: Event): void {
+    if (agent.parent === parent || (parent !== null && (!event || !this.canParent(agent.id, parent)))) return;
+    if (agent.parent !== null) this.removeSpawn(agent.parent, agent.id);
+    const previous = this.groupOf.get(agent.id);
+    if (previous) {
+      previous.ids = previous.ids.filter((child) => child !== agent.id);
+      previous.version += 1;
+      this.changed.add(previous);
+      this.groupOf.delete(agent.id);
+    }
+    agent.parent = parent;
+    if (parent === null) {
+      const group: Group = { id: `${SUBAGENTS}-root-${agent.id}`, at: agent.startedAt, version: 0, ids: [agent.id] };
+      this.groupOf.set(agent.id, group);
+      this.changed.add(group);
+    } else if (event) this.record(parent, { event, spawned: agent.id });
+    this.bump(agent.id);
   }
 
   /// A turn starts: its stop ends the subagents spawned from here on.
@@ -862,7 +838,7 @@ export class SubagentFold {
     return this.named.has(id);
   }
 
-  private apply(change: any, event: Event, spawn = true): void {
+  private apply(change: any, event: Event, spawn = true, authoritative = false): void {
     if (typeof change?.id !== "string") return;
     this.named.add(change.id);
     if (typeof change.parent === "string") this.named.add(change.parent);
@@ -898,23 +874,7 @@ export class SubagentFold {
       } else this.record(parent, { event, spawned: agent.id });
       this.resolvePending(agent.id, agent.id);
     } else {
-      if (change.__rootRepair && agent.parent !== null) {
-        const oldParent = agent.parent;
-        const repaired = agent;
-        repaired.parent = null;
-        const entries = this.own.get(oldParent);
-        if (entries) {
-          const kept = entries.filter((entry) => entry.spawned !== repaired.id);
-          if (kept.length !== entries.length) {
-            this.own.set(oldParent, kept);
-            this.bump(oldParent);
-          }
-        }
-        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
-        if (!this.open.ids.includes(repaired.id)) this.open.ids.push(repaired.id);
-        this.groupOf.set(repaired.id, this.open);
-        this.changed.add(this.open);
-      }
+      if (authoritative || change.__rootRepair) this.moveAgent(agent, change.parent, event);
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
