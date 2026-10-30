@@ -19,8 +19,9 @@ enum WorkspaceSetVerbs {
             }
         })
         // Every other normal window's workspaces move here (each keeps its space); those windows close.
-        registry.bind("window.mergeAll", run: { invocation in
+        registry.bindEffect("window.mergeAll", requires: nil, effect: { invocation in
             try context.services.windows.mergeWindows(into: context.window(invocation).state)
+            return .done
         })
         registry.bind("workspaceGroup.duplicate", run: { try duplicateGroup($0, context) })
         registry.bind("sidebar.section.newWorkspace", run: { try newWorkspace(inSection: $0, context) })
