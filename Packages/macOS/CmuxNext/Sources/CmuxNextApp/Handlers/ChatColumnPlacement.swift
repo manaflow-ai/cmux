@@ -156,15 +156,16 @@ extension ChatColumnPlacement {
                                            in content: WorkspaceContentController, services: AppServices,
                                            generation: UInt64, whenDocked: @MainActor (PaneModel) -> Void = { _ in }) async {
         let daemon = services.machines.daemon(forTab: chat)
+        let machineID = daemon.machineID
         let appeared = await waitForDockUpdate {
-            services.locateTab(chat.id).map { $0.1 !== source } ?? false
+            services.locateTab(chat.id, onMachine: machineID).map { $0.1 !== source } ?? false
         }
-        guard appeared, let dock = services.locateTab(chat.id)?.1 else {
+        guard appeared, let dock = services.locateTab(chat.id, onMachine: machineID)?.1 else {
             daemon.logger.error("chat dock: the moved chat's pane did not appear; New Tab pages stayed in their pane")
             return
         }
         await followNewTabPages(pages, start: generation, generation: { content.focus.currentState().generation }, isDockCurrent: {
-            services.locateTab(chat.id)?.1 === dock
+            services.locateTab(chat.id, onMachine: machineID)?.1 === dock
                 && content.workspace.screens.contains { $0.panes.contains { $0 === dock } }
                 && ChatDockRules.isChatDock(dock, in: daemon.store)
         }, seed: {
@@ -178,7 +179,7 @@ extension ChatColumnPlacement {
         }, isChosen: { page in
             content.state.selection.selection(in: source.id) == page.id
         }) { page, index in
-            guard services.locateTab(page.id)?.1 === source,
+            guard services.locateTab(page.id, onMachine: machineID)?.1 === source,
                   services.agentTabs.isNewTabPage(page.id) else { return false }
             let transaction = ClientTransactionID.generate()
             // The enclosing tracked task still awaits these moves. Their daemon errors are
@@ -205,7 +206,7 @@ extension ChatColumnPlacement {
             var echo = applied.makeAsyncIterator()
             let settled = await echo.next() == true
             bound.cancel()
-            guard settled, services.locateTab(page.id)?.1 === dock else {
+            guard settled, services.locateTab(page.id, onMachine: machineID)?.1 === dock else {
                 daemon.logger.error("chat dock: a New Tab page's move was not reported in the dock")
                 return false
             }

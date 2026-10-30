@@ -50,7 +50,7 @@ enum ChatDockRules {
     /// Refuses (and reports) a tool tab moving into a chat dock that takes only chats (and their
     /// New Tab pages). A reorder inside the dock is not a move into it.
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
-        guard services.locateTab(tab.id)?.1 !== pane,
+        guard services.locateTab(model: tab)?.1 !== pane,
               !accepts(tab, isChat: { ChatColumnPlacement.isChat($0, services: services) },
                        isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }),
               takesOnlyChats(pane, services: services) else { return false }

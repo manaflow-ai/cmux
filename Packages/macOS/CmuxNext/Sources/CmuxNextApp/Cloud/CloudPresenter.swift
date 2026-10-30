@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextDesign
+import CmuxNextPages
 import os
 
 /// Cloud results as toasts and Cloud questions as cmux dialogs, on the
@@ -56,6 +57,8 @@ enum CloudPresenter {
     /// The money confirmation of a machine create: only the person answers
     /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
     static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
+    /// The confirmation of an environment build (a spend) or delete: only the person answers it.
+    static let environmentConfirmIdentifier = "cmux.dialog.cloud.environmentConfirm"
     /// Credential installation always requires a real click; debug.dialog cannot approve it.
     static let credentialRecoveryIdentifier = "cmux.dialog.cloud.credentialRecovery"
 
@@ -91,9 +94,10 @@ enum CloudPresenter {
 
     /// Confirms provider setup for the tab’s resolved Cloud VM and reports failures in its window.
     @MainActor static func recoverCredentials(chat: String, request: AgentPaneCloudCredentialTransferRequest, services: AppServices) async -> Bool {
-        guard services.cloud.configuration.linkSource == .legacy, services.cloud.isSignedIn,
+        guard AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource,
+                                                                isSignedIn: services.cloud.isSignedIn),
               let userID = services.cloud.auth.user?.id,
-              let (tab, _) = services.locateTab(chat),
+              let (tab, _) = services.locateTab(chat, onMachine: request.machineID),
               let daemon = try? services.machines.agentDaemon(forTab: tab),
               daemon.machineID == request.machineID,
               let session = services.machines.session(daemon.machineID),
@@ -124,7 +128,7 @@ enum CloudPresenter {
         guard services.cloud.auth.user?.id == userID,
               services.cloud.auth.teamID == teamID,
               tab.agentSession?.session == request.sessionID,
-              let (currentTab, _) = services.locateTab(chat),
+              let (currentTab, _) = services.locateTab(chat, onMachine: request.machineID),
               currentTab === tab,
               (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
 
@@ -139,19 +143,23 @@ enum CloudPresenter {
                 let scope = CloudCodexBrokerScope(userID: userID, teamID: teamID)
                 try await services.cloud.codexBroker.run(
                     machineID: session.machineID, scope: scope, confirmed: true, forceRefresh: true,
-                    presentDeviceCode: { prompt in await presentCodexDeviceCode(prompt, in: window) })
+                    presentDeviceCode: { [weak services, tabID = tab.id] prompt in
+                        // The code dialog blocks only this chat's tab: the sign-in page opens in a cmux tab beside it.
+                        let view = services?.madeAgentTabs?.existingView(tabID).flatMap { $0.window == nil || $0.isHiddenOrHasHiddenAncestor ? nil : $0 }
+                        return await presentCodexDeviceCode(prompt, in: view.map(CmuxDialogScope.tab) ?? .window(window))
+                    })
             } else {
-                try await transfer.run(api: services.cloud.api,
+                try await transfer.run(api: services.cloud.machineAPI,
                                        currentTeamID: { services.cloud.auth.teamID },
                                        currentUserID: { services.cloud.auth.user?.id },
                                        confirmed: true, refresh: true)
             }
             guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
-                  let (currentTab, _) = services.locateTab(chat),
+                  let (currentTab, _) = services.locateTab(chat, onMachine: request.machineID),
                   currentTab.agentSession?.session == request.sessionID,
                   currentTab === tab,
                   (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
-            let pinned = services.cloud.api.pinningTeam(teamID)
+            let pinned = services.cloud.machineAPI.pinningTeam(teamID)
             guard try await restartCredentialSession(request.sessionID, exec: {
                 try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
             }) else {
@@ -170,9 +178,9 @@ enum CloudPresenter {
 
     static let codexDeviceCodeIdentifier = "cmux.dialog.cloud.codexDeviceCode"
 
-    @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in window: NSWindow) async -> Bool {
-        await presentCodexDeviceCode(prompt, in: .window(window), center: .shared,
-                                     open: { NSWorkspace.shared.openInBackground($0) })
+    @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in scope: CmuxDialogScope) async -> Bool {
+        await presentCodexDeviceCode(prompt, in: scope, center: .shared,
+                                     open: { LinkRouter.shared.open($0) }) // a cmux tab: browser.openSignInPagesInCmux
     }
 
     @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in scope: CmuxDialogScope,

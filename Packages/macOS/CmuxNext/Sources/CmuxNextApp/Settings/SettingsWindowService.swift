@@ -47,6 +47,8 @@ final class SettingsWindowService: InternalPageProvider {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         // task-owner: one read of the device list per opening (Settings > Devices)
         Task { [devices = services.devices] in await devices.refresh() }
+        // task-owner: one read of this Mac's join status per opening (its consent switches)
+        Task { [join = services.joinConsent] in await join.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
             guard let found = SettingsAnchor(key: setting) else {

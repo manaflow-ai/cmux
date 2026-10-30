@@ -132,7 +132,7 @@ enum AgentBesidePlacement {
             // Home's pinned dock alone takes no tab: the daemon made it in a new column right of
             // the dock (`pinned-dock-alone-v1`), so there is nothing to move.
             let away = services.paneController(for: anchor)?.paneKey
-            if services.locateTab(tab.id).map({ $0.1 !== anchor }) == true {
+            if services.locateTab(model: tab).map({ $0.1 !== anchor }) == true {
                 moved = true
                 if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
                 await revealMoved(tab.id, from: anchor, services: services)
@@ -184,8 +184,9 @@ extension AgentBesidePlacement {
     /// the viewport (after the last column, as beside a chat docked left) stayed out of view (cx-27j7).
     @MainActor static func revealMoved(_ id: String, from anchor: PaneModel, services: AppServices) async {
         guard let content = services.paneController(for: anchor)?.workspace else { return }
+        let machineID = services.daemon(for: anchor).machineID
         let listed = Task { @MainActor () -> Bool in
-            for await moved in ObservationStream({ services.locateTab(id).map { $0.1 !== anchor } ?? false }) where moved { return true }
+            for await moved in ObservationStream({ services.locateTab(id, onMachine: machineID).map { $0.1 !== anchor } ?? false }) where moved { return true }
             return false
         }
         let bound = DemandTimer(owner: "AgentBesidePlacement.reveal")
@@ -194,7 +195,7 @@ extension AgentBesidePlacement {
         }
         let moved = await listed.value
         bound.cancel()
-        if moved, let pane = services.locateTab(id)?.1 { content.layoutModel.revealColumn(containing: LayoutPaneID(pane.id)) }
+        if moved, let pane = services.locateTab(id, onMachine: machineID)?.1 { content.layoutModel.revealColumn(containing: LayoutPaneID(pane.id)) }
     }
 }
 
