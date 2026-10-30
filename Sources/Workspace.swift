@@ -3010,13 +3010,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     lastRememberedTerminalFontSizeLineageForConfigInheritance()
             )
         }
-        if let configuration = surfaceTabBarButtonConfiguration {
-            store.applySurfaceTabBarButtons(
-                configuration.buttons,
-                sourcePath: configuration.sourcePath,
-                globalConfigPath: configuration.globalConfigPath
-            )
-        }
         _dockSplit = store
         return store
     }
@@ -4794,11 +4787,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
-        _dockSplit?.applySurfaceTabBarButtons(
-            buttons,
-            sourcePath: sourcePath,
-            globalConfigPath: globalConfigPath
-        )
         surfaceTabBarButtonConfiguration = SurfaceTabBarButtonConfiguration(
             buttons: buttons,
             sourcePath: sourcePath,
