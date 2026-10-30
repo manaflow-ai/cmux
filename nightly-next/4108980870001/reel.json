@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4108980870001",
+  "notes": "notes/4108980870001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28208,
+      "title": "carry of #27944: Cloud pause/resume actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27865,
+      "title": "Sidebar: prototype a joined group chip and capped rail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28362,
+      "title": "cmux-next: a classic upgrade keeps its groups and order when sidebar placements trail the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28350,
+      "title": "fix(webviews): Settings Devices Full access guard is per row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28348,
+      "title": "chore(deps): drop the unused solid-js dependency",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28304,
+      "title": "carry of #26590: cover production chat flows and autonomous samplers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28216,
+      "title": "fix(files): preserve selection on truncated listings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27882,
+      "title": "test(next): reproduce fallback install after canceling enrollment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27948,
+      "title": "cmux NEXT model picker: one row per model; effort is a vertical side dropdown beside it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28397,
+      "title": "fix(ci): read coloured job logs in the base-red classifier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28371,
+      "title": "ci(cmux-next): Rust no Swift compile reads skips the Mac compiles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28396,
+      "title": "fix(next): show people rows while the directory loads (carries #27607)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28380,
+      "title": "fix(cloud): retain creator IDs in machine list output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26837,
+      "title": "fix(cmux-next): validate replies from immutable question inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27896,
+      "title": "cmux NEXT: list a run's steps in one bordered group, as Claude Code desktop does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28369,
+      "title": "acpmux: review boxes get no inbox notice and no other agent's steer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28074,
+      "title": "cmux NEXT updater: Restart to Update installs the newest build; a pulled build is dropped (carries #27499)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28315,
+      "title": "Base red: cmux-tui panic ratchet indexing_slicing (834 -> 861 > 833): rewrite the new hits without panics",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
