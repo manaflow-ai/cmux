@@ -353,7 +353,8 @@ def why(record):
     if not record.get("first_content_ms"):
         reply = record.get("open_reply")
         parts.append(f"open_reply={json.dumps(reply, default=str)[:200]}")
-        surfaces = sorted({f.get("surface") for f in record.get("frames") or [] if isinstance(f, dict)} - {None})
+        # Frames are [ms, surface] pairs (flashes, first_of).
+        surfaces = sorted({str(f[1]) for f in record.get("frames") or [] if isinstance(f, (list, tuple)) and len(f) > 1})
         parts.append(f"surfaces={surfaces} marks={sorted((record.get('marks_ms') or {}).keys())}")
         ready = record.get("readiness") or {}
         if isinstance(ready, dict):
