@@ -286,21 +286,26 @@ export function stripFileDisplay(
       originals.set(block.uri, [...(originals.get(block.uri) ?? []), image]);
     }
   }
-  const files = new Map(
+  const links = new Map(
     attachments.flatMap((file) =>
-      file.kind === "link" && !file.mimeType.startsWith("video/")
+      file.kind === "link"
         ? attachmentBlocks(file).flatMap((block) =>
             block.type === "resource_link" ? [[block.uri, file] as const] : [],
           )
         : [],
     ),
   );
-  const sourced = attachments.filter((image) => image.kind === "image" && image.source);
+  // Each image block is its own attachment's, taken in order, so byte-identical images keep
+  // their own sources (or none).
+  const images = attachments.filter((image) => image.kind === "image");
+  const taken = new Set<ComposerAttachment>();
   return blocks.flatMap((block, blockIndex): DisplayPart[] => {
     if (block.type === "image") {
-      const image = sourced.find(
-        (one) => one.data === block.data && one.name === block.name && one.mimeType === block.mimeType,
+      const image = images.find(
+        (one) =>
+          !taken.has(one) && one.data === block.data && one.name === block.name && one.mimeType === block.mimeType,
       );
+      if (image) taken.add(image);
       return image?.source ? [{ kind: "image", blockIndex, source: image.source }] : [];
     }
     const previous = blocks[blockIndex - 1];
@@ -315,7 +320,10 @@ export function stripFileDisplay(
         )
     )
       return [{ kind: "file", blockIndex, name: block.name, companionOf: blockIndex - 1 }];
-    const file = block.type === "resource_link" ? files.get(block.uri) : undefined;
+    const file = block.type === "resource_link" ? links.get(block.uri) : undefined;
+    // A video keeps its own display; it carries only its source.
+    if (file?.mimeType.startsWith("video/"))
+      return file.source ? [{ kind: "file", blockIndex, source: file.source }] : [];
     return file
       ? [
           {

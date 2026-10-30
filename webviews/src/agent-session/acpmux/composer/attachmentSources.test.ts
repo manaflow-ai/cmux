@@ -97,6 +97,27 @@ test("a chip's source goes with its prompt block, and comes back from acpmux's p
   expect(normalizePromptContentPart({ kind: "file", name: "a", source: { name: "" } })).not.toHaveProperty("source");
 });
 
+test("byte-identical images keep their own sources, and a video carries its source", () => {
+  const twin = { kind: "image", name: "image.png", mimeType: "image/png", size: 1, data: "AQ==" } as const;
+  const unsourced: ComposerAttachment = { ...twin, id: "1" };
+  const sourced: ComposerAttachment = { ...twin, id: "2", source: chrome };
+  const video: ComposerAttachment = {
+    id: "3",
+    kind: "link",
+    name: "clip.mov",
+    mimeType: "video/quicktime",
+    size: 9,
+    path: "/tmp/clip.mov",
+    source: { name: "Finder", bundleId: "com.apple.finder" },
+  };
+  const attachments = [unsourced, sourced, video];
+  const blocks = attachments.flatMap(attachmentBlocks);
+  expect(stripFileDisplay(blocks, attachments)).toEqual([
+    { kind: "image", blockIndex: 1, source: chrome },
+    { kind: "file", blockIndex: 2, source: video.source },
+  ]);
+});
+
 test("Edit and Retry put a sent attachment back with its source", async () => {
   const restored = await restoreInline(
     {

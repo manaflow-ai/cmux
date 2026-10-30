@@ -174,10 +174,16 @@ pub(super) fn named(blocks: &[Value]) -> Vec<Value> {
 /// queued prompt's `queued` and `queue_updated`) records of them. An image that cannot be read
 /// or kept is left out: the prompt still goes.
 pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
+    keep_indexed(blocks).into_iter().map(|(_, image)| image).collect()
+}
+
+/// `keep`'s records, each with its block's index in `blocks`.
+fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
     blocks
         .iter()
-        .filter_map(decode)
-        .filter_map(|(bytes, named)| {
+        .enumerate()
+        .filter_map(|(index, block)| decode(block).map(|decoded| (index, decoded)))
+        .filter_map(|(index, (bytes, named))| {
             let id = named["id"].as_str()?;
             let path = dir().join(id);
             if !path.is_file() {
@@ -196,7 +202,7 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
                     return None;
                 }
             }
-            Some(named)
+            Some((index, named))
         })
         .collect()
 }
@@ -467,16 +473,17 @@ pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
 }
 
 /// Puts each image's source from the prompt's display metadata on its record (`keep`'s
-/// `{id, mimeType, name}`), so the transcript's thumbnail has it after a reload.
-fn name_image_sources(images: &mut [Value], blocks: &[Value], display_parts: Option<&Value>) {
+/// `{id, mimeType, name}`, with its block's index), so the transcript's thumbnail has it after a
+/// reload. Each record takes only its own block's source: byte-identical images share an id but
+/// not a source.
+fn name_image_sources(
+    images: &mut [(usize, Value)],
+    blocks: &[Value],
+    display_parts: Option<&Value>,
+) {
     let display = validated_display_parts(display_parts, blocks);
-    for (block_index, part) in &display {
-        let Some(source) = part.get("source") else { continue };
-        let Some(id) = blocks.get(*block_index).and_then(id_of) else { continue };
-        for image in images
-            .iter_mut()
-            .filter(|image| image.get("id").and_then(Value::as_str) == Some(id.as_str()))
-        {
+    for (block_index, image) in images {
+        if let Some(source) = display.get(block_index).and_then(|part| part.get("source")) {
             image.set("source", source.clone());
         }
     }
@@ -493,8 +500,9 @@ impl Hub {
         blocks: &[Value],
         display_parts: Option<&Value>,
     ) {
-        let mut images = keep(blocks);
-        name_image_sources(&mut images, blocks, display_parts);
+        let mut kept = keep_indexed(blocks);
+        name_image_sources(&mut kept, blocks, display_parts);
+        let images: Vec<Value> = kept.into_iter().map(|(_, image)| image).collect();
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }
@@ -667,9 +675,20 @@ mod tests {
         let parts = inline_parts(&blocks, &[], Some(&display));
         assert_eq!(parts[0]["source"], chrome);
         assert_eq!(parts[1]["source"], finder);
-        let mut images = vec![decode(&image).unwrap().1];
+        let mut images = vec![(0, decode(&image).unwrap().1)];
         name_image_sources(&mut images, &blocks, Some(&display));
-        assert_eq!(images[0]["source"], chrome);
+        assert_eq!(images[0].1["source"], chrome);
+        // Byte-identical images share an id; each record keeps only its own block's source.
+        let twins = [image.clone(), image.clone(), image.clone()];
+        let display = json!([
+            {"kind": "image", "blockIndex": 1, "source": chrome},
+            {"kind": "image", "blockIndex": 2, "source": finder},
+        ]);
+        let mut images: Vec<_> = (0..3).map(|index| (index, decode(&image).unwrap().1)).collect();
+        name_image_sources(&mut images, &twins, Some(&display));
+        assert!(images[0].1.get("source").is_none());
+        assert_eq!(images[1].1["source"], chrome);
+        assert_eq!(images[2].1["source"], finder);
         assert_eq!(checked_source(&json!({"name": " cmux "})), Some(json!({"name": "cmux"})));
         for bad in [
             json!({"name": ""}),
