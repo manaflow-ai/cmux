@@ -37,8 +37,8 @@ struct ComputerUseEndpointTests {
     /// none, so without a fixture driver "upstream" falls back to the legacy helper.
     private static func daemon(_ launcher: RecordingHelperLauncher, upstreamInBuild: Bool = false) -> ComputerUseHelperDaemon {
         let root = FileManager.default.temporaryDirectory.appending(path: "cua-endpoint-\(UUID().uuidString.prefix(8))")
-        let helperApp: @Sendable () -> URL? = upstreamInBuild ? { URL(fileURLWithPath: "/test/cmux Computer Use (dev).app") } : { nil }
-        let upstream = ComputerUseHelperV2(directory: root.appending(path: "v2").path, helperApp: helperApp,
+        let embedded: URL? = upstreamInBuild ? URL(fileURLWithPath: "/test/cmux Computer Use (dev).app") : nil
+        let upstream = ComputerUseHelperV2(directory: root.appending(path: "v2").path, helperApp: { embedded },
                                            staging: .passing(root: root))
         return ComputerUseHelperDaemon(identity: CuaHelperIdentity(isSigned: { _ in true }),
                                        candidates: { [root.appending(path: "missing/cmux Computer Use.app")] },
