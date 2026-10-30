@@ -495,8 +495,10 @@ extension CaptureSceneRegistry {
 
     /// Adds both machines to the settled showcase window, with a header per computer
     /// (`sidebar.groupByComputer`, as `DebugCloudMachineFixture` does), connects each so its link
-    /// ends, waits until both headers draw with their ended link, snapshots the window, then takes the
-    /// machines and the setting back. A header that never draws fails the scene.
+    /// ends, waits until the list lays out both headers, scrolls to them (they follow This Mac's rows,
+    /// maybe below the fold), waits until both draw inside the list's visible part, snapshots the
+    /// window, then takes the machines and the setting back. A header that never draws there fails
+    /// the scene: the check reads the drawn rows (`SidebarView.debugRows`), never only the model.
     func renderCloudMachineDisconnected(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                         windowID: String) async -> CmuxNextSettings.JSONValue {
         let ids = Self.endedLinkMachines.map(\.id)
@@ -530,19 +532,27 @@ extension CaptureSceneRegistry {
             session.connect(origin: .user)
         }
         services.windows.reconcileMembership()
-        let shown = await CloudMove.holds(within: .seconds(10)) { [self] in
-            ids.allSatisfy { services.machines.session($0)?.linkEnded != nil && endedLinkHeaderDrawn($0, windowID: windowID) }
-        }
-        let report = endedLinkReport(windowID: windowID)
-        guard shown else {
-            removeMachines()
-            return .object(["error": .string("the Cloud machine headers never drew with their ended link"),
-                            "scene": .string(definition.name), "scene_action": report])
-        }
-        // One more frame for the headers' layout.
+        // Checked each frame: both links ended and the list laid out both headers.
         frames.start()
-        let settled = await frames.settled(until: { true }, start: ContinuousClock.now, window: 300, deadline: 3_000)
+        let listed = await frames.settled(until: { [self] in
+            ids.allSatisfy { services.machines.session($0)?.linkEnded != nil && endedLinkHeader($0, windowID: windowID) != nil }
+        }, start: ContinuousClock.now, window: 100, deadline: 10_000)
+        _ = frames.stop()
+        if listed != nil { scrollToEndedLinkHeaders(ids, windowID: windowID) }
+        frames.start()
+        var settled: Double?
+        if listed != nil {
+            settled = await frames.settled(until: { [self] in ids.allSatisfy { endedLinkHeaderShown($0, windowID: windowID) } },
+                                           start: ContinuousClock.now, window: 300, deadline: 3_000)
+        }
         let frameStats = frames.stop()
+        let report = endedLinkReport(windowID: windowID)
+        guard settled != nil else {
+            removeMachines()
+            return .object(["error": .string(listed == nil ? "the Cloud machine headers never reached the sidebar list with their ended link"
+                                                           : "the Cloud machine headers never drew in the sidebar's visible part"),
+                            "scene": .string(definition.name), "scene_action": report, "frames": frameStats])
+        }
         var snapshotParams = params
         snapshotParams["window"] = .string(windowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
@@ -556,14 +566,49 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// Whether `windowID`'s sidebar draws the header of machine `id`.
-    func endedLinkHeaderDrawn(_ id: String, windowID: String) -> Bool {
-        guard let sidebar = services.windows.controller(for: windowID)?.sidebar else { return false }
-        #if DEBUG
-        return sidebar.container.machineHeaderFrameInWindow(MachineID(id)) != nil
-        #else
-        return sidebar.model.sections.contains { $0.machine?.id.rawValue == id }
-        #endif
+    /// Machine `id`'s header row in `windowID`'s sidebar list, as the list laid it out (drawn or
+    /// not); nil until the list has it.
+    func endedLinkHeader(_ id: String, windowID: String) -> SidebarDebugRow? {
+        guard let sidebar = services.windows.controller(for: windowID)?.sidebar.container.sidebarView else { return nil }
+        let key = String(describing: SidebarRowKey.section(.machine(MachineID(id))))
+        return sidebar.debugRows().rows.first { $0.key == key }
+    }
+
+    /// The sidebar list's scroll view in `windowID`, and its visible part in top-left window points
+    /// (as `SidebarDebugRow.windowFrame` is).
+    func endedLinkVisibleList(windowID: String) -> (scroll: NSScrollView, visible: CGRect)? {
+        guard let controller = services.windows.controller(for: windowID),
+              let scroll = Self.endedLinkScrollView(in: controller.sidebar.container.sidebarView) else { return nil }
+        let height = controller.window?.contentView?.bounds.height ?? 0
+        let clip = scroll.contentView.convert(scroll.contentView.bounds, to: nil)
+        return (scroll, CGRect(x: clip.minX, y: height - clip.maxY, width: clip.width, height: clip.height))
+    }
+
+    /// Whether machine `id`'s header is drawn: its row view is in the list, has a size, is neither
+    /// suppressed nor faded out, and its middle is inside the list's visible part.
+    func endedLinkHeaderShown(_ id: String, windowID: String) -> Bool {
+        guard let row = endedLinkHeader(id, windowID: windowID), let list = endedLinkVisibleList(windowID: windowID) else { return false }
+        return row.inList && !row.suppressed && row.windowFrame.height > 0 && (row.viewAlpha ?? 0) > 0
+            && list.visible.contains(CGPoint(x: row.windowFrame.midX, y: row.windowFrame.midY))
+    }
+
+    /// Scrolls the sidebar list so every header in `ids` shows.
+    func scrollToEndedLinkHeaders(_ ids: [String], windowID: String) {
+        guard let list = endedLinkVisibleList(windowID: windowID), let document = list.scroll.documentView,
+              let height = services.windows.controller(for: windowID)?.window?.contentView?.bounds.height else { return }
+        let rows = ids.compactMap { endedLinkHeader($0, windowID: windowID)?.windowFrame }
+        guard let first = rows.first else { return }
+        let union = rows.dropFirst().reduce(first) { $0.union($1) }
+        // Top-left window points to the bottom-left ones AppKit converts from.
+        let inWindow = CGRect(x: union.minX, y: height - union.maxY, width: union.width, height: union.height)
+        document.scrollToVisible(document.convert(inWindow, from: nil))
+        list.scroll.reflectScrolledClipView(list.scroll.contentView)
+    }
+
+    /// The first scroll view under `view` (the sidebar's list).
+    static func endedLinkScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap(endedLinkScrollView(in:)).first
     }
 
     /// Each machine's header status and detail as the sidebar holds them, its ended link, and whether its header draws.
@@ -576,7 +621,8 @@ extension CaptureSceneRegistry {
                 "status": header.map { CmuxNextSettings.JSONValue.string(String(describing: $0.status)) } ?? .null,
                 "detail": header?.detail.map(CmuxNextSettings.JSONValue.string) ?? .null,
                 "link_ended": services.machines.session(machine.id)?.linkEnded.map(CmuxNextSettings.JSONValue.string) ?? .null,
-                "drawn": .bool(endedLinkHeaderDrawn(machine.id, windowID: windowID)),
+                "laid_out": .bool(endedLinkHeader(machine.id, windowID: windowID) != nil),
+                "drawn": .bool(endedLinkHeaderShown(machine.id, windowID: windowID)),
             ])
         })
     }
