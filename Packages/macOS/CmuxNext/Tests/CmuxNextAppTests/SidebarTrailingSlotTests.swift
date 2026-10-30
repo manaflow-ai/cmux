@@ -125,4 +125,61 @@ import Testing
             #expect(abs(dot - want) <= tolerance, "\(look.testDescription): the tab's dot at \(dot), slot 1 at \(want)")
         }
     }
+
+    /// Leo 2026-10-30: "this alignment is annoying too". The trailing column must also stay
+    /// inside the sidebar content when it is at the minimum, default and wide widths: the resize
+    /// band straddles the edge, so an accessory whose frame reaches into its inside half is clipped
+    /// or crowded by the drag target. This measures the actual status, chevron, hover controls and
+    /// footer Search frames rather than only checking the style math.
+    @Test func trailingAccessoriesStayInsideContentAndShareOneColumn() throws {
+        for density in SidebarDensity.allCases {
+            try SidebarGroupRailAlignmentTests.with(density, .off) {
+                let widths = [Metrics.sidebarMinWidth, Metrics.sidebarWidth, Metrics.sidebarMaxWidth]
+                for width in widths {
+                    let h = T.KindHarness(width: width)
+                    defer { h.window.close() }
+                    let column = try T.columnX(h)
+                    let tolerance = Self.tolerance(h)
+                    var accessories: [(String, CGRect)] = []
+                    let rows: [(String, NSView)] = [
+                        ("status", try h.row(.workspace(T.unread))),
+                        ("selected", try h.row(.workspace(T.selected))),
+                        ("group", try h.row(.group(T.open))),
+                    ]
+                    for (name, row) in rows {
+                        for mark in T.marks(in: row, named: name, list: h.list) {
+                            let side = SidebarStyle.trailingSlotSide
+                            accessories.append((mark.what, CGRect(x: mark.midX - side / 2, y: 0, width: side, height: side)))
+                        }
+                    }
+
+                    let selected = try #require(h.list.rowViews[.workspace(T.selected)] as? WorkspaceRowView)
+                    selected.onMore = {}
+                    selected.isHovered = true
+                    selected.layoutSubtreeIfNeeded()
+                    defer { selected.isHovered = false; selected.layoutSubtreeIfNeeded() }
+                    for (name, view) in [("close", selected.closeButton), ("disclosure", selected.disclosureButton), ("more", selected.moreButton)]
+                        where !view.isHidden && T.drawnAlpha(view, below: h.list) > 0.01 {
+                        accessories.append((name, h.list.convert(view.frame, from: selected)))
+                    }
+
+                    #expect(!h.sidebar.searchButton.isHidden, "\(density)/\(width)pt: Search is hidden")
+                    accessories.append(("search", h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar)))
+
+                    let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
+                                                 gutter: Metrics.mainPaneGutter)
+                    #expect(band.inside <= SidebarResizeBand.contentInset + tolerance,
+                            "\(density)/\(width)pt resize band takes \(band.inside) pt of the content")
+                    let contentEdge = width - band.inside
+                    for (name, frame) in accessories {
+                        #expect(abs(frame.midX - column) <= tolerance,
+                                "\(density)/\(width)pt \(name) centers at \(frame.midX), column \(column)")
+                        #expect(frame.maxX <= contentEdge + tolerance,
+                                "\(density)/\(width)pt \(name) reaches \(frame.maxX), inside content edge \(contentEdge), band \(band)")
+                    }
+                    print("TRAILSLOT|edge|\(density.rawValue)/\(width)pt|column \(column)|content \(contentEdge)|band \(band)|\(accessories.map { "\($0.0)@\($0.1.midX)" }.joined(separator: " "))")
+                }
+            }
+        }
+    }
 }

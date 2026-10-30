@@ -48,7 +48,7 @@ import Testing
         return frameView.hitTest(frameView.convert(point, from: nil))
     }
 
-    @Test(arguments: [-4.0, -2.0, -0.5, 0.5, 2.0, 4.0] as [CGFloat])
+    @Test(arguments: [-2.0, -1.0, -0.5, 0.5, 1.0, 6.0] as [CGFloat])
     func aClickNearTheSidebarEdgeReachesTheHandle(offset: CGFloat) throws {
         let (window, root) = root()
         defer { window.close() }

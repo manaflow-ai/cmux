@@ -11,11 +11,22 @@ extension SidebarStyle {
     /// The column slot's side: a row control's (the chevron's) size.
     static var trailingSlotSide: CGFloat { controlSize }
 
+    /// The one fixed inset between a row's content edge and its trailing accessory column. Keeping
+    /// this larger than the row's general text inset leaves the resize band's inside edge clear of
+    /// the full-size search button too; all row kinds and the footer use this same value.
+    static var trailingColumnInset: CGFloat { horizontalInset + Metrics.space1 }
+
     /// The x every trailing indicator centers on, in a row (or header) of `rowWidth`: the width up to
     /// the row's fill end (a band item, whose fill is inset by `horizontalInset`, passes its width
-    /// less that inset), so every row kind lands on one list x.
+    /// less that inset), then the shared `trailingColumnInset`, so every row kind lands on one list x.
     static func trailingColumnCenterX(rowWidth: CGFloat) -> CGFloat {
-        rowWidth - horizontalInset - trailingSlotSide / 2
+        rowWidth - trailingColumnInset - trailingSlotSide / 2
+    }
+
+    /// The column center in the sidebar's coordinate space. List rows end at the shared content
+    /// edge (`sidebarWidth - rowTrailingTrim`), while the footer has the sidebar as its parent.
+    static func trailingColumnCenterX(sidebarWidth: CGFloat) -> CGFloat {
+        sidebarWidth - rowTrailingTrim - horizontalInset - trailingColumnInset - trailingSlotSide / 2
     }
 
     /// The column slot's leading edge in a row of `rowWidth`: every other trailing control (a
