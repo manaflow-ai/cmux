@@ -113,6 +113,44 @@ import UniformTypeIdentifiers
         #expect(DevToolsSpy.calls.map { $0.params.contains("execCommand") } == [false, true])
     }
 
+    /// On the fork's renderer paths a page's own scripts go by `tabEvaluate`, not DevTools: they keep the browser's
+    /// order too. A command and then a script, made while a large call still encodes, reach the page after it and in
+    /// the order they were made.
+    @Test func aForkEvaluationMadeWhileALargeCallEncodesReachesThePageInOrder() async throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        try #require(rig.runtime.forkFeatures.rendererPaths)
+        DevToolsSpy.calls = []
+        let large = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
+        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
+        try #require(DevToolsSpy.calls.isEmpty, "the large call is still encoding")
+        #expect(tab.perform("command()", gesture: .agent))
+        rig.runtime.evaluateLatest(7, world: "", script: "lookUp()") { _ in }
+        let evaluated = Task { try await rig.runtime.evaluate(7, world: "", script: "read()", userGesture: false) }
+        _ = try await large.value
+        _ = try await evaluated.value
+        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate", "tabEvaluate", "tabEvaluate", "tabEvaluate"])
+        #expect(DevToolsSpy.calls.dropFirst().map(\.params) == ["command()", "lookUp()", "read()"])
+    }
+
+    /// A tab's hover picture is asked for in the turn before its content hides (a pane switch). Queued behind a large
+    /// call, it still leaves, before the hide: the hidden check was made when it was asked for, as before the order.
+    @Test func aPictureAskedForBeforeAHideLeavesWhenItsTurnComes() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        DevToolsSpy.calls = []
+        let large = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
+        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
+        try #require(DevToolsSpy.calls.isEmpty, "the large call is still encoding")
+        let picture = tab.beginThumbnail()
+        tab.setContentVisible(false)
+        _ = try await large.value
+        _ = try? await picture.image()
+        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate", "Page.captureScreenshot"])
+    }
+
     // MARK: Fixtures
 
     /// About 300 KB of a page host script with non-ASCII text, as an agent chat's transport frames.
@@ -144,8 +182,9 @@ import UniformTypeIdentifiers
         let runtime: CEFRuntime
         let root: URL
 
-        init() throws {
+        init(forkAPI: Int32 = 24) throws {
             DevToolsSpy.reset()
+            DevToolsSpy.forkAPI = forkAPI
             root = FileManager.default.temporaryDirectory.appending(path: "cef-devtools-off-main-\(UUID().uuidString)", directoryHint: .isDirectory)
             runtime = CEFRuntime.spy(shim: try DevToolsSpy.library(), storage: CEFProfileStorage(root: root))
             DevToolsSpy.runtime = runtime
@@ -189,6 +228,7 @@ private nonisolated enum DevToolsSpy {
     nonisolated(unsafe) static var answers: [String: String] = [:]
     nonisolated(unsafe) static var nextMessage: Int32 = 1
     nonisolated(unsafe) static weak var runtime: CEFRuntime?
+    nonisolated(unsafe) static var forkAPI: Int32 = 24
 
     static func reset() {
         calls = []
@@ -201,7 +241,7 @@ private nonisolated enum DevToolsSpy {
     }
 
     static func library() throws -> CEFShimLibrary {
-        let version: @convention(c) () -> Int32 = { 24 }
+        let version: @convention(c) () -> Int32 = { DevToolsSpy.forkAPI }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
         let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { browser, method, params in
             let name = DevToolsSpy.text(method)
@@ -214,12 +254,21 @@ private nonisolated enum DevToolsSpy {
             }
             return message
         }
+        // The fork's evaluate (renderer paths): recorded as "tabEvaluate" with its script, answered inside the call.
+        let tabEvaluate: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32 = { browser, token, _, script, _ in
+            DevToolsSpy.calls.append(Call(browser: browser, method: "tabEvaluate", params: DevToolsSpy.text(script)))
+            MainActor.assumeIsolated { // main-proof: the runtime calls the shim on the main thread only
+                DevToolsSpy.runtime?.handle(.evaluateResult(token: token, status: 0, value: "null"))
+            }
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {
             case "cmux_shim_fork_api_version": unsafeBitCast(version, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_call": unsafeBitCast(devToolsCall, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_tab_evaluate": unsafeBitCast(tabEvaluate, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }
