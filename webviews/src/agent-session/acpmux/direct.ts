@@ -929,9 +929,21 @@ export const BRIDGE_URL = "cmux-bridge://acpmux/";
 /// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
 export type GitRoute = "native" | "daemon";
 
-/// Runs `run` once before the next display frame, or after 50 ms when the page draws no frames
-/// (a hidden pane), so a hidden transcript still keeps up.
+/// Runs `run` once before the next display frame, or after 50 ms when a shown page draws no frames
+/// (an occluded window). A hidden page draws nothing: `run` waits until it shows, and its first
+/// frame then draws everything that landed meanwhile (`emitInFrame` holds one waiting snapshot).
+/// The wait's listener goes with that show. A hidden page used to draw the shown chat's stream
+/// every 50 ms that nobody could see.
 export const nextFrame = (run: () => void) => {
+  if (!pageShown()) {
+    const shown = () => {
+      if (!pageShown()) return;
+      document.removeEventListener("visibilitychange", shown);
+      nextFrame(run);
+    };
+    document.addEventListener("visibilitychange", shown);
+    return;
+  }
   let ran = false;
   const once = () => {
     if (ran) return;
