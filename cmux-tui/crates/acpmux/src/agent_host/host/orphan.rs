@@ -185,7 +185,9 @@ impl State {
     /// end is done: the harness exited and no controller is there to log it. A daemon that
     /// connected while the harness ended is answered once the exit is in (`hold_hello`): it
     /// logs the exit, as of a harness that crashed, and the host then ends as every host does
-    /// (`finished`). A connection that has not said hello yet gets [`HELLO_LINGER`].
+    /// (`finished`). A connection that has not said hello yet gets [`HELLO_LINGER`]; what the
+    /// harness wrote as it ended that a next daemon needs gets the whole wait again, for a
+    /// daemon to come and log it, and is then let go: the host never runs on for good.
     pub(super) async fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
         if self.orphan.ending && self.exit_h.is_some() {
             for (id, hello) in std::mem::take(&mut self.orphan.held) {
@@ -194,12 +196,18 @@ impl State {
             if self.controller.is_some() {
                 return false;
             }
-            if self.pending_conns.is_empty() || self.orphan.linger == Some(true) {
+            let unlogged = self.entries.iter().any(|(_, e, _)| needs_a_daemon(e));
+            if (self.pending_conns.is_empty() && !unlogged) || self.orphan.linger == Some(true) {
                 return true;
             }
             if self.orphan.linger.is_none() {
                 self.orphan.linger = Some(false);
-                self.orphan_wait(events, HELLO_LINGER);
+                let idle = self.spec.orphan_exit.as_ref().map_or(0, |e| e.idle_ms);
+                let wait = std::time::Duration::from_millis(idle);
+                self.orphan_wait(
+                    events,
+                    if unlogged { wait.max(HELLO_LINGER) } else { HELLO_LINGER },
+                );
             }
             return false;
         }

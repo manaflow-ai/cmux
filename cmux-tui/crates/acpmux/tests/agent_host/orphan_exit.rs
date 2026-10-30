@@ -175,3 +175,40 @@ async fn a_daemon_connecting_while_the_harness_ends_is_told_it_exited() {
     wait_dead(lock).await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// What the harness writes as it ends (on its SIGTERM) is kept for a daemon for one more wait:
+/// one that connects then logs it with the exit (review 5).
+#[tokio::test]
+async fn what_the_harness_writes_as_it_ends_waits_for_a_daemon() {
+    let dir = scratch("orph-last");
+    let agent = dir.join("agent");
+    write_executable(
+        &agent,
+        "#!/usr/bin/env python3\nimport signal, sys\n\
+         def last(*_):\n    \
+         print('{\"jsonrpc\":\"2.0\",\"method\":\"note\",\"params\":{\"text\":\"bye\"}}', flush=True)\n    \
+         sys.exit(0)\n\
+         signal.signal(signal.SIGTERM, last)\n\
+         while True: signal.pause()\n",
+    );
+    let mut launch = orphan_spec(&dir, "s-orph-last");
+    launch.program = agent.to_string_lossy().into_owned();
+    launch.args.clear();
+    let record = link::spawn(&launcher(), &launch).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let harness = record.harness_pid.unwrap() as i32;
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    // SAFETY: signal 0 only checks that the harness still exists.
+    while unsafe { libc::kill(harness, 0) } == 0 {
+        assert!(std::time::Instant::now() < deadline, "the idle host never ended its harness");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(WAIT / 2).await;
+    assert!(live(&dir, &record), "the host let go of its harness's last line at once");
+    let (late, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    let read = read_until(&late, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    assert!(read.iter().any(|(_, e)| format!("{e:?}").contains("bye")), "{read:?}");
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
