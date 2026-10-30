@@ -27,8 +27,8 @@ public import Foundation
 
     public final class WritePermit: @unchecked Sendable {
         private let lock = NSLock()
-        private var valid = true
-        private var claimed = false
+        nonisolated(unsafe) private var valid = true
+        nonisolated(unsafe) private var claimed = false
 
         /// Atomically claims the write slot. Cancellation that wins before this returns prevents the
         /// host call; cancellation after it returns cannot pretend that an already-started host call did
