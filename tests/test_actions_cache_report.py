@@ -136,6 +136,31 @@ class ParseTests(unittest.TestCase):
         self.assertNotIn("ghostty-zig-packages-v1-Linux-zig0.16.0 (github)", labels)
         self.assertFalse(any(label.startswith("ghostty-zig") for label in labels))
 
+    def test_a_github_route_receipt_counts_when_actions_cache_printed_no_result(self):
+        log = "\n".join(T + line for line in (
+            "##[group]Run ./.github/actions/cache-restore",
+            "##[group]Run actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+            "with:",
+            "  key: ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa",
+            "##[endgroup]",
+            "##[warning]Cache service responded with 503",
+            "##[group]Run python3 \"$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py\"",
+            'CMUX_CACHE_RESTORE {"action_route": "github-cache", "key": "ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa", "result": "miss_or_unavailable"}',
+        ))
+        self.assertEqual(kinds(cache.parse_job_log(log)), [("ghostty-zig-packages-v1-Linux-zig0.16.0", "miss")])
+
+    def test_a_github_route_receipt_after_a_printed_result_is_not_counted(self):
+        log = "\n".join(T + line for line in (
+            "##[group]Run actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+            "with:",
+            "  key: ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa",
+            "##[endgroup]",
+            "Cache hit for: ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa",
+            "##[group]Run python3 receipt.py",
+            'CMUX_CACHE_RESTORE {"action_route": "github-cache", "key": "ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa", "result": "exact"}',
+        ))
+        self.assertEqual(kinds(cache.parse_job_log(log)), [("ghostty-zig-packages-v1-Linux-zig0.16.0", "exact")])
+
 
 class AggregateTests(unittest.TestCase):
     def test_rows_are_per_workflow_and_cache_worst_hit_rate_first(self):
@@ -167,6 +192,12 @@ class SelectionTests(unittest.TestCase):
         self.assertFalse(cache.is_cache_job({"conclusion": "success",
                                              "steps": [{"name": "Cache cargo build", "conclusion": "skipped"}]}))
         self.assertFalse(cache.is_cache_job({"conclusion": "success", "steps": [{"name": "Build", "conclusion": "success"}]}))
+
+    def test_timed_out_jobs_and_cache_enabled_setup_actions_are_sampled(self):
+        step = {"name": "Cache cargo build", "conclusion": "success"}
+        self.assertTrue(cache.is_cache_job({"conclusion": "timed_out", "steps": [step]}))
+        for name in ("Set up Node", "Run actions/setup-node@v4", "Set up Go", "Run actions/setup-go@abc"):
+            self.assertTrue(cache.is_cache_job({"conclusion": "success", "steps": [{"name": name, "conclusion": "success"}]}), name)
 
     def test_the_sample_spreads_across_jobs_before_going_deep(self):
         candidates = [("a.yml", "x", 1), ("a.yml", "x", 2), ("a.yml", "x", 3), ("b.yml", "y", 4)]
@@ -205,6 +236,24 @@ class StoreTests(unittest.TestCase):
         self.assertIn("| `v0-rust-cmux-tui-macos-Darwin-arm64` | 2 |", text)
         self.assertIn("| cmux-tui.yml | `setup-go-macOS-arm64-go-1.27.1` | 1 | 1 | 0 | 0 | 0 | 1 | 0% | 1 |", text)
         self.assertIn("_a note_", text)
+
+    def test_a_partial_listing_says_its_other_ref_share_is_a_lower_bound(self):
+        store = cache.summarize_store(self.ENTRIES, {"active_caches_size_in_bytes": 9_000_000_000,
+                                                    "active_caches_count": 700})
+        text = "\n".join(cache.render_section(store, [], sampled_logs=0))
+        self.assertIn("3 of 700 entries listed", text)
+        self.assertIn("lower bound", text)
+
+    def test_labels_from_logs_cannot_break_the_code_span_or_the_row(self):
+        rows = [cache.RestoreRow("w.yml", "evil`**x**\nnext|row", exact=1)]
+        text = "\n".join(cache.render_section(None, rows, sampled_logs=1))
+        row = next(line for line in text.splitlines() if line.startswith("| w.yml"))
+        self.assertIn("`evil'**x** next\\|row`", row)
+
+    def test_the_failed_legend_covers_lookup_errors(self):
+        text = "\n".join(cache.render_section(None, [], sampled_logs=0))
+        self.assertIn("Failed to restore", text)
+        self.assertNotIn("the entry downloaded but did not restore", text)
 
     def test_an_unread_store_still_renders_the_restores(self):
         text = "\n".join(cache.render_section(None, [], sampled_logs=0))

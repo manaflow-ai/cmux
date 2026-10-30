@@ -113,16 +113,23 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
   Blacksmith write here (the owned minis). On a Blacksmith runner,
   `actions/cache` uses Blacksmith's own store next to the runner (25 GB per
   repository; entries unused for 7 days are evicted). This API does not list
-  that store.
+  that store. When the store holds more entries than the report lists (500,
+  largest first), it says how many it listed and that the other-ref share is a
+  lower bound.
 - **Restores.** The report reads the logs of up to `CI_HEALTH_CACHE_LOG_JOBS`
-  (default 20) sampled jobs that have a cache step, one per workflow and job
-  name per round. It classifies every cache invocation from the lines the cache
+  (default 20) sampled jobs that have a cache step or a setup action that can
+  restore one (`actions/setup-node` with `cache: npm`, say), one per workflow
+  and job name per round. Jobs that succeeded, failed or timed out count;
+  cancelled jobs and runs from forks do not. It classifies every cache invocation from the lines the cache
   actions print, on either store. The classes are an exact hit, a prefix
-  (`restore-keys`) hit, a miss, and a failed restore, where the entry downloaded
-  but the untar failed (for example over a read-only Go module cache). It also
+  (`restore-keys`) hit, a miss, and a failed restore, where the action printed
+  `Failed to restore`: at lookup, or after the entry downloaded and the untar
+  failed (for example over a read-only Go module cache). It also
   counts saves refused with "Unable to reserve cache", because another job held
   the key. R2 restores through `.github/actions/cache-restore` are read from
-  their `CMUX_CACHE_RESTORE` receipts. Rows are sorted worst hit rate first.
+  their `CMUX_CACHE_RESTORE` receipts, and so are its GitHub and Warp restores
+  when the cache action printed no result (an unavailable cache service). A log
+  cut at the read cap, or one that could not be read, leaves a note. Rows are sorted worst hit rate first.
 
 ### Comparison against the previous window
 

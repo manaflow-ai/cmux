@@ -742,6 +742,64 @@ class RenderTests(unittest.TestCase):
         self.assertIn("log sampling stopped after 1 jobs", text)
         self.assertIn("| a.yml | `k-1` | 1 | 1 | 0 | 0 | 1 | 0 | 0% | 0 |", text)
 
+    def test_a_usage_failure_keeps_the_listing_and_one_bad_log_does_not_stop_the_sample(self):
+        class CacheGitHub:
+            truncated_logs: set = set()
+
+            def caches(self, max_pages):
+                return [{"key": "k-1-deadbeefcafe", "ref": "refs/heads/main", "size_in_bytes": 1024**3}]
+
+            def cache_usage(self):
+                raise RuntimeError("GET /actions/cache/usage failed (500)")
+
+            def job_log(self, job_id):
+                if job_id == 1:
+                    raise RuntimeError("job 1 log download failed (404)")
+                if job_id == 2:
+                    self.truncated_logs.add(2)
+                return "##[group]Run actions/cache@abc\n  key: k-1-deadbeefcafe\nCache not found for input keys: k-1-deadbeefcafe\n"
+
+        lines = report.collect_cache_section(
+            CacheGitHub(), [("a.yml", "x", 1), ("b.yml", "y", 2)], log_sample=5
+        )
+        text = "\n".join(lines)
+        self.assertIn("**GitHub store:**", text)
+        self.assertIn("cache usage not read", text)
+        self.assertIn("job 1 log download failed (404)", text)
+        self.assertIn("| b.yml | `k-1` | 1 | 1 | 0 | 0 | 1 | 0 | 0% | 0 |", text)
+        self.assertIn("job 2 log was cut", text)
+
+    def test_a_job_log_past_the_cap_is_cut_and_recorded(self):
+        import gzip as gz
+        import io
+        from unittest import mock
+
+        class Response(io.BytesIO):
+            def __init__(self, body, encoding=None):
+                super().__init__(body)
+                self.headers = {"Content-Encoding": encoding} if encoding else {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        github = report.GitHub("token", REPO)
+        for body, encoding in ((b"x" * 5000, None), (gz.compress(b"x" * 5000), "gzip")):
+            github.truncated_logs.clear()
+            with mock.patch("urllib.request.OpenerDirector.open", return_value=Response(body, encoding)):
+                self.assertEqual(len(github.job_log(7, max_bytes=1000)), 1000)
+            self.assertEqual(github.truncated_logs, {7})
+        github.truncated_logs.clear()
+        with mock.patch("urllib.request.OpenerDirector.open", return_value=Response(gz.compress(b"short"), "gzip")):
+            self.assertEqual(github.job_log(8, max_bytes=1000), "short")
+        self.assertEqual(github.truncated_logs, set())
+
+    def test_fork_runs_are_not_sampled_for_cache_logs(self):
+        self.assertFalse(report.cache_log_candidate({"head_repository": {"full_name": "someone/cmux"}}, REPO))
+        self.assertTrue(report.cache_log_candidate({"head_repository": {"full_name": REPO}}, REPO))
+
     def test_the_report_says_it_only_measures(self):
         self.assertIn("only measures", self.text)
         self.assertIn("queue_janitor.py", self.text)

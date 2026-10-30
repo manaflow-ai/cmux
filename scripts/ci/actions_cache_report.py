@@ -15,7 +15,7 @@ which cache keys miss, and which ones fill the store.
 * **Restores.** For a bounded sample of jobs that have a cache step, the
   report reads the job log and classifies each cache invocation from the lines
   the cache actions print: an exact hit, a prefix (restore-keys) hit, a miss,
-  or a restore that failed after downloading. It also counts saves refused
+  or a restore that failed (`Failed to restore`, at lookup or after downloading). It also counts saves refused
   because another job held the key ("Unable to reserve cache"). This works the
   same on either store, because the actions print the same lines.
 
@@ -62,11 +62,17 @@ _RESTORE_FAILED = re.compile(r"Failed to restore")
 _SAVE_COLLISION = re.compile(r"Unable to reserve cache with key (\S+?),? another job")
 _SAVED = re.compile(r"Cache saved with (?:the )?key: (\S+)")
 # .github/actions/cache-restore prints one receipt per restore
-# (scripts/ci/cache_restore_receipt.py). Its GitHub route also prints the
-# actions/cache lines above, so only the R2 and Warp routes are read from it.
+# (scripts/ci/cache_restore_receipt.py). Its GitHub and Warp routes run a cache
+# action that usually prints the lines above, so their receipts count only when
+# that action printed no result (an unavailable cache service prints a warning
+# and nothing else). The R2 route prints nothing else and always counts.
 _RECEIPT = re.compile(r"^CMUX_CACHE_RESTORE (\{.*\})\s*$")
 _RECEIPT_KINDS = {"exact": "exact", "prefix": "prefix", "miss_or_unavailable": "miss", "error": "failed"}
-_RECEIPT_ROUTES = {"r2": "r2", "warp-cache": "warp"}
+_RECEIPT_ROUTES = {"r2": "r2", "warp-cache": "warp", "github-cache": ""}
+_ACTION_ROUTED = ("actions/cache", "warpbuilds/cache")
+# Setup actions that restore a cache when asked to (`cache: npm`, `cache: true`).
+_SETUP_STEP = re.compile(r"\bset ?up[- ](?:node|go|python|java|dotnet)\b")
+_JOB_CONCLUSIONS = ("success", "failure", "timed_out")
 
 
 def key_prefix(key: str) -> str:
@@ -102,6 +108,7 @@ class StoreSummary:
     listed: int
     unshared_size: int
     prefixes: list[PrefixRow]
+    listed_size: int = 0
 
 
 def summarize_store(entries: Iterable[Mapping[str, Any]], usage: Mapping[str, Any] | None) -> StoreSummary:
@@ -130,7 +137,9 @@ def summarize_store(entries: Iterable[Mapping[str, Any]], usage: Mapping[str, An
     # size, so the count falls back to what was listed.
     count = int(usage.get("active_caches_count") or 0) or listed
     ordered = sorted(rows.values(), key=lambda row: (-row.size, row.prefix))
-    return StoreSummary(total_size=total, entries=count, listed=listed, unshared_size=unshared, prefixes=ordered)
+    return StoreSummary(
+        total_size=total, entries=count, listed=listed, unshared_size=unshared, prefixes=ordered, listed_size=listed_size
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -176,12 +185,18 @@ def parse_job_log(text: str) -> list[CacheEvent]:
     """Each cache restore in one job's log, plus its saves refused or done."""
     events: list[CacheEvent] = []
     current: _Invocation | None = None
+    # Whether the last routed cache action (see _ACTION_ROUTED) printed a
+    # result; None until one runs, and again once a receipt has used it.
+    routed_printed: bool | None = None
 
     def close() -> None:
+        nonlocal routed_printed
         if current is not None:
             kind = current.result()
             if kind:
                 events.append(CacheEvent(current.label(), "exact" if kind == "hit" else kind))
+            if current.action.lower().startswith(_ACTION_ROUTED):
+                routed_printed = bool(kind)
 
     for raw in text.splitlines():
         line = _strip(raw)
@@ -201,8 +216,13 @@ def parse_job_log(text: str) -> list[CacheEvent]:
                 record = {}
             route = _RECEIPT_ROUTES.get(str(record.get("action_route")))
             kind = _RECEIPT_KINDS.get(str(record.get("result")))
-            if route and kind and record.get("key"):
-                events.append(CacheEvent(f"{key_prefix(str(record['key']))} ({route})", kind))
+            if route != "r2":
+                counts, routed_printed = routed_printed is False, None
+            else:
+                counts = True
+            if route is not None and counts and kind and record.get("key"):
+                label = key_prefix(str(record["key"]))
+                events.append(CacheEvent(f"{label} ({route})" if route else label, kind))
             continue
         collision = _SAVE_COLLISION.search(line)
         if collision:
@@ -288,12 +308,15 @@ def aggregate_restores(sampled: Iterable[tuple[str, int, Sequence[CacheEvent]]])
 
 
 def is_cache_job(job: Mapping[str, Any]) -> bool:
-    """A finished job with a step whose name says it restores or caches."""
-    if job.get("conclusion") not in ("success", "failure"):
+    """A finished job with a step whose name says it restores or caches, or a
+    setup action that can restore one."""
+    if job.get("conclusion") not in _JOB_CONCLUSIONS:
         return False
     for step in job.get("steps") or ():
         name = str(step.get("name") or "").lower()
-        if step.get("conclusion") not in ("skipped", None) and ("cache" in name or "restore" in name):
+        if step.get("conclusion") in ("skipped", None):
+            continue
+        if "cache" in name or "restore" in name or _SETUP_STEP.search(name):
             return True
     return False
 
@@ -323,7 +346,9 @@ def _gb(size: int) -> str:
 
 
 def _esc(value: str) -> str:
-    return value.replace("|", "\\|")
+    """Safe inside a table cell and a code span: log text cannot end the row or the span."""
+    value = re.sub(r"[\x00-\x1f\x7f]+", " ", value)
+    return value.replace("`", "'").replace("|", "\\|")
 
 
 def render_section(
@@ -345,6 +370,12 @@ def render_section(
             "least-recent use once full. Only runners outside Blacksmith write here; Blacksmith "
             "runners use Blacksmith's own store, which this API does not list."
         )
+        if store.listed < store.entries:
+            lines.append("")
+            lines.append(
+                f"_{store.listed} of {store.entries} entries listed (largest first), so the other-ref share is a "
+                f"lower bound: {_gb(max(store.total_size - store.listed_size, 0))} GB is unlisted._"
+            )
         lines.append("")
         if store.prefixes:
             lines.append("| Key prefix | entries | GB | GB on other refs | refs | last used |")
@@ -357,7 +388,7 @@ def render_section(
             lines.append("")
     lines.append(
         f"**Restores (sampled from {sampled_logs} job logs, either store):** exact and prefix are hits; "
-        "failed means the entry downloaded but did not restore; collisions are saves refused because "
+        "failed means the cache step printed `Failed to restore`, at lookup or after the entry downloaded; collisions are saves refused because "
         "another job held the key."
     )
     lines.append("")

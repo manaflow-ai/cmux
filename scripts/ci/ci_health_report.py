@@ -47,6 +47,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
@@ -1307,6 +1308,8 @@ class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
         self.calls = 0
+        # Jobs whose log was longer than job_log's cap and was read cut short.
+        self.truncated_logs: set[int] = set()
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -1415,7 +1418,9 @@ class GitHub:
 
     def job_log(self, job_id: int, max_bytes: int = 32 * 1024 * 1024) -> str:
         """One job's log. The API answers with a redirect to signed blob storage,
-        which is fetched without the token: the token must not leave GitHub."""
+        which is fetched without the token: the token must not leave GitHub.
+        A log longer than `max_bytes` is cut there and its job lands in
+        `truncated_logs`."""
         self.calls += 1
         endpoint = f"/repos/{self.repo}/actions/jobs/{job_id}/logs"
 
@@ -1428,10 +1433,17 @@ class GitHub:
         location = ""
         try:
             with opener.open(request, timeout=60) as response:
-                raw = response.read(max_bytes)
+                raw = response.read(max_bytes + 1)
                 if response.headers.get("Content-Encoding") == "gzip":
-                    raw = gzip.decompress(raw)
-                return raw.decode("utf-8", errors="replace")
+                    try:
+                        inflater = zlib.decompressobj(wbits=31)
+                        text = inflater.decompress(raw, max_bytes + 1)
+                    except zlib.error as error:
+                        raise RuntimeError(f"GET {endpoint} sent a bad gzip body ({error})") from error
+                    if len(raw) > max_bytes and not inflater.eof:
+                        self.truncated_logs.add(job_id)  # the compressed body passed the cap
+                    raw = text
+                return self._cap_log(job_id, raw, max_bytes)
         except urllib.error.HTTPError as error:
             if error.code not in (301, 302, 303, 307, 308):
                 remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
@@ -1446,9 +1458,15 @@ class GitHub:
         blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
         try:
             with urllib.request.urlopen(blob, timeout=120) as response:
-                return response.read(max_bytes).decode("utf-8", errors="replace")
+                return self._cap_log(job_id, response.read(max_bytes + 1), max_bytes)
         except (urllib.error.HTTPError, urllib.error.URLError) as error:
             raise RuntimeError(f"job {job_id} log download failed ({error})") from error
+
+    def _cap_log(self, job_id: int, raw: bytes, max_bytes: int) -> str:
+        if len(raw) > max_bytes:
+            self.truncated_logs.add(job_id)
+            raw = raw[:max_bytes]
+        return raw.decode("utf-8", errors="replace")
 
     def issue(self, number: int) -> dict[str, Any]:
         return self.request("GET", f"/repos/{self.repo}/issues/{number}")
@@ -1502,7 +1520,7 @@ def collect_window(
             break
         sampled += 1
         rows.extend(job_rows(run, jobs, repo))
-        if cache_jobs is not None:
+        if cache_jobs is not None and cache_log_candidate(run, repo):
             cache_jobs.extend(
                 (workflow_name(run), str(job.get("name") or ""), int(job["id"]))
                 for job in jobs
@@ -1513,24 +1531,42 @@ def collect_window(
     )
 
 
+def cache_log_candidate(run: Mapping[str, Any], repo: str) -> bool:
+    """A fork's run can add steps that print forged cache lines, so only this
+    repository's own runs feed the restore sample."""
+    head = ((run.get("head_repository") or {}).get("full_name")) or ""
+    return bool(head) and not is_fork_run(run, repo)
+
+
 def collect_cache_section(github: GitHub, cache_jobs: Sequence[tuple[str, str, int]], *, log_sample: int) -> list[str]:
     """The Actions cache section: the GitHub store, and restores from a bounded
     sample of job logs. A failed read leaves a note, never a failed report."""
     notes: list[str] = []
     store = None
     try:
-        store = cache_report.summarize_store(
-            github.caches(cache_report.MAX_STORE_PAGES), github.cache_usage()
-        )
-    except (RateLimited, RuntimeError) as error:
+        entries = github.caches(cache_report.MAX_STORE_PAGES)
+    except RuntimeError as error:  # RateLimited included
         notes.append(f"GitHub cache store not read: {error}")
+    else:
+        usage = None
+        try:
+            usage = github.cache_usage()
+        except RuntimeError as error:
+            notes.append(f"GitHub cache usage not read, so the store figures are the listed entries only: {error}")
+        store = cache_report.summarize_store(entries, usage)
     sampled: list[tuple[str, int, list[cache_report.CacheEvent]]] = []
     for workflow, _job, job_id in cache_report.choose_log_jobs(cache_jobs, log_sample):
         try:
-            sampled.append((workflow, job_id, cache_report.parse_job_log(github.job_log(job_id))))
-        except (RateLimited, RuntimeError) as error:
+            text = github.job_log(job_id)
+        except RateLimited as error:
             notes.append(f"log sampling stopped after {len(sampled)} jobs: {error}")
             break
+        except RuntimeError as error:
+            notes.append(f"a log was skipped: {error}")
+            continue
+        sampled.append((workflow, job_id, cache_report.parse_job_log(text)))
+    for job_id in sorted(getattr(github, "truncated_logs", ())):
+        notes.append(f"job {job_id} log was cut at the read cap; restores after the cut are not counted")
     return cache_report.render_section(
         store, cache_report.aggregate_restores(sampled), sampled_logs=len(sampled), notes=notes
     )
