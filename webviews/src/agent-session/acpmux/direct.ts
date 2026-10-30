@@ -6516,12 +6516,22 @@ export class AcpmuxDirectClient {
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
+  /** Called each time this client adopts a chat as the tab's (`adopted`) after the connect: a
+   *  fork or Open Anyway from the live-chat choice, or an adopt retried after Trust. The host
+   *  keeps it as the tab's session, so restoring the tab reopens it. */
+  onAdopted?: (sessionId: string) => void;
+  private markAdopted(sessionId: string): void {
+    this.adopted = sessionId;
+    this.onAdopted?.(sessionId);
+  }
   /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux
   /// without adopt starts a fresh one) is removed, and the pane says so instead of posing as it.
   /// A socket that drops meanwhile fails the connect, so the host reconnects and adopts again
   /// (acpmux maps one chat to one session).
   private async adoptChat(adopt: AcpmuxAdopt): Promise<void> {
     this.host = { ...this.host, adopt: undefined };
+    // A person who moved to another chat while this one adopted keeps it shown.
+    const generation = this.selectionGeneration;
     let result: any;
     try {
       // After Trust the same chat is adopted again.
@@ -6546,7 +6556,8 @@ export class AcpmuxDirectClient {
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
     // A fork is a new conversation: its harness session is its own, not the adopted one.
     if (sessionId && (adopt.ifLive === "fork" || adoptedBy(result, adopt))) {
-      this.adopted = sessionId;
+      if (this.closed || generation !== this.selectionGeneration) return;
+      this.markAdopted(sessionId);
       await this.select(sessionId);
       return;
     }
@@ -6578,7 +6589,7 @@ export class AcpmuxDirectClient {
     }
     this.liveTakeOver = live;
     this.liveTakeOverFor = sessionId;
-    if ((await this.select(sessionId)) === sessionId) this.adopted = sessionId;
+    if ((await this.select(sessionId)) === sessionId) this.markAdopted(sessionId);
     return true;
   }
   /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
@@ -6590,7 +6601,10 @@ export class AcpmuxDirectClient {
       // The same choice over a watched chat (`watchLive`, or a Take Over refused as live): it forks
       // or takes that chat over; `adopted` names the chat the tab keeps.
       const sessionId = this.selectedSessionId;
-      if (sessionId && (await this.takeOver(choice)) && choice === "open") this.adopted = sessionId;
+      const generation = this.selectionGeneration;
+      if (!sessionId || !(await this.takeOver(choice)) || choice !== "open") return;
+      // Taken over while the person stayed on it: the tab keeps it.
+      if (!this.closed && generation === this.selectionGeneration) this.markAdopted(sessionId);
       return;
     }
     if (choice === "fork" && !live.canFork) return;
