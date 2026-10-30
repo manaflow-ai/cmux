@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./NoticeSlot";
@@ -89,6 +89,7 @@ export function HarnessHealthNotice({
   turnRunning = false,
   onUpdated,
   onOffer,
+  onSignInVisible,
 }: {
   health: HarnessHealth | undefined;
   /// The chat's agent now; a row for another (fetched before a switch) shows nothing.
@@ -103,6 +104,8 @@ export function HarnessHealthNotice({
   onUpdated?: () => void;
   /// The update on offer for the model chip, or undefined once there is none (or it started).
   onOffer?: (offer: UpdateOffer | undefined) => void;
+  /// The sign-in card actually drawn, after dismissal and NoticeSlot arbitration.
+  onSignInVisible?: (visible: boolean) => void;
 }) {
   const t = useT();
   const [dismissed, setDismissed] = useState<string>();
@@ -159,6 +162,11 @@ export function HarnessHealthNotice({
   useEffect(() => () => offerOut.current?.(undefined), []);
   const line = ours && !offering && !!(kind || state) && !!key && key !== dismissed;
   const turn = useNoticeTurn("harness-health", kind === "signedOut" ? "error" : "update", line);
+  const signInVisible = ours && kind === "signedOut" && !offering && !!key && key !== dismissed && turn.shown;
+  useLayoutEffect(() => {
+    onSignInVisible?.(signInVisible);
+  }, [onSignInVisible, signInVisible]);
+  useLayoutEffect(() => () => onSignInVisible?.(false), [onSignInVisible]);
   if (!health || health.id !== harness) return null;
   if (!(kind || state) || !key || key === dismissed) return null;
   const run = (text: string) => open({ kind: "terminal", text, ...(cwd ? { cwd } : {}), run: true });
