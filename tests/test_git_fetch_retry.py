@@ -289,6 +289,27 @@ class DanglingSubmodules(unittest.TestCase):
                   repo=self.repo, runner=lambda c, t: 0, sleep=lambda _s: None, log=self.logs.append)
         self.assertEqual((self.repo / "ghostty" / "cache").read_text(), "warm\n")
 
+    def test_named_paths_scope_the_drop_with_or_without_a_separator(self) -> None:
+        for command in (["git", "submodule", "update", "--init", "ghostty-next"],
+                        ["git", "-C", "ghostty", "-c", "a=b", "submodule", "update", "--depth", "1", "ghostty-next"]):
+            with self.subTest(command=command):
+                shutil.rmtree(self.repo / ".git" / "modules", ignore_errors=True)
+                (self.repo / "ghostty").mkdir(exist_ok=True)
+                (self.repo / "ghostty" / ".git").write_text("gitdir: ../.git/modules/ghostty\n")
+                (self.repo / "ghostty" / "cache").write_text("warm\n")
+                retry.run(command, tries=1, timeout=60, repo=self.repo, runner=lambda c, t: 0,
+                          sleep=lambda _s: None, log=self.logs.append)
+                self.assertEqual((self.repo / "ghostty" / "cache").read_text(), "warm\n")
+        low = retry.low_speed_command
+        self.assertEqual(retry.submodule_update_paths(low(["git", "-c", "protocol.version=2", "-c",
+                                                           "core.hooksPath=/dev/null", "submodule", "update", "--init",
+                                                           "--force", "--depth=1", "--recursive"])), [])
+        self.assertEqual(retry.submodule_update_paths(["git", "submodule", "update", "--", "a", "b"]), ["a", "b"])
+        self.assertIsNone(retry.submodule_update_paths(["git", "-C", "update", "fetch"]))
+        self.assertIsNone(retry.submodule_update_paths(["git", "submodule", "sync"]))
+        self.assertEqual(retry.submodule_update_paths(["git", "submodule", "--quiet", "update", "--init"]), [])
+        self.assertEqual(retry.submodule_update_paths(["git", "submodule", "-q", "update", "x"]), ["x"])
+
     def test_the_cli_only_drops(self) -> None:
         shutil.rmtree(self.repo / ".git" / "modules")
         result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/git_fetch_retry.py"),

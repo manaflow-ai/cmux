@@ -30,6 +30,7 @@ use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -80,7 +81,7 @@ fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<V
                     (kind, Some(text)) => {
                         let mut block = json!({"type": "text", "text": text});
                         if kind == "pasted" || part.get("pasted") == Some(&Value::Bool(true)) {
-                            block["_meta"] = json!({"cmux": {"pasted": true}});
+                            block.set("_meta", json!({"cmux": {"pasted": true}}));
                         }
                         Some(block)
                     }
@@ -135,7 +136,7 @@ impl Hub {
         // A sub-session's retry names its sender: checked again at dispatch as its messages are
         // (`subsession_guard.rs` `family_dispatch_check`).
         if let Some(from) = by.from {
-            provenance["from"] = json!(from);
+            provenance.set("from", json!(from));
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {

@@ -51,6 +51,16 @@ import CmuxNextCompat
         return now() - last <= Self.lifetime
     }
 
+    /// Uses the gesture for a prompt the person sent: true once per recorded gesture, however old.
+    /// Only a send with no key press or click of the person's left is refused, never one for its
+    /// age: on a loaded Mac the page's prompt reaches the host well past ``lifetime`` after the
+    /// person's Enter (Leo's own typed messages came back "Not sent" at load ~200, 2026-10-29).
+    public func consumeForSend() -> Bool {
+        guard last != nil else { return false }
+        last = nil
+        return true
+    }
+
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
 
     /// The clock gestures are timed on (the system uptime; tests set it): a credit a gesture left
@@ -133,7 +143,7 @@ import CmuxNextCompat
     /// ``reserve(connection:intent:)``; `paid`: the person's gesture was already taken for this
     /// pick (a new chat's start credit, ``AgentPaneTransport/startCredit``). Module-only.
     func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool) -> String? {
-        guard paid || consume() else { return nil }
+        guard paid || (intent.method == "session/prompt" ? consumeForSend() : consume()) else { return nil }
         let at = now()
         dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
         let ticket = UUID().uuidString

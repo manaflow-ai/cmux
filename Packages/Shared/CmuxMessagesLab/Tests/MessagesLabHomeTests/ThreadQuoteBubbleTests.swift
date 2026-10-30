@@ -80,12 +80,13 @@ import Testing
         let pv = preview(Self.short, outgoing: outgoing, width: 628)
         let (bmp, box) = render(pv, width: 628)
         let bg = srgb(Fixture.background)
-        let fill = blend(srgb(outgoing ? Fixture.outgoing : Fixture.incoming), over: bg, alpha: Double(ThreadPreview.quoteOpacity))
+        // My root is an outline (2026-10-27/28 references): inside it is the background. The Chief's keeps its faded fill.
+        let fill = outgoing ? bg : blend(srgb(Fixture.incoming), over: bg, alpha: Double(ThreadPreview.quoteOpacity))
         // Inside the left end, clear of the text: the bubble's own fill, faded.
         let inside = bmp.rgb(CGPoint(x: box.minX + 4, y: box.midY))
         #expect(distance(inside, fill) <= 10, "quote body \(inside) should be its source fill \(fill)")
-        // The text is drawn in the source bubble's text colour (white on blue, ink on gray).
-        let ink = blend(srgb(outgoing ? Fixture.outgoingText : Fixture.incomingText), over: bg, alpha: Double(ThreadPreview.quoteOpacity))
+        // The text: Messages' quote blue for mine, the bubble's ink (faded) for the Chief's.
+        let ink = outgoing ? srgb(Fixture.quoteText) : blend(srgb(Fixture.incomingText), over: bg, alpha: Double(ThreadPreview.quoteOpacity))
         var best = Double.infinity
         var y = box.minY + 4
         while y < box.maxY - 4 {
@@ -108,10 +109,11 @@ import Testing
                                CGPoint(x: box.minX + 1, y: box.maxY - 1), CGPoint(x: box.maxX - 1, y: box.maxY - 1)] {
                     #expect(distance(bmp.rgb(corner), bg) <= 3, "corner \(corner) of \(box) is not rounded (w \(width), out \(outgoing))")
                 }
-                for end in [CGPoint(x: box.minX + 1.5, y: box.midY), CGPoint(x: box.maxX - 1.5, y: box.midY)] {
+                let inset: CGFloat = outgoing ? 0.5 : 1.5 // my root's 1 pt outline, the Chief's fill
+                for end in [CGPoint(x: box.minX + inset, y: box.midY), CGPoint(x: box.maxX - inset, y: box.midY)] {
                     #expect(distance(bmp.rgb(end), bg) > 6, "end \(end) of \(box) is not filled (w \(width), out \(outgoing))")
                 }
-                // No tail: a quote is never the last bubble of a run, so nothing is drawn past its body.
+                // Its small tail hangs under the body (HomeReplyQuoteParityTests); nothing is drawn past the body's end.
                 let tail = outgoing ? CGPoint(x: box.maxX + 3, y: box.maxY - 1.5) : CGPoint(x: box.minX - 3, y: box.maxY - 1.5)
                 #expect(distance(bmp.rgb(tail), bg) <= 3, "quote draws a tail at \(tail) (w \(width), out \(outgoing))")
             }

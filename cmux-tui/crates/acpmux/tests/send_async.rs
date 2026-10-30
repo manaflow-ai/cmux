@@ -404,3 +404,55 @@ async fn this_machines_own_name_in_front_of_a_session_name_finds_the_session() {
     let e = c.call(method::MUX_INFO, json!({"sessionId": other})).await.unwrap_err();
     assert!(e.contains("no session"), "{e}");
 }
+
+/// `acpmux send --no-wait` from inside a session: the outbox records the caller it proved when it
+/// took the message (`Delivery::caller`, saved in outbox.json, so a restart resumes it as that
+/// caller) and proves it again when it delivers, so the target's records name the sending
+/// session's proven name, id and harness, and the row reads as that agent's message.
+#[tokio::test]
+async fn a_no_wait_send_from_a_session_names_its_proven_sender() {
+    let h = hub();
+    let mut person = C::new(h.clone()).await;
+    let new = |name: &str| json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": name}}});
+    let sender = person.call(method::SESSION_NEW, new("sub-lane")).await.unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let receiver = person.call(method::SESSION_NEW, new("parent")).await.unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut lane = C::as_session(h.clone(), &sender).await;
+    let mut request = prompt(&receiver, "Tests pass", "p-outbox");
+    // A name the sender claims stays its display name; the session, harness and provenance are
+    // the proven caller's.
+    request["_meta"]["acpmux"]["fromAgent"] = json!("claimed-name");
+    request["_meta"]["acpmux"]["fromSessionId"] = json!("s-forged");
+    request["_meta"]["acpmux"]["fromHarness"] = json!("forged");
+    let queued = lane.call(SEND_QUEUE, json!({"request": request})).await.unwrap();
+    let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+    let status =
+        lane.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000})).await.unwrap();
+    assert_eq!(status["status"], "delivered", "{status}");
+
+    let mut message = Value::Null;
+    for _ in 0..200 {
+        let page = person
+            .call("_acpmux/events", json!({"sessionId": receiver, "kinds": ["user_message"]}))
+            .await
+            .unwrap();
+        let events = page["events"].as_array().cloned().unwrap_or_default();
+        if let Some(e) = events.into_iter().find(|e| e["msg"]["promptId"] == "p-outbox") {
+            message = e["msg"].clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(message["client"].as_str().unwrap().starts_with("acpmux-outbox#"), "{message}");
+    let p = &message["_meta"]["provenance"];
+    assert_eq!(p["kind"], "session_message", "{message}");
+    assert_eq!(p["from"], json!(sender), "{message}");
+    assert_eq!(p["fromName"], "sub-lane", "{message}");
+    assert_eq!(p["fromSessionId"], json!(sender), "{message}");
+    assert_eq!(p["fromHarness"], "fake", "{message}");
+}

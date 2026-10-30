@@ -104,6 +104,7 @@ public final class LiveCoordinator {
     @ObservationIgnored let pairing: LinkPairing?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored private var presence: PresenceListener?
+    @ObservationIgnored private var isBackgrounded = false
     @ObservationIgnored private var teamTask: Task<Void, Never>?
     @ObservationIgnored var bannerTask: Task<Void, Never>?
     @ObservationIgnored var everConnected = false
@@ -653,6 +654,7 @@ public final class LiveCoordinator {
         let apiForLink = api
         let controller = LinkController(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP, dialer: dialer, clock: clock,
                                         accessToken: { try await apiForLink.accessToken($0) })
+        if isBackgrounded { controller.send(.background) }
         let session = MacSession(macID: mac.id, name: mac.name, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
         wire(session)
@@ -881,8 +883,15 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.blockUDP(blockUDP)) }
     }
 
-    /// App foreground: probe or redial the link and the presence socket.
+    /// Keep background work usable, but do not trust these links after suspension.
+    public func background() {
+        isBackgrounded = true
+        for session in sessions.values { session.link.send(.background) }
+    }
+
+    /// App foreground: immediately replace stale links and refresh presence.
     public func foreground() {
+        isBackgrounded = false
         log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
         // The first activation is the launch itself, already being measured.
         if ConnectTimeline.shared.sinceProcessStart > 5 { ConnectTimeline.shared.begin("foreground") }
@@ -891,7 +900,7 @@ public final class LiveCoordinator {
         }
         presence?.kick()
         if discoveryTask != nil { startDiscovery() }
-        for session in sessions.values { session.link.send(.foreground) }
+        for session in sessions.values { session.link.send(.resume) }
     }
 
 }
