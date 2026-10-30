@@ -84,6 +84,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
     var launchImageSize: CGSize?
+    /// Move covers clear without invoking their one-frame reveal callback on resize.
+    var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
     /// Asked when the launch image's limit is up, before it goes: `false` keeps the frame, because
@@ -174,7 +176,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
             // A move cover owns the clear callback that reveals the page on its next frame. A
             // resize must discard old-size pixels without consuming that hand-off early.
-            clearLaunchImage(invokeCallback: false)
+            clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
+            launchImageInvokesResizeCallback = true
         }
         // After the host frame: a strip pinned to a browser's band reads its
         // frame from constraints that depend on the host frame.

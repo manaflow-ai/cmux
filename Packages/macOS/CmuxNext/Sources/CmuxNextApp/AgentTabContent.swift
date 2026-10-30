@@ -99,7 +99,11 @@ struct AgentTabContent {
         let image = size == .zero || paneView.launchImageView != nil || view.pageDrawsOverCovers ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
         BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
-        if let image { paneView.showLaunchImage(image); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
+        if let image {
+            paneView.showLaunchImage(image)
+            paneView.launchImageInvokesResizeCallback = false
+            paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }
+        }
         let imageView = image == nil ? nil : paneView.launchImageView
         view.hideMovedPage { [weak paneView, weak imageView] in
             BenchSpans.mark("newTab.cover.cleared")

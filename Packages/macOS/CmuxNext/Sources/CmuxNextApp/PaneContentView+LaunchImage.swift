@@ -24,6 +24,7 @@ extension PaneContentView {
         contentHost.addSubview(view, positioned: .below, relativeTo: nil)
         launchImageView = view
         launchImageSize = contentHost.bounds.size
+        launchImageInvokesResizeCallback = true
         LaunchImageHold.shared.began()
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
         launchImageDeadline.schedule(after: limit) { @MainActor [weak self] in
