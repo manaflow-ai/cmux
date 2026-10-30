@@ -298,6 +298,15 @@ async fn a_late_retry_decision_keeps_a_finished_turns_end() {
     fake.answer([ok(10, "done")]);
     r.expire().await;
     assert_eq!(fake.take(), [s(10, "done", Some("Ten."))]);
+    // A stale begin of an older turn the store refuses reopens nothing.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(10, "running"), ok(10, "done"), refused("handoff.stale", 10, "done")]);
+    r.step(S, began(10)).await;
+    r.step(S, done(10, "Ten.")).await;
+    r.step(S, began(9)).await;
+    fake.take();
+    r.step(S, skipped()).await;
+    assert!(fake.take().is_empty(), "a stale begin of turn 9 lets no late decision through");
     // A new attempt of the turn that fails is reported again.
     let (mut r, fake) = reporter();
     fake.answer([ok(9, "running"), ok(9, "done"), ok(9, "running"), ok(9, "failed")]);
