@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextDesign
+import MessagesLabHome
 
 /// DEBUG ONLY, exploration: lays the real first-run parts out as a ``HomeFirstRunVariant``
 /// (the Home variations gallery). With no variant the shipping `arrange` and `layout` run.
@@ -172,11 +173,14 @@ extension HomeNativeTranscriptView {
     /// DEBUG: shows the first-run panel as variation `number` (1...16; anything else: the shipping
     /// panel) and returns its caption (nil for the shipping panel).
     @discardableResult public func debugSetFirstRunVariant(_ number: Int) -> String? {
+        debugVariantNumber = number
         let variant = HomeFirstRunVariant.numbered(number)
         firstRun.variant = variant
         if let window {
             let background = (variant?.background ?? .shipping).color(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
             debugUnifyBackground(window, background)
+            // No tinted glass band over the chat's top: it read as a second background.
+            if background != nil { transcript.setTopFadeStyle(.edgeShadow) }
         }
         // The gallery shows the panel even where the capture Mac's Chief conversation is not the shown one.
         firstRun.isHidden = false

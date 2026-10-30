@@ -21,6 +21,10 @@ public import MessagesLabHome
 public final class HomeNativeTranscriptView: NSView {
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG: the variations gallery's current variant (`debugSetFirstRunVariant`), nil when never set.
+    var debugVariantNumber: Int?
+    #endif
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -504,6 +508,10 @@ public final class HomeNativeTranscriptView: NSView {
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The variations gallery: the shared background follows light and dark, after the theme pass repaints.
+        if let number = debugVariantNumber { Task { @MainActor [weak self] in self?.debugSetFirstRunVariant(number) } }
+        #endif
     }
 
     /// The theme's palette (the key window's, for every window) for the MessagesLab
