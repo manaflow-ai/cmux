@@ -583,24 +583,30 @@ async function stripeTeamCheckout(
   }
 }
 
+// Each finished session in one attempt window moves the key once; past this
+// many, checkout fails rather than walking an unbounded chain.
+const MAX_CHECKOUT_SESSION_REPLAYS = 5;
+
 /**
  * Creates a Checkout Session under an idempotency key, so a double click or a
  * retried request gets the first session back. A replayed session is reused
  * only while Stripe still reports it open; one that has since completed or
- * expired is followed by a new session keyed after it.
+ * expired is followed by a session keyed after it, which is checked the same
+ * way.
  */
 async function createCheckoutSession(
   principal: CheckoutPrincipal,
   params: Stripe.Checkout.SessionCreateParams,
 ): Promise<Stripe.Checkout.Session> {
-  const idempotencyKey = checkoutSessionIdempotencyKey(principal, params);
-  const session = await stripe().checkout.sessions.create(params, { idempotencyKey });
-  if (!isIdempotentReplay(session)) return session;
-  const current = await stripe().checkout.sessions.retrieve(session.id);
-  if (current.status === "open") return current;
-  return stripe().checkout.sessions.create(params, {
-    idempotencyKey: checkoutSessionRetryIdempotencyKey(idempotencyKey, session.id),
-  });
+  let idempotencyKey = checkoutSessionIdempotencyKey(principal, params);
+  for (let replays = 0; replays <= MAX_CHECKOUT_SESSION_REPLAYS; replays += 1) {
+    const session = await stripe().checkout.sessions.create(params, { idempotencyKey });
+    if (!isIdempotentReplay(session)) return session;
+    const current = await stripe().checkout.sessions.retrieve(session.id);
+    if (current.status === "open") return current;
+    idempotencyKey = checkoutSessionRetryIdempotencyKey(idempotencyKey, session.id);
+  }
+  throw new Error("Stripe kept replaying finished Checkout Sessions");
 }
 
 /** Preserve only a first-party checkout return; JSON fetches resume as navigation. */
@@ -796,7 +802,7 @@ async function stripeCustomerForTeam(
       });
     return customer.id;
   } catch (error) {
-    if (!isStackTeamUniqueConflict(error)) throw error;
+    if (!isStripeCustomerInsertConflict(error)) throw error;
     const [raceWinner] = await cloudDb()
       .select({ id: stripeCustomers.id })
       .from(stripeCustomers)
@@ -863,15 +869,19 @@ async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> 
   return getStackServerApp();
 }
 
-function isStackTeamUniqueConflict(error: unknown): boolean {
+// Another checkout for the team inserted first: under the team index, or,
+// when Stripe's idempotency gave both racers the same customer, the id.
+const STRIPE_CUSTOMER_RACE_CONSTRAINTS = ["stripe_customers_stack_team_id_unique", "stripe_customers_pkey"];
+
+function isStripeCustomerInsertConflict(error: unknown): boolean {
   const cause = (error as { cause?: unknown } | null)?.cause;
   const candidate = (cause ?? error) as { code?: string; constraint?: string } | null;
   if (
     candidate?.code === "23505" &&
-    candidate.constraint === "stripe_customers_stack_team_id_unique"
+    STRIPE_CUSTOMER_RACE_CONSTRAINTS.includes(candidate.constraint ?? "")
   ) {
     return true;
   }
   const text = error instanceof Error ? error.message : String(error);
-  return /stripe_customers_stack_team_id_unique/.test(text);
+  return STRIPE_CUSTOMER_RACE_CONSTRAINTS.some((constraint) => text.includes(constraint));
 }
