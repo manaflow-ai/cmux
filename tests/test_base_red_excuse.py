@@ -277,6 +277,22 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no failed job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
+    def test_a_guard_status_aggregate_with_only_routed_failure_steps_is_excused(self):
+        name = "nightly-guards / Guard status"
+        head = failed_job(3, 10, HEAD, name=name, step="Check routed guard jobs")
+        base = failed_job(4, 20, BASE_SHA, name=name, step="Check routed guard jobs")
+        base["steps"].append({"name": "Report routed guard jobs", "conclusion": "failure"})
+        self.gh.jobs = {3: head, 4: base}
+        self.gh.logs = {
+            3: log(name, "Check routed guard jobs", "release-notary: failure"),
+            4: log(name, "Check routed guard jobs", "release-notary: failure", "Report routed guard jobs"),
+        }
+        self.with_checks([{"id": 3, "name": name, "status": "completed", "conclusion": "failure",
+                           "app": {"slug": "github-actions"},
+                           "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+        self.assertIn("release-notary", "\n".join(lines))
+
 
 def crashed(job, signal, unfinished, frames, *extra):
     """A swift test log whose test helper died on `signal` with `unfinished` tests in flight."""
