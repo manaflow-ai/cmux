@@ -169,9 +169,17 @@ fn program_name_from(argv0: Option<&OsStr>) -> String {
     argv0
         .and_then(|argv0| Path::new(argv0).file_name())
         .map(|name| name.to_string_lossy())
-        .map(|name| name.strip_suffix(".exe").unwrap_or(&name).to_owned())
+        .map(|name| strip_exe_suffix(&name).to_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "cmux".to_owned())
+}
+
+/// Windows file names are case-insensitive, so `CMUX-TUI.EXE` names `CMUX-TUI`.
+fn strip_exe_suffix(name: &str) -> &str {
+    name.len()
+        .checked_sub(4)
+        .filter(|&cut| name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(".exe"))
+        .map_or(name, |cut| &name[..cut])
 }
 
 /// Help text spells commands `cmux ...`. Rewrite each command, at the start

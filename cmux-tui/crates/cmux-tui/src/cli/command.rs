@@ -217,8 +217,9 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     Ok(plan)
 }
 
-/// Whether the first two command words are `server start`, skipping startup
-/// switches and value-bearing options with the same arity as startup routing.
+/// Whether the first two command words are `server start` (or `srv start`),
+/// skipping startup switches, value-bearing startup options, and resource
+/// flags with their catalog arity.
 fn starts_with_server_start(args: &[String]) -> bool {
     let mut words = Vec::new();
     let mut index = 0;
@@ -235,8 +236,9 @@ fn starts_with_server_start(args: &[String]) -> bool {
             index = end;
             continue;
         }
-        if value.starts_with("--") {
-            if !value.contains('=')
+        if let Some(name) = value.strip_prefix("--") {
+            if !name.contains('=')
+                && flag_takes_value(name)
                 && args.get(index + 1).is_some_and(|next| !next.starts_with('-'))
             {
                 index += 1;
@@ -246,7 +248,7 @@ fn starts_with_server_start(args: &[String]) -> bool {
         }
         index += 1;
     }
-    words == ["server", "start"]
+    matches!(words[..], [scope, "start"] if super::shorthand::scope(scope) == "server")
 }
 
 /// Reject flags the action does not take and report every missing required
