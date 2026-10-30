@@ -18,7 +18,7 @@ struct DaemonRequestExecutor: Sendable {
             // Rule (b): a request that names a stand-in is never sent, from any sender. The creates that know how
             // resolve their target to the daemon's pane first (`DaemonStore.daemonTarget`); anything still naming a pane
             // that is opening fails here, at once, with no daemon round trip, and the person sees why
-            // (``PaneNotReady``; `DaemonService.ended` shows it once).
+            // (``PaneNotReady``; the connection shows it once: `DaemonConnection.reported`).
             if Self.mayNameStandIn(line), let leak = Self.standInReference(inLine: line) {
                 throw PaneNotReady(command: R.command, reference: leak)
             }

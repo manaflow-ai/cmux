@@ -233,10 +233,12 @@ public actor DaemonConnection {
 
     /// Rule (a) of the P0 2026-10-30, at the one place every sender's request goes through: a request refused because
     /// it names a pane still opening shows why once, for every sender (a `DaemonService` funnel, or a handler that calls
-    /// this connection itself). An open action scope (`action.run` from the CLI or MCP) answers the refusal itself, so
-    /// it shows nothing here. The returned error is marked shown, so no reporter shows it again.
+    /// this connection itself). A scope that answers failures (`action.run` from the CLI or MCP,
+    /// ``DaemonCommandScope/answersFailures``) answers the refusal itself, so it shows nothing here; a person's run
+    /// (a key, the menu, the palette) has a person scope that answers nobody, so it shows here. The returned error is
+    /// marked shown, so no reporter shows it again.
     private nonisolated func reported(_ refused: PaneNotReady) -> PaneNotReady {
-        guard DaemonCommandScope.current?.isOpen != true, let observer = paneNotReadyObserver.withLock({ $0 }) else { return refused }
+        guard DaemonCommandScope.current?.answersFailures != true, let observer = paneNotReadyObserver.withLock({ $0 }) else { return refused }
         var shown = refused
         shown.shown = true
         observer(shown)
