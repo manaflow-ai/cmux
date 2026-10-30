@@ -23,7 +23,8 @@ use crate::cli::errors::{AppError, Code};
 /// message limit, and four requests for 3,700 sessions.
 pub(super) const PAGE_ROWS: u64 = 1000;
 
-/// The most times a read takes a cursor it had already followed, each with a page twice as wide.
+/// The most times in a row a read takes a cursor it had already followed, each with a page twice
+/// as wide.
 const MAX_REPEATS: u32 = 16;
 
 /// What a read does with a row.
@@ -154,7 +155,7 @@ where
             if plan.one {
                 return Ok(Pages { rows, next: Some(Value::String(next)) });
             }
-            widen = 0;
+            (widen, repeats) = (0, 0);
         } else {
             repeats += 1;
             if repeats > MAX_REPEATS {

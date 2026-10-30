@@ -317,3 +317,23 @@ async fn a_widened_page_too_large_to_send_ends_in_an_error() {
     let e = read_all(&list, want, 10_000, &Seen::default()).await.unwrap_err();
     assert!(e.to_string().contains("again and again"), "{e}");
 }
+
+/// Every pair of a chat and its peer copy costs a page one repeated cursor; more pairs than
+/// [`MAX_REPEATS`] are still read whole, as each widened page moves on.
+#[tokio::test]
+async fn many_peer_copies_are_read_past_one_after_another() {
+    let mut rows = Vec::new();
+    for i in 0..20u64 {
+        let row =
+            json!({"sessionId": format!("s{i:02}"), "updatedAt": 1_000 - i, "status": "idle"});
+        let mut copy = row.clone();
+        copy["peer"] = json!("peer-1");
+        rows.extend([row, copy]);
+    }
+    let list = RefCell::new(rows.clone());
+    let got = read_all(&list, plan(1), usize::MAX, &Seen::default()).await.unwrap();
+    assert_eq!(
+        got.rows.iter().map(key).collect::<Vec<_>>(),
+        rows.iter().map(key).collect::<Vec<_>>()
+    );
+}
