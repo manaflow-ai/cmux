@@ -1436,6 +1436,8 @@ export class AcpmuxDirectClient {
   /// A turn opened after a Stop bound to a known turn, and it is not that turn (it names another, or
   /// none): the Stop no longer covers what runs, though its own result still answers it.
   private stopSuperseded = false;
+  /// A Stop sent before its turn opened has seen that turn's first opener (`stopSeesTurnOpen`).
+  private stopOpenerSeen = false;
   /// The daemon's current turn identity, when the live records name one.
   private runningTurnId?: string;
   /// The last seq seen when Stop was sent to the loaded chat: the snapshot says `stopping` until that
@@ -1792,6 +1794,7 @@ export class AcpmuxDirectClient {
         // Delivery is no longer observable on this connection. A reconnect must not inherit Stop.
         this.stopAfterSeq = undefined;
         this.stopSuperseded = false;
+        this.stopOpenerSeen = false;
         this.stopTurnId = undefined;
         this.stoppingEnded();
         this.emit("disconnected");
@@ -2029,6 +2032,7 @@ export class AcpmuxDirectClient {
     this.offerChildren.reset(this.socket?.readyState === WebSocket.OPEN);
     this.stopAfterSeq = undefined;
     this.stopSuperseded = false;
+    this.stopOpenerSeen = false;
     this.stopTurnId = undefined;
     this.runningTurnId = undefined;
     this.stoppingEnded();
@@ -4137,11 +4141,19 @@ export class AcpmuxDirectClient {
 
   /// A turn opening after a Stop bound to a known turn: one that is not that turn ends the Stop's
   /// hold on what runs (a legacy turn with no id included).
-  private stopSeesTurnOpen(event: EventRecord, turnId: string | undefined): void {
+  private stopSeesTurnOpen(event: EventRecord, turnId: string | undefined, opensNewTurn: boolean): void {
     for (const known of [this.runningTurnId, this.stopTurnId])
       if (known !== undefined && known !== turnId) this.supersededTurns.add(known);
-    if (this.stopAfterSeq === undefined || this.stopTurnId === undefined || event.seq <= this.stopAfterSeq) return;
-    if (turnId !== this.stopTurnId) this.stopSuperseded = true;
+    if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
+    if (this.stopTurnId !== undefined) {
+      if (turnId !== this.stopTurnId) this.stopSuperseded = true;
+      return;
+    }
+    // A Stop of a turn that names none: a later prompt (or agent-started turn) opens another turn,
+    // unless the Stop went out before its own turn opened and this is that turn's first opener.
+    if (!opensNewTurn) return;
+    if (this.stoppedTurnOpener === "pending" && !this.stopOpenerSeen) this.stopOpenerSeen = true;
+    else this.stopSuperseded = true;
   }
 
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
@@ -4165,6 +4177,7 @@ export class AcpmuxDirectClient {
     if (this.stopTurnId !== undefined && turnId !== this.stopTurnId) return;
     this.stopAfterSeq = undefined;
     this.stopSuperseded = false;
+    this.stopOpenerSeen = false;
     this.stopTurnId = undefined;
   }
 
@@ -4522,7 +4535,7 @@ export class AcpmuxDirectClient {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         if (msg.steer !== true) {
           const openedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
-          this.stopSeesTurnOpen(event, openedTurnId);
+          this.stopSeesTurnOpen(event, openedTurnId, true);
           this.runningTurnId = openedTurnId;
           // The fence covers the turn the forced Stop's next prompt started. A later explicit prompt
           // starts a turn whose unscoped boundaries are its own again, so its compactions can end.
@@ -4669,12 +4682,16 @@ export class AcpmuxDirectClient {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
+        // a turn the agent started on its own, never the turn before's.
+        const agentStarted = !this.turnOpen && startedTurnId === undefined;
         this.stoppingOpens(event);
-        this.stopSeesTurnOpen(event, startedTurnId);
+        this.stopSeesTurnOpen(event, startedTurnId, agentStarted);
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
         this.turnOpen = true;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
+        else if (agentStarted) this.runningTurnId = undefined;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
@@ -6062,6 +6079,7 @@ export class AcpmuxDirectClient {
       this.interrupting = undefined;
       this.stopAfterSeq = this.lastSeq;
       this.stopSuperseded = false;
+      this.stopOpenerSeen = false;
       this.stoppingAfterSeq = this.lastSeq;
       this.stoppedTurnOpener = this.turnOpen ? undefined : "pending";
       let opener: EventRecord | undefined;
@@ -7527,6 +7545,7 @@ export class AcpmuxDirectClient {
     this.missingRecheck = undefined;
     this.stopAfterSeq = undefined;
     this.stopSuperseded = false;
+    this.stopOpenerSeen = false;
     this.stoppingEnded();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
