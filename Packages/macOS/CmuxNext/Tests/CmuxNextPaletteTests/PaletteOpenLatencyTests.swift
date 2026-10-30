@@ -99,6 +99,23 @@ struct PaletteOpenLatencyTests {
         #expect(store.workspaceReads == 1, "the workspaces are read once per open, after the first frame")
     }
 
+    /// Go to Workspace (Cmd-P) lists the workspaces on its empty query, so its
+    /// open reads the list, but once: every read walks every workspace of
+    /// every machine. Since #27071 the open asked each provider for its
+    /// immediate rows twice (once for the rows, once to see whether it must
+    /// refresh them), which built every row of the page twice, the command
+    /// page's row per catalog action included.
+    @Test func goToWorkspaceOpenReadsTheWorkspaceListOnce() throws {
+        let store = Store(workspaces: 40, tabsPerWorkspace: 4)
+        let palette = Self.palette(store)
+        defer { palette.closeForTest() }
+        let page = try #require(palette.workspacesPage())
+        store.workspaceReads = 0
+        palette.model.reset(to: page)
+        #expect(!palette.model.rows.isEmpty, "the first frame shows the workspaces")
+        #expect(store.workspaceReads == 1, "the open read the workspaces \(store.workspaceReads) times")
+    }
+
     /// A warm open's main-thread cost before its frame does not grow with the
     /// user's workspaces and tabs (a heavy user: 600 workspaces, 6,000 tabs).
     @Test func warmOpenCostDoesNotScaleWithWorkspacesAndTabs() async {
