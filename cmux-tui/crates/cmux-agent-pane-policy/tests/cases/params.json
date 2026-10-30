@@ -1951,14 +1951,15 @@
   "breaks": true
  },
  {
-  "name": "an older native page names only its chat and cursor",
+  "name": "an older native page names only its chat and marked cursor",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
    "method": "_acpmux/native_history",
    "params": {
     "sessionId": "s",
-    "before": 4096
+    "before": 4096,
+    "mark": "transcript-boundary-mark"
    }
   },
   "mode_fields": null,

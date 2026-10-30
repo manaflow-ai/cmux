@@ -38,7 +38,7 @@ const log: Rec[] = (
   [
     ["mux", "created", { harness: "claude" }],
     ["mux", "adopted", { agentSessionId: "s1" }],
-    ["mux", "native_history", { family: "claude", before: SEEDED_BEFORE, turns: 3 }],
+    ["mux", "native_history", { family: "claude", before: SEEDED_BEFORE, mark: "seed-mark", turns: 3 }],
     ...[7, 8, 9].flatMap(turn),
   ] as Step[]
 ).map(([dir, kind, msg], index) => ({ sessionId: CHAT, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
@@ -55,7 +55,7 @@ function nativePage(before: number) {
     kind,
     msg,
   }));
-  return { events, before: page.before, turns: page.turns.length };
+  return { events, before: page.before, mark: `mark-${page.before}`, turns: page.turns.length };
 }
 
 /// A daemon over a fake socket; `serves` says whether it lists `_acpmux/native_history`, and
@@ -63,6 +63,7 @@ function nativePage(before: number) {
 function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
   let socket: any;
   const nativeReads: number[] = [];
+  const nativeMarks: unknown[] = [];
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -93,6 +94,7 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
         return { result: { events: [], hasMore: false, lastSeq } };
       case "_acpmux/native_history":
         nativeReads.push(params.before);
+        nativeMarks.push(params.mark);
         if (unknown) return { error: { code: -32601, message: "Method not found" } };
         if (refused) return { error: { code: -32602, message: refused, data: { reason: refused } } };
         return { result: nativePage(params.before) };
@@ -117,7 +119,7 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
-  return { open, nativeReads };
+  return { open, nativeReads, nativeMarks };
 }
 
 const settle = async () => {
@@ -156,6 +158,7 @@ test("an adopted chat pages its transcript's older turns in above the seeded one
 
   await client.loadOlder();
   expect(daemon.nativeReads).toEqual([SEEDED_BEFORE, 4_000]);
+  expect(daemon.nativeMarks).toEqual(["seed-mark", "mark-4000"]);
   expect(prompts()).toEqual(questions(1, 2, 3, 4, 5, 6, 7, 8, 9));
   // A turn paged in from the transcript is in no log: no fork or edit goes through it.
   const summaries = snapshot().rows.filter((row) => row.kind === "turnSummary");
@@ -188,7 +191,7 @@ test("a peer's older daemon that answers method-not-found just stops the paging"
   client.close();
 });
 
-for (const reason of ["transcriptRead.remote", "transcriptRead.unsupported"])
+for (const reason of ["transcriptRead.remote", "transcriptRead.unsupported", "transcriptRead.stale"])
   test(`a refusal of the transcript read (${reason}) just stops the paging`, async () => {
     const daemon = fakeDaemon({ refused: reason });
     const { client, snapshot, prompts } = await open(daemon);
