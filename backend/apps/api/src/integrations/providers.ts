@@ -84,12 +84,6 @@ const commentInstallationToken = async (env: Env, http: Http, installation: numb
   commentInstallationTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
   return token
 }
-  const body = await json(res)
-  const token = String(body.token ?? "")
-  installationTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
-  return token
-}
-
 /** GitHub refused an installation token: its response rides along, so a caller can read the refusal (github-tokens.ts). */
 export class InstallationTokenRefused extends ProviderError {
   constructor(readonly response: Response) {
