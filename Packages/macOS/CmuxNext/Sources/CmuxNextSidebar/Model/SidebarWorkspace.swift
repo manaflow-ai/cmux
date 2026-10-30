@@ -80,6 +80,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
     /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
     public var agentStep: String?
+    /// The usage rules the workspace's agent chats on this Mac break (their acpmux lanes'
+    /// `usageWarnings`, one line each): the row's warning badge and its tooltip. Empty: no badge.
+    public var usageWarnings: [String] = []
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
