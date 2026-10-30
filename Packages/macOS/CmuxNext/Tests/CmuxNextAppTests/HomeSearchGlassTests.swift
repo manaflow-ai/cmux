@@ -158,11 +158,18 @@ struct HomeSearchGlassTests {
         let cell = try #require(field.cell as? NSSearchFieldCell)
         let icon = cell.searchButtonRect(forBounds: field.bounds)
         let rest = cell.searchTextRect(forBounds: field.bounds)
+        // AppKit's text rect overlaps its magnifier slot by a point, at rest as well (26 and 27 pt).
+        let clear = icon.maxX - 1
         #expect(window.makeFirstResponder(field))
         let editor = try #require(field.currentEditor() as? NSTextView)
         let box = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
-        #expect(box.minX >= icon.maxX, "the field editor starts \(icon.maxX - box.minX) pt over the magnifier at \(width)")
+        #expect(box.minX >= clear, "the field editor starts \(clear - box.minX) pt over the magnifier at \(width)")
         #expect(abs(box.minX - rest.minX) <= 1, "the field editor starts at \(box.minX), the placeholder at rest at \(rest.minX) (\(width))")
+        // Typing shows the cancel button; the editor stays where it started.
+        editor.insertText("chief", replacementRange: NSRange(location: 0, length: 0))
+        field.layoutSubtreeIfNeeded()
+        let typed = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
+        #expect(typed.minX >= clear, "with text typed the field editor starts \(clear - typed.minX) pt over the magnifier at \(width)")
     }
 
     /// The middle (in pixel rows) of the drawn ink between columns `x0` and `x1`; nil when none.
