@@ -10,21 +10,13 @@ import os
 extension DaemonConnection {
     private static let lateReplyLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 
-    /// When a change that starts now stops asking again: one budget for every step of it (Cmd-N's
-    /// pin, create and first tab share one), so a daemon that never answers holds the window's
-    /// create lane about this long, not this long per step.
-    public static func lateReplyDeadline() -> ContinuousClock.Instant {
-        ContinuousClock.now + NewFrontendBrowserTabRequest.lateReplyBudget
-    }
-
-    /// Runs `send` again while it misses its reply deadline (`DaemonError.timedOut`), until
-    /// `giveUp` (default: ``lateReplyDeadline()`` from now), and returns its first answer.
+    /// Runs `send` again while it misses its reply deadline (`DaemonError.timedOut`), for at most
+    /// `NewFrontendBrowserTabRequest.lateReplyBudget` from now, and returns its first answer.
     /// `send` must repeat one change: a request with a fixed mutation identity (the daemon replays
     /// it), or one whose effect repeats harmlessly (a pin). Any other error, and a timeout past the
     /// budget, is thrown. Each pass waits out a whole deadline, so it never spins.
-    public static func retryingLateReplies<T>(_ what: String, until giveUp: ContinuousClock.Instant? = nil,
-                                              _ send: () async throws -> T) async throws -> T {
-        let giveUp = giveUp ?? lateReplyDeadline()
+    public static func retryingLateReplies<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
+        let giveUp = ContinuousClock.now + NewFrontendBrowserTabRequest.lateReplyBudget
         // wakeup-allow: each pass waits for one reply or its deadline; the retry ends at the budget, on a reply, or on another error
         while true {
             do {
@@ -126,10 +118,9 @@ extension DaemonConnection {
     /// `create-workspace` for workspace `key`, sent again on a late reply under one mutation
     /// identity (the daemon replays a create that committed after the deadline).
     @discardableResult
-    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey,
-                                                   until giveUp: ContinuousClock.Instant? = nil) async throws -> WorkspaceMutationResult {
+    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey) async throws -> WorkspaceMutationResult {
         let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
-        return try await Self.retryingLateReplies(CreateWorkspaceRequest.command, until: giveUp) { try await self.request(request) }
+        return try await Self.retryingLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
     }
 }
 
