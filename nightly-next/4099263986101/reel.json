@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4099263986101",
+  "notes": "notes/4099263986101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27812,
+      "title": "fix(lint): SSHMachineSecrets is an instantiable struct, as the namespace lint asks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26557,
+      "title": "Audit: enforce nested row and repeated header geometry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27074,
+      "title": "ui(chat): dim background transcript activity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27712,
+      "title": "test(CmuxNext): the named-Chief routing test makes its home's state folder before locking it",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}
