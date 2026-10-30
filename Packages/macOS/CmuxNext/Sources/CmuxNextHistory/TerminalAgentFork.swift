@@ -52,7 +52,8 @@ public enum TerminalAgentFork: Equatable, Sendable {
     ///   - harness: The terminal agent's name (`muse`).
     ///   - session: The fork's own session id.
     /// - Returns: The line, without a newline.
-    public static func resumeLine(harness: String, session: String) -> String? {
+    // A pure mapping, called from the fork handler's off-main work (`ActionRegistry` completion).
+    public nonisolated static func resumeLine(harness: String, session: String) -> String? {
         switch harness.lowercased() {
         // Agents whose CLI forks get `.command`; their resume never opens an ACP fork.
         case "claude", "claude-code", "claude_code", "codex", "grok": nil

@@ -97,7 +97,7 @@ import Testing
     /// yields to the person's pending input and then runs.
     @Test func theRemoteWiresNoteOfLinksYieldsToPendingInputThenRuns() {
         let rig = PendingInputRig()
-        let wire = RemoteAcpmuxWire(start: { _, _ in throw CancellationError() }, mainWork: rig.work)
+        let wire = RemoteAcpmuxWire(start: { _, _, _ in throw CancellationError() }, mainWork: rig.work)
         let child = "sweep-links-child-\(UUID().uuidString)"
         rig.input.pending = true
         wire.noteLinks([["sessionId": child, "startedBy": "sweep-links-parent"]])

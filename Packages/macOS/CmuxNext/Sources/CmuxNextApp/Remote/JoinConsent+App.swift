@@ -36,7 +36,7 @@ extension JoinConsentServices {
                 if DebugJoinConsent.status != nil { return DebugJoinConsent.line }
                 #endif
                 guard let services, let environment = QuitAgents.environment(services),
-                      let line = await AcpmuxPersonLine.open(environment) else { return nil }
+                      let line = await AcpmuxPersonLine.open(environment, deadlines: services.mainDeadlines) else { return nil }
                 return JoinConsentPersonLine(line)
             },
             enabled: { [weak services] in services?.settings?.snapshot.machineJoin == true },
