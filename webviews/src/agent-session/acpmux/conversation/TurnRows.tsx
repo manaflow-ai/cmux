@@ -7,6 +7,7 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
+import { MessageGroupRow } from "./MessageGroupRow";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -16,7 +17,7 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
-import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, messageGroupKey, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
@@ -136,6 +137,16 @@ function groupNode(
           messageAt={group.item.tool!.startedAt ?? rowAt}
         />
       );
+    case "messages":
+      return (
+        <MessageGroupRow
+          key={group.items[0]!.tool!.id || index}
+          members={group.members}
+          disclosureKey={messageGroupKey(group.items, rowId, index)}
+        >
+          {group.members.map((member, at) => groupNode(member, at, rowId, rowAt, false))}
+        </MessageGroupRow>
+      );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
@@ -233,6 +244,7 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 function staysInSight(group: ToolGroup): boolean {
   if (
     group.type === "message" ||
+    group.type === "messages" ||
     group.type === "send" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
