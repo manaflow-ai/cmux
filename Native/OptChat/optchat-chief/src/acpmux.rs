@@ -1057,10 +1057,24 @@ impl AgentPort for Acpmux {
             .map(|s| s.session_id))
     }
 
+    /// One session's row (`_acpmux/info`, not waiting for its logs), never
+    /// the whole list: acpmux paces each connection's session lists, and the
+    /// harness gate asks this at every turn, so a busy Chief read the list
+    /// often enough to be paced and refused its own turns.
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
-        Ok(sessions(&*self.client()?)?
-            .into_iter()
-            .find(|s| s.session_id == id))
+        /// acpmux's `not_found`: no session with that id.
+        const NOT_FOUND: i64 = -32002;
+        let params = json!({"sessionId": id, "waitLogs": false});
+        match self.client()?.request("_acpmux/info", params) {
+            // An answer that names no session says nothing of one (an older
+            // acpmux, a peer's stub), as a list without it did.
+            Ok(row) if row.get("sessionId").is_none() => Ok(None),
+            Ok(row) => serde_json::from_value(row)
+                .map(Some)
+                .map_err(|e| format!("info: {e}")),
+            Err(RpcError::Remote { code: Some(NOT_FOUND), .. }) => Ok(None),
+            Err(e) => Err(format!("info: {e}")),
+        }
     }
 
     fn cancel(&self, session: &str) -> Result<(), String> {
