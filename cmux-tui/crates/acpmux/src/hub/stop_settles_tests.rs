@@ -278,6 +278,12 @@ async fn an_automatic_release_names_only_the_prompts_it_let_go() {
     // A failed turn held both; then the person's Stop holds the agent's.
     hub.pause_queue(&s, &turn);
     hub.hold_agent_messages(&s, &turn);
+    // The Stop's record names the agent's message a failed turn held already: a pane shows it
+    // held by the Stop.
+    record(&hub, &s, "mux", "queue_paused", |m| {
+        m["reason"] == "stop" && m["held"] == json!(["p-agent"])
+    })
+    .await;
     assert!(hub.resume_held(&s, &["p-mine".to_owned(), "p-agent".to_owned()]));
     let resumed = record(&hub, &s, "mux", "queue_resumed", |_| true).await;
     assert_eq!(resumed.msg["promptIds"], json!(["p-mine"]), "{:?}", resumed.msg);

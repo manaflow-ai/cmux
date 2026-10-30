@@ -103,9 +103,11 @@ impl Hub {
             // Begun under the queue lock, where a release checks and ends it (`digest.rs`).
             let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
             session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+            // Named with those a failed turn held already: the Stop holds them too, and a pane
+            // shows each as held by it (`views.rs` `held_by_stop`).
             queue
                 .iter_mut()
-                .filter(|q| !q.held && q.run.agent.is_some())
+                .filter(|q| q.run.agent.is_some())
                 .map(|q| {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
