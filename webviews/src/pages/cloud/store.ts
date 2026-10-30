@@ -222,8 +222,15 @@ export class CloudStore {
       return;
     }
     if (session !== this.session) return;
+    // Back after `startLater`: the refused read's error goes, and the page loads as on a first
+    // start (Retry does the same before it starts).
+    const recovered = this.restartAttempts > 0;
     this.restartAttempts = 0;
-    this.set({ auth, connection: "connected" });
+    this.set({
+      auth,
+      connection: "connected",
+      ...(recovered ? { loading: true, error: undefined, errorCode: undefined } : {}),
+    });
     if (auth.signedIn) await this.loadSignedIn(session);
     else this.set({ loading: false });
   }

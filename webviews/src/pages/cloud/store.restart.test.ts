@@ -48,6 +48,25 @@ test("a first auth read the link refuses is read again on its own until the link
   await settle();
   expect(store.getSnapshot().connection).toBe("connected");
   expect(store.getSnapshot().auth?.signedIn).toBe(true);
+  // The refused read's error does not outlive the recovery (no stale banner).
+  expect(store.getSnapshot().error).toBeUndefined();
+  expect(store.getSnapshot().errorCode).toBeUndefined();
+  unsubscribe();
+});
+
+test("a signed-out page that recovers keeps no error and stops loading", async () => {
+  jest.useFakeTimers();
+  const provider = new StartingProvider(1);
+  provider.signedIn = false;
+  const store = new CloudStore(provider);
+  const unsubscribe = store.subscribe(() => undefined);
+  await settle();
+  expect(store.getSnapshot().error).toBe("the local cmux daemon is restarting");
+  jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
+  await settle();
+  expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+  expect(store.getSnapshot().auth?.signedIn).toBe(false);
+  expect(store.getSnapshot().error).toBeUndefined();
   unsubscribe();
 });
 
