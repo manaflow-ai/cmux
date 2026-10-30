@@ -70,6 +70,14 @@ COMMIT_STYLE = re.compile(r"^[a-z][\w./-]*(\([^)]*\))?!?:\s")
 WHOLE_SENTENCE = re.compile(r"[.!?。！？][)'\"”’»]*$")
 
 
+def is_abbreviation_period(text, index):
+    """An abbreviation only continues a sentence when lowercase prose follows it."""
+    if not ABBREVIATED_SENTENCE.search(text[:index + 1]):
+        return False
+    following = text[index + 1:].lstrip(" \t\r\n)'\"“”‘’»")
+    return bool(following) and not following[0].isupper()
+
+
 def sentence_end_count(text):
     """Count sentence punctuation while ignoring abbreviations and ellipses."""
     count = 0
@@ -78,7 +86,7 @@ def sentence_end_count(text):
         if text[index] == "." and ((index and text[index - 1] == ".") or
                                    (index + 1 < len(text) and text[index + 1] == ".")):
             continue
-        if ABBREVIATED_SENTENCE.search(text[:index + 1]):
+        if is_abbreviation_period(text, index):
             continue
         count += 1
     return count

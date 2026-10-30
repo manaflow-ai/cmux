@@ -290,8 +290,13 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   for (const highlight of notes.highlights) add(fromHighlight(highlight), true, false);
   for (const [index, line] of (notes.summary ?? []).entries()) {
     add(
-      { id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: line.description ?? "" },
-      false,
+      {
+        id: `summary-${index}`,
+        category: summaryCategory(line.group),
+        title: line.title,
+        summary: line.description ?? "",
+      },
+      true,
       true,
     );
   }

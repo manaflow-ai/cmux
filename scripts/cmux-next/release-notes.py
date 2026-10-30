@@ -192,7 +192,6 @@ UNSAFE_DESCRIPTION = re.compile(
     r"\b(?:cmux\d+s?-|gcp-|aws-|austin-|cosmic-|air-|big-|huge-|blacksmith)[a-z0-9-]+\b)",
     re.I,
 )
-ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
 DESCRIPTION_QUOTES = "\"'”’»)]}"
 DESCRIPTION_LABEL = re.compile(r"^(?:added|changed|fixed|removed|summary|changelog)\s*:\s*", re.I)
 DESCRIPTION_PLACEHOLDER = re.compile(r"^(?:none|n/?a|no\s+changes?|no\s+user[- ]facing\s+changes?|tbd|todo)[.!…]*$", re.I)
@@ -200,14 +199,14 @@ DESCRIPTION_PLACEHOLDER = re.compile(r"^(?:none|n/?a|no\s+changes?|no\s+user[- ]
 
 def _first_sentence(text):
     """Return the first complete sentence, preserving closing quotes and abbreviations."""
+    validate = _description_validator()
     for index, char in enumerate(text):
         if char not in ".!?。！？":
             continue
         if char == "." and ((index and text[index - 1] == ".") or
                              (index + 1 < len(text) and text[index + 1] == ".")):
             continue
-        prefix = text[: index + 1]
-        if char == "." and ABBREVIATED_SENTENCE.search(prefix):
+        if char == "." and validate.is_abbreviation_period(text, index):
             continue
         if char == "." and index and index + 1 < len(text) and text[index - 1].isdigit() and text[index + 1].isdigit():
             continue
@@ -229,13 +228,18 @@ def _first_sentence(text):
     return text
 
 
-def _safe_description(text):
-    # Use the release gate's own internal-text rules before storing descriptions in items or
-    # summary lines. Otherwise an issue reference can also make the digest drop a valid change.
+def _description_validator():
     validator_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new")
     if validator_path not in sys.path:
         sys.path.insert(0, validator_path)
     import validate
+    return validate
+
+
+def _safe_description(text):
+    # Use the release gate's own internal-text rules before storing descriptions in items or
+    # summary lines. Otherwise an issue reference can also make the digest drop a valid change.
+    validate = _description_validator()
     for _, url in MARKDOWN_LINK_URL.findall(text):
         if not PUBLIC_URL.match(url):
             return False
