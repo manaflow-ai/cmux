@@ -209,7 +209,9 @@ impl Backend for Fake {
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
-            return Ok(result.clone());
+            // A list answers an array: the record as its one item.
+            let list = request["operation"].as_str().is_some_and(|op| op.ends_with(".list"));
+            return Ok(if list && result.is_object() { json!([result]) } else { result.clone() });
         }
         let mut live = self.live.borrow_mut();
         live.settle();
@@ -1824,7 +1826,8 @@ fn a_record_works_where_its_id_goes() {
 /// `terminal_screen_read({terminal: tab.tab_id})`).
 #[test]
 fn a_terminal_named_by_its_tab_through_terminal() {
-    let shown = json!({"id": "tab_1", "content_id": "term_00000000000000000000000000000abc"});
+    // tab_get answers the record; tab_list (a name lookup) the same record as one item.
+    let shown = json!({"id": "tab_1", "name": "eval-cmd", "content_id": "term_00000000000000000000000000000abc"});
     let fake = Fake { resource_result: Some(shown), ..Fake::default() };
     let mut server = Server::new(fake, None);
     for terminal in ["tab_00000000000000000000000000000001", "eval-cmd"] {

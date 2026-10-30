@@ -922,16 +922,38 @@ impl<B: Backend> Server<B> {
         let Some(tab_get) = v2_tools::find("tab_get") else {
             return Ok(std::borrow::Cow::Borrowed(arguments));
         };
-        let answer = self.call_v2(tab_get, &lookup);
-        if answer["isError"] == true {
-            // A plain name no tab has: let the daemon judge it as a terminal name.
-            if arguments.contains_key("terminal") {
-                return Ok(std::borrow::Cow::Borrowed(arguments));
+        // A `tab_…` id resolves with tab_get. A plain name does not: the daemon finds a
+        // tab name only under its pane, so the session's tabs are listed and the name is
+        // used only when exactly one tab has it.
+        let bare = tab.rsplit_once(':').map_or(tab, |(_, id)| id);
+        let record = if bare.starts_with("tab_") {
+            let answer = self.call_v2(tab_get, &lookup);
+            if answer["isError"] == true {
+                return Err(answer);
             }
-            return Err(answer);
-        }
-        let record = &answer["structuredContent"];
-        let record = record.get("value").unwrap_or(record);
+            let record = &answer["structuredContent"];
+            record.get("value").unwrap_or(record).clone()
+        } else {
+            let Some(tab_list) = v2_tools::find("tab_list") else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            let mut list = Map::new();
+            if let Some(session) = arguments.get("session") {
+                list.insert("session".into(), session.clone());
+            }
+            list.insert("limit".into(), json!(500));
+            let answer = self.call_v2(tab_list, &list);
+            let items =
+                answer["structuredContent"]["items"].as_array().cloned().unwrap_or_default();
+            let named: Vec<Value> =
+                items.into_iter().filter(|item| item["name"].as_str() == Some(bare)).collect();
+            // No tab, or several, by that name: the daemon judges it as a terminal name.
+            let [only] = named.as_slice() else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            only.clone()
+        };
+        let record = &record;
         let Some(terminal) = record["content_id"].as_str().filter(|id| id.starts_with("term_"))
         else {
             return Err(tool_error(envelope(
