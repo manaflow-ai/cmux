@@ -92,6 +92,7 @@ struct AgentPaneStateFileTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = AgentPaneStateFile.at(directory.appending(path: "r.json"))
         file.write { Data("first".utf8) }
+        #expect(file.read() == Data("first".utf8))
         let inner = Mutex<Data?>(nil)
         file.write {
             inner.withLock { $0 = file.read() }
