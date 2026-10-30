@@ -49,6 +49,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
+pub use idle_census::Sidecar;
+#[cfg(unix)]
+pub(crate) use idle_census::host_census;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
