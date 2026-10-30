@@ -67,3 +67,41 @@ async fn a_turn_whose_end_was_under_way_at_a_restart_is_continued_by_the_next_da
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A route switch asked during a turn moves the chat when the turn ends (`route_switch.rs`), but
+/// not once a shutdown began (Sol review of #28503): the agent the shutdown left for the next
+/// daemon (here one whose child it could not reach) stays alive, unkilled by a restart that could
+/// not start it again anyway.
+#[tokio::test]
+async fn a_turn_ending_after_a_shutdown_began_leaves_the_kept_agent_to_the_next_daemon() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let turn = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await
+        })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    s.route_switch.store(true, Ordering::SeqCst);
+    let child = s.child.lock().await.clone().expect("the turn's agent");
+    {
+        // The shutdown cannot reach this child: it keeps it for the next daemon.
+        let _held = s.child.lock().await;
+        hub.shutdown_all().await;
+    }
+    let _ = release.send(());
+    let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    let kept = s.child.lock().await.clone();
+    assert!(kept.is_some_and(|c| Arc::ptr_eq(&c, &child)), "the turn's end took the kept agent");
+    assert!(child.is_alive().await, "the turn's end killed the agent the shutdown kept");
+    child.kill().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
