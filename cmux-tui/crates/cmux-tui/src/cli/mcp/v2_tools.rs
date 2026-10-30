@@ -451,8 +451,14 @@ impl V2Tool {
             }
         }
         for (name, field) in self.fields().as_object().into_iter().flatten() {
-            properties.insert(name.clone(), generator.field(field));
-            if field["required"] == Value::Bool(true) {
+            let mut property = generator.field(field);
+            if let (Some(default), Some(property)) =
+                (self.default_of(name), property.as_object_mut())
+            {
+                property.insert("default".into(), default);
+            }
+            properties.insert(name.clone(), property);
+            if field["required"] == Value::Bool(true) && self.default_of(name).is_none() {
                 required.push(Value::String(name.clone()));
             }
         }
@@ -519,8 +525,10 @@ impl V2Tool {
             // argument (tests/tool-evals: 22 such calls from two models). Only where an id
             // goes: a selector or a resource-id field. A json field (`settings_set {value}`,
             // `keybindings_set {args}`) keeps its object.
-            let takes_id =
-                selector || field.is_some_and(|field| field["type"]["kind"] == "resource_id");
+            let takes_id = selector
+                || field.is_some_and(|field| {
+                    field.pointer("/type/kind").and_then(Value::as_str) == Some("resource_id")
+                });
             let record_id = value
                 .as_object()
                 .and_then(|record| record.get("id"))
@@ -549,7 +557,9 @@ impl V2Tool {
                             .then(|| field["type"]["resource"].as_str())
                             .flatten()
                     });
-                    let decimal = field.is_some_and(|field| field["type"]["name"] == "decimal");
+                    let decimal = field.is_some_and(|field| {
+                        field.pointer("/type/name").and_then(Value::as_str) == Some("decimal")
+                    });
                     let value = match (resource, value.as_str()) {
                         (Some(resource), Some(raw)) => {
                             let id = self.id_argument(name, resource, raw, &mut session)?;
@@ -594,7 +604,8 @@ impl V2Tool {
                     ""
                 };
                 let also = if name == "terminal" {
-                    " (a create call answers it as value.terminal_id)"
+                    " (a create call answers it as value.terminal_id, a terminal_list item as its \
+                     id, a tab_list item as its content_id)"
                 } else {
                     ""
                 };
@@ -603,6 +614,31 @@ impl V2Tool {
                     self.name
                 )));
             }
+        }
+        let mut missing = Vec::new();
+        for (name, field) in self.fields().as_object().into_iter().flatten() {
+            if params.contains_key(name) {
+                continue;
+            }
+            if let Some(default) = self.default_of(name) {
+                params.insert(name.clone(), default);
+            } else if field["required"] == Value::Bool(true) {
+                let schema = Generator::new(catalog()).field(field);
+                let values = schema
+                    .get("enum")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        let names: Vec<&str> = values.iter().filter_map(Value::as_str).collect();
+                        format!(" (one of {})", names.join(", "))
+                    })
+                    .unwrap_or_default();
+                missing.push(format!("{name}{values}"));
+            }
+        }
+        // The owner's answer ("required parameter is missing") named no field
+        // (tests/tool-evals r3m: `pane_neighbor_get({pane: "current"})`); all of them at once.
+        if !missing.is_empty() {
+            return Err(invalid(format!("{} needs {}", self.name, missing.join(", "))));
         }
         if self.waits() {
             let timeout = match params.get("timeout_ms") {
@@ -636,6 +672,13 @@ impl V2Tool {
         })
     }
 
+    /// A required wire field an MCP call may leave out, and the value it then takes: a new
+    /// workspace holds a terminal, as `cmux workspace create` makes it (tests/tool-evals
+    /// m1: `workspace_create({name})` failed with "required parameter is missing").
+    fn default_of(&self, field: &str) -> Option<Value> {
+        (self.wire == "workspace.create" && field == "initial_content").then(|| json!("terminal"))
+    }
+
     /// Machine selection is a metadata lookup only on machine.get; other tools keep their owner scope.
     fn selector_argument(&self, selector: &str) -> bool {
         (selector == "machine" && self.operation == ResourceOperation::MachineGet)
@@ -645,7 +688,8 @@ impl V2Tool {
     /// Whether the operation needs a `terminal` selector (`terminal_list` only filters by
     /// one, through its optional `tab`).
     pub(super) fn needs_terminal(&self) -> bool {
-        self.descriptor["params"]["selectors"]["terminal"] == "required"
+        self.descriptor.pointer("/params/selectors/terminal").and_then(Value::as_str)
+            == Some("required")
     }
 
     fn waits(&self) -> bool {
