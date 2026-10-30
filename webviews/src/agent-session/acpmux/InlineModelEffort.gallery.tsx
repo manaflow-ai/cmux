@@ -54,7 +54,8 @@ export default componentEntry<Props>({
                     harnessPlacement: placement,
                     effort: {
                       current: effort,
-                      levels: ["low", "medium", "high", "max"].map((id) => ({ id, name: id })),
+                      // Medium is the model's own pick: the list names it Recommended.
+                      levels: ["low", "medium", "high", "max"].map((id) => ({ id, name: id, ...(id === "medium" ? { recommended: true } : {}) })),
                       onPick: setEffort,
                     },
                     families: {

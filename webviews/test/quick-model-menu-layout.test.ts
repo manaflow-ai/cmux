@@ -278,6 +278,20 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         const viewport = page.viewportSize()!;
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
         expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
+        // Each level is one line: its name and any "Recommended" badge share the row (review of #27948).
+        const lines = await levels.evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const row = node.getBoundingClientRect();
+            const parts = [...node.querySelectorAll<HTMLElement>(".acpmux-menu-label, .acpmux-quick-effort-badge")];
+            return parts.every((part) => {
+              const box = part.getBoundingClientRect();
+              return box.top >= row.top - 0.5 && box.bottom <= row.bottom + 0.5;
+            });
+          }),
+        );
+        expect(lines.every(Boolean), `levels with a part outside their row: ${lines.join(",")}`).toBe(true);
+        if (entry === "agent-pane.inline-model-effort")
+          expect(await dropdown.locator(".acpmux-quick-effort-badge").count(), "the fixture's recommended level shows its badge").toBe(1);
         // The last level takes a click at its centre: nothing covers it.
         const last = boxes.at(-1)!;
         expect(

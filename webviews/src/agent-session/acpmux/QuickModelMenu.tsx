@@ -469,10 +469,14 @@ export function QuickModelMenu({
                   value={choice.id}
                   closeOnClick
                 >
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                  {look === "list" && choice.recommended && (
-                    <span className="acpmux-quick-effort-badge">{t("picker.modeRecommended")}</span>
-                  )}
+                  {/* One grid cell for the name and its badge, as a model row's label: the check
+                      keeps the trailing column and the row stays one line. */}
+                  <span className="acpmux-quick-label">
+                    <span className="acpmux-menu-label">{choice.name}</span>
+                    {look === "list" && choice.recommended && (
+                      <span className="acpmux-quick-effort-badge">{t("picker.modeRecommended")}</span>
+                    )}
+                  </span>
                 </MenuRadioItem>
               ))}
             </MenuRadioGroup>
