@@ -287,7 +287,7 @@ mod tests {
                         overflow.store(true, Ordering::SeqCst);
                         overflow_seen.notify_waiters();
                     }
-                    if now <= MAX_CONCURRENT {
+                    if !released.load(Ordering::SeqCst) && now <= MAX_CONCURRENT {
                         first.wait().await;
                     }
                     while !released.load(Ordering::SeqCst) {
@@ -310,6 +310,7 @@ mod tests {
                 client_write.write_all(request.to_string().as_bytes()).await.unwrap();
                 client_write.write_all(b"\n").await.unwrap();
             }
+            client_write
         });
         let output = tokio::spawn(async move {
             let mut lines = tokio::io::BufReader::new(client_read).lines();
@@ -339,9 +340,11 @@ mod tests {
         );
         released.store(true, Ordering::SeqCst);
         release.notify_waiters();
-        requests.await.unwrap();
-        tokio::time::timeout(Duration::from_secs(120), output).await.unwrap().unwrap();
-        tokio::time::timeout(Duration::from_secs(120), server).await.unwrap().unwrap().unwrap();
+        let client_write =
+            tokio::time::timeout(Duration::from_secs(30), requests).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(30), output).await.unwrap().unwrap();
+        drop(client_write);
+        tokio::time::timeout(Duration::from_secs(30), server).await.unwrap().unwrap().unwrap();
     }
 }
 
