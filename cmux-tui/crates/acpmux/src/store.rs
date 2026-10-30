@@ -964,7 +964,7 @@ impl Store for MemoryStore {
         loop {
             let (window, lowest) = {
                 let g = self.inner.lock_or_recover();
-                let Some((_, events)) = g.get(id) else { return Ok(()) };
+                let Some(MemorySession { events, .. }) = g.get(id) else { return Ok(()) };
                 let end = events.partition_point(|e| e.seq < before);
                 let mut window = Vec::new();
                 let mut lowest = None;
