@@ -1050,7 +1050,7 @@ fn closing_the_chat_stands_when_its_write_fails() {
 #[test]
 fn a_share_the_room_ended_ends_here_and_is_not_reconnected() {
     let room = FakeRoom::start(&[]);
-    let (_fake, mux, surface, mut owner) = bridged("room-ended-there", &room);
+    let (_fake, _mux, surface, mut owner) = bridged("room-ended-there", &room);
     create(&mut owner, surface);
     let (conn, _) = room.host();
     assert_eq!(room.frame(conn)["t"], "guests");
