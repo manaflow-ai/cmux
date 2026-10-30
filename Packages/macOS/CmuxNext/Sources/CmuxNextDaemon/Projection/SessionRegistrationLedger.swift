@@ -24,25 +24,23 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     public init(policy: RetryPolicy = .sessionRegistration) {}
 
     /// Whether `record` must be sent for `session` now; when true it counts as sent.
-    public mutating func shouldSend(session: String, record: Record, connection: some Hashable & Sendable) -> Bool {
+    public mutating func shouldSend(session: String, record: Record, connection: ObjectIdentifier) -> Bool {
         guard sent[session] != record else { return false }
         sent[session] = record
         return true
     }
 
     /// Red stub: the token API with no token check.
-    public mutating func begin(session: String, record: Record, connection: some Hashable & Sendable) -> UInt64? {
-        shouldSend(session: session, record: record, connection: connection) ? 0 : nil
+    public mutating func begin(session: String, record: Record, connection: SessionRegistrationConnection) -> UInt64? {
+        guard sent[session] != record else { return nil }
+        sent[session] = record
+        return 0
     }
 
-    public mutating func succeeded(session: String, token: UInt64) {
-        guard let record = sent[session] else { return }
-        succeeded(session: session, record: record)
-    }
+    public mutating func succeeded(session: String, token: UInt64) {}
 
     public mutating func failed(session: String, token: UInt64, failure: Failure) -> Outcome {
-        guard let record = sent[session] else { return Outcome(refusal: nil, retryAfter: nil) }
-        if sent[session] == record { sent[session] = nil }
+        sent[session] = nil
         return Outcome(refusal: nil, retryAfter: nil)
     }
 
@@ -77,20 +75,8 @@ extension RetryPolicy {
     public static let sessionRegistration = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 8)
 }
 
-/// The home connection a record went to: the owner's generation counter (a `UInt64`), compared by
-/// value, so a new connection after a daemon restart is never mistaken for the old one.
-public struct SessionRegistrationConnection: Hashable, Sendable {
-    private let id: any Hashable & Sendable
-
-    public init(_ id: some Hashable & Sendable) {
-        self.id = id
-    }
-
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        AnyHashable(lhs.id) == AnyHashable(rhs.id)
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        AnyHashable(id).hash(into: &hasher)
-    }
+public struct SessionRegistrationConnection: Hashable, Sendable, ExpressibleByIntegerLiteral {
+    public let generation: UInt64
+    public init(generation: UInt64) { self.generation = generation }
+    public init(integerLiteral value: UInt64) { generation = value }
 }
