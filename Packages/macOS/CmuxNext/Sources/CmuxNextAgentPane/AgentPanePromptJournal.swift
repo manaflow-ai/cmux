@@ -26,6 +26,11 @@ import CmuxNextCompat
 /// not kept (their daemon is not this Mac's). The file is read once and written in order, never
 /// on the main thread; a record is on disk before its frame is sent.
 public nonisolated final class AgentPanePromptJournal: Sendable {
+    enum RecordResult: Sendable, Equatable {
+        case recorded(String)
+        case notJournaled
+        case writeFailed
+    }
     /// How long a prompt may wait for its send again; an older one is dropped.
     public static let maximumAge: TimeInterval = 24 * 60 * 60
     static let maximumEntries = 64
@@ -89,25 +94,29 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// The newest generation on disk; a write of an older one is skipped.
     private let written = Mutex(0)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
+    private let writer: @Sendable (Data, URL) throws -> Void
 
-    public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(url: URL, now: @escaping @Sendable () -> Date = { Date() },
+                writer: @escaping @Sendable (Data, URL) throws -> Void = { data, url in
+                    try data.write(to: url, options: [.atomic])
+                }) {
         self.url = url
         self.now = now
+        self.writer = writer
     }
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
 
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
     /// the main thread. False when it is not kept (too large, or the connection ended).
-    func record(_ entry: Entry, owner: UUID) -> Bool {
+    func record(_ entry: Entry, owner: UUID) -> RecordResult {
         guard entry.params.utf8.count <= Self.maximumParamsBytes else {
             Self.logger.info("agent pane prompt not journaled: too large")
-            return false
+            return .notJournaled
         }
         var kept = false
-        change { state in
+        let durable = change { state in
             guard !state.ended.contains(owner) else { return false }
-            let key = Self.key(entry.daemon, entry.promptId)
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             state.entries.append(entry)
             state.holders[key] = .page(owner)
@@ -118,13 +127,18 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             kept = true
             return true
         }
-        return kept
+        guard kept else { return .notJournaled }
+        return durable ? .recorded(entry.promptId) : .writeFailed
     }
 
     /// Notes that the relay sends prompt `promptId` to `daemon`. True when it sent that id there
     /// before in this run: the pane's Retry, which goes as a resend.
     func sendsAgain(daemon: String, promptId: String) -> Bool {
         state.withLock { !$0.sent.insert(Self.key(daemon, promptId)).inserted }
+    }
+
+    func undoSend(daemon: String, promptId: String) {
+        state.withLock { $0.sent.remove(Self.key(daemon, promptId)) }
     }
 
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk
@@ -189,7 +203,11 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return (state.generation, state.entries)
         }
         guard let (generation, entries) = snapshot else { return }
-        queue.async { [self] in write(entries, generation: generation) }
+        queue.async { [self] in
+            if write(entries, generation: generation) {
+                state.withLock { $0.generation = max($0.generation, generation) }
+            }
+        }
     }
 
     /// The prompts kept now (tests).
@@ -206,15 +224,17 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     }
 
     /// Applies `body` (true when the entries changed) and writes the result when they did.
-    private func change(_ body: (inout State) -> Bool) {
+    @discardableResult
+    private func change(_ body: (inout State) -> Bool) -> Bool {
         let snapshot = state.withLock { state -> (Int, [Entry])? in
             load(&state)
             guard body(&state) else { return nil }
             state.generation += 1
             return (state.generation, state.entries)
         }
-        guard let (generation, entries) = snapshot else { return }
-        write(entries, generation: generation)
+        guard let (generation, entries) = snapshot else { return true }
+        let succeeded = write(entries, generation: generation)
+        return succeeded
     }
 
     /// Reads the file once; an unreadable one is an empty journal.
@@ -229,16 +249,19 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
     }
 
-    private func write(_ entries: [Entry], generation: Int) {
+    @discardableResult
+    private func write(_ entries: [Entry], generation: Int) -> Bool {
         written.withLock { last in
-            guard generation > last else { return }
-            last = generation
+            guard generation > last else { return true }
             do {
                 let data = try Self.encoder.encode(Document(entries: entries))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data.write(to: url, options: [.atomic])
+                try writer(data, url)
+                last = generation
+                return true
             } catch {
                 Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
+                return false
             }
         }
     }

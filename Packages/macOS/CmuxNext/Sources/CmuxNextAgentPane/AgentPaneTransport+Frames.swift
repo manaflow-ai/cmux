@@ -434,9 +434,14 @@ extension AgentPaneTransport {
         // The person's prompt is on disk before it goes, until acpmux acknowledges it.
         let relay = facts.method == "session/prompt" ? promptRelay : nil
         let journaled = await relay?.record(box, ids: ids, relayID: relayID)
-        if let relay, journaled != nil, id != current || self.socket !== socket {
+        if case .writeFailed? = journaled {
             socket.pageFrameNotSent(method: facts.method)
-            return await relay.withdraw(journaled, relayID: relayID, ids: ids)
+            if let relayID { ids.cancel(relayID) }
+            return Self.refuse(.refuse(.promptJournalWriteFailed, method: facts.method, requestID: facts.pageID), socket: socket)
+        }
+        if case .recorded(let promptID)? = journaled, id != current || self.socket !== socket {
+            socket.pageFrameNotSent(method: facts.method)
+            return await relay?.withdraw(promptID, relayID: relayID, ids: ids) ?? .stop(.staleConnection)
         }
         if facts.isFirst {
             sentFirst = true
@@ -461,7 +466,9 @@ extension AgentPaneTransport {
             socket.pageFrameNotSent(method: facts.method)
             if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }
-            await relay?.withdraw(journaled, relayID: nil, ids: ids)
+            if case .recorded(let promptID)? = journaled {
+                await relay?.withdraw(promptID, relayID: nil, ids: ids)
+            }
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
             return .stop(error)
         }

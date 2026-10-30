@@ -47,6 +47,8 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case inboundOverflow = "transport.inbound_overflow"
     /// The daemon did not take the page's frames; the socket was closed.
     case outboundOverflow = "transport.outbound_overflow"
+    /// The prompt journal could not be durably written, so the page must keep it retryable.
+    case promptJournalWriteFailed = "transport.prompt_journal_write_failed"
 }
 
 /// How the socket ended: the close code and reason, and the host's error when the host closed it.

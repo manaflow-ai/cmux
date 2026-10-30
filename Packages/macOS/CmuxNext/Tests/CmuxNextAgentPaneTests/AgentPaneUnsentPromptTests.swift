@@ -77,7 +77,7 @@ struct AgentPaneUnsentPromptTests {
     /// acpmux without the durable crash/relaunch record that protects it.
     @Test func aFailedJournalWriteDoesNotSendAndRemainsRetryable() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("unsent-prompt-write-failure-(UUID().uuidString)")
+            .appendingPathComponent("unsent-prompt-write-failure-\(UUID().uuidString)")
         let blocked = root.appendingPathComponent("blocked")
         let url = blocked.appendingPathComponent(AgentPanePromptJournal.fileName)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -87,10 +87,12 @@ struct AgentPaneUnsentPromptTests {
         let daemon = AcpmuxStandInServer()
         try await daemon.start()
         defer { daemon.stop() }
+        daemon.hold("session/prompt")
         let pane = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
         pane.transport.gestures.record()
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "write-fails")]) != nil,
                 "a prompt whose journal write failed must be reported as not sent")
+        await Self.barrier(pane, id: 3)
         #expect(Self.prompts(daemon, peer: 0).isEmpty,
                 "a prompt must not reach acpmux until its journal record is durable")
 

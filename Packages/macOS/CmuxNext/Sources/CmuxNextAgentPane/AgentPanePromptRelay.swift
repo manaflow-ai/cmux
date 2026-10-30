@@ -7,6 +7,11 @@ import os
 /// frame and person proof. Only a connection to this Mac's acpmux has one; its daemon is named by
 /// its unix socket, which outlives a daemon restart.
 nonisolated struct AgentPanePromptRelay: Sendable {
+    enum RecordResult: Sendable {
+        case recorded(String)
+        case notJournaled
+        case writeFailed
+    }
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.prompt-journal")
     let journal: AgentPanePromptJournal
     let daemon: String
@@ -37,10 +42,10 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     /// marked `resend` (which the page may not send), so acpmux also finds a first copy in the
     /// chat's log, which outlives a daemon restart, and runs it at most once. Returns its
     /// promptId, or nil when it is not kept.
-    @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> String? {
+    @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> RecordResult {
         guard let text = box.encoded(id: nil),
               var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return nil }
+              var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return .notJournaled }
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
         let named = acpmux["promptId"] as? String ?? ""
@@ -55,15 +60,21 @@ nonisolated struct AgentPanePromptRelay: Sendable {
             meta["acpmux"] = acpmux
             params["_meta"] = meta
             object["params"] = params
-            guard let rewritten = AcpmuxRequestIds.encode(object), box.replace(withJSON: rewritten) else { return nil }
+            guard let rewritten = AcpmuxRequestIds.encode(object), box.replace(withJSON: rewritten) else { return .notJournaled }
         }
         guard let paramsText = AcpmuxRequestIds.encode(params),
-              journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
-                                                          params: paramsText, at: journal.now()),
-                             owner: owner) else { return nil }
+              let result = journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
+                                                                       params: paramsText, at: journal.now()), owner: owner) else { return .notJournaled }
+        guard case .recorded = result else {
+            if case .writeFailed = result {
+                journal.undoSend(daemon: daemon, promptId: promptId)
+                return .writeFailed
+            }
+            return .notJournaled
+        }
         let forget = forget
         if let relayID { ids.whenAnswered(relayID) { forget(promptId) } }
-        return promptId
+        return .recorded(promptId)
     }
 
     /// The recorded prompt did not go (a stale connection, a send error): the step that says so.
