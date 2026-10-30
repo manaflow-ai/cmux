@@ -95,7 +95,7 @@ class OpenTests(unittest.TestCase):
 
     def test_open_shows_the_workspace_it_created(self):
         # By its ref: selectLast read the sidebar's order, which can lag the open on a loaded host,
-        # and showed the previous workspace (fleet, aws-m4pro-9: every open after the first).
+        # and showed the previous workspace (a loaded fleet Mac: every open after the first).
         app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
         self.assertEqual([(c[0], c[1], c[2]) for c in app.calls],
