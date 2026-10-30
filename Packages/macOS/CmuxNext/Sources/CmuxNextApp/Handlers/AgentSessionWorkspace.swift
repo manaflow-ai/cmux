@@ -57,7 +57,7 @@ enum AgentSessionWorkspace {
             })
         }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
-                            parent: parent, services: context.services)
+                            focus: invocation.allowsViewChange, parent: parent, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -76,7 +76,8 @@ enum AgentSessionWorkspace {
     /// build has no agent page or the daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, parent: AgentSessionParents.Identity? = nil, services: AppServices) throws -> ActionWork {
+                     group: String? = nil, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
+                     services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -91,7 +92,7 @@ enum AgentSessionWorkspace {
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
-            return reuse(row, session: session, key: key, host: host, parent: parent, services: services)
+            return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
@@ -121,8 +122,10 @@ enum AgentSessionWorkspace {
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
                 // Selected wherever the workspace is shown later, never shown now.
-                for window in services.windows.controllers {
-                    window.state.selection.select(tab, in: pane.id)
+                if focus {
+                    for window in services.windows.controllers {
+                        window.state.selection.select(tab, in: pane.id)
+                    }
                 }
                 AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: targetHost, session: session),
                                                      in: SidebarSessionTreeFeed.shared.recordedParents)
@@ -150,7 +153,7 @@ enum AgentSessionWorkspace {
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
-    private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?,
+    private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?, focus: Bool,
                               parent: AgentSessionParents.Identity?, services: AppServices) -> ActionWork {
         let daemon = services.daemon
         let logger = daemon.logger
@@ -162,8 +165,10 @@ enum AgentSessionWorkspace {
                 let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host,
                                                           idempotencyKey: key.rawValue)
                 let created = try await pending.value()
-                for window in services.windows.controllers {
-                    window.state.selection.select(created.key, in: pane.id)
+                if focus {
+                    for window in services.windows.controllers {
+                        window.state.selection.select(created.key, in: pane.id)
+                    }
                 }
                 AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: host ?? services.agentTabs.localHost ?? "", session: session),
                                                      in: SidebarSessionTreeFeed.shared.recordedParents)
