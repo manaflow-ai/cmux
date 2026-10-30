@@ -1577,8 +1577,8 @@ fn a_guest_relay_takes_a_connection_permit() {
         "a snapshot without a free connection permit",
         |s| matches!(s, Seen::Frame { frame, .. } if frame["t"] == "snapshot"),
     );
+    // With a permit back, the waiting guest's relay starts on its own (no new join).
     drop(held);
-    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
     assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
 }
 
@@ -1592,10 +1592,15 @@ fn a_burst_of_prompts_stops_at_the_held_cap() {
     room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
     assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
     while fake.next_frame(Duration::from_millis(300)).is_some() {}
-    for n in 0..17 {
+    for n in 0..16 {
         room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann,
             "client_id": format!("c{n}"), "text": "hello"}));
     }
+    // Client ids a page names in `prompt_status` do not push the held prompts out of the count.
+    let fakes: Vec<String> = (0..80).map(|n| format!("fake{n}")).collect();
+    room.send(json!({"v": 1, "t": "prompt_status", "guest_id": ann, "client_ids": fakes}));
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c16",
+        "text": "hello"}));
     let deadline = Instant::now() + WAIT;
     let refused = loop {
         let state = room.next(conn, "prompt_state");

@@ -11,8 +11,8 @@
 //! awaiting the owner, `queue_approved`, `queue_declined`, `queue_removed`). A record over
 //! 256 KiB goes cut: its seq and kind with `truncated: true, full_bytes`.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -39,6 +39,11 @@ const MAX_CLIENTS: usize = 64;
 /// The room's asks a relay keeps until its attachment answers.
 const MAX_WAITING: usize = 64;
 
+/// The prompt ids a guest sent that are held or not answered yet. Shared by the guest's
+/// successive relays, and read only from what the guest sent (never from `prompt_status`), so the
+/// held cap counts every one.
+pub(super) type Held = Arc<Mutex<HashSet<String>>>;
+
 /// What the room asked of one guest.
 pub(super) enum Ask {
     Prompt { client_id: String, text: String },
@@ -53,6 +58,9 @@ pub(super) enum Out {
     Frame(String, u64, Value),
     /// The relay of this guest and generation ended.
     Ended(String, u64),
+    /// Try again to start the relay of this connected guest (no connection permit was free, or
+    /// its last relay ended while the guest stayed connected).
+    Retry(String),
 }
 
 /// One running relay, as the host socket keeps it. Dropping it ends the relay.
@@ -62,6 +70,8 @@ pub(super) struct Relay {
     /// The guest's browser sockets the room said are open; `None` once their count is unknown
     /// (a host `hello` names each guest once).
     pub(super) sockets: Option<usize>,
+    /// The starts in a row this guest's relay took (its backoff when it ends again).
+    pub(super) tries: u32,
 }
 
 /// Starts the relay of `guest_id` (on the bridge's runtime: the caller is one of its tasks). Its
@@ -74,6 +84,7 @@ pub(super) fn start(
     generation: u64,
     out: mpsc::UnboundedSender<Out>,
     known: &[String],
+    held: Held,
 ) -> Option<Relay> {
     let permit = claim_connection(mux.connection_stats())?;
     let (ours, daemons) = std::os::unix::net::UnixStream::pair().ok()?;
@@ -101,6 +112,7 @@ pub(super) fn start(
         tick: 0,
         attached: false,
         waiting: VecDeque::new(),
+        held,
     };
     // The client ids this guest's page named to an earlier relay: a reconnect's snapshot names
     // their prompts' states.
@@ -110,7 +122,7 @@ pub(super) fn start(
         link.remember(&prompt, client_id.clone());
     }
     tokio::spawn(run(BufReader::new(read), link, receiver));
-    Some(Relay { asks, generation, sockets: Some(1) })
+    Some(Relay { asks, generation, sockets: Some(1), tries: 0 })
 }
 
 async fn run(
@@ -186,6 +198,8 @@ struct Link {
     attached: bool,
     /// The room's asks that came before the attachment answered, sent once it does.
     waiting: VecDeque<Ask>,
+    /// This guest's prompts sent and not decided yet (shared by its relays).
+    held: Held,
 }
 
 impl Link {
@@ -250,6 +264,7 @@ impl Link {
                 true
             }
             Pending::Prompt(prompt) => {
+                self.held.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt);
                 let reason = frame
                     .get("error_code")
                     .and_then(Value::as_str)
@@ -291,15 +306,17 @@ impl Link {
                 // Held, plus sent and not answered yet: a burst cannot pass the cap before the
                 // replies come. A prompt the daemon already took (any state but refused) is a
                 // retry it dedupes, so it is not counted against the cap again.
-                let held = (self.clients.keys())
-                    .filter(|p| **p != prompt)
-                    .filter(|p| self.states.get(*p).is_some_and(|s| s.state == "held"))
-                    .count();
-                let sent = (self.pending.values())
-                    .filter(|p| matches!(p, Pending::Prompt(other) if *other != prompt))
-                    .count();
                 let taken = self.states.get(&prompt).is_some_and(|s| s.state != "refused");
-                if !taken && held.saturating_add(sent) >= MAX_HELD {
+                let held = {
+                    let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+                    let others = held.iter().filter(|p| **p != prompt).count();
+                    let room = taken || others < MAX_HELD;
+                    if room {
+                        held.insert(prompt.clone());
+                    }
+                    !room
+                };
+                if held {
                     self.note(&prompt, "refused", Some("share.too_many_held".into()));
                     return true;
                 }
@@ -371,6 +388,9 @@ impl Link {
     fn set(&mut self, prompt: &str, state: &'static str, reason: Option<String>) {
         if !prompt.starts_with("g-") {
             return;
+        }
+        if state != "held" {
+            self.held.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
         }
         self.tick = self.tick.wrapping_add(1);
         if !self.states.contains_key(prompt) {

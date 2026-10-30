@@ -30,7 +30,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
+use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, guest_prompt_id, op_of};
 use crate::mux::Mux;
 use crate::server::RenderService;
 
@@ -797,8 +797,7 @@ async fn session(
     // The reason of the room's own `end`, if it sent one.
     let mut room_end: Option<String> = None;
     let (relay_out, mut relayed) = mpsc::unbounded_channel();
-    let mut guests =
-        Guests { relays: HashMap::new(), clients: HashMap::new(), next: 0, out: relay_out };
+    let mut guests = Guests::new(relay_out);
     loop {
         let quiet = heard + if pinged { timing.heartbeat * 2 } else { timing.heartbeat };
         let out = tokio::select! {
@@ -818,9 +817,9 @@ async fn session(
                         room_end = frame.get("reason").and_then(Value::as_str).map(str::to_owned);
                     }
                     let mux = mux.upgrade()?;
-                    let out = answer(&mux, share_id, &frame, &mut ready);
+                    let mut out = answer(&mux, share_id, &frame, &mut ready);
                     if ready {
-                        guests.room(&mux, share_id, &frame);
+                        out.extend(guests.room(&mux, share_id, &frame));
                     }
                     out
                 }
@@ -881,7 +880,13 @@ async fn session(
                     vec![frame]
                 }
                 Some(relay::Out::Ended(guest, generation)) => {
-                    guests.ended(&guest, generation);
+                    let mux = mux.upgrade()?;
+                    guests.ended(&mux, share_id, &guest, generation);
+                    continue;
+                }
+                Some(relay::Out::Retry(guest)) => {
+                    let mux = mux.upgrade()?;
+                    guests.retry(&mux, share_id, &guest);
                     continue;
                 }
                 None => continue,
@@ -909,65 +914,106 @@ fn reconcile(mux: &Mux, share_id: &str) -> Vec<Value> {
 
 /// The client ids kept per guest for its next relay.
 const MAX_GUEST_CLIENTS: usize = 64;
+/// A guest relay that could not start, or ended while its guest stayed connected, starts again
+/// after this, doubling up to [`RELAY_RETRY_MAX`].
+const RELAY_RETRY_MIN: Duration = Duration::from_millis(250);
+const RELAY_RETRY_MAX: Duration = Duration::from_secs(30);
+
+/// A connected guest with no relay running: one is started again after a backoff.
+struct Waiting {
+    sockets: Option<usize>,
+    tries: u32,
+}
 
 /// The relays of one host socket's guests (dropped with it).
 struct Guests {
     relays: HashMap<String, relay::Relay>,
+    /// Connected guests whose relay could not start (no connection permit) or ended.
+    waiting: HashMap<String, Waiting>,
     /// Each guest's client ids its page named (newest last, at most 64), handed to its next
     /// relay so a reconnect's snapshot names those prompts' states.
     clients: HashMap<String, VecDeque<String>>,
+    /// Each guest's held prompts, shared by its relays.
+    held: HashMap<String, relay::Held>,
     next: u64,
     out: mpsc::UnboundedSender<relay::Out>,
 }
 
 impl Guests {
-    /// A room frame about the guests' browsers, after the daemon's `guests`.
-    fn room(&mut self, mux: &Arc<Mux>, share_id: &str, frame: &Value) {
+    fn new(out: mpsc::UnboundedSender<relay::Out>) -> Self {
+        let (relays, waiting, clients, held) =
+            (HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new());
+        Self { relays, waiting, clients, held, next: 0, out }
+    }
+
+    /// A room frame about the guests' browsers, after the daemon's `guests`; what to send the
+    /// room back (a prompt no relay can take is refused, `share.busy`).
+    fn room(&mut self, mux: &Arc<Mux>, share_id: &str, frame: &Value) -> Vec<Value> {
         let guest = frame.get("guest_id").and_then(Value::as_str).unwrap_or_default();
         let ask = match frame.get("t").and_then(Value::as_str).unwrap_or_default() {
             // `hello` names each connected guest once; its socket count when the room gives it
             // (`sockets`), else unknown.
             "hello" => {
                 self.relays.clear();
+                self.waiting.clear();
                 for guest in frame.get("guests").and_then(Value::as_array).into_iter().flatten() {
                     let sockets = guest.get("sockets").and_then(Value::as_u64);
                     let sockets = sockets.and_then(|n| usize::try_from(n).ok()).filter(|n| *n > 0);
                     let guest = guest.get("guest_id").and_then(Value::as_str).unwrap_or_default();
-                    self.open(mux, share_id, guest, sockets);
+                    self.open(mux, share_id, guest, sockets, 0);
                 }
-                return;
+                return Vec::new();
             }
             // A guest's (re)connect gets a fresh snapshot; one more socket than before.
             "guest_joined" => {
-                let sockets = match self.relays.remove(guest) {
-                    Some(relay) => relay.sockets.map(|n| n.saturating_add(1)),
+                let before = match (self.relays.remove(guest), self.waiting.remove(guest)) {
+                    (Some(relay), _) => Some(relay.sockets),
+                    (None, Some(waiting)) => Some(waiting.sockets),
+                    (None, None) => None,
+                };
+                let sockets = match before {
+                    Some(sockets) => sockets.map(|n| n.saturating_add(1)),
                     None => Some(1),
                 };
-                return self.open(mux, share_id, guest, sockets);
+                self.open(mux, share_id, guest, sockets, 0);
+                return Vec::new();
             }
             // The relay ends with the guest's last socket. With no count (a room whose `hello`
             // gives none) the first `guest_left` ends it: a relay never outlives its guest's
             // sockets holding a daemon connection; another open tab of the guest reconnects.
             "guest_left" => {
-                if let Some(relay) = self.relays.get_mut(guest) {
-                    let left = relay.sockets.map_or(0, |n| n.saturating_sub(1));
-                    relay.sockets = Some(left);
+                let sockets = match (self.relays.get_mut(guest), self.waiting.get_mut(guest)) {
+                    (Some(relay), _) => Some(&mut relay.sockets),
+                    (None, Some(waiting)) => Some(&mut waiting.sockets),
+                    (None, None) => None,
+                };
+                if let Some(sockets) = sockets {
+                    let left = sockets.map_or(0, |n| n.saturating_sub(1));
+                    *sockets = Some(left);
                     if left == 0 {
                         self.relays.remove(guest);
+                        self.waiting.remove(guest);
                     }
                 }
-                return;
+                return Vec::new();
             }
             "guest_prompt" => {
                 let client_id = frame.get("client_id").and_then(Value::as_str).unwrap_or_default();
                 self.named(guest, [client_id]);
+                // A connected guest whose relay waits to start: refused, said, not lost.
+                if self.waiting.contains_key(guest) && (1..=128).contains(&client_id.len()) {
+                    let prompt = guest_prompt_id(share_id, guest, client_id);
+                    return vec![json!({"v": 1, "t": "prompt_state", "guest_id": guest,
+                        "client_id": client_id, "prompt_id": prompt, "state": "refused",
+                        "reason": "share.busy"})];
+                }
                 let text = frame.get("text").and_then(Value::as_str).unwrap_or_default();
                 relay::Ask::Prompt { client_id: client_id.to_owned(), text: text.to_owned() }
             }
             "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
             "older" => match frame.get("before_seq").and_then(Value::as_u64) {
                 Some(before) => relay::Ask::Older(before),
-                None => return,
+                None => return Vec::new(),
             },
             "prompt_status" => {
                 let ids: Vec<String> =
@@ -977,15 +1023,25 @@ impl Guests {
                 self.named(guest, ids.iter().map(String::as_str));
                 relay::Ask::Status(ids)
             }
-            _ => return,
+            _ => return Vec::new(),
         };
         if let Some(relay) = self.relays.get(guest) {
             let _ = relay.asks.send(ask);
         }
+        Vec::new()
     }
 
     /// Starts the relay of a guest the daemon holds active, with its sockets (`None`: unknown).
-    fn open(&mut self, mux: &Arc<Mux>, share_id: &str, guest: &str, sockets: Option<usize>) {
+    /// With no connection permit free the guest waits, and it is tried again after a backoff.
+    fn open(
+        &mut self,
+        mux: &Arc<Mux>,
+        share_id: &str,
+        guest: &str,
+        sockets: Option<usize>,
+        tries: u32,
+    ) {
+        self.waiting.remove(guest);
         if !view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest)) {
             return;
         }
@@ -995,16 +1051,40 @@ impl Guests {
         let ids = (share_id, guest);
         let known: Vec<String> =
             self.clients.get(guest).map(|k| k.iter().cloned().collect()).unwrap_or_default();
+        let held = self.held.entry(guest.to_owned()).or_default().clone();
         let out = self.out.clone();
-        if let Some(mut relay) = relay::start(mux, render, ids, self.next, out, &known) {
-            relay.sockets = sockets;
-            self.relays.insert(guest.to_owned(), relay);
+        match relay::start(mux, render, ids, self.next, out, &known, held) {
+            Some(mut relay) => {
+                relay.sockets = sockets;
+                relay.tries = tries;
+                self.relays.insert(guest.to_owned(), relay);
+            }
+            None => self.wait(guest, sockets, tries),
+        }
+    }
+
+    /// `guest` stays connected with no relay: it is started again after a backoff.
+    fn wait(&mut self, guest: &str, sockets: Option<usize>, tries: u32) {
+        self.waiting.insert(guest.to_owned(), Waiting { sockets, tries });
+        let factor = 2_u32.saturating_pow(tries.min(16));
+        let delay = RELAY_RETRY_MIN.saturating_mul(factor).min(RELAY_RETRY_MAX);
+        let (out, guest) = (self.out.clone(), guest.to_owned());
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            let _ = out.send(relay::Out::Retry(guest));
+        });
+    }
+
+    /// A waiting guest's backoff ran out: its relay is started again.
+    fn retry(&mut self, mux: &Arc<Mux>, share_id: &str, guest: &str) {
+        if let Some(waiting) = self.waiting.remove(guest) {
+            self.open(mux, share_id, guest, waiting.sockets, waiting.tries.saturating_add(1));
         }
     }
 
     /// Notes client ids `guest`'s page named, for its next relay.
     fn named<'a>(&mut self, guest: &str, ids: impl IntoIterator<Item = &'a str>) {
-        if !self.relays.contains_key(guest) {
+        if !self.relays.contains_key(guest) && !self.waiting.contains_key(guest) {
             return;
         }
         let known = self.clients.entry(guest.to_owned()).or_default();
@@ -1022,9 +1102,19 @@ impl Guests {
         self.relays.get(guest).is_some_and(|relay| relay.generation == generation)
     }
 
-    fn ended(&mut self, guest: &str, generation: u64) {
-        if self.relays.get(guest).is_some_and(|relay| relay.generation == generation) {
-            self.relays.remove(guest);
+    /// A relay ended (its attachment closed: detached, overflow, the guest kicked). The current
+    /// one of a guest still connected starts again after a backoff; a kicked guest's does not
+    /// (`open` checks the guest is active).
+    fn ended(&mut self, mux: &Mux, share_id: &str, guest: &str, generation: u64) {
+        if !self.current(guest, generation) {
+            return;
+        }
+        let active = view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest));
+        if let Some(relay) = self.relays.remove(guest)
+            && active
+            && relay.sockets != Some(0)
+        {
+            self.wait(guest, relay.sockets, relay.tries.saturating_add(1));
         }
     }
 }
