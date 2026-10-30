@@ -81,13 +81,20 @@ class WebOTAPublicationContractTests(unittest.TestCase):
                 os.environ["CMUX_WEB_BUN_VERSION"] = old
         self.assertNotEqual(first, second)
 
+    def test_same_toolchain_manifest_is_reused_across_runtime_prefixes(self):
+        namespace = {}
+        exec(compile(KEY.read_text(), str(KEY), "exec"), namespace)
+        matches = namespace["manifest_matches_toolchain"]
+        self.assertTrue(matches({"bun": "1.4.4", "node": "v24.22.1"}, "1.4.4", "24.22.1"))
+        self.assertFalse(matches({"bun": "1.4.3", "node": "v24.22.1"}, "1.4.4", "24.22.1"))
+
     def test_workflow_pins_identity_and_records_manifest_toolchain(self):
         workflow = WORKFLOW.read_text()
         self.assertIn('CMUX_WEB_BUN_VERSION: "1.4.4"', workflow)
         self.assertIn('CMUX_WEB_NODE_VERSION: "24.22.1"', workflow)
-        self.assertIn('"bun": subprocess.run(["bun", "--version"]', workflow)
-        self.assertIn('"node": subprocess.run(["node", "--version"]', workflow)
-        self.assertIn('manifest.get(k) == v', workflow)
+        self.assertIn('"bun": normalize(subprocess.run(["bun", "--version"]', workflow)
+        self.assertIn('"node": normalize(subprocess.run(["node", "--version"]', workflow)
+        self.assertIn('manifest_matches_toolchain"]', workflow)
 
 
 if __name__ == "__main__":

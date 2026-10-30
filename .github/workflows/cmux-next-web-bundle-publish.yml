@@ -88,9 +88,10 @@ jobs:
           code="$(curl -sS -o "$manifest" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$key/manifest.json?verify=$GITHUB_RUN_ID" || true)"
           if [[ "$code" == 200 ]] && python3 - "$manifest" <<'PY'
           import json, sys
+          import runpy
           manifest = json.load(open(sys.argv[1]))
-          expected = {"bun": "1.4.4", "node": "24.22.1"}
-          raise SystemExit(0 if all(manifest.get(k) == v for k, v in expected.items()) else 1)
+          key = runpy.run_path("scripts/cmux-next/web-bundle-key.py")
+          raise SystemExit(0 if key["manifest_matches_toolchain"](manifest, "1.4.4", "24.22.1") else 1)
           PY
           then
             echo "published=true" >> "$GITHUB_OUTPUT"
@@ -135,14 +136,15 @@ jobs:
           archive="web-bundles-$sha.tar.gz"
           mv "$dir/web-bundles.tar.gz" "$dir/$archive"
           python3 - "$dir/manifest.json" "$KEY" "$archive" "$sha" "$(stat -c %s "$dir/$archive")" <<'PY'
-          import json, os, subprocess, sys
+          import json, os, runpy, subprocess, sys
           path, key, archive, sha, size = sys.argv[1:]
+          normalize = runpy.run_path("scripts/cmux-next/web-bundle-key.py")["normalize_toolchain_version"]
           outputs = subprocess.run(["python3", "scripts/cmux-next/web-bundle-key.py", os.environ["RUNNER_TEMP"] + "/web-bundles-out", "--outputs"],
                                    capture_output=True, text=True).stdout.strip()
           json.dump({"schema": 1, "key": key, "commit": os.environ["GITHUB_SHA"], "run_id": int(os.environ["GITHUB_RUN_ID"]),
                      "archive": archive, "sha256": sha, "size": int(size),
-                     "bun": subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout.strip(),
-                     "node": subprocess.run(["node", "--version"], capture_output=True, text=True).stdout.strip(),
+                     "bun": normalize(subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout),
+                     "node": normalize(subprocess.run(["node", "--version"], capture_output=True, text=True).stdout),
                      "outputs": outputs or None}, open(path, "w"), indent=1, sort_keys=True)
           PY
           cat "$dir/manifest.json"

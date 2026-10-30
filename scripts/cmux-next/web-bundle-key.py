@@ -182,6 +182,18 @@ def toolchain_identity():
     return f"bun={bun}\nnode={node}\n"
 
 
+def normalize_toolchain_version(value):
+    """Normalize runtime version output for stable manifest comparisons."""
+    return value.strip().removeprefix("v")
+
+
+def manifest_matches_toolchain(manifest, bun, node):
+    return all(
+        normalize_toolchain_version(manifest.get(name, "")) == normalize_toolchain_version(expected)
+        for name, expected in (("bun", bun), ("node", node))
+    )
+
+
 def source_key(root):
     h = hashlib.sha256()
     h.update(b"web-bundle-toolchain\0" + toolchain_identity().encode())
