@@ -115,6 +115,13 @@
 .ui-menu.ui-select-popup .ui-menu-shortcut {
   padding-inline-start: var(--cmux-menu-shortcut-gap);
 }
+/* Its glass frosts what is under it (a slider, a number field) instead of letting it read through:
+   the menu tint and blur (desktop.css --ds-glass-menu-*), never opaque. Reduce Transparency still
+   makes it the solid popup surface (glass.css, !important). The lens keeps its own clearer glass. */
+.ui-popup.ui-glass.ui-select-popup {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+}
 
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
    or filtering a list never changes the composer's geometry. */

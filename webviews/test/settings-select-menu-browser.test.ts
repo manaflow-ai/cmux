@@ -168,10 +168,12 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
         // The checkmark on the state column, the text right after it: no empty gutter.
         expect(Math.abs(m.checkCenter - 10)).toBeLessThanOrEqual(1);
         for (const left of m.textLeft) expect(Math.abs(left - 22)).toBeLessThanOrEqual(1);
-        // Glass, never opaque: a translucent fill over a blur.
-        const alpha = /rgba?\([^)]*[,/]\s*([\d.]+)\)/.exec(m.background)?.[1];
-        expect(alpha === undefined ? 1 : Number(alpha)).toBeLessThan(1);
-        expect(m.backdrop).toContain("blur");
+        // Glass, never opaque: a translucent fill (under the surface roles' near-opaque 0.9) over a
+        // frost strong enough that the row under it does not read through (the menu glass tokens).
+        const alpha = Number(/\/\s*([\d.]+)\)\s*$|,\s*([\d.]+)\)\s*$/.exec(m.background)?.slice(1).find(Boolean) ?? 1);
+        expect(alpha).toBeLessThan(0.9);
+        expect(alpha).toBeGreaterThanOrEqual(0.75);
+        expect(Number(/blur\((\d+)px\)/.exec(m.backdrop)?.[1] ?? 0)).toBeGreaterThanOrEqual(30);
         // The page title is whole: nothing clips its top.
         expect(m.title).not.toBeNull();
         expect(m.title!.top).toBeGreaterThanOrEqual(m.title!.clipTop - 0.5);
