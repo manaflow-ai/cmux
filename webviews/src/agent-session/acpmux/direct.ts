@@ -3430,6 +3430,9 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // A harness restart or a new conversation names a new native root without a rebuild: the
+      // fold learns it now, or a record naming it as a parent would not repair its child.
+      this.subagents.setRoot(text(session.agentSessionId));
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
