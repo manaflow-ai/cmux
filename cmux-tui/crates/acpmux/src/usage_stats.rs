@@ -17,12 +17,14 @@
 //!
 //! Cheap and incremental: a [`Tracker`] keeps each file's read offset and reads only
 //! what was appended since, in bounded steps; a first read takes at most the newest
-//! [`FIRST_READ_BYTES`]. Lines that cannot carry usage are skipped before they are
-//! parsed. Spend is kept in minute buckets for the last day, so the 24-hour and
+//! [`FIRST_READ_BYTES`]. A count is unknown (null), never a lower number, until the reads
+//! cover the whole day: a first read cut short after the day began, a backlog left for the
+//! next refresh, or a file that could not be read. Lines that cannot carry usage are skipped
+//! before they are parsed. Spend is kept in minute buckets for the last day, so the 24-hour and
 //! one-hour sums need no rescan. Cost is the model catalog's list price for the
 //! tokens (USD per million), null when no model of the window has a price.
 
-use crate::protocol::session::UsageStats;
+use crate::protocol::session::{Autocompact, UsageStats};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
@@ -109,8 +111,9 @@ pub struct Source {
     pub cwd: PathBuf,
     /// Unix ms the chat was created: where a Codex rollout is looked for first.
     pub created_at: u64,
-    /// The argv its harness last started with.
-    pub argv: Vec<String>,
+    /// The argv this daemon last started its harness with; None when it never did (an
+    /// adopted, watched or revived chat), so its launcher and autocompact are unknown.
+    pub argv: Option<Vec<String>>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
 }
@@ -149,6 +152,16 @@ struct Tail {
     recent: VecDeque<String>,
     /// Codex's running total at the last `token_count`, which repeats on rate-limit updates.
     last_total: Option<u64>,
+    /// Since when (unix ms) what was read covers the file: 0 from its start; None before a read,
+    /// or when a first read began mid-file at a line with no time.
+    covered_from: Option<u64>,
+}
+
+impl Tail {
+    /// Whether what was read covers the day before `now`.
+    fn covers_day(&self, now: u64) -> bool {
+        self.covered_from.is_some_and(|from| from == 0 || from + DAY_MS <= now)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -175,11 +188,17 @@ pub struct Tracker {
     context_window: Option<u64>,
     /// The newest call older than the window a read passed over, parsed at the read's end.
     old_context: Option<Vec<u8>>,
+    /// The last refresh read every file to its end, covering the whole day: else the counts are
+    /// lower than the truth, so they read as unknown.
+    complete: bool,
+    /// The most a first read takes and the most one refresh reads, per file (tests set them).
+    limits: Option<(u64, u64)>,
 }
 
 impl Tracker {
-    /// Reads what the chat's harness appended since the last refresh and returns the stats as of `now`.
-    pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> UsageStats {
+    /// Reads what the chat's harness appended since the last refresh and returns the stats as
+    /// of `now`; None while its transcript is not found.
+    pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
         if self.main.is_none() && now >= self.look_again_at {
             match locate(source) {
                 Some(path) => self.main = Some(Tail { path, ..Tail::default() }),
@@ -187,17 +206,21 @@ impl Tracker {
             }
         }
         let codex = source.family == "codex";
+        let limits = self.limits.unwrap_or((FIRST_READ_BYTES, READ_STEP_BYTES));
         if let Some(mut tail) = self.main.take() {
-            read_new(&mut tail, |line, tail| {
+            let read = read_new(&mut tail, limits, |line, tail| {
                 if codex {
                     self.codex_line(line, tail, now, models);
                 } else {
                     self.claude_line(line, tail, now, true, models);
                 }
             });
+            self.complete = read && tail.covers_day(now);
             if !codex {
                 self.settle_context(&mut tail, now, models);
-                self.claude_subagents(&tail.path, &source.agent_session_id, now, models);
+                let subagents =
+                    self.claude_subagents(&tail.path, &source.agent_session_id, now, models);
+                self.complete &= subagents;
             }
             self.main = Some(tail);
         }
@@ -205,10 +228,12 @@ impl Tracker {
         self.minutes = self.minutes.split_off(&(cutoff - cutoff % MINUTE_MS));
         let window =
             self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
-        self.stats(source, now, window)
+        self.main.as_ref()?;
+        Some(self.stats(source, now, window))
     }
 
     fn stats(&self, source: &Source, now: u64, window: Option<u64>) -> UsageStats {
+        let known = |n: u64| self.complete.then_some(n);
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0, false);
         for (minute, b) in &self.minutes {
             day.tokens += b.tokens;
@@ -220,18 +245,24 @@ impl Tracker {
                 hour_spawns += b.spawns;
             }
         }
+        let (autocompact, autocompact_cap) = autocompact(source, window);
+        // Codex's children are not in its rollout: the hub fills them in (`hub/usage_view.rs`).
+        let live = (source.family == "claude" && self.complete)
+            .then(|| self.subagents.values().filter(|s| s.live).count() as u64);
         UsageStats {
-            launcher: launcher(&source.argv),
-            autocompact_cap: autocompact_cap(source, window),
+            launcher: source.argv.as_deref().and_then(launcher),
+            autocompact,
+            autocompact_cap,
             context_tokens: self.context_tokens,
             context_window: window,
-            compactions24h: day.compactions,
-            subagents_live: self.subagents.values().filter(|s| s.live).count() as u64,
-            subagents1h: hour_spawns,
-            subagents24h: day.spawns,
-            tokens24h: day.tokens,
+            compactions24h: known(day.compactions),
+            subagents_live: live,
+            subagents1h: known(hour_spawns),
+            subagents24h: known(day.spawns),
+            tokens24h: known(day.tokens),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
-            cost_usd24h: priced.then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
+            cost_usd24h: (self.complete && priced)
+                .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
             updated_at: now,
         }
     }
@@ -401,10 +432,22 @@ impl Tracker {
 
     /// Claude Code's subagents: one transcript per spawn beside the chat's
     /// (`<sid>/subagents/agent-*.jsonl`); its spend is the chat's too.
-    fn claude_subagents(&mut self, main: &Path, sid: &str, now: u64, models: &Models) {
-        let Some(dir) = main.parent().map(|d| d.join(sid).join("subagents")) else { return };
-        let Ok(entries) = std::fs::read_dir(&dir) else { return };
-        for entry in entries.flatten() {
+    /// Whether every subagent's transcript was read to its end, covering the day.
+    fn claude_subagents(&mut self, main: &Path, sid: &str, now: u64, models: &Models) -> bool {
+        let Some(dir) = main.parent().map(|d| d.join(sid).join("subagents")) else { return false };
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            // A chat that never started one.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
+            Err(_) => return false,
+        };
+        let limits = self.limits.unwrap_or((FIRST_READ_BYTES, READ_STEP_BYTES));
+        let mut complete = true;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                complete = false;
+                continue;
+            };
             let path = entry.path();
             if path.extension().is_none_or(|e| e != "jsonl") {
                 continue;
@@ -430,7 +473,7 @@ impl Tracker {
             }
             let mut tail = std::mem::take(&mut agent.tail);
             let mut first = None;
-            read_new(&mut tail, |line, tail| {
+            let read = read_new(&mut tail, limits, |line, tail| {
                 if first.is_none() && !agent.spawned {
                     first = serde_json::from_slice::<Value>(line).ok().and_then(|r| timestamp(&r));
                 }
@@ -444,47 +487,66 @@ impl Tracker {
                     b.spawns += 1;
                 }
             }
-            let read_all = std::fs::metadata(&path).is_ok_and(|m| m.len() <= tail.offset);
+            complete &= read && tail.covers_day(now);
             agent.tail = tail;
             agent.live = !finished && modified + LIVE_QUIET_MS > now;
-            agent.done = finished && read_all;
+            agent.done = finished && read;
             self.subagents.insert(path, agent);
         }
+        complete
     }
 }
 
 /// Feeds each complete line appended to `tail.path` since `tail.offset` to `each`, at most
-/// [`READ_STEP_BYTES`] a call; a first read starts at most [`FIRST_READ_BYTES`] before the end,
-/// at a line start. A file that shrank (rewritten) is read again from its start.
-fn read_new(tail: &mut Tail, mut each: impl FnMut(&[u8], &mut Tail)) {
-    let Ok(mut file) = std::fs::File::open(&tail.path) else { return };
-    let Ok(len) = file.metadata().map(|m| m.len()) else { return };
+/// `step` bytes a call; a first read starts at most `first` bytes before the end, at a line
+/// start. A file that shrank (rewritten) is read again from its start. Returns whether the
+/// read reached the end of the file as it was (false on any error or a backlog left).
+fn read_new(
+    tail: &mut Tail,
+    (first, step): (u64, u64),
+    mut each: impl FnMut(&[u8], &mut Tail),
+) -> bool {
+    let Ok(mut file) = std::fs::File::open(&tail.path) else { return false };
+    let Ok(len) = file.metadata().map(|m| m.len()) else { return false };
     if len < tail.offset {
-        tail.offset = 0;
-        tail.recent.clear();
-        tail.last_total = None;
+        *tail = Tail { path: std::mem::take(&mut tail.path), ..Tail::default() };
     }
     let mut skip_partial = false;
-    if tail.offset == 0 && len > FIRST_READ_BYTES {
-        tail.offset = len - FIRST_READ_BYTES;
-        skip_partial = true;
+    if tail.offset == 0 {
+        if len > first {
+            tail.offset = len - first;
+            skip_partial = true;
+        } else {
+            tail.covered_from = Some(0);
+        }
     }
-    if len == tail.offset || file.seek(SeekFrom::Start(tail.offset)).is_err() {
-        return;
+    if len == tail.offset {
+        return true;
     }
+    if file.seek(SeekFrom::Start(tail.offset)).is_err() {
+        return false;
+    }
+    // This read reaches the end of the file as it is now; else a backlog stays for the next.
+    let to_end = len - tail.offset <= step;
     let mut buf = Vec::new();
-    if file.take(READ_STEP_BYTES.min(len - tail.offset)).read_to_end(&mut buf).is_err() {
-        return;
+    if file.take(step.min(len - tail.offset)).read_to_end(&mut buf).is_err() {
+        return false;
     }
-    let Some(end) = memchr::memrchr(b'\n', &buf) else { return };
+    // None: a line still being written, or (not to the end) one longer than the step.
+    let Some(end) = memchr::memrchr(b'\n', &buf) else { return to_end };
     let mut lines = buf[..end].split(|b| *b == b'\n');
     if skip_partial {
         lines.next();
     }
     for line in lines {
+        if tail.covered_from.is_none() {
+            let record = serde_json::from_slice::<Value>(line).ok();
+            tail.covered_from = record.as_ref().and_then(timestamp);
+        }
         each(line, tail);
     }
     tail.offset += end as u64 + 1;
+    to_end
 }
 
 /// The chat's transcript: Claude's under its project folder (else any project
@@ -551,33 +613,53 @@ pub fn launcher(argv: &[String]) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-/// The context size at which the harness compacts, when something caps it; None when
-/// nothing does (the harness's own default). Claude Code: `--autocompact N`, else
-/// `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of the window,
-/// else `autoCompactWindow` in its settings.json. Codex: `-c model_auto_compact_token_limit=N`,
-/// else that key in its config.toml.
-pub fn autocompact_cap(source: &Source, window: Option<u64>) -> Option<u64> {
-    let argv = &source.argv;
+/// Whether the harness's autocompact is capped, and at how many tokens when that is known.
+/// Claude Code: `--autocompact N`, else `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else
+/// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of the window, else `autoCompactWindow` in its
+/// settings.json. Codex: `-c model_auto_compact_token_limit=N`, else that key in its
+/// config.toml. Unknown when its argv is not this daemon's, or a value or file that would
+/// decide it cannot be read; `auto` and an absent setting are no cap.
+pub fn autocompact(source: &Source, window: Option<u64>) -> (Autocompact, Option<u64>) {
+    let capped =
+        |n: Option<u64>| n.map_or((Autocompact::Unknown, None), |n| (Autocompact::Capped, Some(n)));
+    let value = |text: &str| match text.trim().trim_matches('"') {
+        t if t.eq_ignore_ascii_case("auto") => (Autocompact::Uncapped, None),
+        t => capped(tokens(t)),
+    };
+    let Some(argv) = source.argv.as_deref() else { return (Autocompact::Unknown, None) };
     let env = |k: &str| source.env.get(k).cloned().or_else(|| std::env::var(k).ok());
+    // A file the harness reads at start: absent is no setting; unreadable is unknown.
+    let read = |name: &str| match source.home().map(|h| std::fs::read(h.join(name))) {
+        Some(Ok(bytes)) => Ok(Some(bytes)),
+        Some(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        _ => Err(()),
+    };
     match source.family.as_str() {
         "claude" => {
-            if let Some(value) = flag(argv, "--autocompact") {
-                return tokens(&value);
+            if let Some(v) = flag(argv, "--autocompact") {
+                return value(&v);
             }
-            if let Some(value) = env("CLAUDE_CODE_AUTO_COMPACT_WINDOW") {
-                return tokens(&value);
+            if let Some(v) = env("CLAUDE_CODE_AUTO_COMPACT_WINDOW") {
+                return value(&v);
             }
-            if let Some(pct) = env("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
-                .and_then(|p| p.trim().parse::<f64>().ok())
-                .filter(|p| *p > 0.0 && *p < 100.0)
-            {
-                return window.map(|w| (w as f64 * pct / 100.0) as u64);
+            if let Some(pct) = env("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") {
+                return match pct.trim().parse::<f64>().ok().filter(|p| *p > 0.0 && *p < 100.0) {
+                    Some(pct) => {
+                        (Autocompact::Capped, window.map(|w| (w as f64 * pct / 100.0) as u64))
+                    }
+                    None => (Autocompact::Unknown, None),
+                };
             }
-            let settings = std::fs::read(source.home()?.join("settings.json")).ok()?;
-            match &serde_json::from_slice::<Value>(&settings).ok()?["autoCompactWindow"] {
-                Value::Number(n) => n.as_u64(),
-                Value::String(s) => tokens(s),
-                _ => None,
+            let Ok(settings) = read("settings.json") else { return (Autocompact::Unknown, None) };
+            let Some(settings) = settings else { return (Autocompact::Uncapped, None) };
+            let Ok(settings) = serde_json::from_slice::<Value>(&settings) else {
+                return (Autocompact::Unknown, None);
+            };
+            match &settings["autoCompactWindow"] {
+                Value::Null => (Autocompact::Uncapped, None),
+                Value::Number(n) => capped(n.as_u64()),
+                Value::String(s) => value(s),
+                _ => (Autocompact::Unknown, None),
             }
         }
         "codex" => {
@@ -587,17 +669,21 @@ pub fn autocompact_cap(source: &Source, window: Option<u64>) -> Option<u64> {
                 let (key, value) = value.split_once('=')?;
                 (key.trim() == KEY).then(|| value.trim().to_owned())
             });
-            if let Some(value) = from_argv {
-                return tokens(&value);
+            if let Some(v) = from_argv {
+                return capped(tokens(&v));
             }
-            let config = std::fs::read_to_string(source.home()?.join("config.toml")).ok()?;
+            let Ok(config) = read("config.toml") else { return (Autocompact::Unknown, None) };
+            let Some(config) = config else { return (Autocompact::Uncapped, None) };
+            let Ok(config) = String::from_utf8(config) else { return (Autocompact::Unknown, None) };
             // Top-level keys only: the first `[table]` ends them.
-            config.lines().take_while(|l| !l.trim_start().starts_with('[')).find_map(|l| {
-                let (key, value) = l.split_once('=')?;
-                (key.trim() == KEY).then(|| tokens(value.split('#').next()?)).flatten()
-            })
+            let set =
+                config.lines().take_while(|l| !l.trim_start().starts_with('[')).find_map(|l| {
+                    let (key, value) = l.split_once('=')?;
+                    (key.trim() == KEY).then(|| value.split('#').next().unwrap_or("").to_owned())
+                });
+            set.map_or((Autocompact::Uncapped, None), |v| capped(tokens(&v)))
         }
-        _ => None,
+        _ => (Autocompact::Unknown, None),
     }
 }
 

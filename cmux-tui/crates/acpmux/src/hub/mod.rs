@@ -1254,7 +1254,11 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        self.touch(session);
+        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
+        // keeps the chat's agent awake.
+        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+            self.touch(session);
+        }
         let stored = match self.store.append(&session.id, &record) {
             Ok(()) => true,
             Err(e) => {

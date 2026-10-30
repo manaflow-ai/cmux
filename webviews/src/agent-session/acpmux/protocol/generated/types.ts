@@ -101,6 +101,9 @@ export type AuthorMetaFields = {
   author?: (Author | null);
 } & Record<string, unknown>;
 
+/** Whether a harness's autocompact is capped (`UsageStats.autocompact`). */
+export type Autocompact = ("capped" | "none" | "unknown");
+
 export type ChangedSession = (SessionSummary | PurgedSession);
 
 export type ChatAllowance = {
@@ -1249,42 +1252,48 @@ export interface TypingParams {
  * Codex's rollout. Read from where the last read ended: by a session list
  * that asks (`usage: true`) or an info read, at most every 5 s, and by each
  * turn's end for its own chat, recorded then as a mux `usage_stats` record.
+ * A value that could not be read is null, never 0: a count is null while
+ * the reads have not covered the whole last day (a first read cut short
+ * before it, a backlog not read yet, a file that could not be read).
  */
 export type UsageStats = {
+  /** Whether something caps the context at which the harness compacts. */
+  autocompact: Autocompact;
   /**
-   * The context size at which the harness compacts, when something caps it
-   * (Claude Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
-   * `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` or `autoCompactWindow`; Codex's
-   * `model_auto_compact_token_limit`); null when nothing caps it.
+   * The cap, when `autocompact` is `capped` and its value is known (Claude
+   * Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
+   * `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of a known window, `autoCompactWindow`;
+   * Codex's `model_auto_compact_token_limit`); null otherwise.
    */
   autocompactCap: (number | null);
   /** Compactions in the last 24 hours. */
-  compactions24h: number;
+  compactions24h: (number | null);
   /** The last call's context: its input, cache read and cache write tokens. */
   contextTokens: (number | null);
   /** The model's context window, as the harness reported it, else the catalog's. */
   contextWindow: (number | null);
   /**
    * Those tokens at the model catalog's list prices, USD; null when no model
-   * they ran on has a price.
+   * they ran on has a price, or when `tokens24h` is null.
    */
   costUsd24h: (number | null);
   /**
    * The executable its harness runs, by file name (`claude`, `claude-sr2`,
-   * `codex-acp`); `harness` is the profile.
+   * `codex-acp`); `harness` is the profile. Null when this daemon did not
+   * start it (an adopted, watched or revived chat).
    */
   launcher: (string | null);
   /** Subagents started in the last hour. */
-  subagents1h: number;
+  subagents1h: (number | null);
   /** Subagents started in the last 24 hours. */
-  subagents24h: number;
+  subagents24h: (number | null);
   /** Subagents that run now. */
-  subagentsLive: number;
+  subagentsLive: (number | null);
   /**
    * Tokens of the last 24 hours, subagents' included: input, output, cache
    * read and cache write.
    */
-  tokens24h: number;
+  tokens24h: (number | null);
   /** Unix ms of the read these come from. */
   updatedAt: number;
 } & Record<string, unknown>;

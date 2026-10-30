@@ -46,7 +46,7 @@ fn claude(home: &Path) -> (Source, PathBuf) {
         agent_session_id: SID.into(),
         cwd,
         created_at: ms("2026-10-30T00:00:00Z"),
-        argv: vec!["/usr/local/bin/claude".into(), "--autocompact".into(), "200k".into()],
+        argv: Some(vec!["/usr/local/bin/claude".into(), "--autocompact".into(), "200k".into()]),
         env,
     };
     (source, home.join("projects/-work-repo-x").join(format!("{SID}.jsonl")))
@@ -75,12 +75,13 @@ fn a_claude_transcript_counts_each_message_once_and_reads_only_what_was_appended
         ],
     );
     let mut tracker = Tracker::default();
-    let first = tracker.refresh(&source, now, &models());
-    assert_eq!(first.tokens24h, 1110);
+    let first = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(first.tokens24h, Some(1110));
     assert_eq!(first.context_tokens, Some(1010));
     assert_eq!(first.context_window, Some(1_000_000));
-    assert_eq!(first.compactions24h, 1);
-    assert_eq!(first.autocompact_cap, Some(200_000));
+    assert_eq!(first.compactions24h, Some(1));
+    assert_eq!((first.autocompact, first.autocompact_cap), (Autocompact::Capped, Some(200_000)));
+    assert_eq!(first.subagents_live, Some(0), "it never started one");
     assert_eq!(first.launcher.as_deref(), Some("claude"));
     // 10 input at $4, 1000 cache writes at $5, 100 output at $20, per million.
     assert_eq!(first.cost_usd24h, Some(0.0070));
@@ -90,20 +91,39 @@ fn a_claude_transcript_counts_each_message_once_and_reads_only_what_was_appended
     append(&path, &[assistant("msg_2", "2026-10-30T11:59:00Z", usage(5, 0, 1010, 50), false)]);
     let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
     write!(f, "{}", assistant("msg_3", "2026-10-30T11:59:30Z", usage(1, 0, 0, 1), false)).unwrap();
-    let second = tracker.refresh(&source, now, &models());
-    assert_eq!(second.tokens24h, 1110 + 1065);
+    let second = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(second.tokens24h, Some(1110 + 1065));
     assert_eq!(second.context_tokens, Some(1015));
     writeln!(f).unwrap();
     // A subagent's line in the chat's own file (a sidechain) is spend, not the chat's context.
     append(&path, &[assistant("msg_4", "2026-10-30T11:59:40Z", usage(7, 0, 0, 0), true)]);
-    let third = tracker.refresh(&source, now, &models());
-    assert_eq!(third.tokens24h, 1110 + 1065 + 2 + 7);
+    let third = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(third.tokens24h, Some(1110 + 1065 + 2 + 7));
     assert_eq!(third.context_tokens, Some(1));
 
     // A day later every bucket has aged out; the last call's context stays.
-    let later = tracker.refresh(&source, now + DAY_MS, &models());
-    assert_eq!((later.tokens24h, later.compactions24h, later.cost_usd24h), (0, 0, None));
+    let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(
+        (later.tokens24h, later.compactions24h, later.cost_usd24h),
+        (Some(0), Some(0), None)
+    );
     assert_eq!(later.context_tokens, Some(1));
+}
+
+#[test]
+fn a_chat_whose_transcript_is_not_found_has_no_stats() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let mut tracker = Tracker::default();
+    let now = ms("2026-10-30T12:00:00Z");
+    assert_eq!(tracker.refresh(&source, now, &models()), None);
+    // Looked for again only after a while, then found.
+    append(&path, &[assistant("msg_1", "2026-10-30T11:00:00Z", usage(1, 0, 0, 1), false)]);
+    assert_eq!(tracker.refresh(&source, now + 1000, &models()), None);
+    assert_eq!(
+        tracker.refresh(&source, now + LOOK_AGAIN_MS, &models()).unwrap().tokens24h,
+        Some(2)
+    );
 }
 
 #[test]
@@ -134,17 +154,20 @@ fn claude_subagents_count_as_spawns_and_spend_and_live_until_finished() {
     );
     std::fs::write(dir.join("agent-a2.meta.json"), r#"{"agentType":"Explore"}"#).unwrap();
     let mut tracker = Tracker::default();
-    let stats = tracker.refresh(&source, now, &models());
-    assert_eq!(stats.subagents24h, 2);
-    assert_eq!(stats.subagents1h, 1);
-    assert_eq!(stats.subagents_live, 1);
-    assert_eq!(stats.tokens24h, 2 + 110 + 220);
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.subagents24h, Some(2));
+    assert_eq!(stats.subagents1h, Some(1));
+    assert_eq!(stats.subagents_live, Some(1));
+    assert_eq!(stats.tokens24h, Some(2 + 110 + 220));
     assert_eq!(stats.context_tokens, Some(1), "a subagent's call is not the chat's context");
 
     // The running one finishes: no longer live, and a later pass never counts it twice.
     std::fs::write(dir.join("agent-a2.meta.json"), r#"{"finished":true}"#).unwrap();
-    let again = tracker.refresh(&source, now, &models());
-    assert_eq!((again.subagents24h, again.subagents_live, again.tokens24h), (2, 0, 332));
+    let again = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(
+        (again.subagents24h, again.subagents_live, again.tokens24h),
+        (Some(2), Some(0), Some(332))
+    );
 }
 
 fn iso(at: u64) -> String {
@@ -162,7 +185,11 @@ fn a_codex_rollout_is_found_by_its_day_and_counts_each_token_report_once() {
         agent_session_id: SID.into(),
         cwd: "/work".into(),
         created_at: created,
-        argv: vec!["codex-acp".into(), "-c".into(), "model_auto_compact_token_limit=150000".into()],
+        argv: Some(vec![
+            "codex-acp".into(),
+            "-c".into(),
+            "model_auto_compact_token_limit=150000".into(),
+        ]),
         env,
     };
     // Written on the next UTC day: still found next to its creation day.
@@ -188,12 +215,16 @@ fn a_codex_rollout_is_found_by_its_day_and_counts_each_token_report_once() {
             tokens(3300, 2000, 0, 200),
         ],
     );
-    let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models());
-    assert_eq!(stats.tokens24h, 1100 + 2200);
+    let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models()).unwrap();
+    assert_eq!(stats.tokens24h, Some(1100 + 2200));
     assert_eq!(stats.context_tokens, Some(2000));
     assert_eq!(stats.context_window, Some(258_400));
-    assert_eq!((stats.compactions24h, stats.subagents24h, stats.subagents1h), (1, 1, 1));
-    assert_eq!(stats.autocompact_cap, Some(150_000));
+    assert_eq!(
+        (stats.compactions24h, stats.subagents24h, stats.subagents1h),
+        (Some(1), Some(1), Some(1))
+    );
+    assert_eq!((stats.autocompact, stats.autocompact_cap), (Autocompact::Capped, Some(150_000)));
+    assert_eq!(stats.subagents_live, None, "a Codex child is not in its rollout: the hub knows it");
     assert_eq!(stats.launcher.as_deref(), Some("codex-acp"));
     // (600 at $2 + 400 cached at $0.5 + 100 at $10) + (2000 at $2 + 200 at $10), per million.
     assert_eq!(stats.cost_usd24h, Some(0.0084));
@@ -219,36 +250,100 @@ fn a_chat_whose_calls_are_all_older_than_the_day_keeps_its_last_calls_context() 
             assistant("msg_3", "2026-10-28T10:00:03Z", usage(9, 9, 9, 9), true),
         ],
     );
-    let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models());
+    let stats = Tracker::default().refresh(&source, ms("2026-10-30T12:00:00Z"), &models()).unwrap();
     assert_eq!(stats.context_tokens, Some(303));
-    assert_eq!((stats.tokens24h, stats.cost_usd24h), (0, None));
+    assert_eq!((stats.tokens24h, stats.cost_usd24h), (Some(0), None));
 }
 
 #[test]
 fn the_autocompact_cap_comes_from_the_flag_then_the_env_then_the_settings() {
+    use Autocompact::{Capped, Uncapped, Unknown};
     let home = tempfile::tempdir().unwrap();
     let (mut source, _) = claude(home.path());
-    assert_eq!(autocompact_cap(&source, None), Some(200_000));
-    source.argv = vec!["claude".into(), "--autocompact=auto".into()];
-    assert_eq!(autocompact_cap(&source, None), None, "auto is the harness's own default");
-    source.argv = vec!["claude".into()];
-    assert_eq!(autocompact_cap(&source, None), None, "nothing caps it");
+    let argv = |a: &[&str]| Some(a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(autocompact(&source, None), (Capped, Some(200_000)));
+    source.argv = argv(&["claude", "--autocompact=auto"]);
+    assert_eq!(autocompact(&source, None), (Uncapped, None), "auto is the harness's own default");
+    source.argv = argv(&["claude", "--autocompact", "lots"]);
+    assert_eq!(autocompact(&source, None), (Unknown, None), "a value it cannot read");
+    source.argv = argv(&["claude"]);
+    assert_eq!(autocompact(&source, None), (Uncapped, None), "nothing caps it: no settings file");
+    std::fs::write(home.path().join("settings.json"), r#"{"theme": "dark"}"#).unwrap();
+    assert_eq!(autocompact(&source, None), (Uncapped, None), "nor its settings");
+    std::fs::write(home.path().join("settings.json"), "{not json").unwrap();
+    assert_eq!(autocompact(&source, None), (Unknown, None), "settings it cannot read");
     std::fs::write(home.path().join("settings.json"), r#"{"autoCompactWindow": 300000}"#).unwrap();
-    assert_eq!(autocompact_cap(&source, None), Some(300_000));
+    assert_eq!(autocompact(&source, None), (Capped, Some(300_000)));
     source.env.insert("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), "40".into());
-    assert_eq!(autocompact_cap(&source, Some(1_000_000)), Some(400_000));
+    assert_eq!(autocompact(&source, Some(1_000_000)), (Capped, Some(400_000)));
+    assert_eq!(autocompact(&source, None), (Capped, None), "capped, of a window not known");
+    source.env.insert("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), "most".into());
+    assert_eq!(autocompact(&source, None), (Unknown, None));
     source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "1M".into());
-    assert_eq!(autocompact_cap(&source, None), Some(1_000_000));
+    assert_eq!(autocompact(&source, None), (Capped, Some(1_000_000)));
+    // Adopted, watched or revived: this daemon never started it, so its flags are not known.
+    source.argv = None;
+    assert_eq!(autocompact(&source, None), (Unknown, None));
 
-    let mut codex = Source { family: "codex".into(), ..Source::default() };
-    codex.env.insert("CODEX_HOME".into(), home.path().display().to_string());
-    assert_eq!(autocompact_cap(&codex, None), None);
+    let mut codex =
+        Source { family: "codex".into(), argv: argv(&["codex-acp"]), ..Source::default() };
+    codex.env.insert("CODEX_HOME".into(), home.path().join("codex").display().to_string());
+    assert_eq!(autocompact(&codex, None), (Uncapped, None), "no config.toml");
+    std::fs::create_dir_all(home.path().join("codex")).unwrap();
+    std::fs::write(home.path().join("codex/config.toml"), "model = \"gpt-6-astra\"\n").unwrap();
+    assert_eq!(autocompact(&codex, None), (Uncapped, None));
     std::fs::write(
-        home.path().join("config.toml"),
+        home.path().join("codex/config.toml"),
         "model = \"gpt-6-astra\"\nmodel_auto_compact_token_limit = 180_000 # cap\n[x]\nmodel_auto_compact_token_limit = 1\n",
     )
     .unwrap();
-    assert_eq!(autocompact_cap(&codex, None), Some(180_000));
+    assert_eq!(autocompact(&codex, None), (Capped, Some(180_000)));
+}
+
+/// A first read that starts after the day began, or a backlog it left, cannot say the day's
+/// counts: they are unknown (null), never the lower number read so far. Once the reads reach
+/// the end and cover the day, they are known.
+#[test]
+fn counts_are_unknown_until_the_reads_cover_the_day() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    let calls: Vec<Value> = (0..40)
+        .map(|i| {
+            assistant(
+                &format!("msg_{i}"),
+                &format!("2026-10-30T11:{i:02}:00Z"),
+                usage(1, 0, 0, 1),
+                false,
+            )
+        })
+        .collect();
+    append(&path, &calls);
+    let size = std::fs::metadata(&path).unwrap().len();
+    // A first read cut to the newest bytes starts mid-day: it knows the context, not the day's counts.
+    let mut cut = Tracker { limits: Some((size / 2, u64::MAX)), ..Tracker::default() };
+    let stats = cut.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.context_tokens, Some(1));
+    assert_eq!((stats.tokens24h, stats.compactions24h, stats.subagents24h), (None, None, None));
+    assert_eq!((stats.subagents1h, stats.subagents_live, stats.cost_usd24h), (None, None, None));
+    // A day later, what it read started before the day: known again.
+    let later = cut.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(later.tokens24h, Some(0));
+
+    // Reads of a quarter of the file at a time: unknown until the backlog is read.
+    let mut stepped = Tracker { limits: Some((u64::MAX, size / 4 + 1)), ..Tracker::default() };
+    let mut seen = Vec::new();
+    for _ in 0..8 {
+        seen.push(stepped.refresh(&source, now, &models()).unwrap().tokens24h);
+    }
+    // Unknown while a backlog is left, then the whole day, never a partial count.
+    let known = seen.iter().position(Option::is_some).unwrap();
+    assert!(known >= 3, "{seen:?}");
+    assert!(seen[known..].iter().all(|t| *t == Some(80)), "{seen:?}");
+
+    // A transcript it can no longer read leaves the counts unknown.
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(stepped.refresh(&source, now, &models()).unwrap().tokens24h, None);
 }
 
 #[test]
@@ -260,6 +355,9 @@ fn days_and_token_counts_read_as_the_harnesses_write_them() {
     assert_eq!(tokens("1_000_000"), Some(1_000_000));
     assert_eq!(tokens("auto"), None);
     assert_eq!(launcher(&["/home/u/.local/bin/claude-sr2".into()]).as_deref(), Some("claude-sr2"));
+    // An argv this daemon never ran: no launcher.
+    let source = Source { family: "claude".into(), ..Source::default() };
+    assert_eq!(Tracker::default().stats(&source, 0, None).launcher, None);
     let mut m = Models::default();
     m.add("Claude-Opus-5-5", None, Some(1));
     assert_eq!(m.window("claude-opus-5-5[1m]"), Some(1));
@@ -289,7 +387,7 @@ fn usage_probe() {
         agent_session_id: parts.next().unwrap().into(),
         cwd: parts.next().unwrap_or("/").into(),
         created_at: crate::store::now_ms(),
-        argv: vec![],
+        argv: None,
         env: BTreeMap::new(),
     };
     let catalog: crate::catalog::Catalog =

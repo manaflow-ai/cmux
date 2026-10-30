@@ -28,7 +28,9 @@ async fn the_session_list_and_info_carry_what_the_chats_transcript_says() {
     assert_eq!(stats["contextTokens"], 201_003, "{stats}");
     assert_eq!(stats["tokens24h"], 201_053, "{stats}");
     assert_eq!(stats["launcher"], "python3", "{stats}");
-    assert_eq!(stats["autocompactCap"], Value::Null, "nothing caps it: {stats}");
+    // This daemon started it with no cap, and its Claude home has no settings: known uncapped.
+    assert_eq!(stats["autocompact"], "none", "{stats}");
+    assert_eq!(stats["autocompactCap"], Value::Null, "{stats}");
     assert_eq!(stats["subagents24h"], 0, "{stats}");
     assert!(stats["costUsd24h"].as_f64().is_some_and(|c| c > 0.0), "{stats}");
 

@@ -87,7 +87,9 @@ impl Hub {
                 continue;
             }
             let env = crate::route_account::spawn_env(&m, self.harness_env(&m).await.1);
-            let argv = m.spawn_argv.clone().unwrap_or_else(|| m.harness_argv.clone());
+            // Only an argv this daemon started it with says how it runs: a watched chat runs in
+            // another app, and one never started here (adopted, revived) ran with unknown flags.
+            let argv = m.spawn_argv.clone().filter(|_| m.watching.is_none());
             let source = Source {
                 family,
                 agent_session_id: sid,
@@ -107,7 +109,9 @@ impl Hub {
             let mut fresh = Vec::with_capacity(sources.len());
             for (id, source) in &sources {
                 let tracker = trackers.entry(id.clone()).or_default();
-                fresh.push((id.clone(), tracker.refresh(source, crate::store::now_ms(), &models)));
+                if let Some(found) = tracker.refresh(source, crate::store::now_ms(), &models) {
+                    fresh.push((id.clone(), found));
+                }
             }
             let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
             let same = |a: &UsageStats, b: &UsageStats| {
@@ -123,7 +127,7 @@ impl Hub {
             if whole {
                 trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
                 let before = stats.len();
-                stats.retain(|id, _| sources.iter().any(|(s, _)| s == id));
+                stats.retain(|id, _| fresh.iter().any(|(f, _)| f == id));
                 gone = stats.len() != before;
             }
             // A turn's own read announces its chat's whether or not a list's pass read the
@@ -153,12 +157,20 @@ impl Hub {
         if let Some(size) = size.filter(|s| *s > 0) {
             stats.context_window = Some(size);
         }
-        // A Codex child runs in its own thread; the hub follows it (`subagents.rs`).
-        if let Ok(tree) = session.subagents.try_lock() {
-            stats.subagents_live = stats.subagents_live.max(tree.background_running() as u64);
-        }
-        if matches!(m.status, SessionStatus::Closed | SessionStatus::Disconnected) {
-            stats.subagents_live = 0;
+        // The background subagents the hub follows (`subagents.rs`): a Codex child, which its
+        // rollout does not name, and a Claude one its transcript has not shown yet.
+        let followed = session.subagents.try_lock().ok().map(|t| t.background_running() as u64);
+        stats.subagents_live = match (m.family.as_deref(), stats.subagents_live, followed) {
+            (_, Some(read), Some(followed)) => Some(read.max(followed)),
+            (Some("codex"), None, followed) => followed,
+            (_, read, _) => read,
+        };
+        // No harness process runs, so none of its subagents does.
+        if matches!(
+            m.status,
+            SessionStatus::Closed | SessionStatus::Disconnected | SessionStatus::Idle
+        ) {
+            stats.subagents_live = Some(0);
         }
         Some(stats)
     }

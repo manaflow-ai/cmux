@@ -190,42 +190,61 @@ pub struct SessionSummary {
 /// Codex's rollout. Read from where the last read ended: by a session list
 /// that asks (`usage: true`) or an info read, at most every 5 s, and by each
 /// turn's end for its own chat, recorded then as a mux `usage_stats` record.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+/// A value that could not be read is null, never 0: a count is null while
+/// the reads have not covered the whole last day (a first read cut short
+/// before it, a backlog not read yet, a file that could not be read).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct UsageStats {
     /// The executable its harness runs, by file name (`claude`, `claude-sr2`,
-    /// `codex-acp`); `harness` is the profile.
+    /// `codex-acp`); `harness` is the profile. Null when this daemon did not
+    /// start it (an adopted, watched or revived chat).
     pub launcher: Option<String>,
-    /// The context size at which the harness compacts, when something caps it
-    /// (Claude Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
-    /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` or `autoCompactWindow`; Codex's
-    /// `model_auto_compact_token_limit`); null when nothing caps it.
+    /// Whether something caps the context at which the harness compacts.
+    pub autocompact: Autocompact,
+    /// The cap, when `autocompact` is `capped` and its value is known (Claude
+    /// Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
+    /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of a known window, `autoCompactWindow`;
+    /// Codex's `model_auto_compact_token_limit`); null otherwise.
     pub autocompact_cap: Option<u64>,
     /// The last call's context: its input, cache read and cache write tokens.
     pub context_tokens: Option<u64>,
     /// The model's context window, as the harness reported it, else the catalog's.
     pub context_window: Option<u64>,
     /// Compactions in the last 24 hours.
-    pub compactions24h: u64,
+    pub compactions24h: Option<u64>,
     /// Subagents that run now.
-    pub subagents_live: u64,
+    pub subagents_live: Option<u64>,
     /// Subagents started in the last hour.
     #[serde(rename = "subagents1h")]
-    pub subagents1h: u64,
+    pub subagents1h: Option<u64>,
     /// Subagents started in the last 24 hours.
     #[serde(rename = "subagents24h")]
-    pub subagents24h: u64,
+    pub subagents24h: Option<u64>,
     /// Tokens of the last 24 hours, subagents' included: input, output, cache
     /// read and cache write.
     #[serde(rename = "tokens24h")]
-    pub tokens24h: u64,
+    pub tokens24h: Option<u64>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
-    /// they ran on has a price.
+    /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
     pub cost_usd24h: Option<f64>,
     /// Unix ms of the read these come from.
     pub updated_at: u64,
+}
+
+/// Whether a harness's autocompact is capped (`UsageStats.autocompact`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Autocompact {
+    /// A flag, env or setting caps it.
+    Capped,
+    /// Nothing caps it: the harness's own default applies.
+    #[serde(rename = "none")]
+    Uncapped,
+    /// Not known: its argv is not this daemon's, or a value or file it reads could not be read.
+    Unknown,
 }
 
 /// A durable lifecycle fact supplied by an explicit producer. This contract

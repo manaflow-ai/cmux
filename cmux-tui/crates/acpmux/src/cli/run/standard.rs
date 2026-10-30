@@ -346,7 +346,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if wide {
                 println!(
-                    "{:<24} {:<8} {:<13} {:>5} {:<6} {:<10} {:>5} {:>6} {:>3} {:>6} {:>7} {:>7} LAST",
+                    "{:<24} {:<8} {:<13} {:>5} {:<6} {:<10} {:>6} {:>6} {:>3} {:>6} {:>7} {:>7} LAST",
                     "NAME",
                     "AGENT",
                     "STATUS",
