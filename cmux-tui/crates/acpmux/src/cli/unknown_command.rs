@@ -50,7 +50,9 @@ pub(crate) fn explain(
     let named = rest.iter().any(|w| !w.starts_with('-'));
     let fitting: Vec<&str> =
         found.iter().filter(|(_, c)| !named || takes_words(c)).map(|(g, _)| *g).collect();
-    let groups = if fitting.is_empty() { found.iter().map(|(g, _)| *g).collect() } else { fitting };
+    // None takes them: clap's own error, never a command that would drop the words (a daemon
+    // command for a session's name).
+    let groups = if named { fitting } else { found.iter().map(|(g, _)| *g).collect() };
     let first = *groups.first()?;
     let try_command = [program, first, given.as_str()]
         .into_iter()
@@ -202,6 +204,26 @@ mod tests {
         assert_eq!(data["takenBy"], json!(["session"]), "{data}");
         assert_eq!(data["try"], "acpmux session restart 'lane one'", "{data}");
         assert!(!refusal.message.contains("shutdown"), "{}", refusal.message);
+    }
+
+    #[test]
+    fn words_no_matching_command_takes_keep_clap_s_error() {
+        // `daemon wipe` takes no words: `prog wipe lane` never points at it.
+        let mut cli = clap::Command::new("prog")
+            .subcommand(clap::Command::new("daemon").subcommand(clap::Command::new("wipe")))
+            .subcommand(
+                clap::Command::new("session")
+                    .subcommand(clap::Command::new("stop").arg(clap::Arg::new("name"))),
+            );
+        let mut error = |args: &[&str]| {
+            let argv: Vec<OsString> =
+                std::iter::once("prog").chain(args.iter().copied()).map(Into::into).collect();
+            let e = cli.try_get_matches_from_mut(argv.clone()).err().expect("parses");
+            explain(&e, &cli, &argv, 1, "prog").map(|r| r.data.unwrap()["try"].clone())
+        };
+        assert_eq!(error(&["wipe", "lane"]), None);
+        assert_eq!(error(&["wipe"]), Some(json!("prog daemon wipe")));
+        assert_eq!(error(&["stop", "lane"]), Some(json!("prog session stop lane")));
     }
 
     #[test]
