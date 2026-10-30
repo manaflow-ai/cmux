@@ -223,7 +223,15 @@ impl Hub {
         if kept && gone && waiting {
             // A wait the restart cut: its `status idle` record says so (`mark_lost_wait`), now
             // or when the background pass reads its log.
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).status = SessionStatus::Idle;
+            {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                m.status = SessionStatus::Idle;
+                // Its harness is gone: a sub-session frees its parent's width slot, under the
+                // same lock as the status, as `write_status` does (`subsessions.rs`).
+                if let Some(link) = &m.subsession {
+                    self.subsessions.note_status(&link.started_by, &session.id, m.status);
+                }
+            }
             session.mark_waiting(false);
             if *loaded {
                 self.mark_lost_wait(session);

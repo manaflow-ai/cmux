@@ -252,7 +252,7 @@
     },
     "agents.subsessions.maxChildren" : {
       "default" : 50,
-      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+      "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
       "title" : "Open Sub-sessions per Session",
@@ -4443,6 +4443,12 @@
       ],
       "title" : "Command-1 to 9 Select",
       "type" : "string"
+    },
+    "tabs.nativeNewTabPage" : {
+      "default" : false,
+      "description" : "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
+      "title" : "Native New Tab Page",
+      "type" : "boolean"
     },
     "tabs.newTabNowPlaying" : {
       "default" : false,
