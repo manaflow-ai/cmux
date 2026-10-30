@@ -5,10 +5,17 @@ import type { CloudMachine, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const snapshots = sampleSnapshots();
-const samplePorts: PortForward[] = [{
-  machine: machines[0]!.id, port: 3000, host: "127.0.0.1", localPort: 49152,
-  generation: 1, state: "up", reason: null,
-}];
+const samplePorts: PortForward[] = [
+  {
+    machine: machines[0]!.id,
+    port: 3000,
+    host: "127.0.0.1",
+    localPort: 49152,
+    generation: 1,
+    state: "up",
+    reason: null,
+  },
+];
 const manyMachines: CloudMachine[] = Array.from({ length: 24 }, (_, index) => ({
   ...structuredClone(machines[index % machines.length]!),
   id: `vm_gallery_${String(index + 1).padStart(2, "0")}`,

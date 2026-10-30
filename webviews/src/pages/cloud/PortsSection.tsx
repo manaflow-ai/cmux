@@ -41,36 +41,39 @@ export function PortsSection({
           {detail.ports.map((forward) => {
             const pending = detail.pendingPorts?.find((pending) => pending.port === forward.port);
             return (
-            <li key={forward.port} className="cloud-item cloud-forward">
-              <span className="cloud-item-title cloud-mono">
-                {`${forward.port} → `}
-                <span className="cloud-forward-local">{`${forward.host}:${forward.localPort}`}</span>
-              </span>
-              <span className={`cloud-item-detail forward-${forward.state}`}>
-                {pending ? <span role="status">{t(L.loading)}</span> :
-                  [forward.state === "up" ? t(L.portsUp) : t(L.portsDown), forward.reason].filter(Boolean).join(" · ")}
-              </span>
-              <span className="cloud-item-actions">
-                <button
-                  type="button"
-                  className="cloud-link-button cloud-forward-browser"
-                  disabled={!!pending}
-                  aria-busy={pending?.action === "browser"}
-                  onClick={() => void store.detail.openBrowser(machine, forward.port, title)}
-                >
-                  {t(L.openBrowser)}
-                </button>
-                <button
-                  type="button"
-                  className="cloud-link-button cloud-forward-close"
-                  disabled={!!pending}
-                  aria-busy={pending?.action === "close"}
-                  onClick={() => void store.detail.closePort(machine, forward.port)}
-                >
-                  {t(L.portsClose)}
-                </button>
-              </span>
-            </li>
+              <li key={forward.port} className="cloud-item cloud-forward">
+                <span className="cloud-item-title cloud-mono">
+                  {`${forward.port} → `}
+                  <span className="cloud-forward-local">{`${forward.host}:${forward.localPort}`}</span>
+                </span>
+                <span className={`cloud-item-detail forward-${forward.state}`}>
+                  {pending ? (
+                    <output>{t(L.loading)}</output>
+                  ) : (
+                    [forward.state === "up" ? t(L.portsUp) : t(L.portsDown), forward.reason].filter(Boolean).join(" · ")
+                  )}
+                </span>
+                <span className="cloud-item-actions">
+                  <button
+                    type="button"
+                    className="cloud-link-button cloud-forward-browser"
+                    disabled={!!pending}
+                    aria-busy={pending?.action === "browser"}
+                    onClick={() => void store.detail.openBrowser(machine, forward.port, title)}
+                  >
+                    {t(L.openBrowser)}
+                  </button>
+                  <button
+                    type="button"
+                    className="cloud-link-button cloud-forward-close"
+                    disabled={!!pending}
+                    aria-busy={pending?.action === "close"}
+                    onClick={() => void store.detail.closePort(machine, forward.port)}
+                  >
+                    {t(L.portsClose)}
+                  </button>
+                </span>
+              </li>
             );
           })}
         </ul>

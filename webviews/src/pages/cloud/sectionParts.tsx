@@ -94,7 +94,7 @@ export function PortField({
         title={busy ? busyLabel : label}
         onClick={() => void submit()}
       >
-        {busy ? <span role="status" aria-label={busyLabel}>…</span> : button}
+        {busy ? <output aria-label={busyLabel}>…</output> : button}
       </button>
     </span>
   );
