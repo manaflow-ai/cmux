@@ -7,10 +7,12 @@
 
 use cmux_vm::exit;
 use serde_json::json;
-use wiremock::matchers::{header, method, path};
+use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const GUIDE: &str = include_str!("../../../../../../skills/cmux-cloud-vm/references/headless.md");
+/// The `cmux vm` wrapper whose verb renames [`cmux_vm_args`] repeats.
+const WRAPPER: &str = include_str!("../../../../../../cmux-tui/crates/cmux-tui/src/cli/vm.rs");
 const VM_ID: &str = "vm_0123456789abcdefghjkmnpqrs";
 const KEY: &str = "cmuxvm_sk_test";
 
@@ -85,6 +87,37 @@ async fn mount(server: &MockServer, verb: &str, route: String, response: Respons
         .await;
 }
 
+/// A mock that answers only the request with this body, once.
+async fn mount_body(
+    server: &MockServer,
+    route: String,
+    body: serde_json::Value,
+    response: ResponseTemplate,
+) {
+    Mock::given(method("POST"))
+        .and(path(route))
+        .and(header("authorization", format!("Bearer {KEY}").as_str()))
+        .and(body_json(body))
+        .respond_with(response)
+        .expect(1)
+        .mount(server)
+        .await;
+}
+
+#[test]
+fn the_wrapper_still_renames_the_verbs_the_guide_uses() {
+    for arm in [
+        r#""new" | "create" => "create""#,
+        r#""ls" | "list" => "list""#,
+        r#""rm" | "delete" => "delete""#,
+    ] {
+        assert!(
+            WRAPPER.contains(arm),
+            "cli/vm.rs no longer has `{arm}`: update cmux_vm_args"
+        );
+    }
+}
+
 #[tokio::test]
 async fn every_guide_command_runs_against_the_api() {
     let server = MockServer::start().await;
@@ -96,15 +129,26 @@ async fn every_guide_command_runs_against_the_api() {
         ok(json!({ "items": [vm("running")], "nextCursor": null })),
     )
     .await;
-    mount(
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(header("authorization", format!("Bearer {KEY}").as_str()))
+        .and(header("idempotency-key", "scratch-1"))
+        .and(body_json(json!({ "displayName": "scratch" })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(vm("starting")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let exec = json!({ "exitCode": 0, "stdout": "Linux\n", "stderr": "" });
+    let route = format!("/v1/vms/{VM_ID}/exec");
+    mount_body(
         &server,
-        "POST",
-        "/v1/vms".into(),
-        ResponseTemplate::new(201).set_body_json(vm("starting")),
+        route.clone(),
+        json!({ "command": "uname -a" }),
+        ok(exec.clone()),
     )
     .await;
-    let exec = json!({ "exitCode": 0, "stdout": "Linux\n", "stderr": "" });
-    mount(&server, "POST", format!("/v1/vms/{VM_ID}/exec"), ok(exec)).await;
+    let long = json!({ "command": "cd /root && ls -la", "timeoutMs": 600000 });
+    mount_body(&server, route, long, ok(exec)).await;
     mount(
         &server,
         "POST",

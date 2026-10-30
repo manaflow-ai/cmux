@@ -12,10 +12,12 @@ and `rm`.
 
 ## Give it a key
 
-`cmux vm` reads the key from `CMUX_VM_API_KEY`, else `"apiKey"` in
-`~/.config/cmux/vm.json`. Get the key from the person who owns the team. Keep it
-in the environment or that file, never in a command argument, a log or a
-machine's files. Without a key every command exits 11 ("no API key").
+`cmux vm` reads the key from `CMUX_VM_API_KEY`, else from `"apiKey"` in its
+config file: `--config PATH`, else `CMUX_VM_CONFIG`, else
+`$XDG_CONFIG_HOME/cmux/vm.json` (default `~/.config/cmux/vm.json`). Get the key
+from the person who owns the team. Keep it in the environment or that file,
+never in a command argument, a log or a machine's files. Without a key, a
+command that calls the API exits 11 ("no API key").
 
 ## Provision, run, pause, delete
 
@@ -34,10 +36,11 @@ cmux vm exec VM_ID -- uname -a
 cmux vm exec VM_ID --timeout-ms 600000 -- 'cd /root && ls -la'
 ```
 
-`exec` prints the command's stdout, sends its stderr to stderr, and exits 0 only
-when the command exited 0 (1 otherwise, naming the status). With `--json` it
-prints `exitCode`, `stdout` and `stderr`, and the exit code still says whether
-the command succeeded.
+`exec` prints the command's stdout and exits 0 when the command exited 0. When
+it did not, `exec` exits 1 and its error names the status and carries the
+command's stderr; a command that succeeds has its stderr dropped. With `--json`
+it prints `exitCode`, `stdout` and `stderr` either way, and the exit code still
+says whether the command succeeded.
 
 ```sh
 cmux vm pause VM_ID
