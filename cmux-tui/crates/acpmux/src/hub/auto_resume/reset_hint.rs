@@ -47,7 +47,7 @@ fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
             continue;
         }
         let n = tail[..end].parse::<f64>().ok()?.max(0.0);
-        let unit = tail[end..].trim_start().get(..2).unwrap_or("").to_ascii_lowercase();
+        let unit = tail[end..].trim_start().to_ascii_lowercase();
         let ms = if unit.starts_with("ms") { n } else if unit.starts_with('m') { n * 60_000.0 } else if unit.starts_with('h') { n * 3_600_000.0 } else { n * 1000.0 };
         return Some(now_ms.saturating_add(ms.min(u64::MAX as f64) as u64));
     }
