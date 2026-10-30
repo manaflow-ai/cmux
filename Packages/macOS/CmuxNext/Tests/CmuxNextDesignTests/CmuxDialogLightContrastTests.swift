@@ -182,6 +182,29 @@ import CmuxNextDesignTokens
         }
     }
 
+    /// Visual review of #27638: a focused solid button drew its focus band inside its bounds, so its
+    /// fill looked 3 px smaller on every side than its unfocused neighbors' and its edges no longer
+    /// lined up with theirs. Every focus layer of a focused button sits outside its fill.
+    @Test func aFocusedSolidButtonKeepsItsFullFill() throws {
+        let scope = try Self.scope(Self.dark, "Focus Full Fill")
+        let window = try Self.window(in: scope)
+        defer { window.close() }
+        let dialog = Self.dialog()
+        try Self.show(dialog, in: window)
+        let save = try #require(dialog.buttonViews.first { $0.button.role == .default })
+        #expect(window.makeFirstResponder(save))
+        save.layoutSubtreeIfNeeded()
+        let layer = try #require(save.layer)
+        let shown = (layer.sublayers ?? []).filter { !$0.isHidden && $0.borderWidth > 0 }
+        #expect(shown.count >= 2, "a focused solid button draws its gap and its ring")
+        for band in shown {
+            // A border is drawn inside its layer's frame: it is outside the fill only if the frame's
+            // inner edge (frame inset by the border) still contains the button's bounds.
+            let inner = band.frame.insetBy(dx: band.borderWidth, dy: band.borderWidth)
+            #expect(inner.contains(layer.bounds), "a focus band \(band.frame) (\(band.borderWidth) pt) covers the fill \(layer.bounds)")
+        }
+    }
+
     // MARK: Checks
 
     /// Every label is at least 4.5:1 on the resolved surface, and the surface is the scope's popup
