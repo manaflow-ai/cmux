@@ -90,6 +90,12 @@ impl FakeControlPlane {
         fake
     }
 
+    /// The caller's `vm_kind` in later `connect_info` answers (the Worker's
+    /// answer changed: another sign-in, the machine moved teams).
+    pub fn set_vm_kind(&mut self, kind: Option<&'static str>) {
+        self.vm_kind = kind;
+    }
+
     /// True when nothing reached the backend.
     pub fn no_calls(&self) -> bool {
         self.wire.calls.is_empty()
