@@ -136,8 +136,8 @@ impl Hub {
                             != Some("daemon_restart") =>
                 {
                     has_retry_marker = true;
-                    retry = serde_json::from_value(e.msg).ok();
                     not_before = e.msg.get("notBefore").and_then(Value::as_u64);
+                    retry = serde_json::from_value(e.msg).ok();
                 }
                 // Old stop records had no id; the turn boundary reset scopes those. New
                 // records explicitly name the cut turn, including a Stop before failure.

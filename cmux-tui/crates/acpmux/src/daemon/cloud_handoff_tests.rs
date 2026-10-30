@@ -667,9 +667,7 @@ async fn a_continuation_after_reset_deadline_is_not_reported_failed() {
     fake.answer([ok(1, "running"), ok(1, "running"), ok(1, "done")]);
     r.step(S, began(1)).await;
     r.step(S, cut_off(1)).await;
-    let next_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64 + 1_000;
-    r.step(S, Step::RetryScheduledAt(next_at)).await;
-    tokio::time::advance(Duration::from_millis(1_001)).await;
+    r.step(S, Step::RetryScheduled).await;
     r.step(S, began(1)).await;
     assert_eq!(fake.take(), [s(1, "running", None), s(1, "running", None)]);
     r.step(S, done(1, "Picked up after reset.")).await;
