@@ -1120,7 +1120,11 @@ class WiringTests(unittest.TestCase):
         def line(job, key):
             return next(l.strip() for l in job.splitlines() if l.startswith(f"    {key}:"))
 
-        self.assertEqual(line(verdict, "if"), line(gate, "if"))
+        # The gate's `if`, after the signed build's own check: one of its two signing paths is always
+        # skipped, so an implicit success() would skip this job and let a failing gate's build publish.
+        gate_if = line(gate, "if").removeprefix("if: ")
+        self.assertEqual(line(verdict, "if"),
+                         f'if: "!cancelled() && needs.verify-final-dmg-nightly.result == \'success\' && {gate_if}"')
         # The gate's needs, plus the signed build's last check: publication's wait for the gate
         # starts only once the build is ready, so it never runs beside the build for nothing.
         self.assertEqual(line(verdict, "needs"), line(gate, "needs").replace("]", ", verify-final-dmg-nightly]"))

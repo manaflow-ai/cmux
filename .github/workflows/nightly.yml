@@ -5931,7 +5931,10 @@ jobs:
   # at all outside enforce mode, so the gate never holds publication past freshness. The gate's `if`.
   visual-gate-nightly-verdict:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly, verify-final-dmg-nightly]
-    if: needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''
+    # verify-final-dmg-nightly follows one of two signing paths, the other skipped: without an
+    # explicit status check the implicit success() would skip this job, and its empty `blocks`
+    # would let publication past a failing gate.
+    if: "!cancelled() && needs.verify-final-dmg-nightly.result == 'success' && needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # A re-run's 15 min queue budget, the gate's 75 min timeout, 5 min of
     # slack in the script and 5 here; attempt 1 waits at most 10 min.
