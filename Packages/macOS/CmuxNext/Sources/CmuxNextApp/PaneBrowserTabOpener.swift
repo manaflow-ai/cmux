@@ -98,6 +98,10 @@ struct PaneBrowserTabOpener {
             let beside = then == nil && controller.isOpenPinnedDockPane
             // Keep a Home-dock tab out of the dock strip until it lands beside the dock.
             let outbound = beside ? OutboundTab.begin(in: controller) : nil
+            // A caller-supplied callback is HomeDockOpens.placing (or another placement owner).
+            // It starts the move and owns the OutboundTab hold; selecting here after that callback
+            // begins would release the hold and briefly restore Home's strip.
+            let callerOwnsHomePlacement = controller.isOpenPinnedDockPane && then != nil
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").
@@ -126,6 +130,7 @@ struct PaneBrowserTabOpener {
                     }
                     then?(surface)
                     guard !background else { return nil }
+                    if callerOwnsHomePlacement { return nil }
                     controller.selectWhenReported(surface: surface)
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil

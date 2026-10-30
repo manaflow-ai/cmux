@@ -107,15 +107,21 @@ struct HomeDockOpensTests {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let (window, home, dock) = try await Self.openHome(services, connection)
             dock.syncStripFromStore()
-            let homeTab = try #require(dock.stripModel.selectedID)
+            guard let homeTab = dock.stripModel.selectedID else {
+                Issue.record("Home did not have a selected page before placement")
+                return
+            }
             var sawPlacement = false
-            let placed = try #require(HomeDockOpens.placing(dock.pane, services: services, focus: true, then: { _ in
+            guard let placed = HomeDockOpens.placing(dock.pane, services: services, focus: true, then: { _ in
                 // Runs before HomeDockOpens moves the tab: a later final-state check misses the flash.
                 dock.syncStripFromStore()
                 #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "the created tab appeared in Home before placement")
                 #expect(dock.stripModel.selectedID == homeTab, "the creator selected its real tab in Home")
                 sawPlacement = true
-            }))
+            }) else {
+                Issue.record("Home did not provide a placement callback")
+                return
+            }
             if kind == "page" {
                 #expect(services.pages.openStoreTab(.inbox, in: dock, window: window, focus: true, created: placed) != nil)
             } else {
