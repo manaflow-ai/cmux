@@ -12,7 +12,7 @@
 //! stops itself, through its ordinary shutdown, once its app was gone for
 //! [`ORPHAN_EXIT_DELAY`]: connects to that socket fail after the app answered
 //! at least once, or its own executable is no longer the file it started from
-//! (the bundle was deleted, or a rebuild replaced or rewrote the binary),
+//! (the bundle was deleted, or a rebuild wrote a new binary there),
 //! whatever the socket says: a same-tag DEV rebuilt elsewhere listens on the
 //! same socket. An app that never listens (socket control off, a socket that
 //! failed to start) never stops a daemon whose executable is unchanged. It
@@ -30,7 +30,7 @@
 //! `ACPMUX_TEST_DEV_ORPHAN_RECHECK_MS` replace the two intervals.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 /// How long the app's socket may refuse connects before the daemon stops.
 pub(crate) const ORPHAN_EXIT_DELAY: Duration = Duration::from_secs(60 * 60);
@@ -122,27 +122,27 @@ pub(crate) fn decide(absent_since: Option<Instant>, now: Instant, timing: Timing
 /// (a deleted bundle has no Info.plist to read later): call it before the
 /// ready line.
 pub(crate) fn watch() -> impl std::future::Future<Output = ()> + Send + 'static {
-    let facts = dev_app_socket().zip(std::env::current_exe().ok());
+    // The executable's identity too, here: read later (the future's first poll is after the
+    // ready line), a bundle deleted or replaced in between would read as the one it started with.
+    let facts = dev_app_socket()
+        .zip(std::env::current_exe().ok())
+        .map(|(socket, executable)| (socket, FileId::of(&executable), executable));
     async move {
         match facts {
-            Some((socket, executable)) => {
-                let started = FileId::of(&executable);
-                watch_app(socket, executable, started).await
-            }
+            Some((socket, started, executable)) => watch_app(socket, executable, started).await,
             None => std::future::pending().await,
         }
     }
 }
 
-/// Which file a path names: its device and inode, size and modification time.
-/// A rebuild that replaces the binary (a new inode) or rewrites it in place (a
-/// new size or time) changes it; a deleted file has none.
+/// Which file a path names: its device and inode. A rebuild that writes the binary
+/// anew (a new inode, as a build or an app copy does) changes it, and a deleted
+/// file has none. Never its time or size: touching or re-signing a live app's
+/// binary would otherwise stop its daemon and end its agents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileId {
     dev: u64,
     ino: u64,
-    len: u64,
-    modified: Option<SystemTime>,
 }
 
 impl FileId {
@@ -155,7 +155,7 @@ impl FileId {
         };
         #[cfg(not(unix))]
         let (dev, ino) = (0, 0);
-        Some(Self { dev, ino, len: meta.len(), modified: meta.modified().ok() })
+        Some(Self { dev, ino })
     }
 }
 
@@ -286,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn the_executable_changes_when_deleted_replaced_or_rewritten() {
+    fn the_executable_changes_when_deleted_or_replaced_and_never_when_touched() {
         let dir = std::env::temp_dir().join(format!("amx-orph-id-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -295,15 +295,14 @@ mod tests {
         let started = FileId::of(&exe);
         assert!(started.is_some());
         assert!(unchanged(&exe, started.as_ref()));
-        // Rewritten in place (same inode, new size).
-        std::fs::write(&exe, b"build two").unwrap();
-        assert!(!unchanged(&exe, started.as_ref()), "rewritten in place");
+        // Touched or re-signed in place (same inode, new time and size): still the same file.
+        std::fs::write(&exe, b"one, signed").unwrap();
+        assert!(unchanged(&exe, started.as_ref()), "touched in place");
         // Replaced by a new file (a new inode).
-        let rewritten = FileId::of(&exe);
         let next = dir.join("acpmux.next");
         std::fs::write(&next, b"build two").unwrap();
         std::fs::rename(&next, &exe).unwrap();
-        assert!(!unchanged(&exe, rewritten.as_ref()), "replaced");
+        assert!(!unchanged(&exe, started.as_ref()), "replaced");
         // Deleted.
         let replaced = FileId::of(&exe);
         std::fs::remove_file(&exe).unwrap();
