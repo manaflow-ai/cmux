@@ -19,6 +19,11 @@ impl HostedReader {
             if pty.owner_detaching.load(Ordering::Acquire) {
                 return None;
             }
+            // The user's recover ended the unreachable host: retry from a
+            // fresh, short backoff (the next look finds it dead and rehosts).
+            if pty.recover_requested.swap(false, Ordering::AcqRel) {
+                retry = TerminalHostReconnectBackoff::retrying_after_failure();
+            }
             let discovery = {
                 let runtime = pty.runtime.lock().unwrap();
                 match &*runtime {
